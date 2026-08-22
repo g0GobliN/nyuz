@@ -94,7 +94,7 @@ function Auth() {
       <main className="veil flex flex-1 items-center justify-center px-5 py-12 sm:px-8">
         <div className="w-full max-w-sm animate-rise">
           <h1 className="display text-4xl">
-            {mode === "signin" ? "Welcome back." : "Build your radar."}
+            {mode === "signin" ? "Welcome back." : "Build your nyuz."}
           </h1>
           <p className="mt-4 text-[14.5px] leading-relaxed text-muted-foreground">
             {mode === "signin"
@@ -103,10 +103,20 @@ function Auth() {
           </p>
 
           <div className="mt-8 flex flex-col gap-2.5">
-            <Button variant="outline" className="w-full" disabled={busy} onClick={() => oauth("google")}>
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled={busy}
+              onClick={() => oauth("google")}
+            >
               <GoogleMark /> Continue with Google
             </Button>
-            <Button variant="outline" className="w-full" disabled={busy} onClick={() => oauth("github")}>
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled={busy}
+              onClick={() => oauth("github")}
+            >
               <Github className="h-4 w-4" /> Continue with GitHub
             </Button>
           </div>
@@ -129,7 +139,7 @@ function Auth() {
                 autoComplete="name"
                 value={name}
                 onChange={setName}
-                placeholder="Vishal"
+                placeholder="Your name"
               />
             ) : null}
 

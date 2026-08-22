@@ -101,3 +101,33 @@ export function useAuth(): AuthState {
   if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
   return ctx;
 }
+
+/**
+ * The best name we have for the signed-in person, or "" if we have none.
+ *
+ * Checked in order rather than reading one field, because the name arrives in a
+ * different place depending on how the account was made: `name` is what our own
+ * sign-up form writes, `full_name` is what the Google and GitHub providers set.
+ * The local part of the email is the last resort — it is usually a real name and
+ * always better than a stranger's.
+ *
+ * Returns "" rather than a placeholder like "there". Every greeting in the app
+ * is written to work without a name; inventing one is what produced the bug
+ * where everybody was welcomed by the same hard-coded first name.
+ */
+export function useDisplayName(): string {
+  const { user } = useAuth();
+  if (!user) return "";
+
+  const meta = user.user_metadata as { name?: unknown; full_name?: unknown } | null;
+  const fromMeta =
+    typeof meta?.name === "string" && meta.name.trim()
+      ? meta.name
+      : typeof meta?.full_name === "string" && meta.full_name.trim()
+        ? meta.full_name
+        : "";
+  if (fromMeta) return fromMeta.trim();
+
+  const local = user.email?.split("@")[0] ?? "";
+  return local.trim();
+}

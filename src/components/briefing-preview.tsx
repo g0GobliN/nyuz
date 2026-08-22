@@ -2,10 +2,17 @@ import { LogoMark } from "@/components/landing/nav";
 import type { Story } from "@/lib/sample-data";
 import { cn } from "@/lib/utils";
 
+/**
+ * `name` defaults to empty, and the headline drops the address when it is.
+ *
+ * The two landing-page usages pass no name at all — a marketing demo greeting
+ * every visitor by one particular person's first name (which is what the old
+ * default did) reads as a leaked fixture, because that is exactly what it was.
+ */
 export function BriefingPreview({
   stories,
   time = "7:30 AM",
-  name = "Vishal",
+  name = "",
   className,
   compact,
 }: {
@@ -35,7 +42,7 @@ export function BriefingPreview({
           Your {time} brief
         </p>
         <h3 className="mt-2 font-serif text-2xl leading-tight sm:text-[28px]">
-          {stories.length} things worth knowing, {name}.
+          {stories.length} things worth knowing{name ? `, ${name}` : ""}.
         </h3>
       </div>
 
