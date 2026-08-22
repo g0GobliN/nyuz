@@ -1,111 +1,440 @@
 import { createFileRoute, notFound, Link } from "@tanstack/react-router";
 import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
+import { getPublicSiteContent } from "@/lib/server/settings";
 
-type Doc = { title: string; updated: string; intro: string; sections: { h: string; p: string[] }[] };
+/**
+ * The published policies.
+ *
+ * ────────────────────────────────────────────────────────────────────────
+ * BEFORE LAUNCH: these are drafts, not vetted legal documents. They describe
+ * what this system actually does — which is the hard part and the part a
+ * template cannot give you — but they have not been reviewed by a lawyer, and
+ * the jurisdiction, entity name and address in `ENTITY` below are placeholders.
+ * Get them reviewed against the jurisdiction you actually incorporate in, and
+ * fill in ENTITY, before taking a paying customer.
+ * ────────────────────────────────────────────────────────────────────────
+ *
+ * Kept in the bundle rather than in `site_settings` on purpose. Policy text is
+ * a legal commitment with a change history; editing it from a console with no
+ * versioning, no diff and no approval step is the wrong tool. The console can
+ * change the marketing copy; changing the terms should require a deploy and
+ * therefore a code review.
+ */
+
+/** Placeholders. Replace all four before launch — search for "ENTITY". */
+const ENTITY = {
+  name: "[Company legal name]",
+  address: "[Registered address]",
+  jurisdiction: "[Jurisdiction]",
+  email: "[contact@yourdomain]",
+} as const;
+
+type Section = {
+  h: string;
+  p: string[];
+  list?: string[];
+  table?: { head: string[]; rows: string[][] };
+};
+
+type Doc = {
+  title: string;
+  updated: string;
+  intro: string;
+  /** Shown in the sidebar grouping. */
+  group: "Policies" | "Trust" | "Company";
+  sections: Section[];
+};
+
+const UPDATED = "22 August 2026";
 
 const DOCS: Record<string, Doc> = {
   privacy: {
     title: "Privacy",
-    updated: "22 August 2026",
+    updated: UPDATED,
+    group: "Policies",
     intro:
       "nyuz exists to send you less. That principle applies to the data we hold about you as much as to the stories we send.",
     sections: [
+      {
+        h: "Who we are",
+        p: [
+          `${ENTITY.name} of ${ENTITY.address} is the controller of the personal data described here. For anything in this policy, write to ${ENTITY.email}.`,
+        ],
+      },
       {
         h: "What we store",
         p: [
           "Your account email, the topics and exclusions you configure, your delivery schedule and channels, and the feedback signals you give on individual stories.",
           "We store which briefings were generated and delivered so you can read your history and so we can retry failed deliveries.",
+          "We record the time of your most recent visit. It is used to tell active accounts from dormant ones and for nothing else.",
         ],
       },
       {
-        h: "What we do not do",
+        h: "What we never send to a third party",
         p: [
-          "We do not sell your data, and we do not share your interest profile with advertisers or publishers.",
-          "We do not use the content of your briefings to build a profile for anything other than choosing what to send you next.",
+          "Your interest profile is matched against stories inside our own database. That matching is a database query, not a model call, so your list of topics and exclusions is never sent to an AI provider.",
+          "The one place a model sees anything personal is the short paragraph written for you about a story you were matched to. Nothing about your identity, your email or your other interests goes with it.",
         ],
       },
       {
-        h: "Feedback signals",
+        h: "Why we are allowed to hold it",
         p: [
-          "When you mark a story useful, not useful, or not interested, that signal adjusts what reaches you. You can clear these signals at any time from Settings, which resets personalisation to your stated topics alone.",
+          "To perform our contract with you: your account, your interests, your schedule and your delivery history. Without these there is no product.",
+          "Our legitimate interest in a working service: security logs, failure counts and aggregate volume figures, held in the smallest form that answers the question.",
+          "Your consent, where you have given it, for optional channels such as Telegram or WhatsApp delivery. You can withdraw it at any time in Delivery settings.",
+        ],
+      },
+      {
+        h: "How long we keep it",
+        p: [
+          "Briefing history follows your plan's retention window — 7 days on Free, 90 days on Personal, one year on Pro. Older items are deleted, not archived.",
+          "Feedback signals are kept while your account is open, because they are what stops us sending you the same irrelevant story twice. You can clear them at any time from Settings, which resets personalisation to your stated topics alone.",
+          "Delivery logs are kept for 30 days so that a bounce can be diagnosed and retried, then deleted.",
+        ],
+      },
+      {
+        h: "Your rights",
+        p: [
+          "You can ask us for a copy of your data, ask us to correct it, ask us to delete it, or ask us to stop processing it. Most of these you can do yourself from Settings; for the rest, write to us and we will respond within 30 days.",
+        ],
+        list: [
+          "Access — a copy of everything we hold about you.",
+          "Correction — fix anything inaccurate.",
+          "Deletion — remove your account and its data.",
+          "Portability — your topics and history in a machine-readable file.",
+          "Objection — tell us to stop processing on legitimate-interest grounds.",
+          "Complaint — raise it with your local data protection authority.",
         ],
       },
       {
         h: "Deletion",
         p: [
-          "Deleting your account removes your profile, topics, feedback signals and delivery history. Aggregated, non-identifying counts about pipeline volume may remain.",
+          "Deleting your account removes your profile, topics, feedback signals and delivery history. Aggregated, non-identifying counts about pipeline volume remain, because they contain nothing that could identify you.",
+          "Deletion is immediate in the application and completes in backups within 30 days.",
+        ],
+      },
+      {
+        h: "Where your data goes",
+        p: [
+          "We use a small number of processors to run the service. Each one, what it does and where it holds data, is listed on the Subprocessors page.",
+          "Some of them operate outside your country. Where that happens, transfers rely on the standard contractual clauses in our agreements with them.",
+        ],
+      },
+      {
+        h: "Children",
+        p: [
+          "nyuz is not intended for anyone under 16, and we do not knowingly hold data about children. If you believe a child has created an account, tell us and we will delete it.",
+        ],
+      },
+      {
+        h: "Changes",
+        p: [
+          "If we change this policy in a way that affects what we do with your data, we will email you before it takes effect rather than relying on you to notice a new date at the top of this page.",
         ],
       },
     ],
   },
+
   terms: {
     title: "Terms",
-    updated: "22 August 2026",
+    updated: UPDATED,
+    group: "Policies",
     intro:
       "Plain terms for a simple product: we watch public sources and send you a summary of what changed.",
     sections: [
+      {
+        h: "The agreement",
+        p: [
+          `These terms are between you and ${ENTITY.name}. Using nyuz means accepting them. They are governed by the laws of ${ENTITY.jurisdiction}.`,
+        ],
+      },
       {
         h: "The service",
         p: [
           "nyuz collects publicly available reporting, groups articles describing the same event, and delivers a personalised summary on the schedule you choose.",
           "Availability targets are best-effort. A missed or delayed briefing is not grounds for compensation beyond a pro-rata refund of paid time.",
+          "A quiet day is a working day. If nothing clears your threshold, you get a short briefing or none — that is the product behaving correctly, not an outage.",
+        ],
+      },
+      {
+        h: "Your account",
+        p: [
+          "One account per person. You are responsible for what happens under yours, and for keeping your sign-in details to yourself.",
+          "You must be old enough to enter a contract where you live, and at least 16.",
         ],
       },
       {
         h: "Accuracy",
         p: [
-          "Summaries are generated by language models and can be wrong, incomplete or out of date. Every story links to the sources it was built from. Do not treat a briefing as verified fact, and check the original reporting before acting on anything consequential.",
+          "Summaries are generated by language models and can be wrong, incomplete or out of date. Every story links to the sources it was built from.",
+          "Do not treat a briefing as verified fact. Check the original reporting before acting on anything consequential — financial, legal, medical or otherwise. nyuz is a way of noticing things, not a source of record.",
         ],
       },
       {
         h: "Content and attribution",
         p: [
-          "We store metadata and short summaries, and we link to original publications. We do not reproduce articles wholesale. Publishers who want a source removed can contact us and we will act on it.",
+          "We store metadata and short summaries, and we link to original publications. We do not reproduce articles wholesale, and nyuz is never presented as the origin of a story.",
+          "Publishers who want a source removed, an attribution corrected or a feed prioritised can contact us and we will act on it.",
+          "You may read, quote and share your briefings. You may not resell them, or scrape the service to build a competing product.",
+        ],
+      },
+      {
+        h: "Acceptable use",
+        p: [
+          "There is a short list of things that will get an account suspended, and it is on the Acceptable use page. The summary: do not attack the service, do not use it to harass anyone, and do not resell it.",
         ],
       },
       {
         h: "Billing",
         p: [
           "Paid plans renew until cancelled. Cancelling stops the next renewal and keeps access until the end of the current period. Topic limits and history retention follow your active plan.",
+          "Prices can change. If yours does, we will tell you before the renewal it applies to, and you can cancel before being charged the new amount.",
+          "Refunds are covered on the Refunds page.",
+        ],
+      },
+      {
+        h: "Suspension and termination",
+        p: [
+          "We may suspend an account that breaks the acceptable use policy, threatens the service, or is being used to send abuse. Where it is safe and lawful to do so, we will tell you why and give you a chance to fix it.",
+          "You can close your account at any time from Settings. We will refund unused paid time on a pro-rata basis.",
+        ],
+      },
+      {
+        h: "Liability",
+        p: [
+          "To the extent the law allows, our total liability to you is limited to what you paid us in the twelve months before the claim. We are not liable for decisions taken on the basis of a summary — which is why the sources are always one tap away.",
+          "Nothing here limits liability for death, personal injury, or fraud.",
+        ],
+      },
+      {
+        h: "Changes to these terms",
+        p: [
+          "We will email you before a material change takes effect. Continuing to use nyuz after that date means accepting the new terms; if you would rather not, close your account and we will refund unused paid time.",
         ],
       },
     ],
   },
+
+  "acceptable-use": {
+    title: "Acceptable use",
+    updated: UPDATED,
+    group: "Policies",
+    intro:
+      "A short list, because a long one is a list nobody reads. These are the things that will get an account suspended.",
+    sections: [
+      {
+        h: "Do not",
+        p: [],
+        list: [
+          "Attack the service — scraping at volume, probing for vulnerabilities without permission, or trying to exhaust our capacity.",
+          "Resell briefings, or use nyuz to build a competing summarisation product.",
+          "Share one account across a team. Seats exist; ask us about them.",
+          "Use delivery channels to send anything to anyone other than yourself.",
+          "Configure topics or instructions designed to make the service generate harassment, or content targeting a private individual.",
+          "Circumvent plan limits, whether by automation or by holding multiple free accounts.",
+        ],
+      },
+      {
+        h: "Security research",
+        p: [
+          "Testing our security is welcome if you tell us first and give us a reasonable window to fix what you find. The Security page says how to reach us. Research conducted that way is never a violation of this policy.",
+        ],
+      },
+      {
+        h: "What happens if you break it",
+        p: [
+          "In most cases we will contact you and ask you to stop. For anything that threatens the service or another person, we will suspend the account first and explain afterwards.",
+          "Suspension for cause does not earn a refund of the current period.",
+        ],
+      },
+    ],
+  },
+
+  refunds: {
+    title: "Refunds",
+    updated: UPDATED,
+    group: "Policies",
+    intro:
+      "A briefing product is easy to evaluate before paying, so the free plan is the trial. When a refund is right, we would rather give it than argue.",
+    sections: [
+      {
+        h: "Within 14 days",
+        p: [
+          "A full refund on request for any reason, on your first paid period. No questions, no form — write to us and it is done.",
+        ],
+      },
+      {
+        h: "After 14 days",
+        p: [
+          "Cancelling stops the next renewal and keeps your access until the period you have already paid for ends. We do not pro-rate a mid-period cancellation by default.",
+          "If the service failed you — briefings that did not arrive, a fault we did not fix — tell us and we will refund the affected time. That is a judgement call and we will make it in your favour.",
+        ],
+      },
+      {
+        h: "Annual plans",
+        p: [
+          "The same 14-day window applies. After it, cancelling an annual plan refunds the unused whole months, minus any discount you received for paying annually.",
+        ],
+      },
+      {
+        h: "If we close your account",
+        p: [
+          "If we suspend an account for breaking the acceptable use policy, the current period is not refunded. If we close it for any other reason — including discontinuing the service — we refund unused time in full.",
+        ],
+      },
+      {
+        h: "How to ask",
+        p: [
+          `Write to ${ENTITY.email} from the address on the account. Refunds are processed to the original payment method and take up to ten working days to appear.`,
+        ],
+      },
+    ],
+  },
+
+  subprocessors: {
+    title: "Subprocessors",
+    updated: UPDATED,
+    group: "Trust",
+    intro:
+      "Every third party that touches your data, what it does, and where. This list is short by design, and changing it is a change we tell you about.",
+    sections: [
+      {
+        h: "Current subprocessors",
+        p: [],
+        table: {
+          head: ["Provider", "What it does", "Data it sees", "Region"],
+          rows: [
+            [
+              "Supabase",
+              "Database, authentication and storage",
+              "Account email, topics, schedule, briefing history",
+              "[Region]",
+            ],
+            [
+              "Cloudflare",
+              "Application hosting and the ingestion pipeline",
+              "Requests in transit; no stored account data",
+              "Global edge",
+            ],
+            [
+              "DeepSeek",
+              "Language model for clustering, scoring and the personal paragraph",
+              "Article text, and the story a paragraph is being written about. No account identifiers.",
+              "[Region]",
+            ],
+            [
+              "[Email provider]",
+              "Briefing delivery",
+              "Your email address and the briefing being sent",
+              "[Region]",
+            ],
+          ],
+        },
+      },
+      {
+        h: "What the model provider does not receive",
+        p: [
+          "Matching your interests to stories happens in our database. Your topic list, your exclusions, your email and your history are never sent to the model provider.",
+          "The per-person paragraph is generated from the story and the interest it matched — not from your profile, and not from anything that identifies you.",
+        ],
+      },
+      {
+        h: "Changing this list",
+        p: [
+          "We will publish a change here and email account holders at least 30 days before a new subprocessor starts handling personal data, so that anyone who objects has time to close their account first.",
+        ],
+      },
+    ],
+  },
+
+  security: {
+    title: "Security",
+    updated: UPDATED,
+    group: "Trust",
+    intro:
+      "How the service is built to protect your data, and how to tell us when we have got something wrong.",
+    sections: [
+      {
+        h: "How access is controlled",
+        p: [
+          "Every table holding customer data enforces row-level security in the database itself, so a query can only ever return the rows belonging to the account that asked. This is enforced below the application, not by it — an application bug cannot hand you somebody else's briefing.",
+          "Administrative access is role-based, held by named individuals, and every action taken in the operator console is written to an append-only audit log.",
+        ],
+      },
+      {
+        h: "Secrets",
+        p: [
+          "API keys and service credentials are held as deployment secrets, never in the database and never in the code. The configuration that says which AI provider we use records the name of the secret, not its value.",
+        ],
+      },
+      {
+        h: "In transit and at rest",
+        p: [
+          "All traffic is TLS. Data at rest is encrypted by our database and hosting providers. Backups are encrypted and access to them is logged.",
+        ],
+      },
+      {
+        h: "Reporting a vulnerability",
+        p: [
+          `Write to ${ENTITY.email} with enough detail to reproduce it. Please give us a reasonable window before disclosing publicly.`,
+          "We will confirm receipt within two working days, keep you updated through the fix, and credit you when it ships if you would like us to. We will not pursue anyone who reports in good faith and does not access or destroy other people's data.",
+        ],
+      },
+      {
+        h: "If something goes wrong",
+        p: [
+          "If a breach affects your data, we will tell you what happened, what was exposed and what we have done about it — within 72 hours of establishing it, and without waiting for the investigation to finish.",
+        ],
+      },
+    ],
+  },
+
   cookies: {
     title: "Cookie policy",
-    updated: "22 August 2026",
+    updated: UPDATED,
+    group: "Policies",
     intro: "We use the smallest set of cookies that lets the product work.",
     sections: [
       {
         h: "Essential",
         p: [
-          "A session cookie keeps you signed in. Without it, the dashboard cannot tell who you are.",
+          "A session cookie keeps you signed in. Without it, the dashboard cannot tell who you are. It expires when your session does.",
         ],
       },
       {
         h: "Preferences",
         p: [
-          "Local storage holds your colour theme and your unsaved onboarding progress so a refresh does not lose your work. This never leaves your browser.",
+          "Local storage holds your colour theme and your unsaved onboarding progress so a refresh does not lose your work. This never leaves your browser and is not readable by us.",
         ],
       },
       {
         h: "What we skip",
         p: [
-          "No advertising cookies, no cross-site trackers, no third-party pixels in your briefing emails beyond the delivery receipt needed to retry failures.",
+          "No advertising cookies, no cross-site trackers, no analytics that follow you off this site, and no third-party pixels in your briefing emails beyond the delivery receipt needed to retry failures.",
+          "Because we set nothing that is not essential or set by you, there is no consent banner. That is the point.",
+        ],
+      },
+      {
+        h: "Controlling them",
+        p: [
+          "Your browser can clear or block all of these. Blocking the session cookie will sign you out and keep you out; everything else degrades to a default.",
         ],
       },
     ],
   },
+
   contact: {
     title: "Contact",
-    updated: "22 August 2026",
+    updated: UPDATED,
+    group: "Company",
     intro: "A small team. Real replies.",
     sections: [
       {
         h: "Support",
         p: [
           "For anything about your account, delivery or billing, reach us from the Settings page in your dashboard so we can see your configuration alongside your message.",
+          `If you cannot sign in, write to ${ENTITY.email} from the address on the account.`,
         ],
       },
       {
@@ -115,57 +444,86 @@ const DOCS: Record<string, Doc> = {
         ],
       },
       {
+        h: "Privacy requests",
+        p: [
+          "Access, correction, deletion and portability requests go to the same address and are answered within 30 days. Most of them you can complete yourself in Settings, faster.",
+        ],
+      },
+      {
         h: "Security",
         p: [
-          "Report a vulnerability privately before disclosing it. We will confirm receipt and keep you updated through the fix.",
+          "Report a vulnerability privately before disclosing it. The Security page has the detail.",
         ],
+      },
+      {
+        h: "Company details",
+        p: [`${ENTITY.name}, ${ENTITY.address}. Registered in ${ENTITY.jurisdiction}.`],
       },
     ],
   },
 };
 
+/** Sidebar grouping order. */
+const GROUPS = ["Policies", "Trust", "Company"] as const;
+
 export const Route = createFileRoute("/legal/$doc")({
-  loader: ({ params }) => {
+  // Two things at once: the document, which decides whether this is a 404, and the
+  // site chrome. `getPublicSiteContent` never throws, so `notFound()` is still the
+  // only way out of here — the content fetch cannot mask a bad slug.
+  loader: async ({ params }) => {
     const doc = DOCS[params.doc];
     if (!doc) throw notFound();
-    return doc;
+    const content = await getPublicSiteContent();
+    return { doc, content };
   },
   head: ({ loaderData }) => ({
-    meta: [{ title: loaderData ? `${loaderData.title} — nyuz` : "nyuz" }],
+    meta: [{ title: loaderData ? `${loaderData.doc.title} — nyuz` : "nyuz" }],
   }),
   component: LegalDoc,
 });
 
 function LegalDoc() {
-  const doc = Route.useLoaderData();
+  const { doc, content } = Route.useLoaderData();
   const current = Route.useParams().doc;
 
   return (
     <div className="min-h-screen bg-background">
-      <SiteNav />
+      <SiteNav content={content} />
       <main className="px-5 pb-24 pt-32 sm:px-8">
         <div className="mx-auto grid w-full max-w-5xl gap-14 md:grid-cols-[180px_1fr]">
           <nav className="md:sticky md:top-28 md:self-start">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-              Legal
-            </p>
-            <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 md:flex-col md:gap-2">
-              {Object.entries(DOCS).map(([slug, d]) => (
-                <Link
-                  key={slug}
-                  to="/legal/$doc"
-                  params={{ doc: slug }}
-                  className={
-                    "text-[13.5px] transition-colors " +
-                    (slug === current
-                      ? "text-foreground"
-                      : "text-muted-foreground hover:text-foreground")
-                  }
-                >
-                  {d.title}
-                </Link>
-              ))}
-            </div>
+            {/* Grouped rather than one flat run: there are eight documents now,
+                and "Refunds" sitting between "Privacy" and "Security" tells a
+                reader nothing about which of them answers their question. */}
+            {GROUPS.map((group) => {
+              const docs = Object.entries(DOCS).filter(([, d]) => d.group === group);
+              if (docs.length === 0) return null;
+
+              return (
+                <div key={group} className="mb-7 last:mb-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    {group}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 md:flex-col md:gap-2">
+                    {docs.map(([slug, d]) => (
+                      <Link
+                        key={slug}
+                        to="/legal/$doc"
+                        params={{ doc: slug }}
+                        className={
+                          "text-[13.5px] transition-colors " +
+                          (slug === current
+                            ? "text-foreground"
+                            : "text-muted-foreground hover:text-foreground")
+                        }
+                      >
+                        {d.title}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </nav>
 
           <article className="animate-rise">
@@ -179,18 +537,77 @@ function LegalDoc() {
                   <h2 className="text-[17px] font-medium tracking-tight">{s.h}</h2>
                   <div className="mt-3 space-y-3">
                     {s.p.map((p) => (
-                      <p key={p} className="max-w-xl text-[14.5px] leading-relaxed text-muted-foreground">
+                      <p
+                        key={p}
+                        className="max-w-xl text-[14.5px] leading-relaxed text-muted-foreground"
+                      >
                         {p}
                       </p>
                     ))}
                   </div>
+
+                  {s.list ? (
+                    <ul className="mt-4 max-w-xl space-y-2">
+                      {s.list.map((item) => (
+                        <li
+                          key={item}
+                          className="relative pl-5 text-[14.5px] leading-relaxed text-muted-foreground"
+                        >
+                          <span className="absolute left-0 top-[0.65em] h-[5px] w-[5px] rounded-full bg-signal" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  {/* The subprocessor table is the one place a policy needs
+                      columns. It scrolls inside its own box rather than
+                      widening the page on a phone. */}
+                  {s.table ? (
+                    <div className="mt-5 overflow-x-auto rounded-2xl border border-hairline">
+                      <table className="w-full min-w-[34rem] border-collapse text-left">
+                        <thead>
+                          <tr className="border-b border-hairline bg-surface-2">
+                            {s.table.head.map((h) => (
+                              <th
+                                key={h}
+                                className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+                              >
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {s.table.rows.map((row) => (
+                            <tr
+                              key={row.join("|")}
+                              className="border-b border-hairline last:border-0"
+                            >
+                              {row.map((cell, i) => (
+                                <td
+                                  key={i}
+                                  className={
+                                    "px-4 py-3.5 align-top text-[13px] leading-relaxed " +
+                                    (i === 0 ? "font-medium" : "text-muted-foreground")
+                                  }
+                                >
+                                  {cell}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
                 </section>
               ))}
             </div>
           </article>
         </div>
       </main>
-      <SiteFooter />
+      <SiteFooter content={content} />
     </div>
   );
 }
