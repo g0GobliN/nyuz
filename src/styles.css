@@ -42,13 +42,21 @@
 }
 
 /*
- * Three colours only: black, white, and one amber.
- * Every neutral is chroma 0 — no warm or cool tint — so the amber is the single
+ * Three colours only: black, white, and one red.
+ * Every neutral is chroma 0 — no warm or cool tint — so the red is the single
  * source of colour on the page and reads as signal wherever it appears.
- * Amber sits at hue 70: a highlighter mark on a printed page rather than a
- * status colour. Lightness is pinned at 0.56 in light mode so it clears 4.5:1
- * both as text on white and as white text on top of it — it lands on 11px
- * uppercase labels, so that headroom is load-bearing, not decorative.
+ * Black, white and red is the canonical minimal palette (Swiss typographic
+ * tradition, and the second colour on a printed newspaper), which is why it
+ * suits a briefing product better than a highlighter yellow did.
+ *
+ * Red sits at hue 27: vermilion, not crimson and not orange. Lightness is
+ * pinned at 0.54 in light mode because it must clear 4.5:1 BOTH as text on
+ * white and as white text on top of it — it lands on 11px uppercase labels, so
+ * that headroom is load-bearing, not decorative. Measured: 5.58:1 both ways.
+ *
+ * --destructive stays chroma 0 on purpose. Now that the accent is red, a red
+ * error state would be indistinguishable from an ordinary highlight, so
+ * destructive leans on iconography and weight instead of hue.
  */
 :root {
   --radius: 0.875rem;
@@ -68,14 +76,14 @@
   --muted-foreground: oklch(0.505 0 0);
   --accent: oklch(0.955 0 0);
   --accent-foreground: oklch(0.16 0 0);
-  --signal: oklch(0.56 0.13 70);
+  --signal: oklch(0.54 0.19 27);
   --signal-foreground: oklch(1 0 0);
   --destructive: oklch(0.16 0 0);
   --destructive-foreground: oklch(1 0 0);
   --border: oklch(0.895 0 0);
   --hairline: oklch(0.925 0 0);
   --input: oklch(0.885 0 0);
-  --ring: oklch(0.56 0.13 70);
+  --ring: oklch(0.54 0.19 27);
   --gradient-veil: radial-gradient(
     120% 80% at 50% 0%,
     color-mix(in oklab, var(--signal) 12%, transparent) 0%,
@@ -104,15 +112,17 @@
   --muted-foreground: oklch(0.665 0 0);
   --accent: oklch(0.255 0 0);
   --accent-foreground: oklch(0.968 0 0);
-  /* Lifted well above the light-mode amber so it carries on black. */
-  --signal: oklch(0.8 0.145 82);
+  /* Lifted well above the light-mode red so it carries on black: 6.31:1 against
+     the background. Chroma stays at 0.19 — pushing it higher at this lightness
+     leaves the sRGB gamut and the browser clips it to a flatter pink. */
+  --signal: oklch(0.68 0.19 27);
   --signal-foreground: oklch(0.145 0 0);
   --destructive: oklch(0.968 0 0);
   --destructive-foreground: oklch(0.145 0 0);
   --border: oklch(1 0 0 / 12%);
   --hairline: oklch(1 0 0 / 9%);
   --input: oklch(1 0 0 / 16%);
-  --ring: oklch(0.8 0.145 82);
+  --ring: oklch(0.68 0.19 27);
   --shadow-float: 0 1px 2px oklch(0 0 0 / 0.4), 0 18px 50px -18px oklch(0 0 0 / 0.7);
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 6px 20px -10px oklch(0 0 0 / 0.5);
 }

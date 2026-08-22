@@ -1,13 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
-  <!-- nyuz mark: lowercase n, right leg terminating early in an amber dot.
+  <!-- nyuz mark: lowercase n, right leg terminating early in a red dot.
        Proportions traced from the source render. Colours flip with the
-       browser/OS theme so the mark stays legible in dark UI. -->
+       browser/OS theme so the mark stays legible in dark UI.
+       The two reds are the sRGB values of --signal in src/styles.css
+       (oklch 0.54/0.68 0.19 27) — hard-coded because an SVG served as a file
+       cannot read the app's custom properties. Change both together. -->
   <style>
     .stem { stroke: #0D0D0D; }
-    .dot  { fill: #A46400; }
+    .dot  { fill: #C52C2A; }
     @media (prefers-color-scheme: dark) {
       .stem { stroke: #FFFFFF; }
-      .dot  { fill: #ECB33C; }
+      .dot  { fill: #F75E54; }
     }
   </style>
   <g transform="translate(6.26 5)">
