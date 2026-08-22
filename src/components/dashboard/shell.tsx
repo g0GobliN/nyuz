@@ -11,6 +11,7 @@ import {
   Search,
   Send,
   Settings,
+  ShieldCheck,
   Tag,
   X,
 } from "lucide-react";
@@ -18,8 +19,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Logo } from "@/components/landing/nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { STORIES } from "@/lib/sample-data";
-import { useRadar } from "@/lib/radar-store";
+import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
+// From src/lib/viewer.ts rather than the console shell: importing it from there
+// would pull the entire admin console into this bundle for the sake of one
+// boolean.
+import { isAdmin, useViewer } from "@/lib/viewer";
+import { useDisplayName } from "@/lib/auth";
 
 const NAV = [
   { to: "/dashboard", label: "Home", icon: Home, exact: true },
@@ -34,7 +40,23 @@ const NAV = [
 const NAV_FOOT = [
   { to: "/dashboard/settings", label: "Settings", icon: Settings },
   { to: "/dashboard/billing", label: "Billing", icon: CreditCard },
+] as const;
+
+/**
+ * Staff-only destinations.
+ *
+ * Both were previously reachable by every signed-in customer. Pipeline shows
+ * internal queue depths and per-event scoring, and Console is the admin panel —
+ * neither belongs in a subscriber's sidebar.
+ *
+ * Hiding them is cosmetic, not protective: the security boundary is `adminOnly`
+ * in src/lib/server/guard.ts, which re-reads the role from the database on every
+ * call. Someone who types /admin still gets a console whose every request is
+ * refused. What this removes is the invitation.
+ */
+const NAV_STAFF = [
   { to: "/dashboard/admin", label: "Pipeline", icon: Gauge },
+  { to: "/admin", label: "Console", icon: ShieldCheck },
 ] as const;
 
 const MOBILE = [
@@ -76,15 +98,17 @@ function NavItem({
   );
 }
 
-export function DashboardShell({
-  children,
-  title,
-}: {
-  children: ReactNode;
-  title?: string;
-}) {
-  const { prefs } = useRadar();
+export function DashboardShell({ children, title }: { children: ReactNode; title?: string }) {
+  const { prefs } = usePrefs();
   const [search, setSearch] = useState(false);
+  // Shares the `["viewer"]` query key with the console shell, so moving between
+  // the two does not re-ask who you are.
+  const { data: viewer } = useViewer();
+  const staff = isAdmin(viewer);
+  // Falls back to the mark rather than a letter from an invented name — an
+  // avatar showing a stranger's initial is worse than one showing none.
+  const who = useDisplayName() || prefs.name;
+  const initial = who.trim().slice(0, 1).toUpperCase() || "·";
 
   return (
     <div className="min-h-screen bg-background">
@@ -101,6 +125,17 @@ export function DashboardShell({
           {NAV_FOOT.map((n) => (
             <NavItem key={n.to} {...n} />
           ))}
+          {staff ? (
+            <>
+              <div className="my-4 h-px bg-[var(--hairline)]" />
+              <p className="px-3 pb-1 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Staff
+              </p>
+              {NAV_STAFF.map((n) => (
+                <NavItem key={n.to} {...n} />
+              ))}
+            </>
+          ) : null}
         </nav>
 
         <div className="rounded-2xl border border-hairline bg-surface-2 p-4">
@@ -118,9 +153,7 @@ export function DashboardShell({
             <div className="lg:hidden">
               <Logo />
             </div>
-            {title ? (
-              <h1 className="hidden text-[15px] font-medium lg:block">{title}</h1>
-            ) : null}
+            {title ? <h1 className="hidden text-[15px] font-medium lg:block">{title}</h1> : null}
 
             <div className="ml-auto flex items-center gap-1">
               <button
@@ -144,7 +177,7 @@ export function DashboardShell({
                 aria-label="Profile"
                 className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-foreground text-[12px] font-medium text-background"
               >
-                {prefs.name.slice(0, 1).toUpperCase()}
+                {initial}
               </Link>
             </div>
           </div>
@@ -166,6 +199,57 @@ export function DashboardShell({
       {search ? <SearchOverlay onClose={() => setSearch(false)} /> : null}
     </div>
   );
+}
+
+/**
+ * Wraps a staff-only dashboard page.
+ *
+ * Hiding a sidebar link stops nobody from typing the URL, so pages that are only
+ * meant for staff render this instead of their body. It is still not a security
+ * boundary — anything sensitive on such a page must come from a server function
+ * behind `adminOnly`, which checks the role in the database rather than trusting
+ * what the browser believes about itself.
+ *
+ * The loading branch shows nothing rather than the page, because flashing an
+ * operator view for 200ms and then withdrawing it is worse than a short blank.
+ */
+export function StaffOnly({ children, title }: { children: ReactNode; title: string }) {
+  const { data: viewer, isLoading } = useViewer();
+
+  if (isLoading) {
+    return (
+      <DashboardShell title={title}>
+        <div className="flex min-h-[40vh] items-center justify-center">
+          <span className="sr-only">Checking your access…</span>
+          <span
+            className="h-2 w-2 rounded-full bg-signal"
+            style={{ animation: "pulse-ring 1.6s ease-out infinite" }}
+          />
+        </div>
+      </DashboardShell>
+    );
+  }
+
+  if (!isAdmin(viewer)) {
+    return (
+      <DashboardShell title={title}>
+        <EmptyState
+          title="Not your floor."
+          body="This page is an internal operator view. If you think you should have access to it, ask whoever set up your account."
+          action={
+            <Link
+              to="/dashboard"
+              className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Back to your briefing
+            </Link>
+          }
+        />
+      </DashboardShell>
+    );
+  }
+
+  return <>{children}</>;
 }
 
 function MobileItem({
@@ -265,6 +349,32 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
           ) : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Says out loud that the stories are fixtures.
+ *
+ * There is no ingestion pipeline yet: nothing writes to `events`, `articles` or
+ * `digests`, so every story on every dashboard page comes from
+ * `src/lib/sample-data.ts`. A briefing product that shows invented stories
+ * without saying so is indistinguishable from one that is lying, and the person
+ * most likely to be misled is a real signup.
+ *
+ * DELETE THIS COMPONENT AND ITS USAGES when the pipeline lands and the
+ * dashboard reads real rows. Grep for `SampleDataNotice`.
+ */
+export function SampleDataNotice() {
+  return (
+    <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-dashed border-border px-4 py-3">
+      <span className="rounded-full border border-signal/40 px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-signal">
+        Sample data
+      </span>
+      <span className="text-[12.5px] leading-relaxed text-muted-foreground">
+        These stories are examples, not live reporting. Source collection is not running yet, so
+        nothing here was gathered for you.
+      </span>
     </div>
   );
 }

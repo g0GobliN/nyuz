@@ -3,7 +3,7 @@ import { ChevronDown, Plus, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
-import { useRadar } from "@/lib/radar-store";
+import { usePrefs } from "@/lib/prefs-store";
 import { IGNORE_POOL, TOPIC_POOL } from "@/lib/sample-data";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +27,7 @@ const DEFAULT_CONFIG: TopicConfig = {
 };
 
 function Topics() {
-  const { prefs, update } = useRadar();
+  const { prefs, update } = usePrefs();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [configs, setConfigs] = useState<Record<string, TopicConfig>>({});
@@ -65,7 +65,7 @@ function Topics() {
   return (
     <DashboardShell title="Topics">
       <PageHeader
-        eyebrow="Your radar"
+        eyebrow="Your nyuz"
         title="What do you want to know about?"
         sub="Topics decide what is even considered. Importance decides how much of it survives the filter."
       />
@@ -101,7 +101,7 @@ function Topics() {
         {prefs.topics.length === 0 ? (
           <EmptyState
             title="No topics yet."
-            body="Your radar has nothing to watch for. Add a few above and the next briefing fills in."
+            body="Your nyuz has nothing to watch for. Add a few above and the next briefing fills in."
           />
         ) : null}
 

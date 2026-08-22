@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Bookmark, EyeOff, Sparkles, ThumbsDown, ThumbsUp, VolumeX } from "lucide-react";
+import { becauseYouFollow } from "@/lib/matching";
 import type { Story } from "@/lib/sample-data";
 import type { FeedbackState, Vote } from "@/lib/feedback-store";
 import { cn } from "@/lib/utils";
@@ -12,6 +13,7 @@ const TONE: Record<Story["importance"], string> = {
 
 export function StoryCard({
   story,
+  matched = [],
   index,
   feedback,
   onVote,
@@ -20,6 +22,8 @@ export function StoryCard({
   onMute,
 }: {
   story: Story;
+  /** The reader's own topics that matched this story. Empty renders no claim. */
+  matched?: string[];
   index: number;
   feedback: FeedbackState;
   onVote: (id: string, v: Vote) => void;
@@ -30,6 +34,7 @@ export function StoryCard({
   const vote = feedback.votes[story.id];
   const saved = feedback.saved.includes(story.id);
   const primaryTopic = story.topics[0];
+  const because = becauseYouFollow(matched);
 
   return (
     <article className="reveal rounded-3xl border border-hairline bg-surface p-6 sm:p-7">
@@ -62,7 +67,13 @@ export function StoryCard({
         <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
           Why it matters to you
         </p>
-        <p className="mt-2 text-[13.5px] leading-relaxed">{story.why}</p>
+        <p className="mt-2 text-[13.5px] leading-relaxed">
+          {/* The "you follow X" half is generated from the topics that actually
+              matched, never asserted — it used to be a fixed sentence naming
+              interests the reader may never have chosen. */}
+          {because ? <span>{because} </span> : null}
+          {story.why}
+        </p>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-muted-foreground">
@@ -160,7 +171,9 @@ function IconToggle({
       aria-pressed={active}
       className={cn(
         "inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors",
-        active ? "bg-signal/15 text-signal" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        active
+          ? "bg-signal/15 text-signal"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground",
       )}
     >
       {children}

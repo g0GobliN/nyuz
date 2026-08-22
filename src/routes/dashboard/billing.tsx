@@ -3,7 +3,7 @@ import { Check } from "lucide-react";
 import { useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button } from "@/components/kit";
-import { useRadar } from "@/lib/radar-store";
+import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/billing")({
@@ -47,7 +47,7 @@ const INVOICES = [
 ];
 
 function Billing() {
-  const { prefs } = useRadar();
+  const { prefs } = usePrefs();
   const [current, setCurrent] = useState<string>("free");
   const [annual, setAnnual] = useState(false);
 

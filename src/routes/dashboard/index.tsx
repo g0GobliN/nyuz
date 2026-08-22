@@ -1,17 +1,24 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ArrowRight, Clock, Sparkles } from "lucide-react";
 import { useMemo } from "react";
-import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
+import {
+  DashboardShell,
+  EmptyState,
+  PageHeader,
+  SampleDataNotice,
+} from "@/components/dashboard/shell";
 import { StoryCard } from "@/components/dashboard/story-card";
 import { LinkButton } from "@/components/kit";
+import { useDisplayName } from "@/lib/auth";
 import { useFeedback } from "@/lib/feedback-store";
-import { useRadar } from "@/lib/radar-store";
-import { RADAR, STORIES } from "@/lib/sample-data";
+import { matchStories } from "@/lib/matching";
+import { usePrefs } from "@/lib/prefs-store";
+import { STORIES } from "@/lib/sample-data";
 import { useReveal } from "@/lib/use-reveal";
 
 export const Route = createFileRoute("/dashboard/")({
   component: DashboardHome,
-  head: () => ({ meta: [{ title: "Your radar — nyuz" }] }),
+  head: () => ({ meta: [{ title: "Your nyuz" }] }),
 });
 
 function greeting() {
@@ -22,36 +29,46 @@ function greeting() {
 }
 
 function DashboardHome() {
-  const { prefs } = useRadar();
+  const { prefs } = usePrefs();
+  // The account is the authority on who you are; the locally stored name is a
+  // fallback for anyone who set one before signing in. Neither invents a name,
+  // so the greeting drops the comma rather than addressing a stranger.
+  const who = useDisplayName() || prefs.name;
   const { state, signals, vote, toggleSaved, dismiss, muteTopic, restore } = useFeedback();
   const ref = useReveal<HTMLDivElement>();
 
-  const stories = useMemo(
+  // Interests first, then feedback. A story you never asked for should not be
+  // something you have to dismiss — it should never have been here.
+  const matches = useMemo(() => matchStories(STORIES, prefs), [prefs]);
+
+  const visible = useMemo(
     () =>
-      STORIES.filter(
-        (s) =>
-          !state.dismissed.includes(s.id) &&
-          !s.topics.some((t) => state.mutedTopics.includes(t)),
+      matches.filter(
+        ({ story }) =>
+          !state.dismissed.includes(story.id) &&
+          !story.topics.some((t) => state.mutedTopics.includes(t)),
       ),
-    [state.dismissed, state.mutedTopics],
+    [matches, state.dismissed, state.mutedTopics],
   );
 
-  const hidden = STORIES.length - stories.length;
+  const hidden = matches.length - visible.length;
+  const noTopics = prefs.topics.length === 0;
 
   return (
     <DashboardShell title="Home">
       <div ref={ref}>
+        <SampleDataNotice />
         <PageHeader
           eyebrow={new Date().toLocaleDateString(undefined, {
             weekday: "long",
             day: "numeric",
             month: "long",
           })}
-          title={`${greeting()}, ${prefs.name}.`}
+          title={who ? `${greeting()}, ${who}.` : `${greeting()}.`}
           sub={
-            stories.length > 0
-              ? `Your radar found ${stories.length} things worth knowing.`
-              : "Your radar came back quiet."
+            visible.length > 0
+              ? `Your nyuz found ${visible.length} ${visible.length === 1 ? "thing" : "things"} worth knowing.`
+              : "Your nyuz came back quiet."
           }
         >
           <LinkButton to="/dashboard/briefing" variant="outline" size="sm">
@@ -61,11 +78,12 @@ function DashboardHome() {
 
         <div className="grid gap-8 lg:grid-cols-[1fr_260px]">
           <div className="space-y-4">
-            {stories.length > 0 ? (
-              stories.map((s, i) => (
+            {visible.length > 0 ? (
+              visible.map(({ story, matched }, i) => (
                 <StoryCard
-                  key={s.id}
-                  story={s}
+                  key={story.id}
+                  story={story}
+                  matched={matched}
                   index={i}
                   feedback={state}
                   onVote={vote}
@@ -74,13 +92,26 @@ function DashboardHome() {
                   onMute={muteTopic}
                 />
               ))
-            ) : (
+            ) : noTopics ? (
               <EmptyState
-                title="Nothing important happened for your radar today."
-                body="That is actually a good thing. We do not pad a briefing to fill space — the next one arrives on schedule."
+                title="You haven't told us what to watch for yet."
+                body="Pick a few topics and your briefing starts filling in. Until then there is nothing to match against, so there is nothing here."
                 action={
                   <LinkButton to="/dashboard/topics" variant="outline" size="sm">
-                    Widen my topics
+                    Choose my topics
+                  </LinkButton>
+                }
+              />
+            ) : (
+              /* Distinguishes "quiet day" from "we do not cover your interests",
+                 because the honest answer differs and only one of them is fixed
+                 by waiting. */
+              <EmptyState
+                title="Nothing matched your topics."
+                body={`Nothing in today's set touches ${prefs.topics.slice(0, 3).join(", ")}. Coverage today is weighted towards technology, so interests outside that may stay quiet for now.`}
+                action={
+                  <LinkButton to="/dashboard/topics" variant="outline" size="sm">
+                    Adjust my topics
                   </LinkButton>
                 }
               />
@@ -104,23 +135,39 @@ function DashboardHome() {
           <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
             <div className="rounded-2xl border border-hairline bg-surface p-5">
               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                Your radar
+                Your nyuz
               </p>
+              {/* Your topics, not a fixture list. The bar is how many of today's
+                  stories that topic actually pulled in — so a topic nothing
+                  matched reads as empty rather than as a confident weighting
+                  nobody computed. */}
               <div className="mt-4 space-y-3">
-                {RADAR.map((r) => (
-                  <div key={r.topic}>
-                    <div className="flex justify-between text-[12.5px]">
-                      <span>{r.topic}</span>
-                      <span className="tabular-nums text-muted-foreground">{r.weight}</span>
-                    </div>
-                    <div className="mt-1.5 h-1 rounded-full bg-muted">
-                      <div
-                        className="h-1 rounded-full bg-signal transition-[width] duration-1000"
-                        style={{ width: `${r.weight}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                {prefs.topics.length === 0 ? (
+                  <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                    No topics yet. Add a few and they appear here.
+                  </p>
+                ) : (
+                  prefs.topics.slice(0, 6).map((topic) => {
+                    const hits = matches.filter((m) => m.matched.includes(topic)).length;
+                    const pct = matches.length > 0 ? Math.round((hits / matches.length) * 100) : 0;
+                    return (
+                      <div key={topic}>
+                        <div className="flex justify-between text-[12.5px]">
+                          <span>{topic}</span>
+                          <span className="tabular-nums text-muted-foreground">
+                            {hits === 0 ? "—" : hits}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 h-1 rounded-full bg-muted">
+                          <div
+                            className="h-1 rounded-full bg-signal transition-[width] duration-1000"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
               <Link
                 to="/dashboard/topics"
@@ -148,7 +195,7 @@ function DashboardHome() {
 
             <div className="rounded-2xl border border-signal/30 bg-surface p-5">
               <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-signal">
-                <Sparkles className="h-3.5 w-3.5" /> Your radar is learning
+                <Sparkles className="h-3.5 w-3.5" /> Your nyuz is learning
               </p>
               <p className="mt-3 text-[13px] leading-relaxed text-muted-foreground">
                 {signals === 0

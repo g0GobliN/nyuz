@@ -34,7 +34,7 @@ function HistoryPage() {
       <div ref={ref}>
         <PageHeader
           eyebrow={`${total} stories this week`}
-          title="Everything your radar has sent."
+          title="Everything your nyuz has sent."
           sub="Your archive is searchable back through your plan's retention window."
         />
 
@@ -100,7 +100,7 @@ function HistoryPage() {
 
                 {d.count === 0 ? (
                   <div className="mt-3 rounded-2xl border border-dashed border-border px-5 py-6">
-                    <p className="text-[14px]">Nothing important happened for your radar.</p>
+                    <p className="text-[14px]">Nothing important happened for your nyuz.</p>
                     <p className="mt-1.5 text-[12.5px] text-muted-foreground">
                       We would rather send nothing than fill the space.
                     </p>

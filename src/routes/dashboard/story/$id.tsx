@@ -45,7 +45,7 @@ function StoryDetail() {
         to="/dashboard"
         className="inline-flex items-center gap-2 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
       >
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to your radar
+        <ArrowLeft className="h-3.5 w-3.5" /> Back to your nyuz
       </Link>
 
       <article className="mt-6 animate-rise">
@@ -167,8 +167,8 @@ function StoryDetail() {
                 ))}
               </ul>
               <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">
-                nyuz is not the source. This summary is generated — open the reporting before
-                acting on it.
+                nyuz is not the source. This summary is generated — open the reporting before acting
+                on it.
               </p>
             </div>
 
