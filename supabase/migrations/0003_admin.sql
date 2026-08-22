@@ -477,7 +477,7 @@ insert into public.site_settings (key, value) values
   ('landing.hero', jsonb_build_object(
       'headline',       E'Stop searching.\nStart knowing.',
       'sub',            'Tell us what matters to you. We watch the internet and deliver the things worth knowing.',
-      'ctaLabel',       'Build my radar',
+      'ctaLabel',       'Build my nyuz',
       'ctaHref',        '/onboarding',
       'secondaryLabel', 'See how it works',
       'secondaryHref',  '/how-it-works',
@@ -486,10 +486,28 @@ insert into public.site_settings (key, value) values
   ('landing.announcement', jsonb_build_object(
       'text', '', 'href', '', 'linkLabel', ''
   )),
-  ('landing.sections', jsonb_build_object(
-      'interestDemo', true, 'noise', true, 'howItWorks', true, 'comparison', true,
-      'profileDemo',  true, 'whyDifferent', true, 'aiTrust', true, 'infrastructure', true,
-      'sourceTransparency', true, 'finalCta', true
+  -- An ordered list, not a map: the console can reorder these, and JSON object
+  -- key order is not something to rely on. The reader also accepts the older
+  -- `{"interestDemo": true, ...}` form, so a database seeded before that change
+  -- keeps working.
+  ('landing.sections', jsonb_build_array(
+      jsonb_build_object('key', 'interestDemo',       'enabled', true),
+      jsonb_build_object('key', 'noise',              'enabled', true),
+      jsonb_build_object('key', 'howItWorks',         'enabled', true),
+      jsonb_build_object('key', 'comparison',         'enabled', true),
+      jsonb_build_object('key', 'profileDemo',        'enabled', true),
+      jsonb_build_object('key', 'whyDifferent',       'enabled', true),
+      jsonb_build_object('key', 'aiTrust',            'enabled', true),
+      jsonb_build_object('key', 'infrastructure',     'enabled', true),
+      jsonb_build_object('key', 'sourceTransparency', 'enabled', true),
+      jsonb_build_object('key', 'finalCta',           'enabled', true)
+  )),
+  -- Every slot empty, which is what makes the landing page render its bundled
+  -- animation and no image bands until someone fills one in.
+  ('landing.media', jsonb_build_object(
+      'hero',    jsonb_build_object('url', '', 'alt', '', 'caption', ''),
+      'midpage', jsonb_build_object('url', '', 'alt', '', 'caption', ''),
+      'closing', jsonb_build_object('url', '', 'alt', '', 'caption', '')
   )),
   ('site.seo', jsonb_build_object(
       'title',       'nyuz — Stop searching. Start knowing.',

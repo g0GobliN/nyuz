@@ -9,24 +9,12 @@
 
 export type PlanTier = "free" | "personal" | "pro";
 export type SourceKind =
-  | "company_blog"
-  | "news"
-  | "rss"
-  | "github"
-  | "research"
-  | "product"
-  | "other";
+  "company_blog" | "news" | "rss" | "github" | "research" | "product" | "other";
 export type SourcePref = "normal" | "priority" | "muted";
 export type TopicImportance = "everything" | "notable" | "only_major";
 export type TopicFrequency = "daily" | "weekly" | "breaking_only";
 export type EventStatus = "pending" | "analysing" | "complete" | "failed";
-export type DigestStatus =
-  | "scheduled"
-  | "generating"
-  | "ready"
-  | "sent"
-  | "skipped"
-  | "failed";
+export type DigestStatus = "scheduled" | "generating" | "ready" | "sent" | "skipped" | "failed";
 export type DeliveryChannel = "email" | "telegram" | "whatsapp";
 export type DeliveryStatus = "queued" | "sent" | "failed" | "bounced";
 export type DigestFrequency = "daily" | "weekly";
@@ -318,7 +306,13 @@ export type Database = {
       topics: Table<Topic, "id">;
       user_topics: Table<
         UserTopic,
-        "importance" | "frequency" | "keywords" | "exclude_keywords" | "weight" | "muted" | "created_at"
+        | "importance"
+        | "frequency"
+        | "keywords"
+        | "exclude_keywords"
+        | "weight"
+        | "muted"
+        | "created_at"
       >;
       user_exclusions: Table<UserExclusion>;
       sources: Table<
@@ -346,7 +340,10 @@ export type Database = {
       >;
       event_topics: Table<EventTopic, "confidence">;
       user_events: Table<UserEvent, "relevance" | "matched_at">;
-      digests: Table<Digest, "digest_id" | "generated_at" | "status" | "item_count" | "generation_tokens">;
+      digests: Table<
+        Digest,
+        "digest_id" | "generated_at" | "status" | "item_count" | "generation_tokens"
+      >;
       digest_items: Table<DigestItem, "why_it_matters">;
       deliveries: Table<
         Delivery,
@@ -407,6 +404,9 @@ export type Database = {
       digest_frequency: DigestFrequency;
       breaking_mode: BreakingMode;
       feedback_vote: FeedbackVote;
+      admin_role: AdminRole;
+      post_status: PostStatus;
+      ai_capability: AiCapability;
     };
     CompositeTypes: Record<string, never>;
   };
