@@ -88,7 +88,11 @@ export function HowItWorksRail() {
           </div>
 
           <div className="flex gap-1.5">
-            <RailButton label="Previous step" disabled={active === 0} onClick={() => goTo(active - 1)}>
+            <RailButton
+              label="Previous step"
+              disabled={active === 0}
+              onClick={() => goTo(active - 1)}
+            >
               <ChevronLeft className="h-4 w-4" />
             </RailButton>
             <RailButton label="Next step" disabled={atEnd} onClick={() => goTo(active + 1)}>
@@ -167,7 +171,9 @@ function StepVisual({ kind }: { kind: (typeof STEPS)[number]["kind"] }) {
   if (kind === "interests")
     return (
       <div className="space-y-4">
-        <p className="text-[12px] uppercase tracking-[0.16em] text-muted-foreground">I care about</p>
+        <p className="text-[12px] uppercase tracking-[0.16em] text-muted-foreground">
+          I care about
+        </p>
         <div className="space-y-2">
           {["AI", "Developer tools", "OpenAI", "Anthropic", "Startups"].map((t, i) => (
             <div

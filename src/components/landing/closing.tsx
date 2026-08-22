@@ -75,7 +75,7 @@ export function FinalCta() {
         </h2>
         <div className="mt-10 flex justify-center">
           <LinkButton to="/onboarding" size="lg">
-            Build my radar <ArrowRight className="h-4 w-4" />
+            Build my nyuz <ArrowRight className="h-4 w-4" />
           </LinkButton>
         </div>
         <p className="mt-5 text-[12.5px] text-muted-foreground">

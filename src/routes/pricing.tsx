@@ -5,26 +5,41 @@ import { Eyebrow, LinkButton, Section, buttonClass } from "@/components/kit";
 import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
 import { DensityDial } from "@/components/density-dial";
+import { getPublicSiteContent } from "@/lib/server/settings";
+import type { Prices } from "@/lib/site-content";
 import { useReveal } from "@/lib/use-reveal";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/pricing")({
+  loader: () => getPublicSiteContent(),
   component: Pricing,
   head: () => ({
     meta: [
       { title: "Pricing — nyuz" },
       {
         name: "description",
-        content: "Start free. Personal at $7/month, Pro at $15/month. Relevance, not quantity.",
+        // Left as prose rather than interpolated from the loader: a search
+        // snippet is cached for weeks, so a number in it goes stale in a place
+        // nobody can see. The page body is where the live figures belong.
+        content: "Start free. Paid plans from $7/month. Relevance, not quantity.",
       },
     ],
   }),
 });
 
+/**
+ * Plan copy is hard-coded; only the numbers come from the console.
+ *
+ * Feature lists are product decisions that need a deploy anyway — shipping
+ * "WhatsApp delivery" as editable text would let someone promise a feature that
+ * does not exist. Prices are different: they change for commercial reasons, on
+ * commercial timescales, and waiting for a deploy to correct one is how a page
+ * ends up disagreeing with the invoice.
+ */
 type Plan = {
   name: string;
-  monthly: number;
-  annual?: number;
+  /** Which price to read. Free has no key because its price is pinned to zero. */
+  priceKey: "free" | "personal" | "pro";
   tagline: string;
   features: string[];
   cta: string;
@@ -34,16 +49,15 @@ type Plan = {
 const PLANS: Plan[] = [
   {
     name: "Free",
-    monthly: 0,
+    priceKey: "free",
     tagline: "See whether a briefing changes your morning.",
     features: ["3 topics", "Daily briefing", "Email delivery", "7-day history"],
     cta: "Start free",
   },
   {
     name: "Personal",
-    monthly: 7,
-    annual: 60,
-    tagline: "A radar shaped around what you actually do.",
+    priceKey: "personal",
+    tagline: "A nyuz shaped around what you actually do.",
     features: [
       "15 topics",
       "Daily and weekly briefings",
@@ -59,8 +73,7 @@ const PLANS: Plan[] = [
   },
   {
     name: "Pro",
-    monthly: 15,
-    annual: 120,
+    priceKey: "pro",
     tagline: "For people whose job is knowing first.",
     features: [
       "Unlimited topics",
@@ -75,6 +88,45 @@ const PLANS: Plan[] = [
     cta: "Start Pro",
   },
 ];
+
+/**
+ * Resolves one plan's monthly and annual figures out of the settings blob.
+ *
+ * Annual is optional in the product sense — zero means "we do not offer a year of
+ * this" — so it comes back as null rather than 0, which would render as "$0 per
+ * year" on a paid plan.
+ */
+function planPrice(
+  prices: Prices,
+  key: Plan["priceKey"],
+): { monthly: number; annual: number | null } {
+  if (key === "free") return { monthly: 0, annual: null };
+  const monthly = key === "personal" ? prices.personal : prices.pro;
+  const annual = key === "personal" ? prices.personalAnnual : prices.proAnnual;
+  return { monthly, annual: annual > 0 ? annual : null };
+}
+
+/**
+ * "Two months back" was hard-coded next to prices that gave three and a half.
+ * Deriving the sentence from the numbers means the claim cannot drift away from
+ * the charge, and an operator who sets an annual price with no saving in it gets
+ * silence rather than a false discount.
+ */
+function annualCaption(prices: Prices): string | null {
+  const savings = (["personal", "pro"] as const)
+    .map((key) => {
+      const { monthly, annual } = planPrice(prices, key);
+      if (monthly <= 0 || annual === null) return 0;
+      return (monthly * 12 - annual) / monthly;
+    })
+    .filter((months) => months >= 0.5);
+
+  if (savings.length === 0) return null;
+  const least = Math.min(...savings);
+  const rounded = Math.round(least * 10) / 10;
+  const label = rounded === 1 ? "month" : "months";
+  return `At least ${rounded} ${label} back on an annual plan.`;
+}
 
 const FAQ = [
   {
@@ -96,12 +148,19 @@ const FAQ = [
 ];
 
 function Pricing() {
+  const content = Route.useLoaderData();
+  const { prices } = content;
   const [annual, setAnnual] = useState(false);
   const ref = useReveal<HTMLDivElement>();
 
+  // No annual price on any paid plan means the toggle has nothing to toggle.
+  const annualOffered =
+    planPrice(prices, "personal").annual !== null || planPrice(prices, "pro").annual !== null;
+  const caption = annualCaption(prices);
+
   return (
     <div ref={ref} className="min-h-screen bg-background">
-      <SiteNav />
+      <SiteNav content={content} />
       <main>
         <section className="veil px-5 pb-14 pt-32 text-center sm:px-8">
           <div className="mx-auto w-full max-w-2xl">
@@ -115,29 +174,31 @@ function Pricing() {
               around you.
             </p>
 
-            <div className="mt-9 inline-flex items-center gap-1 rounded-full border border-hairline bg-surface p-1">
-              {[
-                { k: false, label: "Monthly" },
-                { k: true, label: "Annual" },
-              ].map((o) => (
-                <button
-                  key={String(o.k)}
-                  onClick={() => setAnnual(o.k)}
-                  className={cn(
-                    "rounded-full px-4 py-1.5 text-[13px] transition-all duration-300",
-                    annual === o.k
-                      ? "bg-foreground text-background"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-            {annual ? (
-              <p className="mt-3 text-[12px] text-muted-foreground">
-                Two months back on Personal and Pro.
-              </p>
+            {annualOffered ? (
+              <>
+                <div className="mt-9 inline-flex items-center gap-1 rounded-full border border-hairline bg-surface p-1">
+                  {[
+                    { k: false, label: "Monthly" },
+                    { k: true, label: "Annual" },
+                  ].map((o) => (
+                    <button
+                      key={String(o.k)}
+                      onClick={() => setAnnual(o.k)}
+                      className={cn(
+                        "rounded-full px-4 py-1.5 text-[13px] transition-all duration-300",
+                        annual === o.k
+                          ? "bg-foreground text-background"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+                {annual && caption ? (
+                  <p className="mt-3 text-[12px] text-muted-foreground">{caption}</p>
+                ) : null}
+              </>
             ) : null}
           </div>
         </section>
@@ -145,10 +206,10 @@ function Pricing() {
         <Section className="pt-4">
           <div className="grid gap-5 lg:grid-cols-3">
             {PLANS.map((p, i) => {
-              const price =
-                p.monthly === 0 ? "$0" : annual && p.annual ? `$${p.annual}` : `$${p.monthly}`;
-              const period =
-                p.monthly === 0 ? "forever" : annual && p.annual ? "per year" : "per month";
+              const { monthly, annual: yearly } = planPrice(prices, p.priceKey);
+              const showAnnual = annual && yearly !== null;
+              const price = monthly === 0 ? "$0" : showAnnual ? `$${yearly}` : `$${monthly}`;
+              const period = monthly === 0 ? "forever" : showAnnual ? "per year" : "per month";
               return (
                 <div
                   key={p.name}
@@ -241,12 +302,12 @@ function Pricing() {
           <div className="mt-14 flex flex-col items-center gap-5 text-center">
             <p className="font-serif text-3xl">Your morning briefing, already waiting.</p>
             <LinkButton to="/onboarding" size="lg">
-              Build my radar <ArrowRight className="h-4 w-4" />
+              Build my nyuz <ArrowRight className="h-4 w-4" />
             </LinkButton>
           </div>
         </Section>
       </main>
-      <SiteFooter />
+      <SiteFooter content={content} />
     </div>
   );
 }
