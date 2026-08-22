@@ -1,10 +1,21 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Loader2, Lock, Mail, User as UserIcon } from "lucide-react";
+import { Github, Loader2, Lock, Mail, User as UserIcon } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/kit";
 import { Logo } from "@/components/landing/nav";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { useAuth } from "@/lib/auth";
+import { useAuth, type OAuthProvider } from "@/lib/auth";
+
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M21.35 11.1h-9.17v2.96h5.27c-.23 1.4-1.66 4.1-5.27 4.1-3.17 0-5.76-2.62-5.76-5.86s2.59-5.86 5.76-5.86c1.81 0 3.02.77 3.71 1.44l2.53-2.44C16.78 3.87 14.72 3 12.18 3 7.14 3 3.06 7.03 3.06 12.3s4.08 9.3 9.12 9.3c5.27 0 8.76-3.7 8.76-8.92 0-.6-.06-1.06-.15-1.58z"
+      />
+    </svg>
+  );
+}
 
 export const Route = createFileRoute("/auth")({
   component: Auth,
@@ -20,7 +31,7 @@ type Mode = "signin" | "signup";
 
 function Auth() {
   const navigate = useNavigate();
-  const { signIn, signUp, session, loading } = useAuth();
+  const { signIn, signUp, signInWithProvider, session, loading } = useAuth();
 
   const [mode, setMode] = useState<Mode>("signin");
   const [name, setName] = useState("");
@@ -33,6 +44,18 @@ function Auth() {
   useEffect(() => {
     if (!loading && session) navigate({ to: "/dashboard" });
   }, [loading, session, navigate]);
+
+  const oauth = async (provider: OAuthProvider) => {
+    setError(null);
+    setBusy(true);
+    try {
+      // On success this navigates away to the provider, so nothing after runs.
+      await signInWithProvider(provider);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start sign-in.");
+      setBusy(false);
+    }
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -79,7 +102,24 @@ function Auth() {
               : "Free to start. No credit card required."}
           </p>
 
-          <form onSubmit={submit} className="mt-8" noValidate>
+          <div className="mt-8 flex flex-col gap-2.5">
+            <Button variant="outline" className="w-full" disabled={busy} onClick={() => oauth("google")}>
+              <GoogleMark /> Continue with Google
+            </Button>
+            <Button variant="outline" className="w-full" disabled={busy} onClick={() => oauth("github")}>
+              <Github className="h-4 w-4" /> Continue with GitHub
+            </Button>
+          </div>
+
+          <div className="my-7 flex items-center gap-4">
+            <span className="h-px flex-1 bg-[var(--hairline)]" />
+            <span className="text-[11.5px] uppercase tracking-[0.16em] text-muted-foreground">
+              or
+            </span>
+            <span className="h-px flex-1 bg-[var(--hairline)]" />
+          </div>
+
+          <form onSubmit={submit} noValidate>
             {mode === "signup" ? (
               <Field
                 id="name"

@@ -9,8 +9,11 @@ type AuthState = {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
+  signInWithProvider: (provider: OAuthProvider) => Promise<void>;
   signOut: () => Promise<void>;
 };
+
+export type OAuthProvider = "google" | "github";
 
 const AuthContext = createContext<AuthState | null>(null);
 
@@ -63,6 +66,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           options: { data: { name } },
         });
         if (error) throw error;
+      },
+
+      async signInWithProvider(provider) {
+        const { error } = await getSupabaseBrowserClient().auth.signInWithOAuth({
+          provider,
+          options: { redirectTo: `${window.location.origin}/dashboard` },
+        });
+        if (error) {
+          // Supabase reports a provider that is switched off in the dashboard as
+          // a generic 400; say which one so it is obvious what to go enable.
+          if (/not enabled|unsupported provider/i.test(error.message)) {
+            throw new Error(
+              `${provider === "google" ? "Google" : "GitHub"} sign-in is not enabled yet. Turn it on in Supabase under Authentication > Providers.`,
+            );
+          }
+          throw error;
+        }
       },
 
       async signOut() {

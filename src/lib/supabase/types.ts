@@ -33,6 +33,12 @@ export type DigestFrequency = "daily" | "weekly";
 export type BreakingMode = "important" | "everything" | "off";
 export type FeedbackVote = "useful" | "not_useful" | "not_interested";
 
+/* Admin console (0003_admin.sql) */
+export type AdminRole = "user" | "admin" | "superadmin";
+export type PostStatus = "draft" | "scheduled" | "published" | "archived";
+/** Mirrors ModelTier in src/lib/ai/deepseek.ts — keep the two in step. */
+export type AiCapability = "cluster" | "digest" | "reason";
+
 type Table<Row, Optional extends keyof Row = never> = {
   Row: Row;
   Insert: Omit<Row, Optional> & Partial<Pick<Row, Optional>>;
@@ -46,6 +52,12 @@ export type Profile = {
   timezone: string;
   onboarded_at: string | null;
   created_at: string;
+  /**
+   * Mirror of auth.users.email, kept in sync by a trigger (0003). A trigger
+   * also clamps it on user-initiated updates, so it is safe to trust here.
+   */
+  email: string;
+  last_seen_at: string | null;
 };
 
 export type Subscription = {
@@ -178,10 +190,126 @@ export type Feedback = {
 
 export type SavedStory = { user_id: string; event_id: string; saved_at: string };
 
+/* ------------------------------------------------------------------------ */
+/* Admin console                                                            */
+/* ------------------------------------------------------------------------ */
+
+export type UserRole = {
+  user_id: string;
+  role: AdminRole;
+  granted_by: string | null;
+  granted_at: string;
+};
+
+export type UserBan = {
+  user_id: string;
+  reason: string;
+  banned_by: string | null;
+  banned_at: string;
+  /** null = indefinite. */
+  expires_at: string | null;
+};
+
+export type BlogPost = {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string;
+  /** Markdown. Never store rendered HTML here — see 0003_admin.sql. */
+  body_md: string;
+  cover_url: string | null;
+  status: PostStatus;
+  tags: string[];
+  seo_title: string;
+  seo_description: string;
+  author_id: string | null;
+  author_name: string;
+  featured: boolean;
+  reading_minutes: number;
+  view_count: number;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiProvider = {
+  id: string;
+  slug: string;
+  label: string;
+  base_url: string;
+  /** The NAME of the env var holding the key, never the key itself. */
+  api_key_env: string;
+  active: boolean;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiModelRoute = {
+  capability: AiCapability;
+  provider_id: string;
+  model: string;
+  /** Must cover hidden reasoning tokens as well as visible output. */
+  max_tokens: number;
+  temperature: number | null;
+  updated_at: string;
+};
+
+export type AiPrompt = {
+  key: string;
+  label: string;
+  system_prompt: string;
+  updated_at: string;
+};
+
+export type SiteSetting = {
+  key: string;
+  value: Json;
+  updated_by: string | null;
+  updated_at: string;
+};
+
+export type FeatureFlag = {
+  key: string;
+  label: string;
+  description: string;
+  enabled: boolean;
+  /** 0..100, bucketed by user id so a user's bucket is stable. */
+  rollout_percent: number;
+  updated_by: string | null;
+  updated_at: string;
+};
+
+export type AdminAuditEntry = {
+  id: number;
+  actor_id: string | null;
+  actor_email: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  meta: Json;
+  created_at: string;
+};
+
+export type Json = string | number | boolean | null | { [key: string]: Json } | Json[];
+
+/** One row of public.admin_daily_counts(). */
+export type DailyCount = {
+  day: string;
+  signups: number;
+  digests: number;
+  deliveries: number;
+  events: number;
+  posts: number;
+};
+
 export type Database = {
   public: {
     Tables: {
-      profiles: Table<Profile, "display_name" | "timezone" | "onboarded_at" | "created_at">;
+      profiles: Table<
+        Profile,
+        "display_name" | "timezone" | "onboarded_at" | "created_at" | "email" | "last_seen_at"
+      >;
       subscriptions: Table<Subscription, "plan" | "status" | "current_period_end" | "updated_at">;
       notification_preferences: Table<
         NotificationPreferences,
@@ -226,9 +354,46 @@ export type Database = {
       >;
       feedback: Table<Feedback, "created_at">;
       saved_stories: Table<SavedStory, "saved_at">;
+
+      user_roles: Table<UserRole, "role" | "granted_by" | "granted_at">;
+      user_bans: Table<UserBan, "reason" | "banned_by" | "banned_at" | "expires_at">;
+      blog_posts: Table<BlogPost, Exclude<keyof BlogPost, "slug">>;
+      ai_providers: Table<AiProvider, "id" | "active" | "notes" | "created_at" | "updated_at">;
+      ai_model_routes: Table<AiModelRoute, "max_tokens" | "temperature" | "updated_at">;
+      ai_prompts: Table<AiPrompt, "system_prompt" | "updated_at">;
+      site_settings: Table<SiteSetting, "value" | "updated_by" | "updated_at">;
+      feature_flags: Table<
+        FeatureFlag,
+        "label" | "description" | "enabled" | "rollout_percent" | "updated_by" | "updated_at"
+      >;
+      admin_audit_log: Table<
+        AdminAuditEntry,
+        "id" | "actor_id" | "actor_email" | "target_type" | "target_id" | "meta" | "created_at"
+      >;
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      /**
+       * Not granted to anon or authenticated. Callable only with the
+       * service-role key, after the caller's role has been checked in app code.
+       */
+      admin_daily_counts: {
+        Args: { p_days?: number };
+        Returns: DailyCount[];
+      };
+      increment_post_view: {
+        Args: { p_slug: string };
+        Returns: undefined;
+      };
+      is_admin: {
+        Args: { uid?: string };
+        Returns: boolean;
+      };
+      is_superadmin: {
+        Args: { uid?: string };
+        Returns: boolean;
+      };
+    };
     Enums: {
       plan_tier: PlanTier;
       source_kind: SourceKind;
