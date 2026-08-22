@@ -1,0 +1,103 @@
+nyuz — Proprietary Software License
+Copyright (c) 2026 [Company legal name]. All rights reserved.
+
+THIS IS NOT OPEN SOURCE SOFTWARE.
+
+This repository and everything in it — source code, database schema and
+migrations, design, written copy, and documentation — is proprietary and
+confidential. It is made visible for reference only. Visibility is not a grant
+of any right to use it.
+
+
+1. NO LICENCE IS GRANTED
+
+No right or licence, express or implied, is granted to any person. In
+particular, you may NOT, in whole or in part:
+
+  (a) copy, reproduce, or download this software except as strictly necessary
+      to view this repository through the interface it is hosted on;
+  (b) use it, run it, or deploy it, for any purpose, commercial or otherwise,
+      including personal, internal, educational, or evaluation use;
+  (c) modify it, adapt it, translate it, or create derivative works from it;
+  (d) distribute, publish, sublicense, rent, lease, or lend it;
+  (e) sell it, offer it for sale, or use it to provide a paid or unpaid service
+      to any third party;
+  (f) reverse engineer, decompile, or disassemble any compiled or deployed
+      form of it, except to the extent that this restriction cannot lawfully be
+      excluded;
+  (g) remove, obscure, or alter this notice or any copyright, trademark, or
+      attribution notice;
+  (h) use it, or any part of it, as training data or input for any machine
+      learning or artificial intelligence system, model, or dataset.
+
+Any use not expressly permitted in writing is prohibited.
+
+
+2. NO CONTRIBUTION LICENCE
+
+Submitting a pull request, issue, patch, or suggestion does not grant you any
+right to this software, and does not oblige the copyright holder to accept,
+use, or compensate for it. Anything you submit may be used by the copyright
+holder without restriction or payment.
+
+
+3. THIRD-PARTY COMPONENTS
+
+This software depends on third-party packages that are separately licensed by
+their own authors, under their own terms (largely MIT and Apache-2.0). Those
+licences apply to those packages and are unaffected by this one. Nothing here
+restricts your rights to any third-party package obtained from its own source.
+
+This licence covers only the original work in this repository.
+
+
+4. TRADEMARKS
+
+"nyuz", the nyuz name, logo, and wordmark are trademarks of the copyright
+holder. No right to use them is granted by this licence or by any permission
+granted under it.
+
+
+5. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+
+6. NO LIABILITY
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
+FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
+
+
+7. ENFORCEMENT
+
+Unauthorised use is copyright infringement and may also breach trademark and
+trade secret law. The copyright holder reserves every remedy available.
+
+
+8. PERMISSIONS
+
+Licences are available by agreement. To ask about one, contact
+[contact@yourdomain].
+
+---
+
+NOTE FOR THE REPOSITORY OWNER — DELETE THIS SECTION BEFORE PUBLISHING
+
+Two placeholders above must be filled in before this licence means anything:
+`[Company legal name]` and `[contact@yourdomain]`. A copyright notice naming
+nobody is difficult to enforce.
+
+This text has not been reviewed by a lawyer. It is a strict all-rights-reserved
+notice, which is the correct default for a commercial product, but if you plan
+to take investment, hire, or accept outside contributions, have counsel review
+it — particularly clause 2, which is deliberately one-sided.
+
+Also note: making a GitHub repository public does not license it, but it does
+grant other GitHub users the limited right to view and fork it within GitHub,
+under the GitHub Terms of Service, regardless of what this file says. If that
+is not acceptable, keep the repository private.
