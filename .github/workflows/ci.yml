@@ -20,6 +20,62 @@ permissions:
   contents: read
 
 jobs:
+  # Runs first and independently of the build. A commit message cannot be fixed
+  # by a follow-up commit — it needs a rebase — so it is better to find out in
+  # thirty seconds than after a four-minute build.
+  commits:
+    name: Commit messages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The check compares two commits, so the full history has to be here.
+          # The default shallow clone has neither end of the range.
+          fetch-depth: 0
+
+      - name: Reject Co-Authored-By trailers
+        env:
+          # `pull_request` carries base and head explicitly; `push` does not, so
+          # it falls back to the range that was pushed.
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          # A new branch reports an all-zero "before", and a manual dispatch
+          # reports none at all. Both fall back to the tip commit alone.
+          if [ -z "${BASE:-}" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            range="${HEAD}~1..${HEAD}"
+          else
+            range="${BASE}..${HEAD}"
+          fi
+
+          echo "Checking $range"
+          failed=0
+
+          for sha in $(git rev-list "$range"); do
+            if git log -1 --format='%B' "$sha" | grep -qiE '^[[:space:]]*co-authored-by:'; then
+              subject=$(git log -1 --format='%s' "$sha")
+              echo "::error::${sha:0:8} has a Co-Authored-By trailer — $subject"
+              failed=1
+            fi
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            echo ""
+            echo "Commits in this branch must not carry Co-Authored-By trailers."
+            echo "Strip them and force-push:"
+            echo ""
+            echo "  git filter-branch -f --msg-filter \\"
+            echo "    \"sed -E '/^[Cc]o-[Aa]uthored-[Bb]y:/d'\" main..HEAD"
+            echo "  git push --force-with-lease"
+            exit 1
+          fi
+
+          echo "No Co-Authored-By trailers found."
+
   verify:
     name: Typecheck, lint, test, build
     runs-on: ubuntu-latest
@@ -36,9 +92,9 @@ jobs:
       VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
