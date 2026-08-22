@@ -10,11 +10,20 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as HowItWorksRouteImport } from './routes/how-it-works'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as PricingRouteImport } from './routes/pricing'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AdminAiRouteImport } from './routes/admin/ai'
+import { Route as AdminAuditRouteImport } from './routes/admin/audit'
+import { Route as AdminBlogRouteImport } from './routes/admin/blog'
+import { Route as AdminContentRouteImport } from './routes/admin/content'
+import { Route as AdminUsersRouteImport } from './routes/admin/users'
+import { Route as BlogIndexRouteImport } from './routes/blog/index'
+import { Route as BlogSlugRouteImport } from './routes/blog/$slug'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
 import { Route as DashboardAdminRouteImport } from './routes/dashboard/admin'
 import { Route as DashboardAlertsRouteImport } from './routes/dashboard/alerts'
@@ -31,6 +40,11 @@ import { Route as DashboardStoryIdRouteImport } from './routes/dashboard/story/$
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -56,6 +70,46 @@ const OnboardingRoute = OnboardingRouteImport.update({
 const PricingRoute = PricingRouteImport.update({
   id: '/pricing',
   path: '/pricing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAiRoute = AdminAiRouteImport.update({
+  id: '/ai',
+  path: '/ai',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAuditRoute = AdminAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminBlogRoute = AdminBlogRouteImport.update({
+  id: '/blog',
+  path: '/blog',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminContentRoute = AdminContentRouteImport.update({
+  id: '/content',
+  path: '/content',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminUsersRoute = AdminUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AdminRoute,
+} as any)
+const BlogIndexRoute = BlogIndexRouteImport.update({
+  id: '/blog/',
+  path: '/blog/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BlogSlugRoute = BlogSlugRouteImport.update({
+  id: '/blog/$slug',
+  path: '/blog/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardIndexRoute = DashboardIndexRouteImport.update({
@@ -121,11 +175,18 @@ const DashboardStoryIdRoute = DashboardStoryIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/how-it-works': typeof HowItWorksRoute
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
+  '/admin/ai': typeof AdminAiRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/blog': typeof AdminBlogRoute
+  '/admin/content': typeof AdminContentRoute
+  '/admin/users': typeof AdminUsersRoute
+  '/blog/$slug': typeof BlogSlugRoute
   '/dashboard/admin': typeof DashboardAdminRoute
   '/dashboard/alerts': typeof DashboardAlertsRoute
   '/dashboard/billing': typeof DashboardBillingRoute
@@ -136,6 +197,8 @@ export interface FileRoutesByFullPath {
   '/dashboard/sources': typeof DashboardSourcesRoute
   '/dashboard/topics': typeof DashboardTopicsRoute
   '/legal/$doc': typeof LegalDocRoute
+  '/admin/': typeof AdminIndexRoute
+  '/blog/': typeof BlogIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
 }
@@ -145,6 +208,12 @@ export interface FileRoutesByTo {
   '/how-it-works': typeof HowItWorksRoute
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
+  '/admin/ai': typeof AdminAiRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/blog': typeof AdminBlogRoute
+  '/admin/content': typeof AdminContentRoute
+  '/admin/users': typeof AdminUsersRoute
+  '/blog/$slug': typeof BlogSlugRoute
   '/dashboard/admin': typeof DashboardAdminRoute
   '/dashboard/alerts': typeof DashboardAlertsRoute
   '/dashboard/billing': typeof DashboardBillingRoute
@@ -155,17 +224,26 @@ export interface FileRoutesByTo {
   '/dashboard/sources': typeof DashboardSourcesRoute
   '/dashboard/topics': typeof DashboardTopicsRoute
   '/legal/$doc': typeof LegalDocRoute
+  '/admin': typeof AdminIndexRoute
+  '/blog': typeof BlogIndexRoute
   '/dashboard': typeof DashboardIndexRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/how-it-works': typeof HowItWorksRoute
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
+  '/admin/ai': typeof AdminAiRoute
+  '/admin/audit': typeof AdminAuditRoute
+  '/admin/blog': typeof AdminBlogRoute
+  '/admin/content': typeof AdminContentRoute
+  '/admin/users': typeof AdminUsersRoute
+  '/blog/$slug': typeof BlogSlugRoute
   '/dashboard/admin': typeof DashboardAdminRoute
   '/dashboard/alerts': typeof DashboardAlertsRoute
   '/dashboard/billing': typeof DashboardBillingRoute
@@ -176,6 +254,8 @@ export interface FileRoutesById {
   '/dashboard/sources': typeof DashboardSourcesRoute
   '/dashboard/topics': typeof DashboardTopicsRoute
   '/legal/$doc': typeof LegalDocRoute
+  '/admin/': typeof AdminIndexRoute
+  '/blog/': typeof BlogIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
 }
@@ -183,11 +263,18 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/auth'
     | '/dashboard'
     | '/how-it-works'
     | '/onboarding'
     | '/pricing'
+    | '/admin/ai'
+    | '/admin/audit'
+    | '/admin/blog'
+    | '/admin/content'
+    | '/admin/users'
+    | '/blog/$slug'
     | '/dashboard/admin'
     | '/dashboard/alerts'
     | '/dashboard/billing'
@@ -198,6 +285,8 @@ export interface FileRouteTypes {
     | '/dashboard/sources'
     | '/dashboard/topics'
     | '/legal/$doc'
+    | '/admin/'
+    | '/blog/'
     | '/dashboard/'
     | '/dashboard/story/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -207,6 +296,12 @@ export interface FileRouteTypes {
     | '/how-it-works'
     | '/onboarding'
     | '/pricing'
+    | '/admin/ai'
+    | '/admin/audit'
+    | '/admin/blog'
+    | '/admin/content'
+    | '/admin/users'
+    | '/blog/$slug'
     | '/dashboard/admin'
     | '/dashboard/alerts'
     | '/dashboard/billing'
@@ -217,16 +312,25 @@ export interface FileRouteTypes {
     | '/dashboard/sources'
     | '/dashboard/topics'
     | '/legal/$doc'
+    | '/admin'
+    | '/blog'
     | '/dashboard'
     | '/dashboard/story/$id'
   id:
     | '__root__'
     | '/'
+    | '/admin'
     | '/auth'
     | '/dashboard'
     | '/how-it-works'
     | '/onboarding'
     | '/pricing'
+    | '/admin/ai'
+    | '/admin/audit'
+    | '/admin/blog'
+    | '/admin/content'
+    | '/admin/users'
+    | '/blog/$slug'
     | '/dashboard/admin'
     | '/dashboard/alerts'
     | '/dashboard/billing'
@@ -237,18 +341,23 @@ export interface FileRouteTypes {
     | '/dashboard/sources'
     | '/dashboard/topics'
     | '/legal/$doc'
+    | '/admin/'
+    | '/blog/'
     | '/dashboard/'
     | '/dashboard/story/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRouteWithChildren
   AuthRoute: typeof AuthRoute
   DashboardRoute: typeof DashboardRouteWithChildren
   HowItWorksRoute: typeof HowItWorksRoute
   OnboardingRoute: typeof OnboardingRoute
   PricingRoute: typeof PricingRoute
+  BlogSlugRoute: typeof BlogSlugRoute
   LegalDocRoute: typeof LegalDocRoute
+  BlogIndexRoute: typeof BlogIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -258,6 +367,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -293,6 +409,62 @@ declare module '@tanstack/react-router' {
       path: '/pricing'
       fullPath: '/pricing'
       preLoaderRoute: typeof PricingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/ai': {
+      id: '/admin/ai'
+      path: '/ai'
+      fullPath: '/admin/ai'
+      preLoaderRoute: typeof AdminAiRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/audit': {
+      id: '/admin/audit'
+      path: '/audit'
+      fullPath: '/admin/audit'
+      preLoaderRoute: typeof AdminAuditRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/blog': {
+      id: '/admin/blog'
+      path: '/blog'
+      fullPath: '/admin/blog'
+      preLoaderRoute: typeof AdminBlogRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/content': {
+      id: '/admin/content'
+      path: '/content'
+      fullPath: '/admin/content'
+      preLoaderRoute: typeof AdminContentRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/users': {
+      id: '/admin/users'
+      path: '/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/blog/': {
+      id: '/blog/'
+      path: '/blog'
+      fullPath: '/blog/'
+      preLoaderRoute: typeof BlogIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/blog/$slug': {
+      id: '/blog/$slug'
+      path: '/blog/$slug'
+      fullPath: '/blog/$slug'
+      preLoaderRoute: typeof BlogSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard/': {
@@ -382,6 +554,26 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AdminRouteChildren {
+  AdminAiRoute: typeof AdminAiRoute
+  AdminAuditRoute: typeof AdminAuditRoute
+  AdminBlogRoute: typeof AdminBlogRoute
+  AdminContentRoute: typeof AdminContentRoute
+  AdminUsersRoute: typeof AdminUsersRoute
+  AdminIndexRoute: typeof AdminIndexRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminAiRoute: AdminAiRoute,
+  AdminAuditRoute: AdminAuditRoute,
+  AdminBlogRoute: AdminBlogRoute,
+  AdminContentRoute: AdminContentRoute,
+  AdminUsersRoute: AdminUsersRoute,
+  AdminIndexRoute: AdminIndexRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
 interface DashboardRouteChildren {
   DashboardAdminRoute: typeof DashboardAdminRoute
   DashboardAlertsRoute: typeof DashboardAlertsRoute
@@ -416,12 +608,15 @@ const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRouteWithChildren,
   AuthRoute: AuthRoute,
   DashboardRoute: DashboardRouteWithChildren,
   HowItWorksRoute: HowItWorksRoute,
   OnboardingRoute: OnboardingRoute,
   PricingRoute: PricingRoute,
+  BlogSlugRoute: BlogSlugRoute,
   LegalDocRoute: LegalDocRoute,
+  BlogIndexRoute: BlogIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
