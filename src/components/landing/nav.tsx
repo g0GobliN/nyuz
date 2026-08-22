@@ -4,14 +4,35 @@ import { useEffect, useState } from "react";
 import { LinkButton } from "@/components/kit";
 import { ThemeToggle } from "@/components/theme-toggle";
 
+/**
+ * The nyuz mark, inline so it inherits the theme: the glyph takes currentColor
+ * and the terminal dot takes --signal, so it stays correct in light and dark
+ * without shipping two files. viewBox is the mark's exact bounding box.
+ */
+export function LogoMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 27.48 30"
+      className={className}
+      role="img"
+      aria-label="nyuz"
+      fill="none"
+    >
+      <path
+        d="M1.77 30V13.77a11.97 11.97 0 0 1 23.94 0V24.3"
+        stroke="currentColor"
+        strokeWidth="3.53"
+        strokeLinecap="butt"
+      />
+      <circle cx="25.71" cy="28" r="1.8" fill="var(--signal)" />
+    </svg>
+  );
+}
+
 export function Logo({ className }: { className?: string }) {
   return (
     <Link to="/" className={"flex items-center gap-2.5 " + (className ?? "")}>
-      <span className="relative flex h-7 w-7 items-center justify-center">
-        <span className="absolute inset-0 rounded-full border border-foreground/25" />
-        <span className="absolute inset-1.5 rounded-full border border-foreground/40" />
-        <span className="h-1.5 w-1.5 rounded-full bg-signal" />
-      </span>
+      <LogoMark className="h-[22px] w-auto text-foreground" />
       <span className="text-[15px] font-semibold tracking-tight">nyuz</span>
     </Link>
   );

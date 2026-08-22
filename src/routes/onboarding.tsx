@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, Check, Mail, MessageCircle, Phone, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, Chip } from "@/components/kit";
-import { Logo } from "@/components/landing/nav";
+import { Logo, LogoMark } from "@/components/landing/nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DensityDial } from "@/components/density-dial";
 import { useRadar, type RadarPrefs } from "@/lib/radar-store";
@@ -406,13 +406,14 @@ function SetupSequence({ name, onDone }: { name: string; onDone: () => void }) {
 
   return (
     <div className="animate-rise text-center">
+      {/* The pulse conveys "scanning"; the mark keeps it ours rather than a
+          generic radar ping. */}
       <span className="relative mx-auto flex h-16 w-16 items-center justify-center">
         <span
           className="absolute inset-0 rounded-full border border-signal/40"
           style={{ animation: "pulse-ring 2.2s ease-out infinite" }}
         />
-        <span className="absolute inset-3 rounded-full border border-signal/60" />
-        <span className="h-2 w-2 rounded-full bg-signal" />
+        <LogoMark className="h-7 w-auto text-foreground" />
       </span>
 
       <h1 className="display mt-8 text-[clamp(2rem,5.5vw,3rem)]">

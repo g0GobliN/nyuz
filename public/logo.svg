@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <!-- nyuz mark: lowercase n, right leg terminating early in an amber dot.
+       Proportions traced from the source render. Colours flip with the
+       browser/OS theme so the mark stays legible in dark UI. -->
+  <style>
+    .stem { stroke: #0D0D0D; }
+    .dot  { fill: #A46400; }
+    @media (prefers-color-scheme: dark) {
+      .stem { stroke: #FFFFFF; }
+      .dot  { fill: #ECB33C; }
+    }
+  </style>
+  <g transform="translate(6.26 5)">
+    <path
+      class="stem"
+      d="M1.77 30V13.77a11.97 11.97 0 0 1 23.94 0V24.3"
+      fill="none"
+      stroke-width="3.53"
+      stroke-linecap="butt"
+    />
+    <circle class="dot" cx="25.71" cy="28" r="1.8" />
+  </g>
+</svg>

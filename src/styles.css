@@ -42,11 +42,13 @@
 }
 
 /*
- * Three colours only: black, white, and one blue.
- * Every neutral is chroma 0 — no warm or cool tint — so the blue is the single
+ * Three colours only: black, white, and one amber.
+ * Every neutral is chroma 0 — no warm or cool tint — so the amber is the single
  * source of colour on the page and reads as signal wherever it appears.
- * Blue sits at hue 253: deep and slightly ink-leaning, so it holds up next to
- * black without tipping into system-link blue or the purple AI cliché.
+ * Amber sits at hue 70: a highlighter mark on a printed page rather than a
+ * status colour. Lightness is pinned at 0.56 in light mode so it clears 4.5:1
+ * both as text on white and as white text on top of it — it lands on 11px
+ * uppercase labels, so that headroom is load-bearing, not decorative.
  */
 :root {
   --radius: 0.875rem;
@@ -66,14 +68,14 @@
   --muted-foreground: oklch(0.505 0 0);
   --accent: oklch(0.955 0 0);
   --accent-foreground: oklch(0.16 0 0);
-  --signal: oklch(0.5 0.16 253);
+  --signal: oklch(0.56 0.13 70);
   --signal-foreground: oklch(1 0 0);
   --destructive: oklch(0.16 0 0);
   --destructive-foreground: oklch(1 0 0);
   --border: oklch(0.895 0 0);
   --hairline: oklch(0.925 0 0);
   --input: oklch(0.885 0 0);
-  --ring: oklch(0.5 0.16 253);
+  --ring: oklch(0.56 0.13 70);
   --gradient-veil: radial-gradient(
     120% 80% at 50% 0%,
     color-mix(in oklab, var(--signal) 12%, transparent) 0%,
@@ -102,15 +104,15 @@
   --muted-foreground: oklch(0.665 0 0);
   --accent: oklch(0.255 0 0);
   --accent-foreground: oklch(0.968 0 0);
-  /* Lifted and slightly cooler than the light-mode blue so it carries on black. */
-  --signal: oklch(0.705 0.145 253);
+  /* Lifted well above the light-mode amber so it carries on black. */
+  --signal: oklch(0.8 0.145 82);
   --signal-foreground: oklch(0.145 0 0);
   --destructive: oklch(0.968 0 0);
   --destructive-foreground: oklch(0.145 0 0);
   --border: oklch(1 0 0 / 12%);
   --hairline: oklch(1 0 0 / 9%);
   --input: oklch(1 0 0 / 16%);
-  --ring: oklch(0.705 0.145 253);
+  --ring: oklch(0.8 0.145 82);
   --shadow-float: 0 1px 2px oklch(0 0 0 / 0.4), 0 18px 50px -18px oklch(0 0 0 / 0.7);
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 6px 20px -10px oklch(0 0 0 / 0.5);
 }

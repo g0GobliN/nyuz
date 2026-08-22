@@ -88,7 +88,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "Tell us what matters to you. We watch the internet and deliver the things worth knowing.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:image", content: "/og-image.jpg" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:image", content: "/og-image.jpg" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -101,7 +103,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      // SVG favicon: one file, sharp at every size, and it carries its own
+      // dark-mode rule so the mark stays visible against dark browser chrome.
+      { rel: "icon", href: "/logo.svg", type: "image/svg+xml" },
     ],
   }),
   shellComponent: RootShell,

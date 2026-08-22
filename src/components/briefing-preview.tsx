@@ -1,4 +1,4 @@
-import { Mail } from "lucide-react";
+import { LogoMark } from "@/components/landing/nav";
 import type { Story } from "@/lib/sample-data";
 import { cn } from "@/lib/utils";
 
@@ -24,7 +24,7 @@ export function BriefingPreview({
     >
       <div className="flex items-center justify-between border-b border-hairline px-5 py-3.5">
         <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-          <Mail className="h-3.5 w-3.5" />
+          <LogoMark className="h-3.5 w-auto text-foreground" />
           <span>brief@nyuz.app</span>
         </div>
         <span className="text-[12px] tabular-nums text-muted-foreground">{time}</span>
