@@ -39,7 +39,7 @@ function env(e: AiEnv | undefined, key: keyof AiEnv): string | undefined {
 }
 
 export function modelFor(tier: ModelTier, e?: AiEnv): string {
-  const key = (`MODEL_${tier.toUpperCase()}` as keyof AiEnv);
+  const key = `MODEL_${tier.toUpperCase()}` as keyof AiEnv;
   return env(e, key) ?? FALLBACK_MODELS[tier];
 }
 
@@ -133,7 +133,9 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
 }
 
 /** `complete()` with the response parsed as JSON, retried once on malformed output. */
-export async function completeJson<T>(opts: CompleteOptions): Promise<{ data: T; usage: CompleteResult }> {
+export async function completeJson<T>(
+  opts: CompleteOptions,
+): Promise<{ data: T; usage: CompleteResult }> {
   const usage = await complete(opts);
   const text = usage.content.trim();
 

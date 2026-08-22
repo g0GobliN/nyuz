@@ -1,0 +1,24 @@
+# Normalise line endings to LF in the repository.
+#
+# This exists because CI could not be made green without it. Prettier is
+# configured for LF, but files authored on Windows were committed with CRLF,
+# so `eslint .` reported thousands of "Delete `␍`" errors in files nobody had
+# touched. Without this, every future Windows edit reintroduces them.
+#
+# `text=auto eol=lf` stores LF in git and checks out LF, on every platform.
+* text=auto eol=lf
+
+# Binary files git must never translate.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf  binary
+
+# Generated — collapsed in diffs and excluded from language stats.
+src/routeTree.gen.ts linguist-generated=true
+package-lock.json   linguist-generated=true
