@@ -23,6 +23,7 @@ describes a dashboard that is not.
 | --------------------------------- | --------------------------------------------------------------- |
 | [Product brief](product-brief.md) | The original brief, preserved verbatim                          |
 | [Architecture](architecture.md)   | The pipeline stage by stage, and the cost argument              |
+| [Build plan](plan.md)             | What is left to build, stage by stage, and how far each one got |
 | [Glossary](glossary.md)           | Event, digest, density, importance, novelty — defined precisely |
 
 ## The system

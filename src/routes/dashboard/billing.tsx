@@ -3,6 +3,10 @@ import { Check } from "lucide-react";
 import { useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button } from "@/components/kit";
+import { openBillingPortal, startCheckout } from "@/lib/server/billing";
+import { usePlan } from "@/lib/plan-state";
+import { DEFAULT_PLAN_PRICES, PLAN_LIMITS, formatTopicLimit } from "@/lib/plans";
+import { PRICES_DEFAULT } from "@/lib/site-content";
 import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 
@@ -17,26 +21,23 @@ const PLANS = [
     name: "Free",
     monthly: 0,
     annual: 0,
-    topics: 3,
-    retention: "7-day history",
+    ...PLAN_LIMITS.free,
     features: ["Daily briefing", "Email delivery"],
   },
   {
     id: "personal",
     name: "Personal",
-    monthly: 7,
-    annual: 60,
-    topics: 15,
-    retention: "90-day history",
+    monthly: DEFAULT_PLAN_PRICES.personal,
+    annual: PRICES_DEFAULT.personalAnnual,
+    ...PLAN_LIMITS.personal,
     features: ["Daily and weekly", "Telegram", "Breaking alerts", "AI explanations"],
   },
   {
     id: "pro",
     name: "Pro",
-    monthly: 15,
-    annual: 120,
-    topics: Infinity,
-    retention: "1-year history",
+    monthly: DEFAULT_PLAN_PRICES.pro,
+    annual: PRICES_DEFAULT.proAnnual,
+    ...PLAN_LIMITS.pro,
     features: ["Multiple schedules", "WhatsApp", "Deeper explanations", "Priority processing"],
   },
 ] as const;
@@ -48,10 +49,48 @@ const INVOICES = [
 
 function Billing() {
   const { prefs } = usePrefs();
-  const [current, setCurrent] = useState<string>("free");
+  // The plan comes from the subscription row now, not from local state that
+  // reset to "free" on every visit regardless of what the reader was paying.
+  const { plan: current } = usePlan();
   const [annual, setAnnual] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const plan = PLANS.find((p) => p.id === current) ?? PLANS[0];
+
+  /**
+   * Hands off to Stripe.
+   *
+   * `window.location.assign` rather than the router: the destination is another
+   * origin, and a client-side navigation cannot leave the app. Nothing is marked
+   * done here — the plan is applied when the webhook arrives, so a reader who
+   * closes the tab on Stripe's success page still gets what they paid for.
+   */
+  const goTo = async (
+    id: string,
+    run: () => Promise<{ ok: boolean; url?: string; error?: string }>,
+  ) => {
+    setBusy(id);
+    setError(null);
+    try {
+      const result = await run();
+      if (result.ok && result.url) {
+        window.location.assign(result.url);
+        return;
+      }
+      setError(result.error ?? "Something went wrong.");
+    } catch (cause) {
+      console.error(cause);
+      setError("Could not reach the payment provider.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const upgrade = (id: "personal" | "pro") =>
+    goTo(id, () => startCheckout({ data: { plan: id, interval: annual ? "year" : "month" } }));
+
+  const manage = () => goTo("manage", () => openBillingPortal());
   const overTopics = prefs.topics.length > plan.topics;
 
   return (
@@ -88,7 +127,7 @@ function Billing() {
           <span>
             <span className="text-muted-foreground">Topics · </span>
             <span className={cn("tabular-nums", overTopics && "text-destructive")}>
-              {prefs.topics.length} of {plan.topics === Infinity ? "unlimited" : plan.topics}
+              {prefs.topics.length} of {formatTopicLimit(plan.topics)}
             </span>
           </span>
           <span>
@@ -182,15 +221,47 @@ function Billing() {
                 variant={active ? "outline" : "primary"}
                 size="sm"
                 className="mt-6 w-full"
-                disabled={active}
-                onClick={() => setCurrent(p.id)}
+                // The free tier is not something to check out of. Leaving a paid
+                // plan happens in Stripe's portal, where the proration and the
+                // cancellation date are Stripe's problem rather than ours.
+                disabled={active || busy !== null || (p.id === "free" && current === "free")}
+                onClick={() => {
+                  if (p.id === "free") void manage();
+                  else void upgrade(p.id as "personal" | "pro");
+                }}
               >
-                {active ? "Your plan" : p.monthly === 0 ? "Downgrade" : `Switch to ${p.name}`}
+                {busy === p.id
+                  ? "Opening Stripe…"
+                  : active
+                    ? "Your plan"
+                    : p.monthly === 0
+                      ? "Downgrade"
+                      : `Switch to ${p.name}`}
               </Button>
             </div>
           );
         })}
       </div>
+
+      {error ? <p className="mt-5 text-[12.5px] text-destructive">{error}</p> : null}
+
+      <p className="mt-5 text-[12.5px] text-muted-foreground">
+        {current === "free"
+          ? "Payment is handled by Stripe. Your plan updates once the payment clears, which can take a few seconds after you return."
+          : "Cancelling, resuming and changing your card are all handled in Stripe's billing portal."}
+        {current !== "free" ? (
+          <>
+            {" "}
+            <button
+              onClick={() => void manage()}
+              disabled={busy !== null}
+              className="text-foreground underline underline-offset-4 disabled:opacity-50"
+            >
+              {busy === "manage" ? "Opening…" : "Manage billing"}
+            </button>
+          </>
+        ) : null}
+      </p>
 
       <section className="mt-10">
         <h2 className="text-[17px] font-medium tracking-tight">Invoices</h2>

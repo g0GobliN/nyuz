@@ -23,12 +23,13 @@ direction or the other.
 | Admin console (analytics, users, bans, roles, audit)   | **Built**                                      |
 | Blog (authoring + public pages)                        | **Built**                                      |
 | AI provider routing configuration                      | **Built** (config only — nothing calls it yet) |
+| Billing (checkout, portal, webhook)                    | **Built** (test mode; unproven against live)   |
+| Lifecycle email (account, billing, pause)              | **Built** (dormancy nudge has no trigger)      |
 | Onboarding flow                                        | **Built**, writes to browser storage only      |
 | Customer dashboard                                     | **Prototype** — renders labelled sample data   |
 | Ingestion pipeline                                     | **Not started**                                |
 | Clustering, scoring, matching                          | **Designed, not built**                        |
 | Digest generation and delivery                         | **Designed, not built**                        |
-| Billing                                                | **Not started**                                |
 
 ---
 
@@ -108,11 +109,20 @@ The stages, in the order they need building:
 Stages 1 and 2 need no model calls and would put real rows in the database quickly, which
 is why they are the sensible starting point.
 
-**Billing.** The pricing page and plan limits are presentation only. No payment provider
-is integrated; `subscriptions.plan` is never written by anything but the default.
+**Billing.** Stripe checkout, the billing portal and the webhook are wired.
+`subscriptions.plan` is written by `customer.subscription.*` events, and the price of every
+incoming event is matched against the nyuz catalogue first — the Stripe account is shared
+with another product, so an unmatched price is ignored rather than trusted. It has been
+exercised in test mode only. **No live payment has ever run through it.**
 
-**Delivery.** No email, Telegram or WhatsApp integration exists. The `deliveries` table
-and its retry semantics are designed and unused.
+**Delivery.** _Briefing_ delivery does not exist — no Telegram, no WhatsApp, and no
+briefing email. The `deliveries` table and its retry semantics are still designed and
+unused.
+
+_Lifecycle_ email is a different thing and does work: welcome, subscription started,
+cancelled, payment failed and briefings-paused all send through Resend. The dormant-reader
+nudge is written and tested but has no caller, because nothing tracks whether a briefing
+was opened.
 
 ---
 

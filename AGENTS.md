@@ -6,10 +6,10 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
 - Routes are file-based under `src/routes/`; `src/routeTree.gen.ts` is generated — never edit it by hand.
 - `npx tsc --noEmit` must stay clean. `noUncheckedIndexedAccess` is on, so index
   access yields `T | undefined` — narrow before use.
-- Colour is limited to three values: black, white, and one red (`--signal`, hue 27).
+- Colour is limited to three values: black, white, and one blue (`--signal`, hue 240).
   Every other token in `src/styles.css` is chroma 0. Do not introduce a fourth colour.
-  `--destructive` is monochrome on purpose — with a red accent, a red error state
-  would be indistinguishable from an ordinary highlight, so destructive states lean
+  `--destructive` is monochrome on purpose — a coloured error state would compete
+  with the accent for attention, so destructive states lean
   on iconography and weight. The two hex values in `public/logo.svg` are the sRGB
   form of `--signal` light/dark and must be changed alongside it.
 

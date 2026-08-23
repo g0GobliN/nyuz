@@ -2,6 +2,20 @@ import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
+import { handleStripeWebhook, type WebhookEnv } from "./lib/server/stripe/webhook";
+
+/**
+ * Stripe posts here.
+ *
+ * Handled at the Worker entry rather than as a route because the signature is
+ * computed over the exact bytes Stripe sent. Anything upstream that parses the
+ * body and hands on a re-serialised copy — which is what a framework route does
+ * — changes key order and whitespace, and the signature then never matches.
+ *
+ * It also has to sit in front of the CSRF middleware in src/start.ts: Stripe is
+ * a third party by definition and carries no same-origin credentials.
+ */
+const STRIPE_WEBHOOK_PATH = "/api/stripe/webhook";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -47,6 +61,10 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      if (new URL(request.url).pathname === STRIPE_WEBHOOK_PATH) {
+        return await handleStripeWebhook(request, env as WebhookEnv | undefined);
+      }
+
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);
