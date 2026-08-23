@@ -7,6 +7,7 @@ import {
   PageHeader,
   SampleDataNotice,
 } from "@/components/dashboard/shell";
+import { LiveBriefing } from "@/components/dashboard/live-briefing";
 import { StoryCard } from "@/components/dashboard/story-card";
 import { LinkButton } from "@/components/kit";
 import { useDisplayName } from "@/lib/auth";
@@ -57,6 +58,10 @@ function DashboardHome() {
   return (
     <DashboardShell title="Home">
       <div ref={ref}>
+        {/* Real matches first, fixtures second, and each labelled. The order is
+            the honest one: what the pipeline actually produced for this reader
+            outranks a sample of what it will eventually look like. */}
+        <LiveBriefing />
         <SampleDataNotice />
         <PageHeader
           eyebrow={new Date().toLocaleDateString(undefined, {

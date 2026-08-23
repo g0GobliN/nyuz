@@ -7,6 +7,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { DensityDial } from "@/components/density-dial";
 import { useAuth } from "@/lib/auth";
 import { sendWelcome } from "@/lib/server/account";
+import { startFirstBriefing } from "@/lib/server/briefing";
 import { usePrefs, type Prefs } from "@/lib/prefs-store";
 import { IGNORE_POOL, TOPIC_POOL } from "@/lib/sample-data";
 import { cn } from "@/lib/utils";
@@ -76,12 +77,32 @@ function Onboarding() {
         : true;
 
   const finish = () => {
-    update({ ...draft, onboarded: true });
-    // Fire and forget. The welcome email is not worth blocking the sequence on,
-    // and `sendWelcome` is idempotent — a signed-out visitor finishing
-    // onboarding simply gets a rejected call and no mail, which is correct.
-    void sendWelcome().catch((error: unknown) => console.error(error));
+    // The sequence starts immediately; the account work happens behind it. The
+    // four lines it plays take about four and a half seconds, which is the
+    // budget this has to finish inside.
     setStep(4);
+
+    void (async () => {
+      // Awaited, unlike everything else here. The backfill matches against
+      // `user_topics`, so running it before the save lands would match an empty
+      // topic list and decide this reader is interested in nothing.
+      await update({ ...draft, onboarded: true });
+
+      // Fire and forget. The welcome email is not worth blocking on, and
+      // `sendWelcome` is idempotent — a signed-out visitor finishing onboarding
+      // simply gets a rejected call and no mail, which is correct.
+      void sendWelcome().catch((error: unknown) => console.error(error));
+
+      // Day one. Events already in the database were analysed for somebody
+      // else, so matching this reader against them costs one query — which is
+      // why "Matching your interests" on the screen behind this is now a
+      // description of something happening rather than an animation.
+      //
+      // A signed-out visitor gets a rejected call and no rows; their answers
+      // are in local storage and `usePrefs` runs this again on the first
+      // authenticated load.
+      void startFirstBriefing().catch((error: unknown) => console.error(error));
+    })();
   };
 
   return (
@@ -413,8 +434,20 @@ function StepChannels({ draft, patch }: StepProps) {
   );
 }
 
+/**
+ * What the sequence claims is happening, which now has to be what is happening.
+ *
+ * The first line used to read "Monitoring 327 sources". Nobody counted 327 of
+ * anything — there are 64 live feeds — and a number invented to look busy is the
+ * exact thing `plan.md` forbids, on the screen where a stranger is most likely
+ * to believe it. It says no number now.
+ *
+ * The other three are true as of stage 6: articles are clustered into events,
+ * those events are analysed, and `startFirstBriefing` above is running the
+ * matcher against this reader's answers while these lines play.
+ */
 const SETUP_LINES = [
-  "Monitoring 327 sources",
+  "Reading your sources",
   "Understanding today's events",
   "Matching your interests",
   "Your first briefing is being prepared",

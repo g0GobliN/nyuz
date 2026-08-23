@@ -440,15 +440,18 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
  * indistinguishable from one that is lying, and the person most likely to be
  * misled is a real signup.
  *
- * The wording is deliberately narrower than it used to be. Collection now really
- * does run — the ingester fills `articles` on a schedule — so a notice claiming
- * otherwise would be its own small lie, in the modest direction. What is still
- * missing is everything between a stored article and a reader: nothing writes to
- * `events`, `user_events` or `digest_items`, so there is nothing real to show.
- * Whenever that changes, this text has to change with it or come out.
+ * The wording has narrowed twice, and for the same reason both times: a notice
+ * that overstates what is missing is its own small lie, in the modest direction.
+ * Collection runs, articles are grouped into `events`, those events are scored,
+ * and stage 6 now matches them into `user_events` and renders them on the home
+ * page under a Live badge. So this no longer says "nothing here was gathered for
+ * you" — it says which part of the page is a fixture, which is the part below it.
  *
- * DELETE THIS COMPONENT AND ITS USAGES when the dashboard reads real rows. Grep
- * for `SampleDataNotice`.
+ * What is still missing is `digest_items`: the one paragraph per person that says
+ * why a story matters to *you*, and the briefing built from it. That is stage 7.
+ *
+ * DELETE THIS COMPONENT AND ITS USAGES when nothing on these pages is a fixture.
+ * Grep for `SampleDataNotice`.
  */
 export function SampleDataNotice() {
   return (
@@ -457,8 +460,8 @@ export function SampleDataNotice() {
         Sample data
       </span>
       <span className="text-[12.5px] leading-relaxed text-muted-foreground">
-        These stories are examples, not live reporting. We are collecting from real sources now, but
-        nothing here was gathered for you yet.
+        The stories below are examples, not live reporting. Anything marked Live was collected from
+        a real source and matched to your topics; everything from here down is a fixture.
       </span>
     </div>
   );

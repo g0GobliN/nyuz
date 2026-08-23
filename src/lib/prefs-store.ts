@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { startFirstBriefing } from "@/lib/server/briefing";
 import { loadPreferences, savePreferences, type PrefsInput } from "@/lib/server/preferences";
 
 export type Prefs = {
@@ -164,6 +165,14 @@ export function usePrefs() {
               paused: next.paused,
             },
           });
+
+          // The account has topics for the first time, so day one starts here.
+          // A visitor who completed onboarding before signing up had nothing on
+          // the server to match against at the moment they finished; this is
+          // the first instant that stops being true. Fire and forget — the
+          // backfill writes rows the dashboard reads on its next load, and it
+          // refuses to spend anything twice for one account.
+          void startFirstBriefing().catch((error: unknown) => console.error(error));
         }
       } catch (error) {
         // An unreachable account is not a reason to lose the local copy; the
@@ -177,8 +186,19 @@ export function usePrefs() {
     };
   }, [user, authLoading]);
 
+  /**
+   * Applies a change locally and pushes it up.
+   *
+   * Returns a promise so a caller that has to know when the account has the new
+   * value can wait for it — onboarding does, because the day-one backfill
+   * matches against `user_topics`, and matching before the topics have landed
+   * would match an empty list and conclude the reader is interested in nothing.
+   * Every other caller ignores the promise, and is right to: the local copy has
+   * already updated and a settings toggle that waited on a round trip would feel
+   * broken.
+   */
   const update = useCallback(
-    (patch: Partial<Prefs>) => {
+    async (patch: Partial<Prefs>): Promise<void> => {
       setPrefs((prev) => {
         const next = { ...prev, ...patch };
         writeLocal(next);
@@ -187,10 +207,11 @@ export function usePrefs() {
 
       // Only what changed goes up, so two tabs editing different settings do
       // not overwrite each other with their own stale view of the rest.
-      if (user) {
-        void savePreferences({ data: patch as PrefsInput }).catch((error: unknown) =>
-          console.error(error),
-        );
+      if (!user) return;
+      try {
+        await savePreferences({ data: patch as PrefsInput });
+      } catch (error) {
+        console.error(error);
       }
     },
     [user],

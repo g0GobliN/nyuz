@@ -1,6 +1,6 @@
 # Project status
 
-Last reviewed: 23 August 2026.
+Last reviewed: 24 August 2026.
 
 nyuz is **in development and not accepting customers.** This page is the honest,
 itemised version of that sentence.
@@ -9,12 +9,13 @@ It exists because the app looks considerably more finished than it is. The marke
 site, the accounts, the admin console and the blog are genuinely working software. As of
 this review the ingester is too — there are real articles in the database — those
 articles are grouped into real events, those events have been read and scored by a
-second model call, and those scores have been matched against a real reader's topics.
-The thing the product is actually for — a briefing assembled from real reporting and
-delivered — is still not built: no digest has been generated, no reader has been sent
-anything, and the dashboard still renders fixtures rather than the matches now sitting in
-the database. Anyone forming a judgement from the screenshots alone will be wrong in one
-direction or the other.
+second model call, those scores have been matched against a real reader's topics, and a
+new account is matched against the existing corpus the moment it finishes onboarding — so
+the top of the dashboard is now real news rather than a fixture. The thing the product is
+actually for — a briefing **delivered** — is still not built: no digest has been generated
+and no reader has been sent anything. Everything below the Live badge on the dashboard is
+still sample data, and says so. Anyone forming a judgement from the screenshots alone will
+be wrong in one direction or the other.
 
 ---
 
@@ -35,9 +36,10 @@ direction or the other.
 | Ingestion pipeline                                     | **Built** — 1040 articles stored             |
 | Clustering (articles → events)                         | **Built** — 112 articles in 98 events        |
 | Analysis and scoring (events → understood)             | **Built** — 48 of 98 events analysed         |
-| Matching (events → readers)                            | **Built** — 15 rows in `user_events`, free   |
+| Matching (events → readers)                            | **Built** — 16 rows in `user_events`, free   |
+| Day-one backfill for a new account                     | **Built** — one query; pays only if empty    |
 | Digest generation and delivery                         | **Designed, not built**                      |
-| Customer dashboard                                     | **Prototype** — renders labelled sample data |
+| Customer dashboard                                     | **Part real** — live matches over fixtures   |
 
 ---
 
@@ -112,8 +114,8 @@ arriving. Verified through the built Worker, not just the source. See
 **Analysis.** Each event is read once, ever, and what comes out is a neutral title, a
 plain-past-tense account of what happened, the before and after state where the coverage
 supports them, scores for importance and novelty, and links into the shared `topics`
-table. **48 of the 98 events are analysed** as of this review, for **88,595 tokens** —
-1,846 per event on average — with **no failures**. `event_topics` has 46 rows, the first
+table. **49 of the 98 events are analysed** as of this review, for **90,066 tokens** —
+about 1,840 per event on average — with **no failures**. `event_topics` has 46 rows, the first
 this project has written to a table stage 5 depends on.
 
 The property the pricing rests on is that this happens **once per event forever**, and it
@@ -154,27 +156,49 @@ scored and correctly matched, which is a source problem rather than a matcher on
 **the reader follows `anthropic` and `cursor` and matched nothing for either** — the
 coverage gap below, now visible in real rows rather than argued from a source list.
 
+**Day one.** A new account no longer waits for a cron. Finishing onboarding runs the
+matcher for that reader over the last 72 hours, which costs one query because those events
+were analysed for somebody else — and the dashboard renders what it found, above the
+fixtures, under a Live badge. Verified on real accounts created and deleted for the
+purpose: a brand-new account following `openai`, `ai` and `chips` landed on **15 real
+events for zero model calls**, and running it again wrote nothing.
+
+If nothing matches, and only then, it may analyse up to three events on demand — but only
+events whose headline already names something the reader follows, and only once per
+account ever, guarded by an `admin_audit_log` row written before the model is called. That
+path was exercised for real: a reader following `cursor` and `anthropic` matched nothing,
+one of 50 unanalysed events was judged worth understanding, it cost **1,471 tokens**, and
+the reader landed on a dashboard with one real story. **A second account with the same
+interests then matched that same event for nothing** — the shared-analysis property doing
+exactly what the pricing assumes, on the one path that could have broken it.
+
+A reader whose topics genuinely match nothing still gets an empty dashboard that says so.
+That is the promise, not a bug, and nothing here loosens a threshold to fill the space.
+
 `npm run pipeline` still runs ingestion only. A stage that spends money has to be asked
 for by name — `match` does not spend, and has no small default for that reason.
+`backfill` can, so it refuses to run without `--user` and takes a `--free` flag that
+switches the paid half off entirely.
 
 ---
 
 ## What is a prototype
 
-**The customer dashboard.** Every story on every dashboard page comes from
-`src/lib/sample-data.ts` — six fixtures. The ingester fills `articles`, clustering fills
-`events`, and analysis now fills in what those events mean and which topics they belong
-to — but nothing connects any of that to a person, so `user_events`, `digests` and
-`digest_items` are all still empty and there is nothing reader-shaped for the dashboard to
-read. The missing piece is no longer understanding; it is matching.
+**The customer dashboard, below the first block.** The top of the home page is real: it
+reads `user_events` and renders the reader's own matched events. Everything under it still
+comes from `src/lib/sample-data.ts` — six fixtures — as do the briefing, history and story
+pages in full. The missing piece is no longer matching; it is `digest_items`, the one
+paragraph per person that says why a story matters to that reader, and the briefing built
+from it.
 
 Two things were done so that this is not misleading:
 
 1. **A "Sample data" notice** on the dashboard and briefing pages, saying plainly that
    the stories are examples and nothing was gathered for the reader. Its wording was
-   revised in this review: it used to say collection was not running, which is no longer
-   true, so it now says collection _is_ running and that nothing here came from it yet.
-   Grep `SampleDataNotice` — it is meant to be deleted when the dashboard reads real rows.
+   revised twice, each time narrowing rather than widening: it used to claim collection
+   was not running, then that nothing on the page had been gathered for the reader. Both
+   became untrue in turn. It now says which half of the page is a fixture — the half below
+   it. Grep `SampleDataNotice`; it comes down when nothing on these pages is invented.
 
 2. **The fixtures are matched against the reader's real topics** by
    `src/lib/matching.ts`. Previously all six stories were shown to everyone with a
@@ -193,11 +217,12 @@ empty rather than filled with plausible numbers.
 
 ## What is not built
 
-**Everything between a scored event and a reader.** Collection, grouping and analysis
-work; nothing after them does. `user_events`, `digests`, `digest_items` and `deliveries`
+**Everything between a matched event and a reader's inbox.** Collection, grouping,
+analysis and matching work; delivery does not. `digests`, `digest_items` and `deliveries`
 have never had a row written to them by anything. The DeepSeek client is called for
-clustering and for analysis, and for nothing else — no matching, no summarising, nothing
-per-reader.
+clustering, for analysis, and — at most once per account, only when a new reader would
+otherwise see nothing — for the day-one backfill. Nothing calls it per reader, and nothing
+calls it on a recurring basis for one.
 
 The stages, in the order they need building:
 
@@ -212,16 +237,18 @@ The stages, in the order they need building:
    928 are a backlog the schedule works through, or a deliberate
    `npm run pipeline -- cluster --limit N`.
 4. ~~**Understand** — one analysis pass per event; importance, novelty, before/after.~~
-   Built and verified, 23 August 2026. 48 of 98 events analysed, 50 waiting with
+   Built and verified, 23 August 2026. 49 of 98 events analysed, 49 waiting with
    `analysed_at` null; the schedule takes six an hour, and
    `npm run pipeline -- analyse --limit N` drains the rest deliberately.
-5. **Match** — deterministic SQL against topics, keywords, exclusions and density.
-   **Next**, and the first stage that costs nothing per run.
-6. **Generate and deliver** — one paragraph per person per story, then send.
+5. ~~**Match** — deterministic SQL against topics, keywords, exclusions and density.~~
+   Built and verified, 23 August 2026. 16 rows in `user_events`, zero model calls. The
+   day-one path that runs the same code for a brand-new account was verified 24 August.
+6. **Generate and deliver** — one paragraph per person per story, then send. **Next**, and
+   the first stage whose cost is per reader rather than per event.
 
 **The project has now spent money on both of the stages that ever will share it.**
 Clustering costs roughly 610 tokens per article; analysis costs roughly 1,846 tokens per
-event, once. `events.analysis_tokens` holds **88,595 across 48 rows** — the number the
+event, once. `events.analysis_tokens` holds **90,066 across 49 rows** — the number the
 whole cost argument gets audited against, and the reason it is stored on the event rather
 than summed from a log. A single figure there that ever doubled would mean an event had
 been understood twice, which is the one failure this design cannot absorb.
@@ -285,13 +312,20 @@ bounded by money and wall-clock rather than by subrequests. Clustering does 12 a
 run and analysis 6 events, roughly 35 subrequests, and neither tries to drain its backlog
 unattended.
 
-**Fifteen topics cannot cover what the sources publish.** Sixteen of the 48 analysed
+**Fifteen topics cannot cover what the sources publish.** Sixteen of the 49 analysed
 events carry no topic at all — game reviews, phone trade-in guides, consumer how-tos —
 because analysis is told to choose nothing rather than something loose. Those events are
 correctly scored and permanently unmatchable: with no row in `event_topics` there is
 nothing for a reader's topics to join against. Either the vocabulary grows or some of
 these are the wrong sources; both are product decisions, and matching will make the
 consequence visible rather than fix it.
+
+**The day-one path draws from the same analysis backlog.** When a new account
+matches nothing, the on-demand pass analyses up to three events — from the 49 still
+awaiting analysis, not from anywhere new. It is capped, once per account, and restricted
+to events whose headline already names something that reader follows, so it cannot drain
+the backlog; but the money comes out of the same pocket, and the `admin_audit_log` rows
+with action `backfill.analyse` are where to look for what it has spent.
 
 **`--signal` is two different colours.** `public/logo.svg` is blue, `src/styles.css` is
 red (hue 27), `src/lib/email/shell.ts` is `#c52c2a`, and `AGENTS.md` claims hue 240. This
@@ -311,7 +345,7 @@ seen by a lawyer.
 **The licence has placeholders too.** `LICENSE` names `[Company legal name]`. A
 copyright notice naming nobody is hard to enforce.
 
-**`react-refresh/only-export-components` warnings.** Nineteen of them, all in files that
+**`react-refresh/only-export-components` warnings.** Eighteen of them, all in files that
 export both a component and a helper. They affect hot-reload granularity in development
 and nothing else. Left alone deliberately; splitting those files to satisfy the rule
 would scatter closely-related code for no runtime benefit.
@@ -325,8 +359,8 @@ CI runs all four on every push and pull request — see
 
 ```
 npm run typecheck   # tsc --noEmit, with noUncheckedIndexedAccess on
-npm run lint        # eslint, currently 0 errors / 19 warnings
-npm run test        # vitest, 163 tests across 12 files
+npm run lint        # eslint, currently 0 errors / 18 warnings
+npm run test        # vitest, 245 tests across 15 files
 npm run build       # vite + nitro, Cloudflare Workers target
 ```
 

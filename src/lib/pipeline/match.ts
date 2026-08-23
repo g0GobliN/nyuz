@@ -391,7 +391,15 @@ async function existingPairs(db: Db, userId: string, eventIds: string[]): Promis
   return found;
 }
 
-async function loadReaders(
+/**
+ * The readers this run will decide for, with every preference they have set.
+ *
+ * Exported because stage 6 needs the same reader, assembled the same way. The
+ * day-one backfill will not spend a token analysing an event until it knows what
+ * a brand-new account follows, and a second copy of this assembly would be a
+ * second answer to the question "what does this person follow".
+ */
+export async function loadReaders(
   db: Db,
   options: MatchOptions,
 ): Promise<{ readers: Reader[]; paused: number }> {

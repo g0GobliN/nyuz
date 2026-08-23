@@ -18,6 +18,9 @@
  *   npm run pipeline -- match --user ID       one reader, for checking a known case
  *   npm run pipeline -- match --since 72      only events analysed in the last 72 hours
  *   npm run pipeline -- match --paused        include readers who paused their briefings
+ *   npm run pipeline -- backfill --user ID    day one for one reader: match, then analyse if empty
+ *   npm run pipeline -- backfill --user ID --dry-run   report what day one would do
+ *   npm run pipeline -- backfill --user ID --free      never analyse, however empty the result
  *
  * The same functions the scheduled Worker calls, with the same arguments. There is
  * no separate code path for running it manually, because a manual run whose
@@ -41,12 +44,13 @@
  */
 
 import { analyse, type AnalysisReport, type EventOutcome } from "@/lib/pipeline/analyse";
+import { backfill, type BackfillReport } from "@/lib/pipeline/backfill";
 import { cluster, type ArticleOutcome, type ClusterReport } from "@/lib/pipeline/cluster";
 import { ingest, type IngestReport, type SourceOutcome } from "@/lib/pipeline/ingest";
 import { match, type MatchReport, type MissReason } from "@/lib/pipeline/match";
 import { db, fail, heading, main, row, say } from "./lib/db.ts";
 
-const STAGES = ["ingest", "cluster", "analyse", "match"] as const;
+const STAGES = ["ingest", "cluster", "analyse", "match", "backfill"] as const;
 type Stage = (typeof STAGES)[number];
 
 /**
@@ -86,6 +90,7 @@ main(async () => {
     if (stage === "cluster") await runCluster(args);
     if (stage === "analyse") await runAnalyse(args);
     if (stage === "match") await runMatch(args);
+    if (stage === "backfill") await runBackfill(args);
   }
 
   say();
@@ -289,6 +294,55 @@ async function runMatch(args: string[]): Promise<void> {
   });
 
   printMatch(report, dryRun);
+}
+
+/**
+ * Day one for one reader.
+ *
+ * `--user` is required rather than defaulting to everybody, because this is the
+ * one stage that is about a person rather than about the corpus — and because the
+ * path it may take spends money. A bare `backfill` that quietly ran for every
+ * account in the database is not a thing an operator should be able to type by
+ * accident.
+ */
+async function runBackfill(args: string[]): Promise<void> {
+  const user = stringFlag(args, "--user");
+  if (user === null) fail("backfill needs --user ID. It is one reader's first day, not a batch.");
+
+  const dryRun = args.includes("--dry-run");
+  const limit = numberFlag(args, "--limit");
+  const since = numberFlag(args, "--since");
+
+  heading(dryRun ? "Backfill (dry run — nothing is written)" : "Backfill");
+
+  const report = await backfill(db(), {
+    userId: user,
+    dryRun,
+    // `--free` is the flag for checking the matching half without risking the
+    // analysing half, which is what an operator wants nine times out of ten.
+    ...(args.includes("--free") ? { onDemand: false } : {}),
+    ...(limit === null ? {} : { analyseLimit: limit }),
+    ...(since === null ? {} : { windowHours: since }),
+  });
+
+  printBackfill(report);
+}
+
+function printBackfill(report: BackfillReport): void {
+  const seconds = (Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000;
+
+  say();
+  say(report.detail);
+
+  heading("Summary");
+  say(row("window (hours)", report.windowHours));
+  say(row("outcome", report.outcome));
+  say(row("matched", report.matched));
+  say(row("written to user_events", report.inserted));
+  say(row("analysed on demand", report.analysed));
+  say(row("tokens", report.tokens));
+  if (report.spentBefore) say(row("day one", "already paid for this account"));
+  say(row("seconds", Math.round(seconds)));
 }
 
 /** The miss reasons, in the order a reader would ask about them. */

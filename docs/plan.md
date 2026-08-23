@@ -18,20 +18,23 @@ see what is already true, and continue without re-deriving the design.
 site content, Stripe checkout and webhook (test mode), lifecycle email via Resend,
 reader preferences persisted to Postgres, a feed ingester filling `articles` on a
 schedule, a clustering stage grouping those articles into `events`, an analysis stage
-scoring those events and linking them to topics, and — as of the most recent work — a
-matching stage turning scored events into rows in `user_events` for a real reader.
+scoring those events and linking them to topics, a matching stage turning scored events
+into rows in `user_events` for a real reader, and — as of the most recent work — a
+day-one backfill that runs that matcher the moment somebody finishes onboarding and
+renders what it found on the dashboard.
 
 **Not working today.** Everything between a matched event and a reader's inbox.
 
-| Reality check                            | Answer                                                    |
-| ---------------------------------------- | --------------------------------------------------------- |
-| Do readers get real news?                | No. The dashboard still renders `src/lib/sample-data`.    |
-| Does anything call a language model?     | Yes — clustering and analysis. Matching never does.       |
-| Are there articles stored?               | Yes — 1040, from 64 live feeds.                           |
-| Are there events?                        | Yes — 98, holding 112 articles. 928 unclustered.          |
-| Has anything been analysed?              | Yes — 48 of 98, scored and topic-linked. 88,595 tokens.   |
-| Can a new reader be matched to anything? | Yes — 15 of 48 for the one live reader, at zero cost.     |
-| Does a reader see those matches?         | No. Nothing reads `user_events` yet — that is stage 8.    |
+| Reality check                            | Answer                                                   |
+| ---------------------------------------- | -------------------------------------------------------- |
+| Do readers get real news?                | On screen, yes. In an inbox, no — nothing is sent.       |
+| Does anything call a language model?     | Yes — clustering and analysis. Matching never does.      |
+| Are there articles stored?               | Yes — 1040, from 64 live feeds.                          |
+| Are there events?                        | Yes — 98, holding 112 articles. 928 unclustered.         |
+| Has anything been analysed?              | Yes — 49 of 98, scored and topic-linked. 90,066 tokens.  |
+| Can a new reader be matched to anything? | Yes — 16 of 49 for the one live reader, at zero cost.    |
+| Does a reader see those matches?         | Yes — on the home page, above the fixtures, marked Live. |
+| Is the dashboard real yet?               | Half. Everything else on it is still `sample-data`.      |
 
 The tables all exist from `0001` with row-level security already written. `articles`,
 `events`, `event_topics` and now `user_events` are genuinely full; `digests`,
@@ -454,13 +457,13 @@ quietly meaning something else.
 
 **Measured against the live database, one reader, 48 analysed events:**
 
-| Change made live                          |  Matched | Reason recorded                       |
-| ----------------------------------------- | -------: | ------------------------------------- |
-| Baseline, density 100 (`importance >= 0`)  | **15**/48 | `no-topic-match 33`                   |
+| Change made live                          |   Matched | Reason recorded                         |
+| ----------------------------------------- | --------: | --------------------------------------- |
+| Baseline, density 100 (`importance >= 0`) | **15**/48 | `no-topic-match 33`                     |
 | Density 35, the column default (`>= 3`)   |  **7**/48 | `below-threshold 8` — the same 15 split |
-| Exclusion `"Nvidia"` added                | **14**/48 | `excluded 1`                          |
-| The sole source of one event muted        | **14**/48 | `all-sources-muted 1`                 |
-| `TechCrunch` set to `priority`            | **15**/48 | membership unchanged, three scores +2 |
+| Exclusion `"Nvidia"` added                | **14**/48 | `excluded 1`                            |
+| The sole source of one event muted        | **14**/48 | `all-sources-muted 1`                   |
+| `TechCrunch` set to `priority`            | **15**/48 | membership unchanged, three scores +2   |
 
 Every count reconciles: misses plus matches equal 48 in each row. **Model calls: 0**, in
 every run. A second real run reported _"15 already matched by an earlier run"_, wrote
@@ -508,7 +511,7 @@ importance 0, which is the same bad feed stage 4 measured at 20.5% of analysis s
 
 ---
 
-### Stage 6 — Day-one backfill · _next_
+### Stage 6 — Day-one backfill · _done_
 
 **This is the idea that makes signup not feel empty**, and it is nearly free.
 
@@ -516,11 +519,11 @@ A reader who picks topics today should immediately see events already in the dat
 those were analysed for somebody else, so matching a new reader against them costs one
 SQL query and nothing else.
 
-- [ ] On onboarding completion, run stage 5 against recent events
-- [ ] Render those on the dashboard straight away
-- [ ] If nothing matches, fetch and analyse on demand for that first day only
-- [ ] From day two, the normal schedule takes over
-- [ ] Verified: a brand-new account with common topics lands on a non-empty dashboard
+- [x] On onboarding completion, run stage 5 against recent events
+- [x] Render those on the dashboard straight away
+- [x] If nothing matches, fetch and analyse on demand for that first day only
+- [x] From day two, the normal schedule takes over
+- [x] Verified: a brand-new account with common topics lands on a non-empty dashboard
 
 **Decided: 72 hours.** Wide enough that a reader who picks a quiet topic still sees
 something on day one, narrow enough that the first briefing is not a stale wall of text.
@@ -529,13 +532,68 @@ window deliberately — stage 3 gets history to cluster against, and day one doe
 
 **Stage 5 already takes the two arguments this needs.** `match(db, { userIds, sinceHours })`
 scopes a run to one reader and a window, so backfill is a call rather than a second
-matcher — `npm run pipeline -- match --user <id> --since 72` is the same code path the
-cron runs. It writes with `ignoreDuplicates`, so a backfill that overlaps the scheduled
-run cannot double up or rewrite `matched_at`.
+matcher. `src/lib/pipeline/backfill.ts` is that call plus the one thing stage 5 does not
+do — decide what to pay for when the answer is empty. It writes through stage 5, which
+uses `ignoreDuplicates`, so a backfill that overlaps the scheduled run cannot double up
+or rewrite `matched_at`.
 
 **Do not confuse this with a quiet day.** The product promises that quiet days stay
 quiet. Backfill fills a _new account_, not a slow news morning. If nothing genuinely
 matches, say so — that is the promise, not a bug.
+
+**Measured against the live database, on real accounts created and deleted for the
+purpose:**
+
+| A brand-new account following…               | Outcome     |          Rows | Model calls |    Tokens |
+| -------------------------------------------- | ----------- | ------------: | ----------: | --------: |
+| `openai`, `ai`, `chips` — the common case    | `matched`   |        **15** |           0 |         0 |
+| the same account, run a second time          | `matched`   | 15, **0 new** |           0 |         0 |
+| `typescript` — nothing in the corpus         | `quiet`     |             0 |           0 |         0 |
+| `cursor`, `anthropic` — nothing analysed yet | `analysed`  |         **1** |           1 | **1,471** |
+| `cursor`, `anthropic`, once that had run     | `matched`   |             1 |       **0** |     **0** |
+| nothing at all                               | `no-topics` |             0 |           0 |         0 |
+
+The fifth row is the whole cost argument, visible in one line. The fourth row paid 1,471
+tokens to understand one event; the fifth is a **different account** with the same
+interests matching that same event for nothing, because analysis is shared and day one
+does not re-buy it. The second row is idempotence: 15 rows, one distinct `matched_at`,
+nothing rewritten.
+
+**The paid path is bounded three separate ways, and the middle one is the interesting
+one.** A cap (`ON_DEMAND_LIMIT` = 3, against the cron's six an hour) and a once-per-account
+guard are obvious. What stops it being an endpoint that burns the analysis backlog is that
+a candidate must already **name** something the reader follows: an unanalysed event has no
+topics — analysis is what writes them — so the only evidence is the headline stage 3 left
+on it, read through the same `related` predicate the matcher uses. For `cursor`/`anthropic`
+that admitted **1 of 50** unanalysed events, not 50 and not 0. Exclusions apply here too,
+so nothing is paid for that the next gate would throw away.
+
+**The guard is an `admin_audit_log` row, written _before_ the model is called.** It is
+both the brake and the only record of what day one cost — `ingest.ts` already writes
+`source.disable` there with `actor_email: "pipeline:ingest"`, and one account's model
+spend is the same kind of thing. Written first, not last: a crash between the two costs
+that account its day-one analysis, and the other order costs the project an unbounded
+number of them. Verified by pre-seeding the row: `spentBefore: true`, zero tokens.
+
+**Three product decisions came out of building it.**
+
+- **`update()` in `prefs-store.ts` now returns a promise.** Onboarding has to await the
+  save before matching, because the matcher joins `user_topics` — running it a beat early
+  would match an empty topic list and conclude the reader is interested in nothing. Every
+  other caller still ignores the promise, and is right to.
+- **Onboarding's "Monitoring 327 sources" is gone.** Nobody counted 327 of anything; there
+  are 64 feeds. It was a fabricated figure on the screen a stranger is most likely to
+  believe, which is exactly what the rules at the bottom of this file forbid. The other
+  three lines of that sequence are now literally true while it plays.
+- **The sample-data notice narrowed again rather than coming down.** Real matches render
+  above the fixtures under a Live badge, so "nothing here was gathered for you" became a
+  lie; it now says which half of the page is a fixture. It comes down in stage 8.
+
+**What stage 6 deliberately did not do.** These events are rendered by their own card, not
+by `StoryCard`: the fixture card deep-links to `/dashboard/story/$id`, which reads
+`sample-data`, so pointing it at a real event id would produce a card that looks finished
+and 404s when clicked. There is no `why_it_matters` on them either — that is one generated
+paragraph per person, which is stage 7. Replacing the fixtures outright is stage 8.
 
 ---
 
@@ -555,15 +613,26 @@ A briefing template is new work; the plumbing under it is not.
 
 ---
 
-### Stage 8 — Dashboard on real data · _not started_
+### Stage 8 — Dashboard on real data · _started by stage 6_
 
 - [ ] Read `user_events` and `digest_items` instead of `src/lib/sample-data`
 - [ ] Remove `SampleDataNotice` once nothing on the page is a fixture
 - [ ] Story pages read real `articles` for the source list
 - [ ] Verified: `sample-data.ts` is imported by nothing outside the marketing site
 
-**Keep the notice until it is a lie.** The dashboard currently labels its fixtures
-honestly. That banner comes down when the data is real, not before.
+**Keep the notice until it is a lie.** The dashboard labels its fixtures honestly. That
+banner comes down when the data is real, not before.
+
+**The home page already reads `user_events`.** Stage 6 had to render what it matched or
+it would have been invisible, so `loadMatches` and `LiveBriefing` exist and the top of
+the home page is real. What is left for this stage is everything under it: the fixture
+list on the home page, the briefing and history pages, and the story pages behind each
+card. The last of those is why the live cards do not link anywhere — `StoryCard` points
+at `/dashboard/story/$id`, which reads `sample-data`, so a real event id would give a
+card that looks finished and 404s.
+
+**`digest_items` cannot be read until stage 7 writes any.** The live cards carry no
+"why this matters to you" line for that reason, not as an oversight.
 
 ---
 
@@ -619,11 +688,14 @@ honestly. That banner comes down when the data is real, not before.
       trade-in guides, consumer how-tos. Either the topic list grows or those sources
       are the wrong sources. Both are product decisions, and stage 5 will make the
       consequence visible.
-- [ ] **Fifty events are still awaiting analysis.** The backlog is deliberate —
+- [ ] **Forty-nine events are still awaiting analysis.** The backlog is deliberate —
       `ANALYSE_LIMIT` is six an hour — but somebody should run
-      `npm run pipeline -- analyse --limit 50` once before stage 8, so the dashboard has a
-      corpus rather than a sample. At the measured mean that is about 92,000 tokens. Do
+      `npm run pipeline -- analyse --limit 49` once before stage 8, so the dashboard has a
+      corpus rather than a sample. At the measured mean that is about 90,000 tokens. Do
       the PyTorch source decision first, or a fifth of that goes on CI refs again.
+      One of the original fifty has already gone, analysed on demand by stage 6's day-one
+      path for a reader following `anthropic` — which is what that path is for, and also a
+      reminder that it is drawing from the same backlog.
 - [ ] Dormancy email has no trigger — needs open-tracking, which needs stage 7
 - [ ] Stripe live mode — no real payment has ever run through the webhook
 - [ ] `VITE_SITE_URL` must be the real origin in production

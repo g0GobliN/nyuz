@@ -94,10 +94,15 @@ asks for and cannot have are counted and reported as a coverage signal instead.
 **Cost:** second model call, once per event. Around 1,700 tokens per event, measured — most
 of it the reasoning model's own reasoning rather than the prompt.
 
-### 5. Match — _not built_
+### 5. Match — _built_
 
-A deterministic SQL query, not a model. Topics, keywords, source preferences and the
-per-user density threshold decide who sees what, writing to `user_events`.
+A deterministic query, not a model. Topics, keywords, source preferences and the per-user
+density threshold decide who sees what, writing to `user_events`. It runs on a schedule
+at `25,55`, and `src/lib/pipeline/backfill.ts` runs the same code for one reader the
+moment they finish onboarding, so a new account is not looking at an empty page until the
+next cron. That day-one path is the only one that may call a model here, and only when the
+query returned nothing: up to three events whose headline already names something the
+reader follows, at most once per account, recorded in `admin_audit_log`.
 
 Exclusions are applied **last and win**. A term you have excluded cannot be reintroduced
 by a topic you follow. This ordering is a product promise, not an implementation detail —
@@ -137,11 +142,11 @@ the cheapest thing a language model can be asked for. It does not add a single a
 pass.
 
 > These figures are illustrative, not measured. Real numbers live in the admin console.
-> Four stages of the six now run, so the top of that funnel is real — 1040 articles
-> collected, 112 of them grouped into 98 events, and 48 of those events analysed for
-> 88,595 tokens. The console shows zeroes for `user_events`, `digests` and `deliveries`,
-> because matching and delivery do not exist. The product does not display
-> plausible-looking figures nobody computed.
+> Five stages of the six now run, so all but the last of that funnel is real — 1040
+> articles collected, 112 of them grouped into 98 events, 49 of those events analysed for
+> 90,066 tokens, and 16 rows in `user_events` for the one live reader. The console still
+> shows zeroes for `digests` and `deliveries`, because delivery does not exist. The product
+> does not display plausible-looking figures nobody computed.
 
 ---
 
