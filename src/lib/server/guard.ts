@@ -109,6 +109,22 @@ export const adminOnly = createMiddleware({ type: "function" })
     return next({ context: { actor } });
   });
 
+/**
+ * Any signed-in reader, whatever their role.
+ *
+ * The two middlewares above gate the console on a role; this one establishes
+ * only that the caller is who the token says they are. The customer dashboard
+ * has actions of its own — sending itself a confirmation email, for one — and
+ * those must not take a user id from a request body, which is attacker-chosen.
+ * The id on `context.actor` comes from a verified JWT and nowhere else.
+ */
+export const signedInOnly = createMiddleware({ type: "function" })
+  .middleware([attachToken])
+  .server(async ({ next }) => {
+    const actor = await resolveActor();
+    return next({ context: { actor } });
+  });
+
 export const superadminOnly = createMiddleware({ type: "function" })
   .middleware([attachToken])
   .server(async ({ next }) => {
