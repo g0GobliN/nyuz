@@ -4,7 +4,8 @@ import { useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
 import { DensityDial } from "@/components/density-dial";
-import { useRadar } from "@/lib/radar-store";
+import { useAuth } from "@/lib/auth";
+import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/delivery")({
@@ -24,7 +25,10 @@ const ZONES = [
 ];
 
 function Delivery() {
-  const { prefs, update } = useRadar();
+  const { prefs, update } = usePrefs();
+  // The address on the account, not a stored copy — the account is the only
+  // thing that actually receives a briefing.
+  const email = useAuth().user?.email ?? "";
   const [saved, setSaved] = useState(false);
   const [failed, setFailed] = useState(true);
 
@@ -35,7 +39,9 @@ function Delivery() {
   };
 
   const toggleDay = (d: string) =>
-    touch({ days: prefs.days.includes(d) ? prefs.days.filter((x) => x !== d) : [...prefs.days, d] });
+    touch({
+      days: prefs.days.includes(d) ? prefs.days.filter((x) => x !== d) : [...prefs.days, d],
+    });
 
   return (
     <DashboardShell title="Delivery">
@@ -120,7 +126,7 @@ function Delivery() {
             <Channel
               icon={Mail}
               label="Email"
-              detail="vishal@example.com · the full briefing"
+              detail={`${email || "No address on file"} · the full briefing`}
               on={prefs.channels.email}
               onToggle={() =>
                 touch({ channels: { ...prefs.channels, email: !prefs.channels.email } })

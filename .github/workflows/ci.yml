@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  # Lets a run be triggered by hand from the Actions tab, which is the quickest
+  # way to confirm a fix without pushing an empty commit.
+  workflow_dispatch:
+
+# A second push to the same branch cancels the first. Without this, a quick
+# follow-up commit leaves the earlier run burning minutes on code nobody will
+# merge. `main` is excluded from cancellation so its history stays fully checked.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Runs first and independently of the build. A commit message cannot be fixed
+  # by a follow-up commit — it needs a rebase — so it is better to find out in
+  # thirty seconds than after a four-minute build.
+  commits:
+    name: Commit messages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The check compares two commits, so the full history has to be here.
+          # The default shallow clone has neither end of the range.
+          fetch-depth: 0
+
+      - name: Reject Co-Authored-By trailers
+        env:
+          # `pull_request` carries base and head explicitly; `push` does not, so
+          # it falls back to the range that was pushed.
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          # A new branch reports an all-zero "before", and a manual dispatch
+          # reports none at all. Both fall back to the tip commit alone.
+          if [ -z "${BASE:-}" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            range="${HEAD}~1..${HEAD}"
+          else
+            range="${BASE}..${HEAD}"
+          fi
+
+          echo "Checking $range"
+          failed=0
+
+          for sha in $(git rev-list "$range"); do
+            if git log -1 --format='%B' "$sha" | grep -qiE '^[[:space:]]*co-authored-by:'; then
+              subject=$(git log -1 --format='%s' "$sha")
+              echo "::error::${sha:0:8} has a Co-Authored-By trailer — $subject"
+              failed=1
+            fi
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            echo ""
+            echo "Commits in this branch must not carry Co-Authored-By trailers."
+            echo "Strip them and force-push:"
+            echo ""
+            echo "  git filter-branch -f --msg-filter \\"
+            echo "    \"sed -E '/^[Cc]o-[Aa]uthored-[Bb]y:/d'\" main..HEAD"
+            echo "  git push --force-with-lease"
+            exit 1
+          fi
+
+          echo "No Co-Authored-By trailers found."
+
+  verify:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Vite inlines VITE_-prefixed variables at build time, and
+      # src/lib/supabase/client.ts reads two of them at module scope. These are
+      # obvious throwaways so that a build failure here can never be mistaken
+      # for a credential problem, and so that nothing real is needed to verify a
+      # pull request. The build is checked, not run — no request is ever made to
+      # this host.
+      VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+      VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` rather than `npm install`: it installs exactly what the
+      # lockfile pins and fails if package.json and the lockfile disagree, so a
+      # dependency cannot drift between a developer's machine and CI.
+      - name: Install
+        run: npm ci
+
+      # Each check is its own step so a red run names what broke in the job
+      # summary, instead of one "npm run ci" that could have failed anywhere.
+      # They run in ascending order of cost: types before lint before tests
+      # before the full build.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build

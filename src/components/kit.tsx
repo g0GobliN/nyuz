@@ -11,12 +11,7 @@ export function Button({
   variant?: "primary" | "ghost" | "outline" | "signal";
   size?: "sm" | "md" | "lg";
 }) {
-  return (
-    <button
-      className={cn(buttonClass(variant, size), className)}
-      {...props}
-    />
-  );
+  return <button className={cn(buttonClass(variant, size), className)} {...props} />;
 }
 
 export function buttonClass(
@@ -94,10 +89,7 @@ export function Eyebrow({ children, className }: { children: ReactNode; classNam
 
 export function Card({ className, ...props }: ComponentProps<"div">) {
   return (
-    <div
-      className={cn("rounded-2xl border border-hairline bg-surface", className)}
-      {...props}
-    />
+    <div className={cn("rounded-2xl border border-hairline bg-surface", className)} {...props} />
   );
 }
 

@@ -1,20 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, Check, Github, Loader2, Mail } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { Github, Loader2, Lock, Mail, User as UserIcon } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/kit";
 import { Logo } from "@/components/landing/nav";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { useRadar } from "@/lib/radar-store";
-
-export const Route = createFileRoute("/auth")({
-  component: Auth,
-  head: () => ({
-    meta: [
-      { title: "Sign in — nyuz" },
-      { name: "description", content: "Sign in to your nyuz briefing." },
-    ],
-  }),
-});
+import { useAuth, type OAuthProvider } from "@/lib/auth";
 
 function GoogleMark() {
   return (
@@ -27,33 +17,71 @@ function GoogleMark() {
   );
 }
 
+export const Route = createFileRoute("/auth")({
+  component: Auth,
+  head: () => ({
+    meta: [
+      { title: "Sign in — nyuz" },
+      { name: "description", content: "Sign in to your nyuz briefing." },
+    ],
+  }),
+});
+
 type Mode = "signin" | "signup";
 
 function Auth() {
   const navigate = useNavigate();
-  const { prefs, update } = useRadar();
+  const { signIn, signUp, signInWithProvider, session, loading } = useAuth();
+
   const [mode, setMode] = useState<Mode>("signin");
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const valid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
+  // Already signed in (or just became so) — nothing to do on this page.
+  useEffect(() => {
+    if (!loading && session) navigate({ to: "/dashboard" });
+  }, [loading, session, navigate]);
 
-  const submit = (e: FormEvent) => {
+  const oauth = async (provider: OAuthProvider) => {
+    setError(null);
+    setBusy(true);
+    try {
+      // On success this navigates away to the provider, so nothing after runs.
+      await signInWithProvider(provider);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start sign-in.");
+      setBusy(false);
+    }
+  };
+
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!valid) {
+    setError(null);
+
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
       setError("Enter an email address we can reach you at.");
       return;
     }
-    setError(null);
-    setState("sending");
-    // Stand-in for the magic-link request. Wire to the auth provider here.
-    setTimeout(() => setState("sent"), 900);
-  };
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
 
-  const continueAsDemo = () => {
-    update({ onboarded: true });
-    navigate({ to: prefs.onboarded ? "/dashboard" : "/onboarding" });
+    setBusy(true);
+    try {
+      if (mode === "signup") {
+        await signUp(email.trim(), password, name.trim());
+      } else {
+        await signIn(email.trim(), password);
+      }
+      // The auth listener flips `session`, and the effect above redirects.
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Try again.");
+      setBusy(false);
+    }
   };
 
   return (
@@ -65,113 +93,178 @@ function Auth() {
 
       <main className="veil flex flex-1 items-center justify-center px-5 py-12 sm:px-8">
         <div className="w-full max-w-sm animate-rise">
-          {state === "sent" ? (
-            <div className="text-center">
-              <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-signal/40">
-                <Check className="h-5 w-5 text-signal" />
-              </span>
-              <h1 className="display mt-6 text-3xl">Check your inbox.</h1>
-              <p className="mt-4 text-[14px] leading-relaxed text-muted-foreground">
-                We sent a sign-in link to <span className="text-foreground">{email}</span>. It works
-                once and expires in 15 minutes.
-              </p>
-              <button
-                onClick={() => setState("idle")}
-                className="mt-7 text-[13px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-              >
-                Use a different address
-              </button>
-              <div className="mt-10 border-t border-hairline pt-6">
-                <Button variant="outline" className="w-full" onClick={continueAsDemo}>
-                  Explore the demo dashboard <ArrowRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <h1 className="display text-4xl">
-                {mode === "signin" ? "Welcome back." : "Build your radar."}
-              </h1>
-              <p className="mt-4 text-[14.5px] leading-relaxed text-muted-foreground">
-                {mode === "signin"
-                  ? "Your briefing is where you left it."
-                  : "Free to start. No credit card required."}
-              </p>
+          <h1 className="display text-4xl">
+            {mode === "signin" ? "Welcome back." : "Build your nyuz."}
+          </h1>
+          <p className="mt-4 text-[14.5px] leading-relaxed text-muted-foreground">
+            {mode === "signin"
+              ? "Your briefing is where you left it."
+              : "Free to start. No credit card required."}
+          </p>
 
-              <div className="mt-8 flex flex-col gap-2.5">
-                <Button variant="outline" className="w-full" onClick={continueAsDemo}>
-                  <GoogleMark /> Continue with Google
-                </Button>
-                <Button variant="outline" className="w-full" onClick={continueAsDemo}>
-                  <Github className="h-4 w-4" /> Continue with GitHub
-                </Button>
-              </div>
+          <div className="mt-8 flex flex-col gap-2.5">
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled={busy}
+              onClick={() => oauth("google")}
+            >
+              <GoogleMark /> Continue with Google
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled={busy}
+              onClick={() => oauth("github")}
+            >
+              <Github className="h-4 w-4" /> Continue with GitHub
+            </Button>
+          </div>
 
-              <div className="my-7 flex items-center gap-4">
-                <span className="h-px flex-1 bg-[var(--hairline)]" />
-                <span className="text-[11.5px] uppercase tracking-[0.16em] text-muted-foreground">
-                  or
-                </span>
-                <span className="h-px flex-1 bg-[var(--hairline)]" />
-              </div>
+          <div className="my-7 flex items-center gap-4">
+            <span className="h-px flex-1 bg-[var(--hairline)]" />
+            <span className="text-[11.5px] uppercase tracking-[0.16em] text-muted-foreground">
+              or
+            </span>
+            <span className="h-px flex-1 bg-[var(--hairline)]" />
+          </div>
 
-              <form onSubmit={submit} noValidate>
-                <label htmlFor="email" className="text-[13px] text-muted-foreground">
-                  Email address
-                </label>
-                <div className="mt-2 flex items-center gap-2.5 rounded-full border border-input bg-surface px-4 focus-within:border-signal">
-                  <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <input
-                    id="email"
-                    type="email"
-                    autoComplete="email"
-                    value={email}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      if (error) setError(null);
-                    }}
-                    placeholder="you@work.com"
-                    className="h-11 w-full bg-transparent text-[14.5px] outline-none placeholder:text-muted-foreground"
-                  />
-                </div>
-                {error ? <p className="mt-2 text-[12.5px] text-destructive">{error}</p> : null}
+          <form onSubmit={submit} noValidate>
+            {mode === "signup" ? (
+              <Field
+                id="name"
+                label="What should we call you?"
+                icon={<UserIcon className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                type="text"
+                autoComplete="name"
+                value={name}
+                onChange={setName}
+                placeholder="Your name"
+              />
+            ) : null}
 
-                <Button type="submit" className="mt-4 w-full" disabled={state === "sending"}>
-                  {state === "sending" ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" /> Sending link
-                    </>
-                  ) : (
-                    <>Send me a sign-in link</>
-                  )}
-                </Button>
-              </form>
+            <Field
+              id="email"
+              label="Email address"
+              icon={<Mail className="h-4 w-4 shrink-0 text-muted-foreground" />}
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(v) => {
+                setEmail(v);
+                if (error) setError(null);
+              }}
+              placeholder="you@work.com"
+              className={mode === "signup" ? "mt-4" : ""}
+            />
 
-              <p className="mt-7 text-center text-[13px] text-muted-foreground">
-                {mode === "signin" ? "New here? " : "Already have an account? "}
-                <button
-                  onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-                  className="text-foreground underline-offset-4 hover:underline"
-                >
-                  {mode === "signin" ? "Create an account" : "Sign in"}
-                </button>
-              </p>
-            </>
-          )}
+            <Field
+              id="password"
+              label="Password"
+              icon={<Lock className="h-4 w-4 shrink-0 text-muted-foreground" />}
+              type="password"
+              autoComplete={mode === "signup" ? "new-password" : "current-password"}
+              value={password}
+              onChange={(v) => {
+                setPassword(v);
+                if (error) setError(null);
+              }}
+              placeholder={mode === "signup" ? "At least 6 characters" : "••••••••"}
+              className="mt-4"
+            />
+
+            {error ? <p className="mt-3 text-[12.5px] text-destructive">{error}</p> : null}
+
+            <Button type="submit" className="mt-6 w-full" disabled={busy}>
+              {busy ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {mode === "signup" ? "Creating account" : "Signing in"}
+                </>
+              ) : mode === "signup" ? (
+                "Create account"
+              ) : (
+                "Sign in"
+              )}
+            </Button>
+          </form>
+
+          <p className="mt-7 text-center text-[13px] text-muted-foreground">
+            {mode === "signin" ? "New here? " : "Already have an account? "}
+            <button
+              onClick={() => {
+                setMode(mode === "signin" ? "signup" : "signin");
+                setError(null);
+              }}
+              className="text-foreground underline-offset-4 hover:underline"
+            >
+              {mode === "signin" ? "Create an account" : "Sign in"}
+            </button>
+          </p>
 
           <p className="mt-10 text-center text-[11.5px] leading-relaxed text-muted-foreground">
             By continuing you agree to our{" "}
-            <Link to="/legal/$doc" params={{ doc: "terms" }} className="underline-offset-4 hover:underline">
+            <Link
+              to="/legal/$doc"
+              params={{ doc: "terms" }}
+              className="underline-offset-4 hover:underline"
+            >
               Terms
             </Link>{" "}
             and{" "}
-            <Link to="/legal/$doc" params={{ doc: "privacy" }} className="underline-offset-4 hover:underline">
+            <Link
+              to="/legal/$doc"
+              params={{ doc: "privacy" }}
+              className="underline-offset-4 hover:underline"
+            >
               Privacy Policy
             </Link>
             .
           </p>
         </div>
       </main>
+    </div>
+  );
+}
+
+function Field({
+  id,
+  label,
+  icon,
+  type,
+  autoComplete,
+  value,
+  onChange,
+  placeholder,
+  className,
+}: {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  type: string;
+  autoComplete: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  className?: string;
+}) {
+  return (
+    <div className={className}>
+      <label htmlFor={id} className="text-[13px] text-muted-foreground">
+        {label}
+      </label>
+      <div className="mt-2 flex items-center gap-2.5 rounded-full border border-input bg-surface px-4 focus-within:border-signal">
+        {icon}
+        <input
+          id={id}
+          type={type}
+          autoComplete={autoComplete}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="h-11 w-full bg-transparent text-[14.5px] outline-none placeholder:text-muted-foreground"
+        />
+      </div>
     </div>
   );
 }

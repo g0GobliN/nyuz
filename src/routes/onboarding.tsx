@@ -5,7 +5,8 @@ import { Button, Chip } from "@/components/kit";
 import { Logo, LogoMark } from "@/components/landing/nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DensityDial } from "@/components/density-dial";
-import { useRadar, type RadarPrefs } from "@/lib/radar-store";
+import { useAuth } from "@/lib/auth";
+import { usePrefs, type Prefs } from "@/lib/prefs-store";
 import { IGNORE_POOL, TOPIC_POOL } from "@/lib/sample-data";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/onboarding")({
   component: Onboarding,
   head: () => ({
     meta: [
-      { title: "Build your radar" },
+      { title: "Build your nyuz" },
       { name: "description", content: "Four questions and your first briefing is on its way." },
     ],
   }),
@@ -39,9 +40,22 @@ const STEP_TITLES = [
 
 function Onboarding() {
   const navigate = useNavigate();
-  const { prefs, update, hydrated } = useRadar();
+  const { prefs, update, hydrated } = usePrefs();
+  const { session } = useAuth();
   const [step, setStep] = useState(0);
-  const [draft, setDraft] = useState<RadarPrefs | null>(null);
+  const [draft, setDraft] = useState<Prefs | null>(null);
+
+  /**
+   * Where the finished sequence lets you out.
+   *
+   * Onboarding does not require an account, but `/dashboard` does — its guard
+   * redirects anyone without a session straight to `/auth`. Sending everyone to
+   * the dashboard therefore ended the flow by bouncing new visitors to a sign-in
+   * page one beat after telling them everything was ready. Signed-in people go
+   * to the dashboard; everyone else goes to sign-up, where their answers are
+   * waiting in local storage to be attached to the new account.
+   */
+  const exitTo = session ? "/dashboard" : "/auth";
 
   useEffect(() => {
     if (hydrated && !draft) setDraft({ ...prefs, topics: [], exclusions: [] });
@@ -51,10 +65,14 @@ function Onboarding() {
     return <div className="min-h-screen bg-background" />;
   }
 
-  const patch = (p: Partial<RadarPrefs>) => setDraft((d) => (d ? { ...d, ...p } : d));
+  const patch = (p: Partial<Prefs>) => setDraft((d) => (d ? { ...d, ...p } : d));
 
   const canAdvance =
-    step === 0 ? draft.topics.length > 0 : step === 3 ? Object.values(draft.channels).some(Boolean) : true;
+    step === 0
+      ? draft.topics.length > 0
+      : step === 3
+        ? Object.values(draft.channels).some(Boolean)
+        : true;
 
   const finish = () => {
     update({ ...draft, onboarded: true });
@@ -92,7 +110,7 @@ function Onboarding() {
       <main className="veil flex flex-1 items-center px-5 py-12 sm:px-8">
         <div className="mx-auto w-full max-w-xl">
           {step === 4 ? (
-            <SetupSequence name={draft.name} onDone={() => navigate({ to: "/dashboard" })} />
+            <SetupSequence name={draft.name} onDone={() => navigate({ to: exitTo })} />
           ) : (
             <div key={step} className="animate-rise">
               <h1 className="display text-[clamp(2rem,5.5vw,3rem)]">{STEP_TITLES[step]}</h1>
@@ -123,7 +141,7 @@ function Onboarding() {
                     disabled={!canAdvance}
                     onClick={() => (step === 3 ? finish() : setStep((s) => s + 1))}
                   >
-                    {step === 3 ? "Build my radar" : "Continue"} <ArrowRight className="h-4 w-4" />
+                    {step === 3 ? "Build my nyuz" : "Continue"} <ArrowRight className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
@@ -141,7 +159,7 @@ function Onboarding() {
   );
 }
 
-type StepProps = { draft: RadarPrefs; patch: (p: Partial<RadarPrefs>) => void };
+type StepProps = { draft: Prefs; patch: (p: Partial<Prefs>) => void };
 
 function StepTopics({ draft, patch }: StepProps) {
   const [q, setQ] = useState("");
@@ -273,7 +291,9 @@ function StepIgnore({ draft, patch }: StepProps) {
 
 function StepSchedule({ draft, patch }: StepProps) {
   const toggleDay = (d: string) =>
-    patch({ days: draft.days.includes(d) ? draft.days.filter((x) => x !== d) : [...draft.days, d] });
+    patch({
+      days: draft.days.includes(d) ? draft.days.filter((x) => x !== d) : [...draft.days, d],
+    });
 
   return (
     <div className="mt-8 space-y-8">
@@ -334,7 +354,12 @@ function StepSchedule({ draft, patch }: StepProps) {
 
 const CHANNELS = [
   { key: "email", label: "Email", icon: Mail, note: "Always on. The full briefing." },
-  { key: "telegram", label: "Telegram", icon: MessageCircle, note: "Short form, tap through for detail." },
+  {
+    key: "telegram",
+    label: "Telegram",
+    icon: MessageCircle,
+    note: "Short form, tap through for detail.",
+  },
   { key: "whatsapp", label: "WhatsApp", icon: Phone, note: "Available on Pro." },
 ] as const;
 
@@ -407,7 +432,7 @@ function SetupSequence({ name, onDone }: { name: string; onDone: () => void }) {
   return (
     <div className="animate-rise text-center">
       {/* The pulse conveys "scanning"; the mark keeps it ours rather than a
-          generic radar ping. */}
+          generic scanning animation. */}
       <span className="relative mx-auto flex h-16 w-16 items-center justify-center">
         <span
           className="absolute inset-0 rounded-full border border-signal/40"
@@ -416,8 +441,11 @@ function SetupSequence({ name, onDone }: { name: string; onDone: () => void }) {
         <LogoMark className="h-7 w-auto text-foreground" />
       </span>
 
+      {/* Greeted by name only when there actually is one. This line used to
+          interpolate a default that shipped with a real person's name in it, so
+          every stranger who finished onboarding was welcomed as somebody else. */}
       <h1 className="display mt-8 text-[clamp(2rem,5.5vw,3rem)]">
-        Your radar is ready, {name}.
+        {name ? `Your nyuz is ready, ${name}.` : "Your nyuz is ready."}
       </h1>
 
       <ol className="mx-auto mt-10 max-w-xs space-y-3 text-left">

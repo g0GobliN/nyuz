@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Bell, BellOff, Zap } from "lucide-react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { Chip, LinkButton } from "@/components/kit";
-import { useRadar } from "@/lib/radar-store";
+import { usePrefs } from "@/lib/prefs-store";
 import { STORIES } from "@/lib/sample-data";
 
 export const Route = createFileRoute("/dashboard/alerts")({
@@ -16,7 +16,7 @@ const SENT = [
 ];
 
 function Alerts() {
-  const { prefs, update } = useRadar();
+  const { prefs, update } = usePrefs();
   const off = prefs.breaking === "off";
 
   return (
@@ -38,9 +38,7 @@ function Alerts() {
             {off ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
           </span>
           <div className="flex-1">
-            <p className="text-[15px] font-medium">
-              {off ? "Alerts are off" : "Alerts are on"}
-            </p>
+            <p className="text-[15px] font-medium">{off ? "Alerts are off" : "Alerts are on"}</p>
             <p className="mt-1 text-[12.5px] text-muted-foreground">
               {off
                 ? "Everything waits for your next scheduled briefing."

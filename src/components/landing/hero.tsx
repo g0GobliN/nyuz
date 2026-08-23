@@ -184,7 +184,7 @@ export function InterestDemo() {
         </div>
         <div className="mt-8 flex flex-wrap items-center gap-3">
           <LinkButton to="/onboarding" size="md">
-            Build my radar <ArrowRight className="h-4 w-4" />
+            Build my nyuz <ArrowRight className="h-4 w-4" />
           </LinkButton>
           <Link
             to="/how-it-works"

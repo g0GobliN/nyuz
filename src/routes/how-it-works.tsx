@@ -2,13 +2,22 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Section } from "@/components/kit";
 import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
-import { HowItWorksRail, Comparison } from "@/components/landing/how-it-works";
-import { AiTrust, Infrastructure, WhyDifferent } from "@/components/landing/sections";
+import {
+  MechanicsFaq,
+  PipelineStages,
+  SharedAnalysis,
+  WorkedExample,
+} from "@/components/landing/pipeline-explainer";
 import { SourceTransparency, FinalCta } from "@/components/landing/closing";
-import { NoiseSection } from "@/components/landing/noise";
+import { getPublicSiteContent } from "@/lib/server/settings";
 import { useReveal } from "@/lib/use-reveal";
 
+// The loader is here for the chrome, not the body: the announcement strip and the
+// blog link have to be identical on every marketing page, and they come from the
+// console. The title and description stay hard-coded because they describe this
+// page, not the site.
 export const Route = createFileRoute("/how-it-works")({
+  loader: () => getPublicSiteContent(),
   component: HowItWorks,
   head: () => ({
     meta: [
@@ -23,11 +32,12 @@ export const Route = createFileRoute("/how-it-works")({
 });
 
 function HowItWorks() {
+  const content = Route.useLoaderData();
   const ref = useReveal<HTMLDivElement>();
 
   return (
     <div ref={ref} className="min-h-screen bg-background">
-      <SiteNav />
+      <SiteNav content={content} />
       <main>
         <section className="veil px-5 pb-16 pt-32 sm:px-8">
           <div className="mx-auto w-full max-w-6xl">
@@ -41,28 +51,26 @@ function HowItWorks() {
           </div>
         </section>
 
+        {/* This page's own content. It deliberately shares only two components
+            with the home page — SourceTransparency, because attribution is a
+            mechanical claim as much as a persuasive one, and FinalCta, because
+            every marketing page needs a way out. Everything above them is
+            written for a reader who has already decided the idea sounds good
+            and now wants to know what actually happens. */}
         <Section className="reveal border-t border-hairline">
-          <HowItWorksRail />
+          <PipelineStages />
         </Section>
 
         <Section className="border-t border-hairline">
-          <NoiseSection />
-        </Section>
-
-        <Section className="border-t border-hairline">
-          <Comparison />
-        </Section>
-
-        <Section className="border-t border-hairline">
-          <AiTrust />
-        </Section>
-
-        <Section className="border-t border-hairline">
-          <Infrastructure />
+          <SharedAnalysis />
         </Section>
 
         <Section className="reveal border-t border-hairline">
-          <WhyDifferent />
+          <WorkedExample />
+        </Section>
+
+        <Section className="border-t border-hairline">
+          <MechanicsFaq />
         </Section>
 
         <Section className="border-t border-hairline">
@@ -73,7 +81,7 @@ function HowItWorks() {
           <FinalCta />
         </div>
       </main>
-      <SiteFooter />
+      <SiteFooter content={content} />
     </div>
   );
 }

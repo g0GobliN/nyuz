@@ -6,8 +6,53 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
 - Routes are file-based under `src/routes/`; `src/routeTree.gen.ts` is generated — never edit it by hand.
 - `npx tsc --noEmit` must stay clean. `noUncheckedIndexedAccess` is on, so index
   access yields `T | undefined` — narrow before use.
-- Colour is limited to three values: black, white, and one amber (`--signal`, hue 70).
+- Colour is limited to three values: black, white, and one red (`--signal`, hue 27).
   Every other token in `src/styles.css` is chroma 0. Do not introduce a fourth colour.
+  `--destructive` is monochrome on purpose — with a red accent, a red error state
+  would be indistinguishable from an ordinary highlight, so destructive states lean
+  on iconography and weight. The two hex values in `public/logo.svg` are the sRGB
+  form of `--signal` light/dark and must be changed alongside it.
+
+## Admin console
+
+- Lives at `/admin`, separate from the customer dashboard. Migration
+  `0003_admin.sql` adds roles, bans, the blog, site settings, AI routing,
+  feature flags and the audit log.
+- **The security boundary is `adminOnly` / `superadminOnly` in
+  `src/lib/server/guard.ts`, nowhere else.** They verify the caller's Supabase
+  token server-side and re-read the role from `user_roles` on every call. The
+  role check in the UI (`src/lib/viewer.ts`) only decides what gets drawn —
+  never treat it as protection, and never add a console query that skips the
+  middleware.
+- `user_roles` has no write policy at all. A role can only change through an
+  audited server function holding the service-role key. Do not add a role
+  column to `profiles`: 0002 lets a user update their own profile row, which
+  would make it self-grantable.
+- Console data is fetched **on the client**, never in a route loader. The
+  caller's identity is a token in browser storage, so a loader running during
+  SSR has nobody to be. The public site is the opposite — it uses loaders,
+  because `getPublicSiteContent` needs no session and never throws.
+- Every mutating console action writes an `admin_audit_log` row via `audit()`.
+- First superadmin: `supabase/bootstrap_superadmin.sql`, run by hand once.
+
+## Editable site content
+
+- `src/lib/site-content.ts` holds one zod schema **and** a matching default per
+  editable key. The public site, the console form and the server-side write
+  validation all use the same schema, so a value that saves is a value that
+  renders. Every default reproduces the copy bundled in the components, which
+  is why an empty `site_settings` table renders exactly what ships.
+- Reads never throw. A malformed row costs one wrong headline and falls back to
+  the bundled copy — it does not 500 the front door.
+- Landing sections are an **ordered list** (`[{key, enabled}]`), because the
+  console can reorder them. The reader also accepts the older boolean-map form.
+  Adding a section means three edits: `SECTION_KEYS`, `SECTION_LABELS`, and
+  `SECTION_COMPONENTS` in `src/routes/index.tsx`. Missing one is a type error.
+- Legal text is deliberately NOT editable from the console — it is a legal
+  commitment that should require a deploy and therefore a code review. It lives
+  in `src/routes/legal/$doc.tsx`, where `ENTITY` still holds placeholders.
+- `/how-it-works` must not re-render the landing page's sections. The home page
+  argues; that page explains. Its content is `pipeline-explainer.tsx`.
 
 ## DeepSeek
 

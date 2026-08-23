@@ -4,7 +4,8 @@ import { useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button } from "@/components/kit";
 import { useFeedback } from "@/lib/feedback-store";
-import { DEFAULT_PREFS, useRadar } from "@/lib/radar-store";
+import { useAuth } from "@/lib/auth";
+import { DEFAULT_PREFS, usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/settings")({
@@ -14,7 +15,10 @@ export const Route = createFileRoute("/dashboard/settings")({
 
 function Settings() {
   const navigate = useNavigate();
-  const { prefs, update } = useRadar();
+  const { prefs, update } = usePrefs();
+  // The address on the account, not a stored copy — the account is the only
+  // thing that actually receives a briefing.
+  const email = useAuth().user?.email ?? "";
   const { state, signals, reset } = useFeedback();
   const [saved, setSaved] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -68,7 +72,8 @@ function Settings() {
               <input
                 id="email"
                 type="email"
-                defaultValue="vishal@example.com"
+                key={email}
+                defaultValue={email}
                 onBlur={save}
                 className="mt-2 h-11 w-full rounded-2xl border border-input bg-background px-4 text-[14.5px] outline-none focus:border-signal"
               />
@@ -83,7 +88,7 @@ function Settings() {
           <div className="flex flex-wrap items-start gap-5">
             <div className="flex-1">
               <p className="flex items-center gap-2 text-[14px] font-medium">
-                <Sparkles className="h-4 w-4 text-signal" /> Your radar is learning
+                <Sparkles className="h-4 w-4 text-signal" /> Your nyuz is learning
               </p>
               <p className="mt-2 max-w-md text-[13px] leading-relaxed text-muted-foreground">
                 {signals === 0

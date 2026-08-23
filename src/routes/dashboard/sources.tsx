@@ -160,7 +160,11 @@ function Row({
         aria-pressed={state === "muted"}
         className="inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
-        {state === "muted" ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+        {state === "muted" ? (
+          <VolumeX className="h-3.5 w-3.5" />
+        ) : (
+          <Volume2 className="h-3.5 w-3.5" />
+        )}
       </button>
       {onRemove ? (
         <button

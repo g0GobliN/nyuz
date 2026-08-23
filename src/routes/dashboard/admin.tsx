@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AlertTriangle, Check, Info, Loader2, RotateCw } from "lucide-react";
 import { useState } from "react";
-import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
+import { DashboardShell, PageHeader, StaffOnly } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
 import { cn } from "@/lib/utils";
 
@@ -75,6 +75,16 @@ const UNMEASURED = [
 ];
 
 function Admin() {
+  // Gated at the top rather than inside the body so that no fixture number, queue
+  // depth or scoring detail is rendered for a customer even momentarily.
+  return (
+    <StaffOnly title="Pipeline">
+      <PipelineView />
+    </StaffOnly>
+  );
+}
+
+function PipelineView() {
   const [tab, setTab] = useState<"pipeline" | "events" | "economics">("pipeline");
   const [retried, setRetried] = useState(false);
 
@@ -127,8 +137,8 @@ function Admin() {
               })}
             </div>
             <p className="mt-6 text-[12.5px] leading-relaxed text-muted-foreground">
-              8,412 articles collapsed into 312 events. The AI stage ran 312 times, not 8,412 —
-              that ratio is the whole cost model.
+              8,412 articles collapsed into 312 events. The AI stage ran 312 times, not 8,412 — that
+              ratio is the whole cost model.
             </p>
           </section>
 
@@ -289,8 +299,7 @@ function Admin() {
                         key={i}
                         className="h-5 flex-1 rounded-[3px]"
                         style={{
-                          background:
-                            i < Math.round(l.fill / 5) ? "var(--signal)" : "var(--muted)",
+                          background: i < Math.round(l.fill / 5) ? "var(--signal)" : "var(--muted)",
                           opacity: i < Math.round(l.fill / 5) ? 0.3 + i * 0.035 : 1,
                         }}
                       />
