@@ -21,6 +21,7 @@ import { Route as AdminAiRouteImport } from './routes/admin/ai'
 import { Route as AdminAuditRouteImport } from './routes/admin/audit'
 import { Route as AdminBlogRouteImport } from './routes/admin/blog'
 import { Route as AdminContentRouteImport } from './routes/admin/content'
+import { Route as AdminSourcesRouteImport } from './routes/admin/sources'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
 import { Route as BlogIndexRouteImport } from './routes/blog/index'
 import { Route as BlogSlugRouteImport } from './routes/blog/$slug'
@@ -95,6 +96,11 @@ const AdminBlogRoute = AdminBlogRouteImport.update({
 const AdminContentRoute = AdminContentRouteImport.update({
   id: '/content',
   path: '/content',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminSourcesRoute = AdminSourcesRouteImport.update({
+  id: '/sources',
+  path: '/sources',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminUsersRoute = AdminUsersRouteImport.update({
@@ -185,6 +191,7 @@ export interface FileRoutesByFullPath {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/content': typeof AdminContentRoute
+  '/admin/sources': typeof AdminSourcesRoute
   '/admin/users': typeof AdminUsersRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/dashboard/admin': typeof DashboardAdminRoute
@@ -212,6 +219,7 @@ export interface FileRoutesByTo {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/content': typeof AdminContentRoute
+  '/admin/sources': typeof AdminSourcesRoute
   '/admin/users': typeof AdminUsersRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/dashboard/admin': typeof DashboardAdminRoute
@@ -242,6 +250,7 @@ export interface FileRoutesById {
   '/admin/audit': typeof AdminAuditRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/content': typeof AdminContentRoute
+  '/admin/sources': typeof AdminSourcesRoute
   '/admin/users': typeof AdminUsersRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/dashboard/admin': typeof DashboardAdminRoute
@@ -273,6 +282,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/blog'
     | '/admin/content'
+    | '/admin/sources'
     | '/admin/users'
     | '/blog/$slug'
     | '/dashboard/admin'
@@ -300,6 +310,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/blog'
     | '/admin/content'
+    | '/admin/sources'
     | '/admin/users'
     | '/blog/$slug'
     | '/dashboard/admin'
@@ -329,6 +340,7 @@ export interface FileRouteTypes {
     | '/admin/audit'
     | '/admin/blog'
     | '/admin/content'
+    | '/admin/sources'
     | '/admin/users'
     | '/blog/$slug'
     | '/dashboard/admin'
@@ -446,6 +458,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminContentRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/sources': {
+      id: '/admin/sources'
+      path: '/sources'
+      fullPath: '/admin/sources'
+      preLoaderRoute: typeof AdminSourcesRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/users': {
       id: '/admin/users'
       path: '/users'
@@ -559,6 +578,7 @@ interface AdminRouteChildren {
   AdminAuditRoute: typeof AdminAuditRoute
   AdminBlogRoute: typeof AdminBlogRoute
   AdminContentRoute: typeof AdminContentRoute
+  AdminSourcesRoute: typeof AdminSourcesRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
@@ -568,6 +588,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminAuditRoute: AdminAuditRoute,
   AdminBlogRoute: AdminBlogRoute,
   AdminContentRoute: AdminContentRoute,
+  AdminSourcesRoute: AdminSourcesRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminIndexRoute: AdminIndexRoute,
 }

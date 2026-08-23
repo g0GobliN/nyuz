@@ -6,6 +6,7 @@ import {
   Cpu,
   FileText,
   LayoutTemplate,
+  Rss,
   ScrollText,
   ShieldCheck,
   Users,
@@ -45,6 +46,9 @@ const NAV: NavEntry[] = [
   { to: "/admin", label: "Overview", icon: BarChart3, exact: true },
   { to: "/admin/users", label: "Users", icon: Users },
   { to: "/admin/blog", label: "Blog", icon: FileText },
+  // Sources sits next to AI providers because the two are one job: what the
+  // pipeline reads, and what it thinks with.
+  { to: "/admin/sources", label: "Sources", icon: Rss },
   { to: "/admin/ai", label: "AI providers", icon: Cpu },
   { to: "/admin/content", label: "Site content", icon: LayoutTemplate },
   { to: "/admin/audit", label: "Audit log", icon: ScrollText },

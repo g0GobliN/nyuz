@@ -3,8 +3,11 @@
 Which model serves which stage, how to swap provider without a deploy, and why the keys are
 not in the database.
 
-> **State:** configuration is **built** and editable in the console. Nothing calls it yet,
-> because the pipeline that would is not built — see [status.md](status.md).
+> **State:** configuration is **built** and editable in the console, and the clustering
+> stage now resolves its model through it on every call — so changing the `cluster` row
+> changes what the pipeline spends money on, without a deploy. The `digest` and `reason`
+> tiers still have no caller, because the stages that would use them are not built. See
+> [status.md](status.md).
 
 ---
 

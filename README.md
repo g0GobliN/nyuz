@@ -127,8 +127,9 @@ Full technical and product documentation lives in [`docs/`](docs/README.md):
 ## Status
 
 nyuz is **in development and not yet accepting customers.** The marketing site, accounts,
-admin console and blog are real and working. The briefing pipeline — source collection,
-clustering, scoring, delivery — is not built yet, and the dashboard currently shows
+admin console and blog are real and working. Source collection and clustering now run
+against real feeds — there are 1017 stored articles, grouped into events by a real model
+call — but scoring, matching and delivery are not built, so the dashboard still shows
 clearly-labelled sample stories.
 
 [`docs/status.md`](docs/status.md) is an honest, itemised account of exactly what works

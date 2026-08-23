@@ -132,21 +132,81 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
   };
 }
 
-/** `complete()` with the response parsed as JSON, retried once on malformed output. */
+/**
+ * Strips the fencing a reasoning model adds to JSON despite being told not to.
+ *
+ * Also tolerates a preamble: these models occasionally narrate a sentence before
+ * the object. Anything outside the outermost braces or brackets is discarded,
+ * which is safe because the callers here all ask for a single JSON value.
+ */
+function unwrapJson(text: string): string {
+  const unfenced = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+
+  const start = unfenced.search(/[[{]/);
+  if (start === -1) return unfenced;
+
+  const end = Math.max(unfenced.lastIndexOf("}"), unfenced.lastIndexOf("]"));
+  return end > start ? unfenced.slice(start, end + 1) : unfenced.slice(start);
+}
+
+/** Adds two usage records, so a retried call still reports what it really spent. */
+function addUsage(first: CompleteResult, second: CompleteResult): CompleteResult {
+  return {
+    content: second.content,
+    model: second.model,
+    promptTokens: first.promptTokens + second.promptTokens,
+    completionTokens: first.completionTokens + second.completionTokens,
+    reasoningTokens: first.reasoningTokens + second.reasoningTokens,
+    cachedTokens: first.cachedTokens + second.cachedTokens,
+  };
+}
+
+/**
+ * `complete()` with the response parsed as JSON, retried once on malformed output.
+ *
+ * The retry is worth its cost. A reasoning model that has just spent a thousand
+ * tokens working something out and then formatted the answer badly has done the
+ * expensive part correctly; throwing that away over a stray sentence means paying
+ * for the reasoning again on the next scheduled run, and in the clustering stage it
+ * means an article silently becoming its own event when it belonged to another. So
+ * it is asked again, once, with the failure quoted back to it.
+ *
+ * The returned usage is the **sum of both attempts**. Nothing downstream may
+ * under-report what it spent — `events.analysis_tokens` is the number the whole
+ * cost argument for this product is audited against, and a retry that reported only
+ * its second attempt would make the ledger quietly optimistic.
+ */
 export async function completeJson<T>(
   opts: CompleteOptions,
 ): Promise<{ data: T; usage: CompleteResult }> {
-  const usage = await complete(opts);
-  const text = usage.content.trim();
-
-  // Reasoning models like to wrap JSON in ```json fences despite instructions.
-  const unfenced = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const first = await complete(opts);
 
   try {
-    return { data: JSON.parse(unfenced) as T, usage };
+    return { data: JSON.parse(unwrapJson(first.content)) as T, usage: first };
   } catch {
-    throw new Error(
-      `${usage.model} returned unparseable JSON (${text.length} chars): ${text.slice(0, 200)}`,
-    );
+    // Deliberately not a conversation: the same request again, plus the reason the
+    // last reply was unusable. Replaying a multi-turn exchange would cost the
+    // prompt twice over and give the model room to argue with itself.
+    const second = await complete({
+      ...opts,
+      user:
+        `${opts.user}\n\n---\nYour previous reply could not be parsed as JSON. ` +
+        `Reply with the JSON value only — no prose, no explanation, no code fence.\n` +
+        `What you sent began: ${first.content.trim().slice(0, 120)}`,
+    });
+
+    const usage = addUsage(first, second);
+    try {
+      return { data: JSON.parse(unwrapJson(second.content)) as T, usage };
+    } catch {
+      const text = second.content.trim();
+      throw new Error(
+        `${usage.model} returned unparseable JSON twice (${text.length} chars): ${text.slice(0, 200)}`,
+      );
+    }
   }
 }

@@ -1,6 +1,9 @@
 /**
- * Types for the schema in supabase/migrations/. Hand-written to mirror
- * 0001_init.sql exactly — regenerate once a personal access token is available:
+ * Types for the schema in supabase/migrations/. Hand-written, and therefore
+ * hand-maintained: a migration that adds a column or a table has to be reflected
+ * here in the same commit, or the client silently types the query as `never` and
+ * every use of it fails somewhere unrelated. Regenerate once a personal access
+ * token is available:
  *
  *   npx supabase gen types typescript --project-id qdnemetjiygvpedomvba > src/lib/supabase/types.ts
  *
@@ -56,6 +59,30 @@ export type Subscription = {
   status: string;
   current_period_end: string | null;
   updated_at: string;
+  /**
+   * The Stripe identifiers, added by 0005. Null for everyone who has never
+   * reached checkout, which is most accounts — both columns carry a *partial*
+   * unique index for that reason.
+   *
+   * They are how an incoming webhook finds the user it is about: Stripe names a
+   * customer and a subscription and has never heard of a Supabase user id.
+   */
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+};
+
+/**
+ * One row per Stripe event already processed (0005).
+ *
+ * The webhook inserts before doing the work and treats a unique violation as
+ * "already done" — Stripe retries for up to three days and does not promise
+ * exactly-once delivery. No RLS policies at all: written only with the
+ * service-role key, and the absence of a write policy is the write guard.
+ */
+export type StripeEvent = {
+  event_id: string;
+  type: string;
+  received_at: string;
 };
 
 export type NotificationPreferences = {
@@ -300,7 +327,16 @@ export type Database = {
         Profile,
         "display_name" | "timezone" | "onboarded_at" | "created_at" | "email" | "last_seen_at"
       >;
-      subscriptions: Table<Subscription, "plan" | "status" | "current_period_end" | "updated_at">;
+      subscriptions: Table<
+        Subscription,
+        | "plan"
+        | "status"
+        | "current_period_end"
+        | "updated_at"
+        | "stripe_customer_id"
+        | "stripe_subscription_id"
+      >;
+      stripe_events: Table<StripeEvent, "received_at">;
       notification_preferences: Table<
         NotificationPreferences,
         Exclude<keyof NotificationPreferences, "user_id">
@@ -379,6 +415,15 @@ export type Database = {
       admin_daily_counts: {
         Args: { p_days?: number };
         Returns: DailyCount[];
+      };
+      /**
+       * Per-source article counts for the console list (0007). Left-joined, so a
+       * feed that has never been fetched comes back with a count of zero rather
+       * than being absent.
+       */
+      admin_source_stats: {
+        Args: Record<string, never>;
+        Returns: { source_id: string; article_count: number; latest_article_at: string | null }[];
       };
       increment_post_view: {
         Args: { p_slug: string };

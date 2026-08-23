@@ -1,0 +1,143 @@
+/**
+ * What a Cron Trigger runs.
+ *
+ * ---------------------------------------------------------------------------
+ * Why this is not simply `ingest()`
+ * ---------------------------------------------------------------------------
+ *
+ * A scheduled invocation on Workers is not a script on a server. It has limits
+ * that a `npm run pipeline` does not, and the two that bite are:
+ *
+ *   - **Subrequests.** Every `fetch` counts, and so does every PostgREST call.
+ *     The cap is 50 per invocation on the free plan and 1000 on paid. A full run
+ *     over 64 sources is roughly 64 feed fetches plus three or four database
+ *     calls each — comfortably past 50, comfortably under 1000.
+ *   - **Wall clock.** Generous for cron (unlike a request), but not unlimited.
+ *
+ * So a scheduled run takes a slice rather than everything. `selectSources`
+ * already orders by `last_fetched_at` ascending, nulls first — most-neglected
+ * first — which means a limit rotates through every source on its own without
+ * any cursor to store. Four invocations cover 64 sources; at one invocation
+ * every fifteen minutes each source is read about every forty minutes, which is
+ * the other side of `MIN_INTERVAL_MINUTES` and about right for a news feed.
+ *
+ * ---------------------------------------------------------------------------
+ * Adding a stage
+ * ---------------------------------------------------------------------------
+ *
+ * Dispatch is on `cron` — the schedule string that fired — so a later stage gets
+ * its own schedule and its own branch here rather than being bolted onto this
+ * one. Clustering and analysis have different shapes to ingestion: they cost
+ * model tokens, so they want their own budget and their own failure story.
+ */
+
+import { createAdminClient, type ServerEnv } from "@/lib/supabase/admin";
+import { cluster, describeCluster, type ClusterReport } from "./cluster";
+import { ingest, type IngestReport } from "./ingest";
+
+/**
+ * Feeds read per scheduled invocation.
+ *
+ * 24 rather than 64 for the subrequest budget above. Raising it is a decision
+ * about the Cloudflare plan, not about the pipeline.
+ */
+const SCHEDULED_LIMIT = 24;
+
+/**
+ * Articles clustered per scheduled invocation.
+ *
+ * Much smaller than ingestion's slice, and for a different reason. Ingestion is
+ * bounded by subrequests; clustering is bounded by money and by time. Each article
+ * costs a shortlist query, up to one model call, and one or two writes — so twelve
+ * articles is around forty subrequests and twelve calls to a reasoning model, which
+ * is the part that takes seconds rather than milliseconds.
+ *
+ * At four invocations an hour this clusters under 1200 articles a day, against a
+ * real ingestion rate of a few hundred. There is headroom, and the backlog is
+ * drained by `npm run pipeline -- cluster --limit N` rather than by a cron that
+ * might run up a bill unattended.
+ */
+const CLUSTER_LIMIT = 12;
+
+/** The schedules this handler knows. Must match `triggers.crons` in vite.config.ts. */
+export const INGEST_CRON = "*/15 * * * *";
+
+/**
+ * Clustering runs on its own schedule, offset from ingestion.
+ *
+ * Offset rather than shared because the two stages want the opposite thing from
+ * each other's timing: clustering works best when the coverage of one announcement
+ * has all arrived, so it should run after an ingest rather than alongside one. Ten
+ * past the half hour is a few minutes after an ingest run, and half as often,
+ * which also keeps the two from competing for the same invocation's budget.
+ */
+export const CLUSTER_CRON = "10,40 * * * *";
+
+export type ScheduledResult =
+  | { stage: "ingest"; report: IngestReport }
+  | { stage: "cluster"; report: ClusterReport }
+  | { stage: "unknown"; cron: string };
+
+/**
+ * Runs whatever the given schedule is for.
+ *
+ * `force` is deliberately not set. An operator running the pipeline by hand
+ * wants to override the backoff; a cron firing every fifteen minutes must
+ * respect it, or the backoff means nothing and a dead feed is fetched ninety-six
+ * times a day.
+ */
+export async function runScheduled(
+  env: ServerEnv | undefined,
+  cron: string,
+): Promise<ScheduledResult> {
+  if (cron === INGEST_CRON) {
+    const report = await ingest(createAdminClient(env), { limit: SCHEDULED_LIMIT });
+    return { stage: "ingest", report };
+  }
+
+  if (cron === CLUSTER_CRON) {
+    // The env bag is passed twice on purpose: once so the client can reach the
+    // database, and once as `secrets` so the AI router can read `ai_model_routes`
+    // and find the provider key. On Cloudflare there is no `process.env` for
+    // either of them to fall back to.
+    const report = await cluster(createAdminClient(env), {
+      limit: CLUSTER_LIMIT,
+      ...(env ? { secrets: env as Record<string, string | undefined> } : {}),
+    });
+    return { stage: "cluster", report };
+  }
+
+  return { stage: "unknown", cron };
+}
+
+/**
+ * One line per run, for `wrangler tail`.
+ *
+ * Cron runs have no reader and no response, so the log is the only evidence the
+ * thing happened. Failures are named individually because "3 failed" in a log
+ * nobody can query is not something anyone can act on.
+ */
+export function describe(result: ScheduledResult): string {
+  if (result.stage === "unknown") {
+    return `cron ${result.cron} fired and nothing is registered for it`;
+  }
+
+  if (result.stage === "cluster") {
+    const line = describeCluster(result.report);
+    const failures = result.report.outcomes.filter((o) => o.decision === "failed");
+    if (failures.length === 0) return line;
+    return `${line}\n${failures.map((f) => `  ${f.articleId}: ${f.detail}`).join("\n")}`;
+  }
+
+  const { report } = result;
+  const seconds = Math.round((Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000);
+  const failures = report.outcomes.filter((o) => o.state === "failed");
+
+  const summary =
+    `ingest: ${report.attempted}/${report.considered} sources, ` +
+    `${report.inserted} new, ${report.retitled} retitled, ` +
+    `${report.failed} failed, ${report.disabled} switched off, ${seconds}s`;
+
+  if (failures.length === 0) return summary;
+  return `${summary}\n${failures.map((f) => `  ${f.name}: ${f.detail}`).join("\n")}`;
+}

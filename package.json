@@ -12,8 +12,13 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit",
-    "ci": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
+    "ci": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "db:status": "node --env-file=.env scripts/tsrun.mjs scripts/db-status.ts",
+    "db:seed": "node --env-file=.env scripts/tsrun.mjs scripts/apply-seed.ts",
+    "check:feeds": "node --env-file=.env scripts/tsrun.mjs scripts/check-feeds.ts",
+    "pipeline": "node --env-file=.env scripts/tsrun.mjs scripts/pipeline.ts",
+    "cron:test": "node --env-file=.env scripts/test-scheduled.mjs"
   },
   "overrides": {
     "rolldown": "1.2.1"

@@ -3,9 +3,10 @@
 How a briefing is supposed to be produced, why the stages are in this order, and why the
 cost of running it does not rise with the number of subscribers.
 
-> **State:** the design below is complete and the database schema implements it. The
-> pipeline itself is **not built** — see [status.md](status.md). This page describes the
-> target, and says at each stage whether that stage exists.
+> **State:** the design below is complete and the database schema implements it. **The
+> first three stages are built and verified against the live database; the last three are
+> not built** — see [status.md](status.md). This page describes the target, and says at
+> each stage whether that stage exists.
 
 ---
 
@@ -28,7 +29,7 @@ subscribed_.
 Cheap deterministic work runs first and discards as much as it can, so the expensive work
 only ever sees what survived. That ordering is the entire performance and cost story.
 
-### 1. Collect — _not built_
+### 1. Collect — _built_
 
 Each source in `sources` is fetched on its own cadence. Failures increment
 `failure_count`; a source that keeps failing is backed off and eventually has `active` set
@@ -36,15 +37,20 @@ false, so one dead feed cannot stall a run.
 
 **Cost:** network and parsing. No model.
 
-### 2. Normalise — _not built_
+### 2. Normalise — _built_
 
 URLs are canonicalised — tracking parameters, session ids and AMP variants stripped — then
 hashed with the title into `articles.content_hash`. An exact hash collision is a republish
 of something already seen, not a new article.
 
+In practice the hash does less than this implies, and the reason is worth stating: the URL
+is already unique, so a hash over URL and title cannot find a duplicate the unique index
+would not have rejected. What it does catch is a publisher rewriting the headline on a
+story already stored. Duplicate _reporting_ of one event is stage 3's job, not this one.
+
 **Cost:** a hash comparison. No model.
 
-### 3. Cluster — _not built_
+### 3. Cluster — _built_
 
 The `articles_title_trgm_idx` GIN index shortlists headlines that are plausibly the same
 story, **in Postgres**. Only that shortlist is sent to a model, and only to answer one
@@ -53,7 +59,13 @@ question: are these the same event?
 This is the load-bearing optimisation. Sending every pair to a model would be quadratic
 and ruinous; the trigram pass makes the model's job small and bounded.
 
-**Cost:** first model call, on a shortlist.
+No SQL function was needed for the shortlist, which was not obvious: a GIN
+`gin_trgm_ops` index serves `title ilike '%nvidia%'` as an index scan, and that is exactly
+what PostgREST emits for an `ilike` filter. So the shortlist is a handful of `ilike`
+disjuncts over the most distinctive words in the headline, bounded to a few days and ten
+rows.
+
+**Cost:** first model call, on a shortlist. Around 610 tokens per article, measured.
 
 ### 4. Understand — _not built_
 
@@ -108,9 +120,11 @@ Adding the ten-thousandth subscriber adds ten thousand short paragraphs per day,
 the cheapest thing a language model can be asked for. It does not add a single analysis
 pass.
 
-> These figures are illustrative, not measured. Real numbers live in the admin console,
-> and the console shows zeroes today because the pipeline is not built. The product does
-> not display plausible-looking figures nobody computed.
+> These figures are illustrative, not measured. Real numbers live in the admin console.
+> Three stages of the six now run, so the top of that funnel is real — 1017 articles
+> collected, and clustering has begun grouping them — but the console still shows zeroes
+> for everything downstream of clustering, because nothing downstream has run. The product
+> does not display plausible-looking figures nobody computed.
 
 ---
 

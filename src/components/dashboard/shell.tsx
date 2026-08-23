@@ -435,14 +435,20 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
 /**
  * Says out loud that the stories are fixtures.
  *
- * There is no ingestion pipeline yet: nothing writes to `events`, `articles` or
- * `digests`, so every story on every dashboard page comes from
- * `src/lib/sample-data.ts`. A briefing product that shows invented stories
- * without saying so is indistinguishable from one that is lying, and the person
- * most likely to be misled is a real signup.
+ * Every story on every dashboard page comes from `src/lib/sample-data.ts`. A
+ * briefing product that shows invented stories without saying so is
+ * indistinguishable from one that is lying, and the person most likely to be
+ * misled is a real signup.
  *
- * DELETE THIS COMPONENT AND ITS USAGES when the pipeline lands and the
- * dashboard reads real rows. Grep for `SampleDataNotice`.
+ * The wording is deliberately narrower than it used to be. Collection now really
+ * does run — the ingester fills `articles` on a schedule — so a notice claiming
+ * otherwise would be its own small lie, in the modest direction. What is still
+ * missing is everything between a stored article and a reader: nothing writes to
+ * `events`, `user_events` or `digest_items`, so there is nothing real to show.
+ * Whenever that changes, this text has to change with it or come out.
+ *
+ * DELETE THIS COMPONENT AND ITS USAGES when the dashboard reads real rows. Grep
+ * for `SampleDataNotice`.
  */
 export function SampleDataNotice() {
   return (
@@ -451,8 +457,8 @@ export function SampleDataNotice() {
         Sample data
       </span>
       <span className="text-[12.5px] leading-relaxed text-muted-foreground">
-        These stories are examples, not live reporting. Source collection is not running yet, so
-        nothing here was gathered for you.
+        These stories are examples, not live reporting. We are collecting from real sources now, but
+        nothing here was gathered for you yet.
       </span>
     </div>
   );

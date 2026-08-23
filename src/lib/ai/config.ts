@@ -1,5 +1,12 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { complete, type AiEnv, type CompleteResult, type ModelTier } from "@/lib/ai/deepseek";
+import {
+  complete,
+  completeJson,
+  type AiEnv,
+  type CompleteOptions,
+  type CompleteResult,
+  type ModelTier,
+} from "@/lib/ai/deepseek";
 
 /**
  * Runtime AI routing.
@@ -106,7 +113,14 @@ export async function resolveRoute(
 
   let route: ResolvedRoute;
   try {
-    const db = createAdminClient();
+    // The same bag the provider secret comes from. It has to be passed: on
+    // Cloudflare there is no `process.env`, so `createAdminClient()` with no
+    // argument cannot reach the database, the read below fails, and every route
+    // silently resolves to the env fallback — which would make this whole file
+    // decorative in exactly the environment it matters in, and the console's AI
+    // tab a lie. A Worker env bag carries VITE_SUPABASE_URL and
+    // SUPABASE_SERVICE_ROLE_KEY alongside the provider keys, so one bag serves both.
+    const db = createAdminClient(secrets);
     const { data: row, error } = await db
       .from("ai_model_routes")
       .select("capability, model, max_tokens, temperature, provider_id")
@@ -157,9 +171,12 @@ export async function resolveRoute(
 }
 
 /** The stored system prompt for a key, or "" when unset. Never throws. */
-export async function resolvePrompt(key: string): Promise<string> {
+export async function resolvePrompt(
+  key: string,
+  secrets: SecretBag = secretsDefault(),
+): Promise<string> {
   try {
-    const db = createAdminClient();
+    const db = createAdminClient(secrets);
     const { data } = await db
       .from("ai_prompts")
       .select("system_prompt")
@@ -191,15 +208,43 @@ export type RoutedResult = CompleteResult & { route: ResolvedRoute };
  * OpenAI-compatible provider the console selected.
  */
 export async function completeRouted(opts: RoutedOptions): Promise<RoutedResult> {
+  const { route, call } = await prepare(opts);
+  return { ...(await complete(call)), route };
+}
+
+/**
+ * `completeRouted` for a caller that wants JSON back.
+ *
+ * Exists so the pipeline gets the routing and the parse-with-one-retry in a single
+ * call. Written in terms of the same `prepare` as `completeRouted` rather than
+ * wrapping it, because `completeJson` has to own the retry — it is the only place
+ * that can see the malformed reply, and its returned usage is the sum of both
+ * attempts, which a wrapper around a single completion could not report.
+ */
+export async function completeRoutedJson<T>(
+  opts: RoutedOptions,
+): Promise<{ data: T; usage: CompleteResult; route: ResolvedRoute }> {
+  const { route, call } = await prepare(opts);
+  const { data, usage } = await completeJson<T>(call);
+  return { data, usage, route };
+}
+
+/**
+ * Resolves the route and expresses it as a `complete()` call.
+ *
+ * The transport keys off MODEL_<TIER> and DEEPSEEK_*, so the resolved route is
+ * expressed in those terms. That keeps one code path for every provider instead
+ * of a branch per vendor — they all speak the OpenAI dialect.
+ */
+async function prepare(
+  opts: RoutedOptions,
+): Promise<{ route: ResolvedRoute; call: CompleteOptions }> {
   const secrets = opts.secrets ?? secretsDefault();
   const route = await resolveRoute(opts.capability, secrets);
 
-  const system = opts.system ?? (opts.promptKey ? await resolvePrompt(opts.promptKey) : undefined);
+  const system =
+    opts.system ?? (opts.promptKey ? await resolvePrompt(opts.promptKey, secrets) : undefined);
 
-  // The transport keys off MODEL_<TIER> and DEEPSEEK_*, so the resolved route is
-  // expressed in those terms. That keeps one code path for every provider
-  // instead of a branch per vendor — they all speak the OpenAI dialect.
-  //
   // Spelled out per tier rather than with a computed key because
   // `exactOptionalPropertyTypes` is on: an optional property must be absent, not
   // present-and-undefined, so each field is spread in only when it has a value.
@@ -212,15 +257,16 @@ export async function completeRouted(opts: RoutedOptions): Promise<RoutedResult>
     ...(route.capability === "reason" ? { MODEL_REASON: route.model } : {}),
   };
 
-  const result = await complete({
-    tier: route.capability,
-    user: opts.user,
-    ...(system ? { system } : {}),
-    maxTokens: opts.maxTokens ?? route.maxTokens,
-    ...(route.temperature !== undefined ? { temperature: route.temperature } : {}),
-    env: synthetic,
-    ...(opts.signal ? { signal: opts.signal } : {}),
-  });
-
-  return { ...result, route };
+  return {
+    route,
+    call: {
+      tier: route.capability,
+      user: opts.user,
+      ...(system ? { system } : {}),
+      maxTokens: opts.maxTokens ?? route.maxTokens,
+      ...(route.temperature !== undefined ? { temperature: route.temperature } : {}),
+      env: synthetic,
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    },
+  };
 }
