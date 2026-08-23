@@ -181,15 +181,19 @@ function DashboardHome() {
               <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 <Clock className="h-3.5 w-3.5" /> Your next briefing
               </p>
-              <p className="mt-3 font-serif text-2xl tabular-nums">Tomorrow · {prefs.time}</p>
+              <p className="mt-3 font-serif text-2xl tabular-nums">
+                {prefs.paused ? "Paused" : `Tomorrow · ${prefs.time}`}
+              </p>
               <p className="mt-1 text-[12px] text-muted-foreground">
-                {prefs.days.join(" · ")} · {prefs.timezone}
+                {prefs.paused
+                  ? "Nothing is being sent until you resume."
+                  : `${prefs.days.join(" · ")} · ${prefs.timezone}`}
               </p>
               <Link
                 to="/dashboard/delivery"
                 className="mt-4 inline-block text-[12.5px] text-muted-foreground hover:text-foreground"
               >
-                Change schedule
+                {prefs.paused ? "Resume briefings" : "Change schedule"}
               </Link>
             </div>
 

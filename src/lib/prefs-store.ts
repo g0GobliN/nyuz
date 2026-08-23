@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useAuth } from "@/lib/auth";
+import { loadPreferences, savePreferences, type PrefsInput } from "@/lib/server/preferences";
 
 export type Prefs = {
   name: string;
@@ -11,6 +13,8 @@ export type Prefs = {
   density: number; // 0 minimal .. 100 deep
   frequency: "daily" | "weekly";
   breaking: "important" | "everything" | "off";
+  /** Briefings stop entirely. Mirrors notification_preferences.paused. */
+  paused: boolean;
   onboarded: boolean;
 };
 
@@ -40,6 +44,7 @@ export const DEFAULT_PREFS: Prefs = {
   density: 35,
   frequency: "daily",
   breaking: "important",
+  paused: false,
   onboarded: false,
 };
 
@@ -71,37 +76,125 @@ function detectTimezone(): string {
  */
 const KEY = "nyuz.prefs.v2";
 
+function readLocal(): Partial<Prefs> | null {
+  try {
+    const raw = localStorage.getItem(KEY);
+    return raw ? (JSON.parse(raw) as Partial<Prefs>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocal(prefs: Prefs): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(prefs));
+  } catch {
+    /* Private modes refuse to store. The account still has the real copy. */
+  }
+}
+
+/**
+ * The reader's settings.
+ *
+ * The account is the source of truth; `localStorage` is a cache in front of it.
+ * That ordering is the whole point of this hook. Browser storage alone could not
+ * be read by the pipeline, which runs on a cron with no browser attached, so a
+ * topic list held only in a tab could never actually produce a briefing.
+ *
+ * Signed out — onboarding before sign-up — it still works entirely locally, and
+ * whatever was chosen is pushed up on the first authenticated load. Nobody loses
+ * the answers they gave before they had an account.
+ *
+ * Writes are optimistic: the interface updates immediately and the save happens
+ * behind it. A settings toggle that waits on a round trip feels broken, and the
+ * local copy means a failed save is not a lost preference.
+ */
 export function usePrefs() {
+  const { user, loading: authLoading } = useAuth();
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [hydrated, setHydrated] = useState(false);
+  // Guards against a save firing while the server copy is still arriving, which
+  // would push defaults over real stored settings.
+  const loaded = useRef(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) {
-        setPrefs({ ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<Prefs>) });
-      } else {
-        // First visit: adopt the browser's timezone so the schedule step opens
-        // on the right one instead of making everybody correct UTC by hand.
-        setPrefs({ ...DEFAULT_PREFS, timezone: detectTimezone() });
-      }
-    } catch {
-      /* ignore */
-    }
+    const local = readLocal();
+    setPrefs({
+      ...DEFAULT_PREFS,
+      // First visit: adopt the browser's timezone so the schedule step opens on
+      // the right one instead of making everybody correct UTC by hand.
+      ...(local ?? { timezone: detectTimezone() }),
+    });
     setHydrated(true);
   }, []);
 
-  const update = useCallback((patch: Partial<Prefs>) => {
-    setPrefs((prev) => {
-      const next = { ...prev, ...patch };
+  useEffect(() => {
+    if (authLoading || !user || loaded.current) return;
+    let active = true;
+
+    void (async () => {
       try {
-        localStorage.setItem(KEY, JSON.stringify(next));
-      } catch {
-        /* ignore */
+        const remote = await loadPreferences();
+        if (!active) return;
+        loaded.current = true;
+
+        const local = readLocal();
+        // A reader who filled in onboarding before signing up has answers the
+        // account has never seen. Carry them up once, then let the account win
+        // from here — the alternative is silently discarding the only thing
+        // they have done so far.
+        const unsynced = local && remote.topics.length === 0 && (local.topics?.length ?? 0) > 0;
+
+        const next = unsynced ? { ...remote, ...local } : remote;
+        setPrefs(next);
+        writeLocal(next);
+
+        if (unsynced) {
+          await savePreferences({
+            data: {
+              topics: next.topics,
+              exclusions: next.exclusions,
+              time: next.time,
+              timezone: next.timezone,
+              days: next.days,
+              channels: next.channels,
+              density: next.density,
+              frequency: next.frequency,
+              breaking: next.breaking,
+              paused: next.paused,
+            },
+          });
+        }
+      } catch (error) {
+        // An unreachable account is not a reason to lose the local copy; the
+        // cache is already rendering and the next save will retry.
+        console.error(error);
       }
-      return next;
-    });
-  }, []);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [user, authLoading]);
+
+  const update = useCallback(
+    (patch: Partial<Prefs>) => {
+      setPrefs((prev) => {
+        const next = { ...prev, ...patch };
+        writeLocal(next);
+        return next;
+      });
+
+      // Only what changed goes up, so two tabs editing different settings do
+      // not overwrite each other with their own stale view of the rest.
+      if (user) {
+        void savePreferences({ data: patch as PrefsInput }).catch((error: unknown) =>
+          console.error(error),
+        );
+      }
+    },
+    [user],
+  );
 
   return { prefs, update, hydrated };
 }

@@ -142,7 +142,9 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
           <p className="flex items-center gap-2 text-[11.5px] uppercase tracking-[0.16em] text-muted-foreground">
             <Clock className="h-3.5 w-3.5" /> Next briefing
           </p>
-          <p className="mt-2 text-[14px] font-medium tabular-nums">Tomorrow · {prefs.time}</p>
+          <p className="mt-2 text-[14px] font-medium tabular-nums">
+            {prefs.paused ? "Paused" : `Tomorrow · ${prefs.time}`}
+          </p>
           <p className="mt-1 text-[12px] text-muted-foreground">{prefs.timezone}</p>
         </div>
       </aside>

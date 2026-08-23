@@ -6,6 +6,7 @@ import { Logo, LogoMark } from "@/components/landing/nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DensityDial } from "@/components/density-dial";
 import { useAuth } from "@/lib/auth";
+import { sendWelcome } from "@/lib/server/account";
 import { usePrefs, type Prefs } from "@/lib/prefs-store";
 import { IGNORE_POOL, TOPIC_POOL } from "@/lib/sample-data";
 import { cn } from "@/lib/utils";
@@ -76,6 +77,10 @@ function Onboarding() {
 
   const finish = () => {
     update({ ...draft, onboarded: true });
+    // Fire and forget. The welcome email is not worth blocking the sequence on,
+    // and `sendWelcome` is idempotent — a signed-out visitor finishing
+    // onboarding simply gets a rejected call and no mail, which is correct.
+    void sendWelcome().catch((error: unknown) => console.error(error));
     setStep(4);
   };
 
