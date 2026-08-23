@@ -18,16 +18,35 @@ export function NoiseSection() {
   }, [calm]);
 
   return (
-    <div ref={ref} className="grid items-center gap-12 md:grid-cols-[1fr_1.2fr]">
+    <div ref={ref} className="grid items-start gap-12 md:grid-cols-[1fr_1.1fr]">
       <div>
         <h2 className="display text-4xl sm:text-5xl">
           The internet is loud.
           <br />
           Your briefing shouldn&apos;t be.
         </h2>
-        <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-muted-foreground">
-          We filter the noise so you don&apos;t have to.
-        </p>
+        <div className="mt-6 max-w-md space-y-4 text-[15px] leading-relaxed text-muted-foreground">
+          <p>
+            Every morning the same ritual. Twenty tabs. Four newsletters you skim and delete. An
+            hour on X telling yourself it&apos;s research. And still the one thing that actually
+            mattered to your work reached you three days late, from a colleague, in passing.
+          </p>
+          <p>
+            The problem was never access to information. It&apos;s that there is far too much of it,
+            almost none of it is for you, and the same story arrives thirty times wearing thirty
+            different headlines.
+          </p>
+          <p className="text-foreground">
+            <strong className="font-medium">nyuz watches instead of you.</strong> You say what
+            matters. It reads everything, works out what actually happened, throws away the noise
+            and the duplicates, and sends you the handful of things worth knowing — at the time you
+            choose, in the format you choose.
+          </p>
+          <p>
+            Most mornings that&apos;s six stories. Some mornings it&apos;s one. Occasionally
+            it&apos;s none, and we tell you that rather than padding it out.
+          </p>
+        </div>
       </div>
 
       <div className="relative h-[340px] overflow-hidden rounded-3xl border border-hairline bg-surface-2 p-4">

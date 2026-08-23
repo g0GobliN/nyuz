@@ -78,7 +78,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "description",
         content:
-          "Tell us what matters to you. We watch the internet and deliver the things worth knowing.",
+          "You don't read the news. It reports to you. nyuz watches hundreds of sources, merges the duplicates, and sends you the handful of things worth knowing.",
       },
       { name: "author", content: "nyuz" },
       { name: "theme-color", content: "#ffffff" },
@@ -86,7 +86,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         property: "og:description",
         content:
-          "Tell us what matters to you. We watch the internet and deliver the things worth knowing.",
+          "You don't read the news. It reports to you. nyuz watches hundreds of sources, merges the duplicates, and sends you the handful of things worth knowing.",
       },
       { property: "og:type", content: "website" },
       { property: "og:image", content: "/og-image.jpg" },
