@@ -13,6 +13,11 @@
  *   npm run pipeline -- analyse --dry-run     analyse and print, write nothing
  *   npm run pipeline -- analyse --event ID    one event, for checking a known case
  *   npm run pipeline -- analyse --retry-failed  include events a run failed on
+ *   npm run pipeline -- match                 match every reader against every analysed event
+ *   npm run pipeline -- match --dry-run       decide and print, write nothing
+ *   npm run pipeline -- match --user ID       one reader, for checking a known case
+ *   npm run pipeline -- match --since 72      only events analysed in the last 72 hours
+ *   npm run pipeline -- match --paused        include readers who paused their briefings
  *
  * The same functions the scheduled Worker calls, with the same arguments. There is
  * no separate code path for running it manually, because a manual run whose
@@ -24,6 +29,10 @@
  * skipped, not the spend — because a dry run that skipped the model would tell you
  * nothing about what the model would decide.
  *
+ * `match` spends nothing, ever, and has no small default for that reason. It is set
+ * arithmetic over rows that already exist, and re-running it writes nothing the
+ * second time.
+ *
  * `analyse` will not analyse an event twice however it is invoked, including with
  * `--event`. That property is the product's cost structure and does not have a flag.
  *
@@ -34,9 +43,10 @@
 import { analyse, type AnalysisReport, type EventOutcome } from "@/lib/pipeline/analyse";
 import { cluster, type ArticleOutcome, type ClusterReport } from "@/lib/pipeline/cluster";
 import { ingest, type IngestReport, type SourceOutcome } from "@/lib/pipeline/ingest";
+import { match, type MatchReport, type MissReason } from "@/lib/pipeline/match";
 import { db, fail, heading, main, row, say } from "./lib/db.ts";
 
-const STAGES = ["ingest", "cluster", "analyse"] as const;
+const STAGES = ["ingest", "cluster", "analyse", "match"] as const;
 type Stage = (typeof STAGES)[number];
 
 /**
@@ -56,6 +66,8 @@ const VALUED = new Set([
   "--window",
   "--shortlist",
   "--articles",
+  "--user",
+  "--since",
 ]);
 
 main(async () => {
@@ -73,6 +85,7 @@ main(async () => {
     if (stage === "ingest") await runIngest(args);
     if (stage === "cluster") await runCluster(args);
     if (stage === "analyse") await runAnalyse(args);
+    if (stage === "match") await runMatch(args);
   }
 
   say();
@@ -256,6 +269,65 @@ function printAnalysis(report: AnalysisReport, dryRun: boolean): void {
   say(
     row("tokens per event", report.modelCalls === 0 ? 0 : Math.round(tokens / report.modelCalls)),
   );
+  say(row("seconds", Math.round(seconds)));
+}
+
+async function runMatch(args: string[]): Promise<void> {
+  const user = stringFlag(args, "--user");
+  const since = numberFlag(args, "--since");
+  const limit = numberFlag(args, "--limit");
+  const dryRun = args.includes("--dry-run");
+
+  heading(dryRun ? "Match (dry run — nothing is written)" : "Match");
+
+  const report = await match(db(), {
+    dryRun,
+    includePaused: args.includes("--paused"),
+    ...(limit === null ? {} : { limit }),
+    ...(since === null ? {} : { sinceHours: since }),
+    ...(user === null ? {} : { userIds: [user] }),
+  });
+
+  printMatch(report, dryRun);
+}
+
+/** The miss reasons, in the order a reader would ask about them. */
+const MISSES: MissReason[] = [
+  "no-topic-match",
+  "below-threshold",
+  "excluded",
+  "all-sources-muted",
+  "no-topics",
+];
+
+function printMatch(report: MatchReport, dryRun: boolean): void {
+  for (const outcome of report.outcomes) {
+    say(
+      `${String(outcome.matched).padStart(4)}/${String(outcome.considered).padEnd(4)} ` +
+        `density ${String(outcome.density).padStart(3)} -> importance >= ${outcome.threshold}  ` +
+        `${outcome.follows} topics followed  ${outcome.userId}`,
+    );
+
+    // Named individually because they are the only answer to "why is my briefing
+    // empty", and that question has five different answers with the same symptom.
+    const reasons = MISSES.filter((r) => outcome.misses[r] > 0)
+      .map((r) => `${r} ${outcome.misses[r]}`)
+      .join(", ");
+    if (reasons) say(`             not matched: ${reasons}`);
+    if (outcome.known > 0) say(`             ${outcome.known} already matched by an earlier run`);
+  }
+
+  const seconds = (Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000;
+
+  heading(dryRun ? "Summary (nothing was written)" : "Summary");
+  say(row("readers", report.readers));
+  say(row("paused, skipped", report.paused));
+  say(row("events considered", report.candidates));
+  say(row("pairs matched", report.matched));
+  say(row(dryRun ? "would be written" : "written to user_events", report.inserted));
+  // The number that has to stay zero-cost: this stage is the only one whose work
+  // grows with the reader count, and it must never appear in a token total.
+  say(row("model calls", 0));
   say(row("seconds", Math.round(seconds)));
 }
 

@@ -8,11 +8,13 @@ itemised version of that sentence.
 It exists because the app looks considerably more finished than it is. The marketing
 site, the accounts, the admin console and the blog are genuinely working software. As of
 this review the ingester is too — there are real articles in the database — those
-articles are grouped into real events, and those events have been read and scored by a
-second model call. The thing the product is actually for — a briefing assembled from real
-reporting — is still not built: nothing has yet matched a scored event to a reader, and no
-reader has been shown anything but fixtures. Anyone forming a judgement from the
-screenshots alone will be wrong in one direction or the other.
+articles are grouped into real events, those events have been read and scored by a
+second model call, and those scores have been matched against a real reader's topics.
+The thing the product is actually for — a briefing assembled from real reporting and
+delivered — is still not built: no digest has been generated, no reader has been sent
+anything, and the dashboard still renders fixtures rather than the matches now sitting in
+the database. Anyone forming a judgement from the screenshots alone will be wrong in one
+direction or the other.
 
 ---
 
@@ -33,7 +35,7 @@ screenshots alone will be wrong in one direction or the other.
 | Ingestion pipeline                                     | **Built** — 1040 articles stored             |
 | Clustering (articles → events)                         | **Built** — 112 articles in 98 events        |
 | Analysis and scoring (events → understood)             | **Built** — 48 of 98 events analysed         |
-| Matching (events → readers)                            | **Designed, not built**                      |
+| Matching (events → readers)                            | **Built** — 15 rows in `user_events`, free   |
 | Digest generation and delivery                         | **Designed, not built**                      |
 | Customer dashboard                                     | **Prototype** — renders labelled sample data |
 
@@ -130,8 +132,30 @@ against. And `before_state` is null for 29 of 48, because the model is told to a
 null rather than fill a gap; a plausible sentence there would be a fabrication printed
 under a real headline.
 
+**Matching.** `user_events` has rows for the first time: **15 of the 48 analysed events**
+matched the one live reader, for **zero model calls**. This is the stage that would
+otherwise scale with readers, so it calls nothing, resolves no AI route, and is set
+arithmetic over rows that already exist. Re-running it is free and writes nothing — a
+second run reported all 15 already matched and left one distinct `matched_at`.
+
+Each rule was exercised against the live database by changing a real preference and
+putting it back: at the default density the same 15 events split into 7 admitted and 8
+below the threshold; an added exclusion vetoed exactly one story while leaving the topic
+that selected it intact; muting an event's only source dropped exactly that event; and
+marking a source `priority` reordered the briefing without changing what was in it. Misses
+plus matches reconcile to 48 in every run. Details and figures in
+[plan.md](plan.md#stage-5--matching--done).
+
+Three limits worth stating plainly. **The density dial's story counts are the dial's
+claim, not a measurement** — no code reads them to make a decision, but nothing has
+checked "2–3 stories a day" against a real corpus either. **Three of the reader's 15
+matches are CI noise** at importance 0 from the PyTorch and llama.cpp feeds, correctly
+scored and correctly matched, which is a source problem rather than a matcher one. And
+**the reader follows `anthropic` and `cursor` and matched nothing for either** — the
+coverage gap below, now visible in real rows rather than argued from a source list.
+
 `npm run pipeline` still runs ingestion only. A stage that spends money has to be asked
-for by name.
+for by name — `match` does not spend, and has no small default for that reason.
 
 ---
 

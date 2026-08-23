@@ -17,23 +17,25 @@ see what is already true, and continue without re-deriving the design.
 **Working today.** Marketing site, accounts and OAuth, admin console, blog, editable
 site content, Stripe checkout and webhook (test mode), lifecycle email via Resend,
 reader preferences persisted to Postgres, a feed ingester filling `articles` on a
-schedule, a clustering stage grouping those articles into `events`, and — as of the most
-recent work — an analysis stage scoring those events and linking them to topics.
+schedule, a clustering stage grouping those articles into `events`, an analysis stage
+scoring those events and linking them to topics, and — as of the most recent work — a
+matching stage turning scored events into rows in `user_events` for a real reader.
 
-**Not working today.** Everything between a scored event and a reader.
+**Not working today.** Everything between a matched event and a reader's inbox.
 
 | Reality check                            | Answer                                                    |
 | ---------------------------------------- | --------------------------------------------------------- |
-| Do readers get real news?                | No. The dashboard renders `src/lib/sample-data`.          |
-| Does anything call a language model?     | Yes — clustering and analysis. Nothing further.           |
+| Do readers get real news?                | No. The dashboard still renders `src/lib/sample-data`.    |
+| Does anything call a language model?     | Yes — clustering and analysis. Matching never does.       |
 | Are there articles stored?               | Yes — 1040, from 64 live feeds.                           |
 | Are there events?                        | Yes — 98, holding 112 articles. 928 unclustered.          |
 | Has anything been analysed?              | Yes — 48 of 98, scored and topic-linked. 88,595 tokens.   |
-| Can a new reader be matched to anything? | Not yet, but `event_topics` is no longer empty — 46 rows. |
+| Can a new reader be matched to anything? | Yes — 15 of 48 for the one live reader, at zero cost.     |
+| Does a reader see those matches?         | No. Nothing reads `user_events` yet — that is stage 8.    |
 
 The tables all exist from `0001` with row-level security already written. `articles`,
-`events` and `event_topics` are genuinely full; `user_events` and everything downstream
-of it is genuinely empty, because matching does not exist.
+`events`, `event_topics` and now `user_events` are genuinely full; `digests`,
+`digest_items` and `deliveries` are genuinely empty, because nothing builds a briefing.
 
 ---
 
@@ -421,37 +423,92 @@ wording of it.
 
 ---
 
-### Stage 5 — Matching · _next_
+### Stage 5 — Matching · _done_
 
 A SQL query. **No model.** This is the stage that would otherwise scale with readers,
 and it is deliberately free.
 
-- [ ] Match `event_topics` against `user_topics` into `user_events`
-- [ ] Apply `notification_preferences.density` as an importance threshold
-- [ ] Apply `user_exclusions` **last** — an exclusion beats a topic, always
-- [ ] Respect `user_source_prefs` (`muted`, `priority`)
-- [ ] Verified: the rules in `src/lib/matching.test.ts` hold against the SQL version
+- [x] Match `event_topics` against `user_topics` into `user_events`
+- [x] Apply `notification_preferences.density` as an importance threshold
+- [x] Apply `user_exclusions` **last** — an exclusion beats a topic, always
+- [x] Respect `user_source_prefs` (`muted`, `priority`)
+- [x] Verified: the rules in `src/lib/matching.test.ts` hold against the SQL version
 
 **`src/lib/matching.ts` already implements these rules over fixtures, and
 `matching.test.ts` locks them in.** Those tests are the specification for the query.
 When the query replaces the module, the tests must still describe it.
 
-**There are now 48 real analysed events to match against**, so this stage has a genuine
-corpus for the first time. Two properties of it should be checked before the thresholds
-are chosen, both measured in stage 4 rather than guessed:
+**It is TypeScript, not SQL, and that is the environment's fault rather than a
+preference.** The rules belong in a `security definer` function so RLS cannot see a
+half-built briefing, but DDL cannot be applied from here — `0007_source_stats.sql` has
+been sitting unapplied since stage 2 for the same reason. `src/lib/pipeline/match.ts`
+therefore reads rows through PostgREST and decides in `decide()`, a pure function the
+tests drive directly. The rules are the ones the SQL would express, in the order the SQL
+would apply them, so the function is replaceable by a query without the tests changing.
+
+**Box 5 is closed by construction, not by restatement.** `related` — the whole text
+predicate — lives in `src/lib/relate.ts` and is imported by both the fixture matcher and
+the pipeline, and `match.test.ts` runs nine scenarios through both implementations and
+asserts they agree. A second copy of the predicate would have passed its own tests while
+quietly meaning something else.
+
+**Measured against the live database, one reader, 48 analysed events:**
+
+| Change made live                          |  Matched | Reason recorded                       |
+| ----------------------------------------- | -------: | ------------------------------------- |
+| Baseline, density 100 (`importance >= 0`)  | **15**/48 | `no-topic-match 33`                   |
+| Density 35, the column default (`>= 3`)   |  **7**/48 | `below-threshold 8` — the same 15 split |
+| Exclusion `"Nvidia"` added                | **14**/48 | `excluded 1`                          |
+| The sole source of one event muted        | **14**/48 | `all-sources-muted 1`                 |
+| `TechCrunch` set to `priority`            | **15**/48 | membership unchanged, three scores +2 |
+
+Every count reconciles: misses plus matches equal 48 in each row. **Model calls: 0**, in
+every run. A second real run reported _"15 already matched by an earlier run"_, wrote
+nothing, and left one distinct `matched_at` — the shared-analysis property holds and
+re-running is free. Each preference above was inserted for real and removed in the same
+command; the priority run rewrote all 15 rows and the restore reproduced all 15 baseline
+relevance values exactly.
+
+**The density mapping was read off the scoring anchors, not interpolated.** The dial's
+copy and the analyse prompt turned out to describe the same thing in the same words —
+Focused's _"clear developments in the areas you track"_ is anchor 3–5's _"worth knowing
+if this is your area"_ — so Minimal → 6, Focused → 3, Broad → 1, Deep → 0, and the table
+lives in `src/lib/density.ts` where the dial and the matcher both read it. The obvious
+linear map `(100 - density) / 10` was rejected on the record: it puts the default 35 at
+6.5, above the top of the band the reader was shown, so a reader on the default would be
+told they had opted into their own field and then shown almost nothing.
+
+**Two properties of the corpus, measured in stage 4 rather than guessed, both confirmed
+by the run above:**
 
 - **The importance distribution is low and correctly so.** 35 of 48 events score 0–2, 13
-  score 3 or more, and one reaches 7. A density threshold of 3 admits about a quarter of
-  the corpus; a threshold of 6 admits nothing at all. `notification_preferences.density`
-  has to be mapped onto that distribution rather than onto an imagined one.
+  score 3 or more, and one reaches 7. That is why the default density admits 7 events and
+  not 15.
 - **Sixteen of the 48 have no topic**, so no join to `user_topics` can ever reach them.
-  That is stage 4 refusing to invent a loose topic, and it is the right call there — but
-  it means an honest matcher will match fewer events than the event count suggests, and
-  the gap is a topic-vocabulary problem rather than a query bug.
+  They account for half of the 33 `no-topic-match` misses. The gap is a topic-vocabulary
+  problem rather than a query bug, and stage 9 records it.
+
+**Three things stage 5 found that stages 6–8 inherit:**
+
+- **`only_major`, `exclude_keywords` and `user_source_prefs` have no UI writer.** The
+  matcher honours all three and the columns exist, but nothing a reader can click sets
+  them, which is why they had to be exercised by hand above. Reader-facing controls are
+  stage 8's business, not a matcher bug.
+- **`user_events` stores `relevance` but not the topics that matched.** Stage 7 has to
+  recompute them for _"because you follow…"_. That is free and deterministic — `decide`
+  returns them — but it is not a column read.
+- **The dial's "2–3 stories a day" copy is still unmeasured** against any real corpus.
+  It is display text and no code reads it to make a decision, but it is a claim, and one
+  live reader is not a measurement.
+
+**The live reader follows `anthropic` and `cursor` and matched zero events for either** —
+the coverage gap `status.md` already names, now visible in real rows rather than argued
+from a source list. Three of the 15 matches are PyTorch and llama.cpp CI noise at
+importance 0, which is the same bad feed stage 4 measured at 20.5% of analysis spend.
 
 ---
 
-### Stage 6 — Day-one backfill · _not started_
+### Stage 6 — Day-one backfill · _next_
 
 **This is the idea that makes signup not feel empty**, and it is nearly free.
 
@@ -469,6 +526,12 @@ SQL query and nothing else.
 something on day one, narrow enough that the first briefing is not a stale wall of text.
 The ingester's own `MAX_AGE_DAYS` is 30, so the corpus reaches back further than this
 window deliberately — stage 3 gets history to cluster against, and day one does not.
+
+**Stage 5 already takes the two arguments this needs.** `match(db, { userIds, sinceHours })`
+scopes a run to one reader and a window, so backfill is a call rather than a second
+matcher — `npm run pipeline -- match --user <id> --since 72` is the same code path the
+cron runs. It writes with `ignoreDuplicates`, so a backfill that overlaps the scheduled
+run cannot double up or rewrite `matched_at`.
 
 **Do not confuse this with a quiet day.** The product promises that quiet days stay
 quiet. Backfill fills a _new account_, not a slow news morning. If nothing genuinely

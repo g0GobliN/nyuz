@@ -35,6 +35,7 @@ import { createAdminClient, type ServerEnv } from "@/lib/supabase/admin";
 import { analyse, describeAnalysis, type AnalysisReport } from "./analyse";
 import { cluster, describeCluster, type ClusterReport } from "./cluster";
 import { ingest, type IngestReport } from "./ingest";
+import { describeMatch, match, type MatchReport } from "./match";
 
 /**
  * Feeds read per scheduled invocation.
@@ -102,10 +103,22 @@ export const CLUSTER_CRON = "10,40 * * * *";
  */
 export const ANALYSE_CRON = "20,50 * * * *";
 
+/**
+ * Matching runs last in the chain, and is the only schedule with no budget note.
+ *
+ * Five minutes behind `ANALYSE_CRON`, so an event matched on this pass has been
+ * read and scored first — an unanalysed event has no importance to compare against
+ * a reader's threshold and no topics to join, so matching one would be matching a
+ * placeholder. There is no limit constant above because there is nothing to limit:
+ * no model call, no token, and re-running it writes nothing the second time.
+ */
+export const MATCH_CRON = "25,55 * * * *";
+
 export type ScheduledResult =
   | { stage: "ingest"; report: IngestReport }
   | { stage: "cluster"; report: ClusterReport }
   | { stage: "analyse"; report: AnalysisReport }
+  | { stage: "match"; report: MatchReport }
   | { stage: "unknown"; cron: string };
 
 /**
@@ -145,6 +158,13 @@ export async function runScheduled(
     return { stage: "analyse", report };
   }
 
+  if (cron === MATCH_CRON) {
+    // No `secrets`, and that absence is the point: this stage resolves no model
+    // route because it calls no model.
+    const report = await match(createAdminClient(env));
+    return { stage: "match", report };
+  }
+
   return { stage: "unknown", cron };
 }
 
@@ -173,6 +193,8 @@ export function describe(result: ScheduledResult): string {
     if (failures.length === 0) return line;
     return `${line}\n${failures.map((f) => `  ${f.eventId}: ${f.detail}`).join("\n")}`;
   }
+
+  if (result.stage === "match") return describeMatch(result.report);
 
   const { report } = result;
   const seconds = Math.round((Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000);

@@ -1,4 +1,5 @@
 import type { Prefs } from "@/lib/prefs-store";
+import { related } from "@/lib/relate";
 import type { Story } from "@/lib/sample-data";
 
 /**
@@ -20,29 +21,6 @@ import type { Story } from "@/lib/sample-data";
  * It is matching over fixtures, not over real events. What it makes honest is
  * the RELATIONSHIP between what you asked for and what you are shown.
  */
-
-/** Case- and punctuation-insensitive, so "Developer Tools" matches "developer tools". */
-function norm(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-/**
- * Loose containment either way round, so "AI" matches "AI infrastructure" and
- * "chips" matches "Chips". Guarded by a length floor: without it a two-letter
- * topic would match nearly everything, which is how a matcher quietly turns
- * back into "show all".
- */
-function related(a: string, b: string): boolean {
-  const x = norm(a);
-  const y = norm(b);
-  if (!x || !y) return false;
-  if (x === y) return true;
-  if (x.length < 3 || y.length < 3) return false;
-  return x.includes(y) || y.includes(x);
-}
 
 /** Everything about a story a user's term could reasonably match against. */
 function haystack(story: Story): string[] {

@@ -1,27 +1,14 @@
 import { useState } from "react";
+import { levelFor } from "@/lib/density";
 import { cn } from "@/lib/utils";
 
-type Level = { max: number; label: string; detail: string; count: string };
-
-const DEEP: Level = {
-  max: 101,
-  label: "Deep",
-  detail: "Everything with a plausible claim on your attention.",
-  count: "12–18",
-};
-
-const LEVELS: Level[] = [
-  { max: 20, label: "Minimal", detail: "Only the things you would regret missing.", count: "2–3" },
-  { max: 45, label: "Focused", detail: "Clear developments in the areas you track.", count: "4–6" },
-  { max: 70, label: "Broad", detail: "Adds context and adjacent industry moves.", count: "7–10" },
-  DEEP,
-];
-
-export function levelFor(value: number): Level {
-  return LEVELS.find((l) => value < l.max) ?? DEEP;
-}
-
-/** Section 22 — briefing density, expressed as a threshold rather than a quota. */
+/**
+ * Section 22 — briefing density, expressed as a threshold rather than a quota.
+ *
+ * The bands are in `@/lib/density` rather than here because matching reads them
+ * too, and a label whose meaning differed between the slider and the query would
+ * be a promise the pipeline does not keep.
+ */
 export function DensityDial({
   value,
   onChange,
