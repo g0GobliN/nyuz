@@ -11,6 +11,7 @@ import { type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { AuthProvider } from "../lib/auth";
+import { THEME_COLORS, THEME_INIT_SCRIPT } from "../lib/theme";
 
 function NotFoundComponent() {
   return (
@@ -81,7 +82,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "You don't read the news. It reports to you. nyuz watches hundreds of sources, merges the duplicates, and sends you the handful of things worth knowing.",
       },
       { name: "author", content: "nyuz" },
-      { name: "theme-color", content: "#ffffff" },
+      { name: "theme-color", content: THEME_COLORS.dark },
       { property: "og:title", content: "nyuz — Stop searching. Start knowing." },
       {
         property: "og:description",
@@ -120,6 +121,19 @@ function RootShell({ children }: { children: ReactNode }) {
     <html lang="en">
       <head>
         <HeadContent />
+        {/*
+          Sets the theme before the first paint.
+
+          It sits after <HeadContent /> because it rewrites the theme-color meta
+          tag that renders there, and inside <head> because a parser-blocking
+          inline script here runs before the body is parsed — the document is
+          themed before the browser has painted anything.
+
+          React is deliberately not given a className on <html>: the script owns
+          that attribute outright, so there is nothing for hydration to disagree
+          with.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body>
         {children}

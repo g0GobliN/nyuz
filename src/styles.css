@@ -59,6 +59,7 @@
  * destructive leans on iconography and weight instead of hue.
  */
 :root {
+  color-scheme: light;
   --radius: 0.875rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.16 0 0);
@@ -94,6 +95,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.968 0 0);
   /* Kept close together on purpose: a mid-grey next to true black picks up a

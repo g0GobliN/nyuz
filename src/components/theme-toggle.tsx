@@ -1,23 +1,36 @@
 import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
+import { THEME_STORAGE_KEY, applyTheme } from "@/lib/theme";
 
+/**
+ * Flips the theme and remembers the choice.
+ *
+ * The button no longer decides what the theme *is* — the script inlined in
+ * <head> has already applied it before this component exists. This reads the
+ * result off the document so the icon matches what the visitor is looking at.
+ *
+ * State starts at `true` because dark is the default: the server renders the
+ * sun, and for everyone who has not chosen light the effect confirms it and
+ * nothing moves.
+ */
 export function ThemeToggle({ className }: { className?: string }) {
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(true);
 
   useEffect(() => {
-    const stored = localStorage.getItem("nyuz.theme");
-    const prefers =
-      stored === "dark" ||
-      (stored === null && window.matchMedia("(prefers-color-scheme: dark)").matches);
-    setDark(prefers);
-    document.documentElement.classList.toggle("dark", prefers);
+    setDark(document.documentElement.classList.contains("dark"));
   }, []);
 
   const toggle = () => {
     const next = !dark;
     setDark(next);
-    document.documentElement.classList.toggle("dark", next);
-    localStorage.setItem("nyuz.theme", next ? "dark" : "light");
+    applyTheme(next ? "dark" : "light");
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next ? "dark" : "light");
+    } catch {
+      // Private modes can refuse to store. The theme still flips for this
+      // page view; it just will not survive a reload, which beats throwing
+      // inside a click handler.
+    }
   };
 
   return (
