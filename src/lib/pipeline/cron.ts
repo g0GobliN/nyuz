@@ -32,6 +32,7 @@
  */
 
 import { createAdminClient, type ServerEnv } from "@/lib/supabase/admin";
+import { analyse, describeAnalysis, type AnalysisReport } from "./analyse";
 import { cluster, describeCluster, type ClusterReport } from "./cluster";
 import { ingest, type IngestReport } from "./ingest";
 
@@ -59,6 +60,23 @@ const SCHEDULED_LIMIT = 24;
  */
 const CLUSTER_LIMIT = 12;
 
+/**
+ * Events analysed per scheduled invocation.
+ *
+ * Smaller again, and the tightest budget in the file, because this is the only
+ * stage that calls the strongest configured model and the only one whose output a
+ * reader will read as prose. Each event costs a coverage read, a claim, one model
+ * call and one or two writes — call it five subrequests, so six events is around
+ * thirty-five plus the shared reads. That fits inside the free plan's fifty, which
+ * ingestion's slice does not.
+ *
+ * Six an hour is not how the backlog gets cleared, and is not meant to be: an
+ * operator runs `npm run pipeline -- analyse --limit N` and watches it. What this
+ * number has to cover is the news of the last half hour, not the corpus — the
+ * standing backlog is drained deliberately, by hand, because it is money.
+ */
+const ANALYSE_LIMIT = 6;
+
 /** The schedules this handler knows. Must match `triggers.crons` in vite.config.ts. */
 export const INGEST_CRON = "*/15 * * * *";
 
@@ -73,9 +91,21 @@ export const INGEST_CRON = "*/15 * * * *";
  */
 export const CLUSTER_CRON = "10,40 * * * *";
 
+/**
+ * Analysis runs after clustering, on the same reasoning.
+ *
+ * Ten minutes behind `CLUSTER_CRON`, so an event analysed on this pass has had the
+ * coverage that arrived with it grouped first. Getting that order wrong would not
+ * corrupt anything — a later article still attaches to the analysed event, and
+ * still costs nothing — but the analysis would have been written from one outlet's
+ * account of the story when three were available.
+ */
+export const ANALYSE_CRON = "20,50 * * * *";
+
 export type ScheduledResult =
   | { stage: "ingest"; report: IngestReport }
   | { stage: "cluster"; report: ClusterReport }
+  | { stage: "analyse"; report: AnalysisReport }
   | { stage: "unknown"; cron: string };
 
 /**
@@ -107,6 +137,14 @@ export async function runScheduled(
     return { stage: "cluster", report };
   }
 
+  if (cron === ANALYSE_CRON) {
+    const report = await analyse(createAdminClient(env), {
+      limit: ANALYSE_LIMIT,
+      ...(env ? { secrets: env as Record<string, string | undefined> } : {}),
+    });
+    return { stage: "analyse", report };
+  }
+
   return { stage: "unknown", cron };
 }
 
@@ -127,6 +165,13 @@ export function describe(result: ScheduledResult): string {
     const failures = result.report.outcomes.filter((o) => o.decision === "failed");
     if (failures.length === 0) return line;
     return `${line}\n${failures.map((f) => `  ${f.articleId}: ${f.detail}`).join("\n")}`;
+  }
+
+  if (result.stage === "analyse") {
+    const line = describeAnalysis(result.report);
+    const failures = result.report.outcomes.filter((o) => o.decision === "failed");
+    if (failures.length === 0) return line;
+    return `${line}\n${failures.map((f) => `  ${f.eventId}: ${f.detail}`).join("\n")}`;
   }
 
   const { report } = result;

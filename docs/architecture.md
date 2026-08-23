@@ -4,9 +4,9 @@ How a briefing is supposed to be produced, why the stages are in this order, and
 cost of running it does not rise with the number of subscribers.
 
 > **State:** the design below is complete and the database schema implements it. **The
-> first three stages are built and verified against the live database; the last three are
-> not built** — see [status.md](status.md). This page describes the target, and says at
-> each stage whether that stage exists.
+> first four stages are built and verified against the live database; the last two are not
+> built** — see [status.md](status.md). This page describes the target, and says at each
+> stage whether that stage exists.
 
 ---
 
@@ -67,16 +67,32 @@ rows.
 
 **Cost:** first model call, on a shortlist. Around 610 tokens per article, measured.
 
-### 4. Understand — _not built_
+### 4. Understand — _built_
 
 One analysis pass per event extracts what happened, the before and after state, and scores
-`importance` and `novelty` from 0 to 10. Tokens spent are recorded on
+`importance` and `novelty` from 0 to 10, and links the event to rows in the shared `topics`
+table so stage 5 has something to match against. Tokens spent are recorded on
 `events.analysis_tokens`.
 
 **This is the last shared model call, and it happens once per event forever.** If another
-forty articles arrive about the same event tomorrow, they attach to it. No re-analysis.
+forty articles arrive about the same event tomorrow, they attach to it. No re-analysis. The
+gate is `analysed_at`: selection is `analysed_at is null`, nothing in the codebase clears
+it, and clustering deliberately does not touch it when new coverage joins an event.
 
-**Cost:** second model call, once per event.
+Three details are load-bearing rather than incidental. An event is **claimed** before the
+model is called, by a conditional move to `status = 'analysing'`, so two workers cannot
+both pay for one event. Topics are written **before** `analysed_at`, because an event
+marked analysed with no topics would be invisible to matching forever and never retried.
+And an event whose analysis fails is **not** retried by the schedule, because a cluster
+that cannot be analysed would otherwise be paid for every half hour unattended.
+
+The model is given the coverage and told that absent facts are null, so `before_state` is
+frequently null and that is the correct answer. Topics are restricted in the prompt to
+slugs that exist in `topics`, because an invented slug matches no reader; slugs the model
+asks for and cannot have are counted and reported as a coverage signal instead.
+
+**Cost:** second model call, once per event. Around 1,700 tokens per event, measured — most
+of it the reasoning model's own reasoning rather than the prompt.
 
 ### 5. Match — _not built_
 
@@ -121,10 +137,11 @@ the cheapest thing a language model can be asked for. It does not add a single a
 pass.
 
 > These figures are illustrative, not measured. Real numbers live in the admin console.
-> Three stages of the six now run, so the top of that funnel is real — 1017 articles
-> collected, and clustering has begun grouping them — but the console still shows zeroes
-> for everything downstream of clustering, because nothing downstream has run. The product
-> does not display plausible-looking figures nobody computed.
+> Four stages of the six now run, so the top of that funnel is real — 1040 articles
+> collected, 112 of them grouped into 98 events, and 48 of those events analysed for
+> 88,595 tokens. The console shows zeroes for `user_events`, `digests` and `deliveries`,
+> because matching and delivery do not exist. The product does not display
+> plausible-looking figures nobody computed.
 
 ---
 

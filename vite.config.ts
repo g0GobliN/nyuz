@@ -24,11 +24,11 @@ export default defineConfig({
       plugins: ["./src/nitro/scheduled.ts"],
       cloudflare: {
         wrangler: {
-          // Must match INGEST_CRON and CLUSTER_CRON in src/lib/pipeline/cron.ts,
-          // which dispatches on the schedule string. A mismatch is a cron that
-          // fires and does nothing, so the handler logs the unrecognised schedule
-          // rather than returning quietly.
-          triggers: { crons: ["*/15 * * * *", "10,40 * * * *"] },
+          // Must match INGEST_CRON, CLUSTER_CRON and ANALYSE_CRON in
+          // src/lib/pipeline/cron.ts, which dispatches on the schedule string. A
+          // mismatch is a cron that fires and does nothing, so the handler logs the
+          // unrecognised schedule rather than returning quietly.
+          triggers: { crons: ["*/15 * * * *", "10,40 * * * *", "20,50 * * * *"] },
         },
       },
     }),

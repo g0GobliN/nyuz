@@ -17,23 +17,23 @@ see what is already true, and continue without re-deriving the design.
 **Working today.** Marketing site, accounts and OAuth, admin console, blog, editable
 site content, Stripe checkout and webhook (test mode), lifecycle email via Resend,
 reader preferences persisted to Postgres, a feed ingester filling `articles` on a
-schedule, and — as of the most recent work — a clustering stage grouping those articles
-into `events`.
+schedule, a clustering stage grouping those articles into `events`, and — as of the most
+recent work — an analysis stage scoring those events and linking them to topics.
 
-**Not working today.** Everything between an event and a reader.
+**Not working today.** Everything between a scored event and a reader.
 
-| Reality check                            | Answer                                           |
-| ---------------------------------------- | ------------------------------------------------ |
-| Do readers get real news?                | No. The dashboard renders `src/lib/sample-data`. |
-| Does anything call a language model?     | Yes — clustering, and nothing else.              |
-| Are there articles stored?               | Yes — 1017, from 64 live feeds.                  |
-| Are there events?                        | Yes — 38, holding 41 articles. 976 unclustered.  |
-| Has anything been analysed?              | No. All 38 events are `pending`, 0 tokens spent. |
-| Can a new reader be matched to anything? | No. Matching needs `event_topics`, still empty.  |
+| Reality check                            | Answer                                                    |
+| ---------------------------------------- | --------------------------------------------------------- |
+| Do readers get real news?                | No. The dashboard renders `src/lib/sample-data`.          |
+| Does anything call a language model?     | Yes — clustering and analysis. Nothing further.           |
+| Are there articles stored?               | Yes — 1040, from 64 live feeds.                           |
+| Are there events?                        | Yes — 98, holding 112 articles. 928 unclustered.          |
+| Has anything been analysed?              | Yes — 48 of 98, scored and topic-linked. 88,595 tokens.   |
+| Can a new reader be matched to anything? | Not yet, but `event_topics` is no longer empty — 46 rows. |
 
-The tables all exist from `0001` with row-level security already written. `articles` is
-genuinely full and `events` is genuinely being written to; everything downstream of
-`events` is genuinely empty.
+The tables all exist from `0001` with row-level security already written. `articles`,
+`events` and `event_topics` are genuinely full; `user_events` and everything downstream
+of it is genuinely empty, because matching does not exist.
 
 ---
 
@@ -234,8 +234,9 @@ corpus collapsed into one event each, on the first run, with one model call apie
 
 The negative case came free with the first of those: the same shortlist offered
 _Floating 10 MW nuclear reactor proposed for California_, and the model correctly
-left it out. Seven candidates shown, one matched. **41 articles now sit in 38
-events**, none analysed, `analysis_tokens` still zero.
+left it out. Seven candidates shown, one matched. **41 articles sat in 38 events** when
+this stage was verified, none analysed; both figures have since grown, and the current
+ones are in the table at the top of this file.
 
 **The shortlist needed no DDL, which was not obvious.** The box asks for a trigram
 shortlist "in Postgres", which reads like a `security definer` SQL function — and DDL
@@ -300,33 +301,127 @@ in exactly the environment it exists for.
 
 ---
 
-### Stage 4 — Analysis · _next_
+### Stage 4 — Analysis · _done_
 
 One pass per event, ever. **Second and last shared model cost.**
 
-- [ ] Extract `what_happened`, `before_state`, `after_state`
-- [ ] Score `importance` and `novelty`, 0–10
-- [ ] Link `event_topics` against the shared `topics` table
-- [ ] Record spend in `events.analysis_tokens`
-- [ ] Set `analysed_at`; never re-analyse an event that has it
-- [ ] Verified: forty more articles about a known event add zero token spend
+- [x] Extract `what_happened`, `before_state`, `after_state`
+- [x] Score `importance` and `novelty`, 0–10
+- [x] Link `event_topics` against the shared `topics` table
+- [x] Record spend in `events.analysis_tokens`
+- [x] Set `analysed_at`; never re-analyse an event that has it
+- [x] Verified: more articles about a known event add zero token spend
+
+**Verified 2026-08-23.** **48 of 98 events are analysed**, scored and topic-linked, for
+**88,595 tokens** — a mean of 1,846 per event, a floor of 1,020 and a ceiling of 3,293.
+**Zero failures** across all 48. `event_topics` holds 46 rows, the first this project has
+written to a table stage 5 depends on. The remaining 50 events are pending on purpose:
+the schedule does six an hour, and a backlog is drained by hand, by name.
 
 **The whole cost argument lives here.** If an event is ever analysed twice, the product
-scales with articles instead of events. `analysis_tokens` is recorded once, on the
-event, precisely so this is auditable.
+scales with articles instead of events. `analysis_tokens` is recorded once, on the event,
+precisely so this is auditable. It was verified three ways, two of them adversarial.
 
-**There are 38 real events waiting**, all `status = 'pending'` with `analysed_at` null
-and `analysis_tokens` zero, so the verification box has a genuine corpus. Stage 3
-deliberately does not clear `analysed_at` when new coverage joins an event, which is
-half of that box already: the other half is that this stage must filter on
-`analysed_at is null` rather than on status.
+1. **Asking for it by name is refused.** `npm run pipeline -- analyse --event 8c173b42…`
+   against an analysed event reported `already analysed, or claimed between selection and
+now` — 0 model calls, 0 tokens. `--event` bypasses the claim gate deliberately; it
+   cannot bypass `analysed_at`, which is checked unconditionally.
+2. **Two workers racing for one event pay once.** Two `analyse --limit 1` processes
+   started together selected the same newest pending event. One analysed it for 1,447
+   tokens; the other spent nothing and reported `held`. Postgres decides the winner — the
+   claim is a conditional update evaluated as one statement — rather than this process
+   assuming it.
+3. **The corpus produced the real case unprompted.** Event `ef99831e` — CISA's warning
+   that Iranian actors are targeting Siemens S7 PLCs — was analysed at 10:18:33 for 1,890
+   tokens. At **10:22:25 a third outlet's coverage was attached to it by stage 3**:
+   `last_updated_at` moved, `analysed_at` and `analysis_tokens` did not, and no run has
+   selected it since. That is the box's mechanism exactly. It is one more article rather
+   than forty, because one is what the live corpus offered.
 
-**Every event's `title` is currently one article's headline** — stage 3 leaves it as a
-placeholder rather than inventing a neutral one. Writing a real title belongs here.
+**The cron runs it, verified through the artifact that deploys.** `npm run cron:test --
+"20,50 * * * *"` against `.output/server/index.mjs`: **6 events, 6 analysed, 0 failed, 6
+model calls, 9,364 tokens, 87s.** All three schedules now appear in
+`.output/server/wrangler.json` — `["*/15 * * * *", "10,40 * * * *", "20,50 * * * *"]`.
+Analysis sits ten minutes behind clustering so an event is understood from the coverage
+that has finished arriving rather than from whichever outlet filed first. Stage 2's
+Cloudflare caveat applies unchanged and is the only unverified claim here: that their
+scheduler pulls the trigger at the right minute.
+
+**`ANALYSE_LIMIT` is 6, and unlike `SCHEDULED_LIMIT` it fits the free plan.** Each event
+costs a coverage read, a claim, one model call and one or two writes — about five
+subrequests, so six events is roughly thirty-five plus the shared topic and outlet reads.
+Six an hour is not how a backlog gets cleared and is not meant to be; it is sized to the
+news of the last half hour.
+
+**A failed event is not retried by the schedule, and that was exercised.** An event was
+forced to `failed`; the next ordinary run skipped it and took the next-newest event
+instead, and only `--retry-failed` picked it up, analysing it cleanly. The reason is
+money: a cluster that cannot be analysed would otherwise be paid for every half hour with
+nobody watching. No genuine failure has occurred yet — 0 of 48 — so `recordFailure` itself
+has only ever run against an induced state.
+
+**The scores are low, and that is the anchors working.** Of 48 events, 35 score 0–2 on
+importance, 13 score 3 or more, and exactly one reaches 7 — the CISA advisory. A scale
+that returned 7 for everything would be useless as the threshold
+`notification_preferences.density` compares against, which is why the 0–10 anchors live in
+code rather than in the editable prompt. **Stage 5 should read this before choosing
+thresholds**: over a corpus that is largely game reviews and consumer how-tos, a threshold
+of 3 admits about a quarter of events and a threshold of 6 admits none at all.
+
+**Ten of those 35 low scores are one bad source, though.** The PyTorch feed serves CI
+branch refs rather than releases, so ten events reading _"PyTorch merged auto-generated PR
+updating pinned vision hash"_ were analysed at a cost of 18,157 tokens — **20.5% of all
+analysis spend** — and scored 0 or 1, correctly. The scoring is not at fault and neither
+is the clustering; the source is, and it is recorded in stage 9 with the measurement.
+Expect the distribution to shift once it is fixed, so do not calibrate stage 5's
+thresholds against this corpus without discounting them.
+
+**`before_state` is null for 29 of 48, and that is also correct.** The model is told to say
+null rather than fill a gap, and a press release genuinely does not report what was true
+before. A plausible sentence in that column would be a fabrication printed under a real
+headline, so `readAnalysis` also refuses the model's words for null — `"unknown"`, `"not
+stated"` — rather than storing them as findings.
+
+**Sixteen of the 48 analysed events carry no topic at all.** They are correctly scored and
+permanently unmatchable, because fifteen topics cannot cover a corpus containing game
+reviews and phone trade-in guides, and the prompt says to choose nothing rather than
+something loose. That is the right behaviour here and it becomes **stage 5's inherited
+problem**: an event with no row in `event_topics` can never reach a reader. Slugs the model
+asked for and could not have are printed by `npm run pipeline` for exactly this reason — a
+slug it keeps reaching for is the clearest evidence the vocabulary is too narrow.
+
+**The prompt is split between the database and the code, deliberately.**
+`0008_analysis_prompt.sql` is data only — `ai_prompts.key` is plain `text primary key`, so
+a new prompt is an INSERT, and `npm run db:seed` can replay it through PostgREST where DDL
+could not be applied at all. What is stored is judgement: voice, and the standard of
+evidence. The JSON shape, the scoring anchors and the list of subscribable slugs are
+appended by `analyse.ts` on every call, so an operator retuning the wording from the
+console cannot break the parse or invent a topic nobody can subscribe to. `analyse.ts`
+carries the same wording as a fallback, because `resolvePrompt` returns `""` for a missing
+key and an empty system prompt is dropped rather than sent blank — without the fallback an
+unseeded database would analyse events with no instructions at all and no error.
+
+**Topics are written before `analysed_at`, and the order is not arbitrary.** If
+`analysed_at` were set first and the topic insert then failed, the event would be
+permanently understood and permanently unmatchable — invisible to every reader and never
+retried, because nothing re-analyses an analysed event. Failing the other way round costs
+at worst one repeated analysis of one event, which is bounded and visible. The cheap
+failure is chosen on purpose.
+
+**One thing the first real run caught.** The model wrote _"An article described Wi-Fi 8
+as…"_ — accurate, and useless in a briefing. `what_happened` is about the event, not about
+the coverage of it, and that instruction now lives in the code-side contract rather than
+the editable prompt: an operator who deleted it would get prose about articles instead of
+prose about news, which is the same class of breakage as deleting the JSON shape.
+
+**Titles are written here now.** Stage 3 leaves an event titled with one article's
+headline; this stage replaces it with a neutral line naming what happened — _"OpenAI
+reverses on California's SB 53, asks to expand safeguards"_ rather than The Verge's
+wording of it.
 
 ---
 
-### Stage 5 — Matching · _not started_
+### Stage 5 — Matching · _next_
 
 A SQL query. **No model.** This is the stage that would otherwise scale with readers,
 and it is deliberately free.
@@ -340,6 +435,19 @@ and it is deliberately free.
 **`src/lib/matching.ts` already implements these rules over fixtures, and
 `matching.test.ts` locks them in.** Those tests are the specification for the query.
 When the query replaces the module, the tests must still describe it.
+
+**There are now 48 real analysed events to match against**, so this stage has a genuine
+corpus for the first time. Two properties of it should be checked before the thresholds
+are chosen, both measured in stage 4 rather than guessed:
+
+- **The importance distribution is low and correctly so.** 35 of 48 events score 0–2, 13
+  score 3 or more, and one reaches 7. A density threshold of 3 admits about a quarter of
+  the corpus; a threshold of 6 admits nothing at all. `notification_preferences.density`
+  has to be mapped onto that distribution rather than onto an imagined one.
+- **Sixteen of the 48 have no topic**, so no join to `user_topics` can ever reach them.
+  That is stage 4 refusing to invent a loose topic, and it is the right call there — but
+  it means an honest matcher will match fewer events than the event count suggests, and
+  the gap is a topic-vocabulary problem rather than a query bug.
 
 ---
 
@@ -406,13 +514,53 @@ honestly. That banner comes down when the data is real, not before.
       still `oklch(0.54 0.19 27)` (hue 27, red), `src/lib/email/shell.ts` still has
       `PALETTE.signal = "#c52c2a"`, and `AGENTS.md` claims hue 240. **Resolve before
       stage 7**, or the first real briefing email goes out in the wrong colour.
-- [ ] **PyTorch's feed is the wrong URL.** `releases.atom` returns CI branch tags, not
-      releases — `trunk/16ee93b8…: [vision hash update]`, `viable/strict/1787468606:
-    Revert "…"`. Eleven of the 1017 stored articles are refs of that shape. Stage 3
-      now recognises them and spends nothing on them, but they are still stored, and
-      they will still reach a reader as an event of one if stage 4 scores them. Either
-      point the source at `tags.atom` filtered to `v*`, or drop the source. A source
-      decision, so it is a human's.
+- [ ] **PyTorch's feed is the wrong URL, and it is now the single most expensive mistake
+      in the project.** `releases.atom` returns CI branch tags, not releases —
+      `trunk/16ee93b8…: [vision hash update]`, `viable/strict/1787468606: Revert "…"`. 14
+      of the 1040 stored articles are refs of that shape. Stage 3 recognises them and
+      spends nothing deciding they are unrelated, but recognising a ref is not the same as
+      discarding it: 11 of the 14 still became events, and **stage 4 has analysed 10 of
+      them for 18,157 tokens — 20.5% of all analysis spend to date.** Measured against the
+      live table, not estimated. Every one scored importance 0 or 1, so stage 5's
+      threshold will hide them from readers; the money was spent before any threshold
+      could apply. They also carry 10 `event_topics` rows, which is part of why
+      `open-source` is the most-used topic in the corpus. Point the source at `tags.atom`
+      filtered to `v*`, or drop it. A source decision, so it is a human's — but it is the
+      one loose end here with a running meter.
+- [ ] **`ANALYSE_LIMIT` does not protect against a junk source, and nothing else does
+      either.** The PyTorch item above is the general case: stage 3 declines to _group_
+      an unheadline-shaped article but still creates an event of one for it, and stage 4
+      pays per event without asking whether the event was worth understanding. A cheap
+      pre-analysis filter — refuse to analyse a single-article event whose only article
+      stage 3 already classified as not-a-headline — would have saved 20% of the bill.
+      Deliberately not built yet, because the right fix might instead be that stage 3
+      should not create events for those articles at all, and that choice affects stage 5.
+- [ ] **The `cluster` tier's `max_tokens` is 4096 and that is not always enough.**
+      `deepseek-v4-flash` is a reasoning model, so the ceiling has to cover reasoning plus
+      output. One article in 60 failed, having spent all 4096 of its reasoning budget
+      before writing any answer — caught by `TruncatedCompletionError` rather than
+      silently returning an empty decision, which is the guard working. **Fixable from the
+      admin console without a deploy**: raise the `cluster` route's `max_tokens`. Left as
+      a decision rather than changed, because raising it raises the worst-case cost of
+      every clustering call to buy back a 1.7% failure rate, and the failure is safe — the
+      article stays unclustered and is retried.
+- [ ] **`reason` has two intended consumers and only one exists.** Stage 4 uses it, and
+      the unbuilt `deep_explain` feature flag is meant to use the same tier for on-demand
+      explanations on a story page. Retuning `reason` will then change both, and they want
+      different things: analysis is a batch job where latency does not matter, a deep
+      explanation is a reader waiting. Splitting them means a fourth value in the
+      `ai_capability` enum, which is DDL. Recorded rather than pre-empted; see
+      [`ai-providers.md`](ai-providers.md).
+- [ ] **The topic vocabulary is too narrow for the corpus.** Sixteen of 48 analysed
+      events carry no topic, so nothing can ever match them — game reviews, phone
+      trade-in guides, consumer how-tos. Either the topic list grows or those sources
+      are the wrong sources. Both are product decisions, and stage 5 will make the
+      consequence visible.
+- [ ] **Fifty events are still awaiting analysis.** The backlog is deliberate —
+      `ANALYSE_LIMIT` is six an hour — but somebody should run
+      `npm run pipeline -- analyse --limit 50` once before stage 8, so the dashboard has a
+      corpus rather than a sample. At the measured mean that is about 92,000 tokens. Do
+      the PyTorch source decision first, or a fifth of that goes on CI refs again.
 - [ ] Dormancy email has no trigger — needs open-tracking, which needs stage 7
 - [ ] Stripe live mode — no real payment has ever run through the webhook
 - [ ] `VITE_SITE_URL` must be the real origin in production

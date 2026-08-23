@@ -5,6 +5,7 @@
  *   npm run cron:test
  *   npm run cron:test -- "*\/15 * * * *"     a specific schedule
  *   npm run cron:test -- "10,40 * * * *"     clustering — this one spends money
+ *   npm run cron:test -- "20,50 * * * *"     analysis — so does this one
  *
  * ---------------------------------------------------------------------------
  * Why this exists

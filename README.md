@@ -127,10 +127,11 @@ Full technical and product documentation lives in [`docs/`](docs/README.md):
 ## Status
 
 nyuz is **in development and not yet accepting customers.** The marketing site, accounts,
-admin console and blog are real and working. Source collection and clustering now run
-against real feeds — there are 1017 stored articles, grouped into events by a real model
-call — but scoring, matching and delivery are not built, so the dashboard still shows
-clearly-labelled sample stories.
+admin console and blog are real and working. Collection, clustering and analysis now run
+against real feeds — 1040 stored articles, 112 of them grouped into 98 events, and 48 of
+those events read once each by a model and scored for importance and novelty — but
+matching and delivery are not built, so the dashboard still shows clearly-labelled sample
+stories.
 
 [`docs/status.md`](docs/status.md) is an honest, itemised account of exactly what works
 today and what doesn't. It's worth reading before forming an opinion about either.

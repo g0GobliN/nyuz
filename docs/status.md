@@ -7,12 +7,12 @@ itemised version of that sentence.
 
 It exists because the app looks considerably more finished than it is. The marketing
 site, the accounts, the admin console and the blog are genuinely working software. As of
-this review the ingester is too — there are real articles in the database — and those
-articles are now grouped into real events by a real model call. The thing the product is
-actually for — a briefing assembled from real reporting — is still not built: nothing has
-yet read an event and worked out what it means, and no reader has been shown anything but
-fixtures. Anyone forming a judgement from the screenshots alone will be wrong in one
-direction or the other.
+this review the ingester is too — there are real articles in the database — those
+articles are grouped into real events, and those events have been read and scored by a
+second model call. The thing the product is actually for — a briefing assembled from real
+reporting — is still not built: nothing has yet matched a scored event to a reader, and no
+reader has been shown anything but fixtures. Anyone forming a judgement from the
+screenshots alone will be wrong in one direction or the other.
 
 ---
 
@@ -25,14 +25,15 @@ direction or the other.
 | Accounts, sign-in, OAuth                               | **Built**                                    |
 | Admin console (analytics, users, bans, roles, audit)   | **Built**                                    |
 | Blog (authoring + public pages)                        | **Built**                                    |
-| AI provider routing configuration                      | **Built** — clustering now routes through it |
+| AI provider routing configuration                      | **Built** — two stages route through it      |
 | Billing (checkout, portal, webhook)                    | **Built** (test mode; unproven against live) |
 | Lifecycle email (account, billing, pause)              | **Built** (dormancy nudge has no trigger)    |
 | Onboarding flow                                        | **Built**, persisted to the account          |
 | Source list (64 live feeds)                            | **Built**                                    |
-| Ingestion pipeline                                     | **Built** — 1017 articles stored             |
-| Clustering (articles → events)                         | **Built** — 41 articles in 38 events         |
-| Analysis, scoring, matching                            | **Designed, not built**                      |
+| Ingestion pipeline                                     | **Built** — 1040 articles stored             |
+| Clustering (articles → events)                         | **Built** — 112 articles in 98 events        |
+| Analysis and scoring (events → understood)             | **Built** — 48 of 98 events analysed         |
+| Matching (events → readers)                            | **Designed, not built**                      |
 | Digest generation and delivery                         | **Designed, not built**                      |
 | Customer dashboard                                     | **Prototype** — renders labelled sample data |
 
@@ -71,7 +72,7 @@ place it exists for. The Worker's env bag is now passed through.
 
 **Ingestion.** 64 active feeds are fetched on a Cloudflare Cron Trigger every fifteen
 minutes, parsed without any Node built-ins, canonicalised, and inserted into `articles`.
-**1017 articles are stored** as of this review. Re-reading a feed inserts nothing —
+**1040 articles are stored** as of this review. Re-reading a feed inserts nothing —
 `articles.url` is unique and the insert ignores duplicates — and a publisher who rewrites
 a live headline updates the stored row instead. Feeds that fail are counted, backed off on
 a widening schedule, and switched off after eight consecutive failures with an audit-log
@@ -80,8 +81,9 @@ the disable; see [plan.md](plan.md#stage-2--ingestion--done) for the figures and
 one claim that could not be verified without a deploy.
 
 **Clustering.** Articles that report the same occurrence are grouped into one row in
-`events`. **41 articles sit in 38 events** as of this review — the first rows anything in
-this project has written to that table, and the first money it has spent.
+`events`. **112 articles sit in 98 events** as of this review, with 928 still unclustered —
+the first rows anything in this project has written to that table, and the first money it
+has spent.
 
 Two real duplicate-coverage pairs were used to verify it, both found in the live corpus
 rather than constructed: TechCrunch's and The Verge's separate write-ups of OpenAI's
@@ -94,8 +96,8 @@ It is cheap by construction, and the construction is the interesting part. Candi
 come from a trigram index that already existed — a GIN `gin_trgm_ops` index on
 `articles.title` turns the `ilike` filters PostgREST emits into an index scan — so the
 model is only ever shown ten titles, never the corpus. **Around 610 tokens per article**
-over real batches, and 89 of the 1017 stored articles are decided for nothing at all
-because their titles are version tags or CI refs rather than headlines.
+over real batches, and roughly one article in twelve is decided for nothing at all
+because its title is a version tag or a CI ref rather than a headline.
 
 Articles are processed one at a time on purpose. The shortlist reads the column the write
 updates, so a burst of coverage converges on one event with no bookkeeping; running the
@@ -105,6 +107,29 @@ schedule, `10,40 * * * *`, offset from ingestion so it runs on coverage that has
 arriving. Verified through the built Worker, not just the source. See
 [plan.md](plan.md#stage-3--clustering--done).
 
+**Analysis.** Each event is read once, ever, and what comes out is a neutral title, a
+plain-past-tense account of what happened, the before and after state where the coverage
+supports them, scores for importance and novelty, and links into the shared `topics`
+table. **48 of the 98 events are analysed** as of this review, for **88,595 tokens** —
+1,846 per event on average — with **no failures**. `event_topics` has 46 rows, the first
+this project has written to a table stage 5 depends on.
+
+The property the pricing rests on is that this happens **once per event forever**, and it
+was verified three ways rather than asserted. Asking for an analysed event by name is
+refused and costs nothing. Two workers started together on the same event produced one
+analysis and one `held` — the claim is a conditional update, so Postgres picks the winner.
+And the live corpus produced the real case on its own: an event was analysed at 10:18:33,
+a third outlet's coverage was attached to it four minutes later, and its `analysed_at` and
+`analysis_tokens` did not move. Verified through the built Worker as well as from a
+laptop; see [plan.md](plan.md#stage-4--analysis--done).
+
+Two things about the output are worth knowing before reading the numbers. Scores are low
+on purpose — 35 of 48 events score 0–2 for importance and exactly one reaches 7 — because
+a scale that answers 7 for everything cannot serve as the threshold density compares
+against. And `before_state` is null for 29 of 48, because the model is told to answer
+null rather than fill a gap; a plausible sentence there would be a fabrication printed
+under a real headline.
+
 `npm run pipeline` still runs ingestion only. A stage that spends money has to be asked
 for by name.
 
@@ -113,12 +138,11 @@ for by name.
 ## What is a prototype
 
 **The customer dashboard.** Every story on every dashboard page comes from
-`src/lib/sample-data.ts` — six fixtures. The ingester fills `articles` and clustering now
-fills `events`, but nothing has yet worked out what any of those events _mean_, so
-`event_topics`, `user_events`, `digests` and `digest_items` are all still empty and there
-is nothing real for the dashboard to read. An event currently carries a title, a first-seen
-timestamp and a `pending` status — not a summary, not an importance score, and no topics to
-match a reader against.
+`src/lib/sample-data.ts` — six fixtures. The ingester fills `articles`, clustering fills
+`events`, and analysis now fills in what those events mean and which topics they belong
+to — but nothing connects any of that to a person, so `user_events`, `digests` and
+`digest_items` are all still empty and there is nothing reader-shaped for the dashboard to
+read. The missing piece is no longer understanding; it is matching.
 
 Two things were done so that this is not misleading:
 
@@ -145,10 +169,11 @@ empty rather than filled with plausible numbers.
 
 ## What is not built
 
-**Everything between an event and a reader.** Collection and grouping work; nothing after
-them does. `event_topics`, `user_events`, `digests`, `digest_items` and `deliveries` have
-never had a row written to them by anything. The DeepSeek client is called for clustering
-and for nothing else — no analysis, no scoring, no summarising.
+**Everything between a scored event and a reader.** Collection, grouping and analysis
+work; nothing after them does. `user_events`, `digests`, `digest_items` and `deliveries`
+have never had a row written to them by anything. The DeepSeek client is called for
+clustering and for analysis, and for nothing else — no matching, no summarising, nothing
+per-reader.
 
 The stages, in the order they need building:
 
@@ -159,18 +184,23 @@ The stages, in the order they need building:
    already unique. Duplicate _reporting_ of one event is stage 3's job. What the hash does
    catch is a publisher rewriting a headline on a story already stored.
 3. ~~**Cluster** — trigram shortlist in Postgres, then one model call to confirm.~~ Built
-   and verified, 23 August 2026. 41 of 1017 articles are grouped so far; the remaining 976
-   are a backlog the schedule works through, or `npm run pipeline -- cluster --limit N`
-   does deliberately.
-4. **Understand** — one analysis pass per event; importance, novelty, before/after.
-   **Next.** 38 events are waiting, all with `analysed_at` null.
+   and verified, 23 August 2026. 112 of 1040 articles are grouped so far; the remaining
+   928 are a backlog the schedule works through, or a deliberate
+   `npm run pipeline -- cluster --limit N`.
+4. ~~**Understand** — one analysis pass per event; importance, novelty, before/after.~~
+   Built and verified, 23 August 2026. 48 of 98 events analysed, 50 waiting with
+   `analysed_at` null; the schedule takes six an hour, and
+   `npm run pipeline -- analyse --limit N` drains the rest deliberately.
 5. **Match** — deterministic SQL against topics, keywords, exclusions and density.
+   **Next**, and the first stage that costs nothing per run.
 6. **Generate and deliver** — one paragraph per person per story, then send.
 
-**The project has now spent money.** Clustering is the first stage that does, at roughly
-610 tokens per article. `events.analysis_tokens` is still zero across all 38 rows, because
-that column records stage 4's spend and stage 4 has never run — it is the number the whole
-cost argument gets audited against, so it is worth knowing that nothing has touched it.
+**The project has now spent money on both of the stages that ever will share it.**
+Clustering costs roughly 610 tokens per article; analysis costs roughly 1,846 tokens per
+event, once. `events.analysis_tokens` holds **88,595 across 48 rows** — the number the
+whole cost argument gets audited against, and the reason it is stored on the event rather
+than summed from a log. A single figure there that ever doubled would mean an event had
+been understood twice, which is the one failure this design cannot absorb.
 
 **Billing.** Stripe checkout, the billing portal and the webhook are wired.
 `subscriptions.plan` is written by `customer.subscription.*` events, and the price of every
@@ -210,21 +240,34 @@ and PostgREST cannot execute DDL. Until somebody pastes it into the Supabase SQL
 the console's source list prints "—" for per-source article counts, which it explains on
 the page rather than showing a zero.
 
-**PyTorch's feed is the wrong URL.** The source points at `releases.atom`, which for that
-repository returns continuous-integration branch tags rather than releases —
-`trunk/16ee93b8…: [vision hash update]`, `viable/strict/1787468606: Revert "…"`. **Eleven
-of the 1017 stored articles are refs of that shape.** Clustering recognises them and
-spends nothing on them, but they are still stored, and they will reach a reader as
-one-article events if the analysis stage scores them. Fixing it means pointing the source
-at a tag feed filtered to releases, or dropping the source — a coverage decision rather
-than a bug.
+**PyTorch's feed is the wrong URL, and it has already cost a fifth of the analysis bill.**
+The source points at `releases.atom`, which for that repository returns
+continuous-integration branch tags rather than releases — `trunk/16ee93b8…: [vision hash
+update]`, `viable/strict/1787468606: Revert "…"`. **14 of the 1040 stored articles are refs
+of that shape.** Clustering recognises them and spends nothing deciding that unrelated
+commits are unrelated — but recognising a ref is not discarding it. 11 of the 14 still
+became events, and **analysis has read 10 of them at a cost of 18,157 tokens, 20.5% of all
+analysis spend to date**, measured against the live table. Each scored importance 0 or 1,
+so matching will keep them away from readers; the money went before any threshold could
+apply. Fixing it means pointing the source at a tag feed filtered to releases, or dropping
+the source — a coverage decision rather than a bug, but a metered one.
 
 **The cron's per-run limit assumes a paid Cloudflare plan.** A Worker invocation may make
 50 subrequests on the free plan and 1000 on paid; `SCHEDULED_LIMIT` is 24 sources, which
-is roughly 120 subrequests. On the free plan this must come down. Clustering has now added
-a second schedule, `10,40 * * * *`, so there are two triggers rather than one — its limit
-of 12 articles is bounded by money and wall-clock rather than by subrequests, and it
-deliberately does not attempt to drain the backlog unattended.
+is roughly 120 subrequests. **On the free plan this must come down**, and it is the only
+one of the three that must: there are now three triggers — ingestion every fifteen
+minutes, clustering at `10,40`, analysis at `20,50` — and the two model stages are
+bounded by money and wall-clock rather than by subrequests. Clustering does 12 articles a
+run and analysis 6 events, roughly 35 subrequests, and neither tries to drain its backlog
+unattended.
+
+**Fifteen topics cannot cover what the sources publish.** Sixteen of the 48 analysed
+events carry no topic at all — game reviews, phone trade-in guides, consumer how-tos —
+because analysis is told to choose nothing rather than something loose. Those events are
+correctly scored and permanently unmatchable: with no row in `event_topics` there is
+nothing for a reader's topics to join against. Either the vocabulary grows or some of
+these are the wrong sources; both are product decisions, and matching will make the
+consequence visible rather than fix it.
 
 **`--signal` is two different colours.** `public/logo.svg` is blue, `src/styles.css` is
 red (hue 27), `src/lib/email/shell.ts` is `#c52c2a`, and `AGENTS.md` claims hue 240. This

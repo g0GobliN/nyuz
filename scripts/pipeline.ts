@@ -9,26 +9,34 @@
  *   npm run pipeline -- cluster --limit 20    group twenty unclustered articles
  *   npm run pipeline -- cluster --dry-run     decide and print, write nothing
  *   npm run pipeline -- cluster --article ID  one article, for checking a known case
+ *   npm run pipeline -- analyse --limit 4     understand four events, once each
+ *   npm run pipeline -- analyse --dry-run     analyse and print, write nothing
+ *   npm run pipeline -- analyse --event ID    one event, for checking a known case
+ *   npm run pipeline -- analyse --retry-failed  include events a run failed on
  *
  * The same functions the scheduled Worker calls, with the same arguments. There is
  * no separate code path for running it manually, because a manual run whose
  * behaviour differed from the cron would prove nothing about the cron.
  *
- * **`cluster` spends money.** Every article it looks at may cost a model call, so
- * it defaults to a small batch and `--limit` is the only way to make it large. A
- * `--dry-run` still calls the model — it is the writes that are skipped, not the
- * spend — because a dry run that skipped the model would tell you nothing about
- * what the model would decide.
+ * **`cluster` and `analyse` spend money.** Every article or event they look at may
+ * cost a model call, so both default to a small batch and `--limit` is the only way
+ * to make it large. A `--dry-run` still calls the model — it is the writes that are
+ * skipped, not the spend — because a dry run that skipped the model would tell you
+ * nothing about what the model would decide.
+ *
+ * `analyse` will not analyse an event twice however it is invoked, including with
+ * `--event`. That property is the product's cost structure and does not have a flag.
  *
  * This holds the service-role key and bypasses row-level security. Nothing in
  * scripts/ may be imported from application code.
  */
 
+import { analyse, type AnalysisReport, type EventOutcome } from "@/lib/pipeline/analyse";
 import { cluster, type ArticleOutcome, type ClusterReport } from "@/lib/pipeline/cluster";
 import { ingest, type IngestReport, type SourceOutcome } from "@/lib/pipeline/ingest";
 import { db, fail, heading, main, row, say } from "./lib/db.ts";
 
-const STAGES = ["ingest", "cluster"] as const;
+const STAGES = ["ingest", "cluster", "analyse"] as const;
 type Stage = (typeof STAGES)[number];
 
 /**
@@ -36,12 +44,19 @@ type Stage = (typeof STAGES)[number];
  *
  * Not every stage. A stage that spends model tokens has to be asked for by name,
  * because the alternative is that someone runs the pipeline to check a feed change
- * and is billed for it. So `cluster` is available but never implicit.
+ * and is billed for it. So `cluster` and `analyse` are available but never implicit.
  */
 const DEFAULT_STAGES: readonly Stage[] = ["ingest"];
 
 /** Flags that take the next argument as their value, so it is not a stage name. */
-const VALUED = new Set(["--limit", "--article", "--window", "--shortlist"]);
+const VALUED = new Set([
+  "--limit",
+  "--article",
+  "--event",
+  "--window",
+  "--shortlist",
+  "--articles",
+]);
 
 main(async () => {
   const args = process.argv.slice(2);
@@ -57,6 +72,7 @@ main(async () => {
   for (const stage of stages as Stage[]) {
     if (stage === "ingest") await runIngest(args);
     if (stage === "cluster") await runCluster(args);
+    if (stage === "analyse") await runAnalyse(args);
   }
 
   say();
@@ -174,6 +190,71 @@ function printCluster(report: ClusterReport, dryRun: boolean): void {
   say(row("completion tokens", report.completionTokens));
   say(
     row("tokens per article", report.considered === 0 ? 0 : Math.round(tokens / report.considered)),
+  );
+  say(row("seconds", Math.round(seconds)));
+}
+
+async function runAnalyse(args: string[]): Promise<void> {
+  const limit = numberFlag(args, "--limit");
+  const articleLimit = numberFlag(args, "--articles");
+  const event = stringFlag(args, "--event");
+  const dryRun = args.includes("--dry-run");
+
+  heading(dryRun ? "Analyse (dry run — analysis printed, nothing written)" : "Analyse");
+
+  const report = await analyse(db(), {
+    dryRun,
+    retryFailed: args.includes("--retry-failed"),
+    ...(limit === null ? {} : { limit }),
+    ...(articleLimit === null ? {} : { articleLimit }),
+    ...(event === null ? {} : { eventIds: [event] }),
+  });
+
+  printAnalysis(report, dryRun);
+}
+
+const VERDICT: Record<EventOutcome["decision"], string> = {
+  analysed: "read  ",
+  skipped: "dry   ",
+  claimed: "held  ",
+  empty: "empty ",
+  failed: "FAIL  ",
+};
+
+function printAnalysis(report: AnalysisReport, dryRun: boolean): void {
+  for (const outcome of report.outcomes) {
+    const scores =
+      outcome.importance === null ? "  -  " : `${outcome.importance}/${outcome.novelty}`.padEnd(5);
+
+    say(
+      `${VERDICT[outcome.decision]}${String(outcome.articles).padStart(2)}a ${scores} ` +
+        outcome.title.slice(0, 52).padEnd(52),
+    );
+    say(`             ${outcome.detail}`);
+
+    // Printed rather than counted: a slug the model keeps reaching for and cannot
+    // use is the clearest evidence there is that the topic list is too narrow, and
+    // it is only visible here.
+    if (outcome.unknownTopics.length > 0) {
+      say(`             wanted topics that do not exist: ${outcome.unknownTopics.join(" ")}`);
+    }
+  }
+
+  const seconds = (Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000;
+  const tokens = report.promptTokens + report.completionTokens;
+
+  heading(dryRun ? "Summary (nothing was written)" : "Summary");
+  say(row("events considered", report.considered));
+  say(row(dryRun ? "would be analysed" : "analysed", report.analysed + report.skipped));
+  say(row("failed", report.failed));
+  say(row("held by another run", report.claimed));
+  say(row("model calls", report.modelCalls));
+  say(row("prompt tokens", report.promptTokens));
+  say(row("completion tokens", report.completionTokens));
+  // Per event, not per article: this is the number the cost argument rests on, and
+  // dividing by articles would flatter it every time coverage is broad.
+  say(
+    row("tokens per event", report.modelCalls === 0 ? 0 : Math.round(tokens / report.modelCalls)),
   );
   say(row("seconds", Math.round(seconds)));
 }
