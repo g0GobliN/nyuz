@@ -26,6 +26,7 @@ function story(id: string, org: string, topics: string[]): Story {
     sources: 1,
     topics,
     time: "06:00",
+    publishedAt: "2026-08-23T06:00:00.000Z",
     sourceList: [],
     before: "",
     after: "",

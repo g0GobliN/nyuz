@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Eyebrow, Chip } from "@/components/kit";
 import { BriefingPreview } from "@/components/briefing-preview";
 import { PROFILE_BRIEFS, STORIES, type Profile } from "@/lib/sample-data";
+import { cn } from "@/lib/utils";
 
 export function ProfileDemo() {
   const [profile, setProfile] = useState<Profile>("developer");
@@ -44,34 +45,45 @@ export function ProfileDemo() {
 
 const DIFFS = [
   {
-    title: "Not another feed",
-    body: "We don't ask you to keep scrolling. There is nothing to open.",
+    title: "One event, not thirty articles",
+    body: "When thirty outlets cover one announcement, you get one story with all thirty sources attached — not thirty entries to mentally deduplicate at 7am.",
   },
   {
-    title: "Not another newsletter",
-    body: "Your briefing changes with what you care about, not with what an editor picked.",
+    title: "It explains why you care",
+    body: "Not a generic summary. A line about what this changes given what you actually follow, written for you and nobody else.",
   },
   {
-    title: "Not just an AI summariser",
-    body: "We identify events, remove duplicates and decide what deserves your attention.",
+    title: "Quiet days stay quiet",
+    body: "There is no daily quota to fill. If nothing crossed your threshold, your briefing is short or it doesn't come. A calendar of manufactured urgency is what we're replacing.",
   },
   {
-    title: "Not another app to remember",
-    body: "Configure it once. It comes to you.",
+    title: "Sources are always one tap away",
+    body: "Summaries are generated, and generated text can be wrong. nyuz never presents itself as the origin of a story — the original reporting is never more than one tap from the summary of it.",
+  },
+  {
+    title: "You control the volume, precisely",
+    body: "A density dial from “only if it's genuinely major” to “tell me everything”. Exclusions that actually hold: a term you've excluded cannot be smuggled back in by a topic you follow.",
   },
 ];
 
 export function WhyDifferent() {
   return (
     <div>
-      <h2 className="display max-w-xl text-4xl sm:text-5xl">
+      <Eyebrow>What makes it different</Eyebrow>
+      <h2 className="display mt-3 max-w-xl text-4xl sm:text-5xl">
         Less information. More relevance. Zero searching.
       </h2>
       <div className="mt-12 grid gap-px overflow-hidden rounded-3xl border border-hairline bg-[var(--hairline)] sm:grid-cols-2">
         {DIFFS.map((d, i) => (
           <div
             key={d.title}
-            className="reveal bg-surface p-8"
+            // An odd number of cards would leave the final cell empty, and an
+            // empty cell in this grid is a bare block of hairline colour rather
+            // than nothing. The last card spans instead.
+            className={cn(
+              "reveal bg-surface p-8",
+              i === DIFFS.length - 1 && DIFFS.length % 2 === 1 && "sm:col-span-2",
+            )}
             style={{ transitionDelay: `${i * 80}ms` }}
           >
             <p className="text-[19px] font-medium tracking-tight">{d.title}</p>

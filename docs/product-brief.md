@@ -8,7 +8,7 @@ The original brief nyuz was built from, preserved as written.
 > the code, the code is right and this is a record of what was asked for.
 >
 > One deliberate departure: the brief specifies an amber accent. The product now uses a
-> red one at hue 27. See [development.md](development.md#conventions).
+> blue one at hue 240. See [development.md](development.md#conventions).
 
 ---
 

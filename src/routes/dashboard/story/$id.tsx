@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { DashboardShell } from "@/components/dashboard/shell";
+import { formatStoryTime } from "@/lib/story-time";
 import { Button } from "@/components/kit";
 import { useFeedback } from "@/lib/feedback-store";
 import { storyById } from "@/lib/sample-data";
@@ -53,7 +54,9 @@ function StoryDetail() {
           <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-signal">
             {story.org}
           </span>
-          <span className="text-[12px] tabular-nums text-muted-foreground">{story.time}</span>
+          <span className="text-[12px] tabular-nums text-muted-foreground">
+            {formatStoryTime(story.publishedAt)}
+          </span>
           <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px]">
             {story.importance} importance
           </span>

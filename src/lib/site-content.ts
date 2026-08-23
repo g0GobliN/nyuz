@@ -42,7 +42,7 @@ export type Hero = z.infer<typeof heroSchema>;
 
 export const HERO_DEFAULT: Hero = {
   headline: "Stop searching.\nStart knowing.",
-  sub: "Tell us what matters to you. We watch the internet and deliver the things worth knowing.",
+  sub: "You don't read the news. It reports to you.",
   ctaLabel: "Build my nyuz",
   ctaHref: "/onboarding",
   secondaryLabel: "See how it works",
@@ -291,7 +291,7 @@ export type Seo = z.infer<typeof seoSchema>;
 export const SEO_DEFAULT: Seo = {
   title: "nyuz — Stop searching. Start knowing.",
   description:
-    "Tell us what matters to you. We watch the internet and deliver the things worth knowing.",
+    "You don't read the news. It reports to you. nyuz watches hundreds of sources, merges the duplicates, and sends you the handful of things worth knowing.",
   ogImage: "/og-image.jpg",
 };
 

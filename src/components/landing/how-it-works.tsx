@@ -4,11 +4,36 @@ import { Eyebrow } from "@/components/kit";
 import { cn } from "@/lib/utils";
 
 const STEPS = [
-  { n: "01", title: "Tell us what matters", kind: "interests" },
-  { n: "02", title: "We watch", kind: "sources" },
-  { n: "03", title: "AI understands", kind: "dedupe" },
-  { n: "04", title: "We rank what matters", kind: "rank" },
-  { n: "05", title: "You receive it", kind: "deliver" },
+  {
+    n: "01",
+    title: "Tell it what matters",
+    body: "Topics, companies, technologies — and, just as importantly, what to ignore.",
+    kind: "interests",
+  },
+  {
+    n: "02",
+    title: "It watches",
+    body: "Hundreds of sources on a schedule. Company blogs, newsrooms, research pages, release notes.",
+    kind: "sources",
+  },
+  {
+    n: "03",
+    title: "It understands",
+    body: "Articles describing the same real-world event are merged into one event, read once, and scored for importance and novelty.",
+    kind: "dedupe",
+  },
+  {
+    n: "04",
+    title: "It matches",
+    body: "Your interests are compared against those events by a database query — not a language model. Your topic list never leaves our infrastructure.",
+    kind: "rank",
+  },
+  {
+    n: "05",
+    title: "You receive it",
+    body: "One briefing. Your time, your timezone, your channel.",
+    kind: "deliver",
+  },
 ] as const;
 
 export function HowItWorksRail() {
@@ -124,6 +149,7 @@ export function HowItWorksRail() {
                 <span className="text-[12px] tabular-nums text-muted-foreground">{s.n}</span>
                 <h3 className="text-[19px] font-medium tracking-tight">{s.title}</h3>
               </div>
+              <p className="mt-3 text-[13.5px] leading-relaxed text-muted-foreground">{s.body}</p>
               <div className="mt-7">
                 <StepVisual kind={s.kind} />
               </div>

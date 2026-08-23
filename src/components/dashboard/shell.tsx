@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Bell,
   BookOpen,
@@ -7,6 +7,7 @@ import {
   Gauge,
   History,
   Home,
+  LogOut,
   Radio,
   Search,
   Send,
@@ -25,7 +26,14 @@ import { cn } from "@/lib/utils";
 // would pull the entire admin console into this bundle for the sake of one
 // boolean.
 import { isAdmin, useViewer } from "@/lib/viewer";
-import { useDisplayName } from "@/lib/auth";
+import { useAuth, useDisplayName } from "@/lib/auth";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const NAV = [
   { to: "/dashboard", label: "Home", icon: Home, exact: true },
@@ -142,7 +150,9 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
           <p className="flex items-center gap-2 text-[11.5px] uppercase tracking-[0.16em] text-muted-foreground">
             <Clock className="h-3.5 w-3.5" /> Next briefing
           </p>
-          <p className="mt-2 text-[14px] font-medium tabular-nums">Tomorrow · {prefs.time}</p>
+          <p className="mt-2 text-[14px] font-medium tabular-nums">
+            {prefs.paused ? "Paused" : `Tomorrow · ${prefs.time}`}
+          </p>
           <p className="mt-1 text-[12px] text-muted-foreground">{prefs.timezone}</p>
         </div>
       </aside>
@@ -172,13 +182,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
                 <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-signal" />
               </Link>
               <ThemeToggle />
-              <Link
-                to="/dashboard/settings"
-                aria-label="Profile"
-                className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-foreground text-[12px] font-medium text-background"
-              >
-                {initial}
-              </Link>
+              <AccountMenu initial={initial} />
             </div>
           </div>
         </header>
@@ -198,6 +202,81 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
 
       {search ? <SearchOverlay onClose={() => setSearch(false)} /> : null}
     </div>
+  );
+}
+
+/**
+ * The avatar in the header.
+ *
+ * It used to be a plain link to Settings, which meant the app had no way to
+ * sign out at all — `signOut` existed on the auth context and nothing in the
+ * product ever called it. The avatar is where people look for that, so it opens
+ * a menu instead, with Settings still one click away.
+ */
+function AccountMenu({ initial }: { initial: string }) {
+  const { user, signOut } = useAuth();
+  const name = useDisplayName();
+  const navigate = useNavigate();
+  const [signingOut, setSigningOut] = useState(false);
+
+  const out = async () => {
+    setSigningOut(true);
+    try {
+      await signOut();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      // Home either way. A sign-out that fails and leaves someone sitting on a
+      // dashboard they believe they have left is the worse outcome; the auth
+      // listener reconciles the real session state on the way.
+      navigate({ to: "/" });
+    }
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          aria-label="Account"
+          className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-foreground text-[12px] font-medium text-background transition-opacity hover:opacity-85"
+        >
+          {initial}
+        </button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent align="end" className="w-56">
+        {/* Identifies the account before offering to leave it — on a shared
+            machine, which account you are signing out of is the question. */}
+        {name || user?.email ? (
+          <>
+            <div className="px-2 py-1.5">
+              {name ? <p className="truncate text-[13px] font-medium">{name}</p> : null}
+              {user?.email ? (
+                <p className="truncate text-[12px] text-muted-foreground">{user.email}</p>
+              ) : null}
+            </div>
+            <DropdownMenuSeparator />
+          </>
+        ) : null}
+
+        <DropdownMenuItem asChild>
+          <Link to="/dashboard/settings">
+            <Settings /> Settings
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link to="/dashboard/billing">
+            <CreditCard /> Billing
+          </Link>
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+
+        <DropdownMenuItem onSelect={() => void out()} disabled={signingOut}>
+          <LogOut /> {signingOut ? "Signing out…" : "Sign out"}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

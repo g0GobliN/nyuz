@@ -3,6 +3,7 @@ import { Bookmark, EyeOff, Sparkles, ThumbsDown, ThumbsUp, VolumeX } from "lucid
 import { becauseYouFollow } from "@/lib/matching";
 import type { Story } from "@/lib/sample-data";
 import type { FeedbackState, Vote } from "@/lib/feedback-store";
+import { formatStoryTime } from "@/lib/story-time";
 import { cn } from "@/lib/utils";
 
 const TONE: Record<Story["importance"], string> = {
@@ -80,7 +81,7 @@ export function StoryCard({
         <span>
           {story.sources} sources <span aria-hidden>→</span> 1 event
         </span>
-        <span className="tabular-nums">{story.time}</span>
+        <span className="tabular-nums">{formatStoryTime(story.publishedAt)}</span>
         <span className="flex flex-wrap gap-1.5">
           {story.topics.map((t) => (
             <span key={t} className="rounded-md bg-muted px-2 py-0.5 text-[11px]">

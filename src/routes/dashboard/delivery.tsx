@@ -1,10 +1,20 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AlertTriangle, Check, Mail, MessageCircle, Phone, RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Mail,
+  MessageCircle,
+  Pause,
+  Phone,
+  Play,
+  RefreshCw,
+} from "lucide-react";
 import { useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
 import { DensityDial } from "@/components/density-dial";
 import { useAuth } from "@/lib/auth";
+import { notifyBriefingsPaused } from "@/lib/server/account";
 import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +53,21 @@ function Delivery() {
       days: prefs.days.includes(d) ? prefs.days.filter((x) => x !== d) : [...prefs.days, d],
     });
 
+  /**
+   * Stops or resumes everything.
+   *
+   * The confirmation email is sent only on the way into paused, never on the way
+   * out: the message tells the reader there is no follow-up, and mailing them
+   * again when they resume would contradict it. Fire and forget, because a
+   * failed confirmation must not make the pause itself look like it failed —
+   * the pause is the thing they asked for.
+   */
+  const togglePaused = () => {
+    const next = !prefs.paused;
+    touch({ paused: next });
+    if (next) void notifyBriefingsPaused().catch((error: unknown) => console.error(error));
+  };
+
   return (
     <DashboardShell title="Delivery">
       <PageHeader
@@ -75,7 +100,46 @@ function Delivery() {
         </div>
       ) : null}
 
-      <div className="space-y-5">
+      {/* At the top because it overrides everything under it. Somebody looking
+          for "make it stop" should not have to read a schedule editor first. */}
+      <section
+        className={cn(
+          "mb-5 flex flex-wrap items-center justify-between gap-4 rounded-3xl border p-6 sm:p-7",
+          prefs.paused ? "border-signal/40 bg-surface-2" : "border-hairline bg-surface",
+        )}
+      >
+        <div>
+          <p className="text-[15px] font-medium">
+            {prefs.paused ? "Briefings are paused." : "Briefings are on."}
+          </p>
+          <p className="mt-1.5 max-w-md text-[13px] leading-relaxed text-muted-foreground">
+            {prefs.paused
+              ? "Nothing is being sent on any channel. Your topics, schedule and history are untouched and resume exactly where you left off."
+              : "Pausing stops every channel at once without changing anything below. Nothing is deleted and nothing is lost."}
+          </p>
+        </div>
+        <Button variant={prefs.paused ? "primary" : "outline"} size="sm" onClick={togglePaused}>
+          {prefs.paused ? (
+            <>
+              <Play className="h-3.5 w-3.5" /> Resume briefings
+            </>
+          ) : (
+            <>
+              <Pause className="h-3.5 w-3.5" /> Pause briefings
+            </>
+          )}
+        </Button>
+      </section>
+
+      <div
+        className={cn(
+          "space-y-5 transition-opacity duration-500",
+          // Dimmed rather than disabled: these settings still describe what will
+          // happen on resume, and locking them would make a pause feel like a
+          // downgrade rather than a switch.
+          prefs.paused && "opacity-60",
+        )}
+      >
         <Panel title="Time and place">
           <div className="grid gap-5 sm:grid-cols-2">
             <div>

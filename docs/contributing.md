@@ -72,7 +72,7 @@ bug; its cases are the specification now.
 Full list in [development.md](development.md#conventions). The ones most often missed:
 
 - **`tsc --noEmit` stays clean.** `noUncheckedIndexedAccess` is on — narrow before use.
-- **Three colours.** Black, white, one red. Do not add a fourth.
+- **Three colours.** Black, white, one blue. Do not add a fourth.
 - **Never edit `src/routeTree.gen.ts`.** It is generated.
 - **Never import `src/lib/server/` or `supabase/admin.ts` from a component.**
 - **LF line endings**, enforced by `.gitattributes`.

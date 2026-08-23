@@ -46,6 +46,8 @@ export type Profile = {
    */
   email: string;
   last_seen_at: string | null;
+  /** Set the first time the welcome email goes out, so it goes out once. */
+  welcomed_at: string | null;
 };
 
 export type Subscription = {

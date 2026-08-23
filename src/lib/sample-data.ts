@@ -37,7 +37,10 @@ export type Story = {
   score: { relevance: number; importance: number; novelty: number };
   sources: number;
   topics: string[];
+  /** Clock time on its own, for places that already sit under a date heading. */
   time: string;
+  /** The same moment as `time`, dated. Rendered through `formatStoryTime`. */
+  publishedAt: string;
   sourceList: { name: string; at: string }[];
   before: string;
   after: string;
@@ -47,7 +50,25 @@ export type Story = {
 const src = (names: string[]): { name: string; at: string }[] =>
   names.map((n, i) => ({ name: n, at: `0${4 + i}:${(11 + i * 7) % 60}`.padEnd(5, "0") }));
 
-export const STORIES: Story[] = [
+/**
+ * Today, at the clock time a fixture carries.
+ *
+ * The fixtures are presented as *this morning's* briefing, so their dates are
+ * built from the current day rather than frozen into the file. A hard-coded
+ * date would have the sample dashboard advertising a week-old briefing by next
+ * week — precisely the confusion the date was added to remove.
+ *
+ * Evaluated once when the module loads. These are demo fixtures; a tab left
+ * open across midnight is not worth a ticking clock.
+ */
+function todayAt(time: string): string {
+  const [h, m] = time.split(":");
+  const d = new Date();
+  d.setHours(Number(h) || 0, Number(m) || 0, 0, 0);
+  return d.toISOString();
+}
+
+const STORY_FIXTURES: Omit<Story, "publishedAt">[] = [
   {
     id: "openai-realtime",
     org: "OpenAI",
@@ -196,6 +217,11 @@ export const PROFILE_BRIEFS: Record<
     storyIds: ["anthropic-enterprise", "openai-realtime", "nvidia-supply"],
   },
 };
+
+export const STORIES: Story[] = STORY_FIXTURES.map((s) => ({
+  ...s,
+  publishedAt: todayAt(s.time),
+}));
 
 export const storyById = (id: string) => STORIES.find((s) => s.id === id);
 
