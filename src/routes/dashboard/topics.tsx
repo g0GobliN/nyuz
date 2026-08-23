@@ -1,8 +1,18 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { ChevronDown, Plus, Search, Trash2, X } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { ChevronDown, PauseCircle, Plus, Search, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { usePlan } from "@/lib/plan-state";
+import { PLAN_NAMES, formatTopicLimit, nextPlanUp } from "@/lib/plans";
 import { usePrefs } from "@/lib/prefs-store";
 import { IGNORE_POOL, TOPIC_POOL } from "@/lib/sample-data";
 import { cn } from "@/lib/utils";
@@ -28,10 +38,19 @@ const DEFAULT_CONFIG: TopicConfig = {
 
 function Topics() {
   const { prefs, update } = usePrefs();
+  const { plan, topicLimit, loading: planLoading } = usePlan();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [configs, setConfigs] = useState<Record<string, TopicConfig>>({});
   const [note, setNote] = useState("Only tell me about React when something significant happens.");
+  const [limitPrompt, setLimitPrompt] = useState(false);
+
+  // Everything past the limit is carried but inert — the same rule the billing
+  // page describes. Showing it here is the point: a reader used to be able to
+  // add eight topics on Free and only discover on another page that five of
+  // them were never going to appear in a briefing.
+  const overBy = Math.max(0, prefs.topics.length - topicLimit);
+  const upgrade = nextPlanUp(plan);
 
   const suggestions = useMemo(
     () =>
@@ -46,8 +65,16 @@ function Topics() {
     custom.length > 1 && !prefs.topics.some((t) => t.toLowerCase() === custom.toLowerCase());
 
   const add = (t: string) => {
+    // Adding is never blocked. A hard stop on a list the reader is still
+    // thinking about is worse than letting them build it and telling them
+    // plainly what will happen to the tail — and the limit applies when the
+    // briefing is built, not when the list is edited.
+    const crossesLimit = prefs.topics.length >= topicLimit;
     update({ topics: [...prefs.topics, t] });
     setQ("");
+    // Only on the crossing, not on every add past it. Repeating the dialog for
+    // topics six, seven and eight is nagging, and the list itself now says so.
+    if (crossesLimit && overBy === 0 && !planLoading) setLimitPrompt(true);
   };
   const remove = (t: string) => update({ topics: prefs.topics.filter((x) => x !== t) });
 
@@ -69,6 +96,25 @@ function Topics() {
         title="What do you want to know about?"
         sub="Topics decide what is even considered. Importance decides how much of it survives the filter."
       />
+
+      {!planLoading ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-[12.5px]">
+          <span
+            className={cn("tabular-nums", overBy > 0 ? "text-signal" : "text-muted-foreground")}
+          >
+            {prefs.topics.length} of {formatTopicLimit(topicLimit)} topics
+            <span className="text-muted-foreground"> · {PLAN_NAMES[plan]} plan</span>
+          </span>
+          {overBy > 0 ? (
+            <Link
+              to="/dashboard/billing"
+              className="text-signal underline-offset-4 hover:underline"
+            >
+              {overBy} paused · upgrade to include {overBy === 1 ? "it" : "them"}
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex items-center gap-2.5 rounded-full border border-input bg-surface px-4">
         <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -105,17 +151,35 @@ function Topics() {
           />
         ) : null}
 
-        {prefs.topics.map((t) => {
+        {prefs.topics.map((t, i) => {
           const isOpen = open === t;
           const c = cfg(t);
+          // Order is the weighting the product has: the tail is what gets
+          // dropped, which is what the billing page means by "lowest-weighted".
+          const paused = i >= topicLimit;
           return (
-            <div key={t} className="overflow-hidden rounded-2xl border border-hairline bg-surface">
+            <div
+              key={t}
+              className={cn(
+                "overflow-hidden rounded-2xl border bg-surface",
+                paused ? "border-dashed border-signal/40" : "border-hairline",
+              )}
+            >
               <div className="flex items-center gap-3 px-5 py-4">
                 <button
                   onClick={() => setOpen(isOpen ? null : t)}
                   className="flex flex-1 items-center gap-3 text-left"
                 >
-                  <span className="text-[15px] font-medium">{t}</span>
+                  <span
+                    className={cn("text-[15px] font-medium", paused && "text-muted-foreground")}
+                  >
+                    {t}
+                  </span>
+                  {paused ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-signal/40 px-2 py-0.5 text-[11px] text-signal">
+                      <PauseCircle className="h-3 w-3" /> Not in your briefing
+                    </span>
+                  ) : null}
                   <span className="text-[12px] text-muted-foreground">
                     {c.importance} · {c.frequency}
                   </span>
@@ -216,6 +280,46 @@ function Topics() {
           className="mt-4 w-full resize-none rounded-2xl border border-input bg-surface px-4 py-3 text-[14.5px] outline-none focus:border-signal"
         />
       </section>
+
+      {/* Shown once, on the add that crosses the line. The list itself carries
+          the state afterwards, so repeating this for every further topic would
+          be nagging rather than informing. */}
+      <Dialog open={limitPrompt} onOpenChange={setLimitPrompt}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {PLAN_NAMES[plan]} covers {formatTopicLimit(topicLimit)} topics.
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3 text-[13.5px] leading-relaxed">
+                <p>
+                  You can keep adding — nothing is deleted. But only the first{" "}
+                  {formatTopicLimit(topicLimit)} are matched when a briefing is built, and anything
+                  below that is carried without appearing.
+                </p>
+                <p>
+                  Reorder or remove to choose which {formatTopicLimit(topicLimit)} count
+                  {upgrade ? `, or move to ${PLAN_NAMES[upgrade]} to include them all` : ""}.
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" size="sm" onClick={() => setLimitPrompt(false)}>
+              Keep choosing
+            </Button>
+            {upgrade ? (
+              <Link
+                to="/dashboard/billing"
+                onClick={() => setLimitPrompt(false)}
+                className="inline-flex items-center justify-center rounded-full bg-primary px-4 py-2 text-[13px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                See {PLAN_NAMES[upgrade]}
+              </Link>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardShell>
   );
 }
