@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { LinkButton } from "@/components/kit";
+import { useAuth } from "@/lib/auth";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PUBLIC_CONTENT_FALLBACK, type PublicSiteContent } from "@/lib/site-content";
 
@@ -87,6 +88,11 @@ export function SiteNav({
 }) {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  // The session lives in browser storage, so SSR cannot know it. Treating the
+  // first, still-loading check as signed out keeps the markup the server sent
+  // and the markup the client hydrates into identical; the header swaps once.
+  const { session, loading: sessionLoading } = useAuth();
+  const signedIn = !sessionLoading && Boolean(session);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -144,15 +150,23 @@ export function SiteNav({
           </div>
           <div className="hidden items-center gap-2 md:flex">
             <ThemeToggle />
-            <Link
-              to="/auth"
-              className="px-3 text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Sign in
-            </Link>
-            <LinkButton to="/onboarding" size="sm">
-              Get started
-            </LinkButton>
+            {signedIn ? (
+              <LinkButton to="/dashboard" size="sm">
+                Dashboard
+              </LinkButton>
+            ) : (
+              <>
+                <Link
+                  to="/auth"
+                  className="px-3 text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Sign in
+                </Link>
+                <LinkButton to="/onboarding" size="sm">
+                  Get started
+                </LinkButton>
+              </>
+            )}
           </div>
           <div className="flex items-center gap-1 md:hidden">
             <ThemeToggle />
@@ -179,16 +193,28 @@ export function SiteNav({
                   {l.label}
                 </Link>
               ))}
-              <Link
-                to="/auth"
-                onClick={() => setOpen(false)}
-                className="rounded-xl px-3 py-3 text-[15px] hover:bg-muted"
-              >
-                Sign in
-              </Link>
-              <LinkButton to="/onboarding" className="mt-2 w-full" onClick={() => setOpen(false)}>
-                Build my nyuz
-              </LinkButton>
+              {signedIn ? (
+                <LinkButton to="/dashboard" className="mt-2 w-full" onClick={() => setOpen(false)}>
+                  Dashboard
+                </LinkButton>
+              ) : (
+                <>
+                  <Link
+                    to="/auth"
+                    onClick={() => setOpen(false)}
+                    className="rounded-xl px-3 py-3 text-[15px] hover:bg-muted"
+                  >
+                    Sign in
+                  </Link>
+                  <LinkButton
+                    to="/onboarding"
+                    className="mt-2 w-full"
+                    onClick={() => setOpen(false)}
+                  >
+                    Build my nyuz
+                  </LinkButton>
+                </>
+              )}
             </div>
           </div>
         ) : null}
