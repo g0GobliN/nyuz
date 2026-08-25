@@ -79,6 +79,8 @@ yet.
 ## Release checklist
 
 - [ ] `npm run ci` green locally, and CI green on the commit
+- [ ] Cron Triggers tab shows every schedule in `triggers.crons` registered — Cloudflare
+      takes three per Worker and drops the rest without failing the deploy
 - [ ] Migrations applied to the target project
 - [ ] Secrets set for every active AI provider and the service role
 - [x] `ENTITY` filled in `src/routes/legal/$doc.tsx` (sole trader, Japan; contact / privacy / security / billing @nyuz.app)
