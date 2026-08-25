@@ -137,10 +137,18 @@ export type MatchRow = {
  *
  * Exported because this is the decision a quiet day hangs on, and it must be
  * the same decision in a test as in a run.
+ *
+ * A relevance of exactly 0 is dropped whatever the cap still has room for. By
+ * `relevanceOf` in match.ts that score is an importance-0 event with no novelty,
+ * one matching topic and no priority source — nothing on any axis the matcher
+ * measures. Even Deep, the band that admits "everything with a plausible claim
+ * on your attention", is admitting a claim; zero is the absence of one. Carrying
+ * it produces a paragraph in which the model tells the reader the story does not
+ * affect them, which is a worse briefing than one three stories shorter.
  */
 export function selectItems(matches: MatchRow[], already: Set<string>, cap: number): MatchRow[] {
   return matches
-    .filter((row) => !already.has(row.eventId))
+    .filter((row) => row.relevance > 0 && !already.has(row.eventId))
     .sort((a, b) => b.relevance - a.relevance || Date.parse(b.matchedAt) - Date.parse(a.matchedAt))
     .slice(0, Math.max(0, cap));
 }
