@@ -6,6 +6,7 @@
  *   npm run pipeline -- ingest --dry-run      fetch and parse, write nothing
  *   npm run pipeline -- ingest --force        ignore backoff and the fetch interval
  *   npm run pipeline -- ingest --limit 5      the five most neglected feeds
+ *   npm run pipeline -- ingest --source ID    one feed, for checking a known case
  *   npm run pipeline -- cluster --limit 20    group twenty unclustered articles
  *   npm run pipeline -- cluster --dry-run     decide and print, write nothing
  *   npm run pipeline -- cluster --article ID  one article, for checking a known case
@@ -18,6 +19,7 @@
  *   npm run pipeline -- match --user ID       one reader, for checking a known case
  *   npm run pipeline -- match --since 72      only events analysed in the last 72 hours
  *   npm run pipeline -- match --paused        include readers who paused their briefings
+ *   npm run pipeline -- match --skip-alerts   write matches, do not send breaking alerts
  *   npm run pipeline -- backfill --user ID    day one for one reader: match, then analyse if empty
  *   npm run pipeline -- backfill --user ID --dry-run   report what day one would do
  *   npm run pipeline -- digest                generate due briefings and send them
@@ -81,6 +83,7 @@ const VALUED = new Set([
   "--articles",
   "--user",
   "--since",
+  "--source",
 ]);
 
 main(async () => {
@@ -135,6 +138,7 @@ function isStage(value: string): value is Stage {
 
 async function runIngest(args: string[]): Promise<void> {
   const limit = numberFlag(args, "--limit");
+  const source = stringFlag(args, "--source");
   const dryRun = args.includes("--dry-run");
 
   heading(dryRun ? "Ingest (dry run — nothing is written)" : "Ingest");
@@ -142,6 +146,7 @@ async function runIngest(args: string[]): Promise<void> {
     force: args.includes("--force"),
     dryRun,
     ...(limit === null ? {} : { limit }),
+    ...(source === null ? {} : { sourceIds: [source] }),
   });
 
   print(report, dryRun);
@@ -303,6 +308,7 @@ async function runMatch(args: string[]): Promise<void> {
   const report = await match(db(), {
     dryRun,
     includePaused: args.includes("--paused"),
+    skipAlerts: args.includes("--skip-alerts"),
     ...(limit === null ? {} : { limit }),
     ...(since === null ? {} : { sinceHours: since }),
     ...(user === null ? {} : { userIds: [user] }),

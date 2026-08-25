@@ -184,9 +184,11 @@ export async function runScheduled(
   }
 
   if (cron === MATCH_CRON) {
-    // No `secrets`, and that absence is the point: this stage resolves no model
-    // route because it calls no model.
-    const report = await match(createAdminClient(env));
+    // No model. Email env is passed because a newly matched event may fire a
+    // breaking alert, which sends immediately rather than waiting for digest.
+    const report = await match(createAdminClient(env), {
+      ...(env ? { email: env as EmailEnv } : {}),
+    });
     return { stage: "match", report };
   }
 

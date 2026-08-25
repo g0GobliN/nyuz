@@ -122,7 +122,7 @@ function contract(slugs: string[]): string {
 
 {
   "title": "one neutral line naming what happened, under 100 characters",
-  "what_happened": "one to three sentences, plain past tense",
+  "what_happened": "3 to 5 short paragraphs separated by blank lines. Plain past tense. A news brief, not an essay.",
   "before_state": "what was true before this, or null if the coverage does not say",
   "after_state": "what is true now that was not before, or null",
   "importance": 0,
@@ -133,7 +133,9 @@ function contract(slugs: string[]): string {
 what_happened is about the event, not about the coverage of it. Name who did what:
 "OpenAI wrote to the governor opposing SB 1047", never "an article reported that
 OpenAI wrote to the governor". Where the only thing that happened is that somebody
-published an argument or a review, name them and say what they argued.
+published an argument or a review, name them and say what they argued. Each
+paragraph is one or two sentences. Separate them with a blank line so a Read
+page can set them as a news column.
 
 importance, 0 to 10 - how much this changes for someone working in the field:
   0-2   routine. A point release, a blog post, a conference talk.

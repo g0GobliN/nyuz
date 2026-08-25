@@ -5,6 +5,7 @@ import { Button } from "@/components/kit";
 import { Logo } from "@/components/landing/nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth, type OAuthProvider } from "@/lib/auth";
+import { getPublicSiteContent } from "@/lib/server/settings";
 
 function GoogleMark() {
   return (
@@ -18,6 +19,7 @@ function GoogleMark() {
 }
 
 export const Route = createFileRoute("/auth")({
+  loader: () => getPublicSiteContent(),
   component: Auth,
   head: () => ({
     meta: [
@@ -31,6 +33,8 @@ type Mode = "signin" | "signup";
 
 function Auth() {
   const navigate = useNavigate();
+  const content = Route.useLoaderData();
+  const signupsOpen = content.flags["signups_open"] === true;
   const { signIn, signUp, signInWithProvider, session, loading } = useAuth();
 
   const [mode, setMode] = useState<Mode>("signin");
@@ -52,7 +56,14 @@ function Auth() {
       // On success this navigates away to the provider, so nothing after runs.
       await signInWithProvider(provider);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start sign-in.");
+      const raw = err instanceof Error ? err.message : "";
+      setError(
+        /signups are closed/i.test(raw)
+          ? "Registration is closed."
+          : err instanceof Error
+            ? err.message
+            : "Could not start sign-in.",
+      );
       setBusy(false);
     }
   };
@@ -73,13 +84,25 @@ function Auth() {
     setBusy(true);
     try {
       if (mode === "signup") {
+        if (!signupsOpen) {
+          setError("Registration is closed.");
+          setBusy(false);
+          return;
+        }
         await signUp(email.trim(), password, name.trim());
       } else {
         await signIn(email.trim(), password);
       }
       // The auth listener flips `session`, and the effect above redirects.
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Try again.");
+      const raw = err instanceof Error ? err.message : "";
+      setError(
+        /signups are closed/i.test(raw)
+          ? "Registration is closed."
+          : err instanceof Error
+            ? err.message
+            : "Something went wrong. Try again.",
+      );
       setBusy(false);
     }
   };
@@ -98,8 +121,8 @@ function Auth() {
           </h1>
           <p className="mt-4 text-[14.5px] leading-relaxed text-muted-foreground">
             {mode === "signin"
-              ? "Your briefing is where you left it."
-              : "Free to start. No credit card required."}
+              ? "This morning's briefing is where you left it."
+              : "Free to start. No card. Tell us what actually matters."}
           </p>
 
           <div className="mt-8 flex flex-col gap-2.5">
@@ -190,16 +213,37 @@ function Auth() {
           </form>
 
           <p className="mt-7 text-center text-[13px] text-muted-foreground">
-            {mode === "signin" ? "New here? " : "Already have an account? "}
-            <button
-              onClick={() => {
-                setMode(mode === "signin" ? "signup" : "signin");
-                setError(null);
-              }}
-              className="text-foreground underline-offset-4 hover:underline"
-            >
-              {mode === "signin" ? "Create an account" : "Sign in"}
-            </button>
+            {mode === "signin" ? (
+              signupsOpen ? (
+                <>
+                  New here?{" "}
+                  <button
+                    onClick={() => {
+                      setMode("signup");
+                      setError(null);
+                    }}
+                    className="text-foreground underline-offset-4 hover:underline"
+                  >
+                    Create an account
+                  </button>
+                </>
+              ) : (
+                "Registration is closed. Sign in if you already have an account."
+              )
+            ) : (
+              <>
+                Already have an account?{" "}
+                <button
+                  onClick={() => {
+                    setMode("signin");
+                    setError(null);
+                  }}
+                  className="text-foreground underline-offset-4 hover:underline"
+                >
+                  Sign in
+                </button>
+              </>
+            )}
           </p>
 
           <p className="mt-10 text-center text-[11.5px] leading-relaxed text-muted-foreground">

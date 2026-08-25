@@ -139,7 +139,11 @@ async function loadCandidates(db: Db, now: Date, limit: number): Promise<Candida
 
   const [{ data: prefs }, { data: digests }, { data: nudges }] = await Promise.all([
     db.from("notification_preferences").select("user_id, paused").in("user_id", ids),
-    db.from("digests").select("user_id").in("user_id", ids).in("status", ["ready", "sent", "skipped"]),
+    db
+      .from("digests")
+      .select("user_id")
+      .in("user_id", ids)
+      .in("status", ["ready", "sent", "skipped"]),
     db
       .from("admin_audit_log")
       .select("target_id, created_at")

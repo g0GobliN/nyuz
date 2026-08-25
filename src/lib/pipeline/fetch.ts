@@ -1,3 +1,5 @@
+import { isPublicHttpUrl } from "@/lib/net/public-url";
+
 /**
  * Fetching a feed over HTTP, with the failure modes named.
  *
@@ -35,6 +37,7 @@ export const FETCH_TIMEOUT_MS = 15_000;
  * pulls thirty of those into a Worker's memory dies with no useful error.
  */
 const MAX_BYTES = 2 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
 
 export type FeedFetch =
   | {
@@ -66,14 +69,57 @@ export async function fetchFeed(
   options: { timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<FeedFetch> {
   const timeout = options.timeoutMs ?? FETCH_TIMEOUT_MS;
+  const signal = options.signal ?? AbortSignal.timeout(timeout);
 
+  if (!isPublicHttpUrl(url)) {
+    return {
+      ok: false,
+      status: null,
+      reason: "URL is not a public http(s) address",
+      retryable: false,
+    };
+  }
+
+  let current = url;
   let response: Response;
   try {
-    response = await fetch(url, {
-      headers: { "user-agent": USER_AGENT, accept: ACCEPT },
-      redirect: "follow",
-      signal: options.signal ?? AbortSignal.timeout(timeout),
-    });
+    for (let hop = 0; ; hop++) {
+      response = await fetch(current, {
+        headers: { "user-agent": USER_AGENT, accept: ACCEPT },
+        redirect: "manual",
+        signal,
+      });
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      const location = response.headers.get("location");
+      if (!location || hop >= MAX_REDIRECTS) {
+        return {
+          ok: false,
+          status: response.status,
+          reason: "Feed redirected too many times",
+          retryable: false,
+        };
+      }
+      let next: URL;
+      try {
+        next = new URL(location, current);
+      } catch {
+        return {
+          ok: false,
+          status: response.status,
+          reason: "Feed redirected to an unusable URL",
+          retryable: false,
+        };
+      }
+      if (!isPublicHttpUrl(next.href)) {
+        return {
+          ok: false,
+          status: response.status,
+          reason: "Feed redirected to a non-public address",
+          retryable: false,
+        };
+      }
+      current = next.href;
+    }
   } catch (error) {
     // DNS failure, TLS failure, connection reset, timeout. All transient as far
     // as one run can tell — a domain that has genuinely gone will keep producing
@@ -136,7 +182,7 @@ export async function fetchFeed(
   return {
     ok: true,
     status: response.status,
-    finalUrl: response.url || url,
+    finalUrl: response.url || current,
     contentType: response.headers.get("content-type"),
     body,
   };

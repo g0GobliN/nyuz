@@ -47,7 +47,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { floorFor, thresholdFor } from "@/lib/density";
 import { related } from "@/lib/relate";
-import type { Database, SourcePref, TopicImportance } from "@/lib/supabase/types";
+import type { EmailEnv } from "@/lib/server/email/send";
+import type { Database, PlanTier, SourcePref, TopicImportance } from "@/lib/supabase/types";
+import { isCoveredTopic } from "@/lib/coverage";
+import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
+import { fireAlerts } from "./alerts";
 
 type Db = SupabaseClient<Database>;
 
@@ -79,6 +83,13 @@ export type MatchOptions = {
   /** Include readers who have paused their briefings. Off by default, and honestly so. */
   includePaused?: boolean | undefined;
   now?: Date | undefined;
+  /**
+   * Skip out-of-schedule alerts. Day-one backfill sets this: matching a backlog
+   * must not dump a week's worth of "breaking" mail into a new inbox.
+   */
+  skipAlerts?: boolean | undefined;
+  /** Passed through to alert sends. Absent on a dry run, required on Cloudflare. */
+  email?: EmailEnv | undefined;
 };
 
 /** Why an event did not reach a reader. Counted per reader, for the report. */
@@ -353,6 +364,19 @@ async function matchReader(
 
       if (error) throw new Error(`writing user_events: ${error.message}`);
     }
+
+    if (!options.skipAlerts) {
+      const importanceOf = new Map(candidates.map((c) => [c.eventId, c.importance] as const));
+      await fireAlerts(db, {
+        userId: reader.userId,
+        hits: fresh.map((h) => ({
+          eventId: h.eventId,
+          importance: importanceOf.get(h.eventId) ?? 0,
+        })),
+        ...(options.now ? { now: options.now } : {}),
+        ...(options.email ? { email: options.email } : {}),
+      });
+    }
   }
 
   const threshold = thresholdFor(reader.density);
@@ -419,7 +443,7 @@ export async function loadReaders(
 
   const { data: followed, error: followError } = await db
     .from("user_topics")
-    .select("user_id, topic_id, importance, weight, keywords, exclude_keywords, muted")
+    .select("user_id, topic_id, importance, weight, keywords, exclude_keywords, muted, created_at")
     .in("user_id", userIds)
     // A muted topic is a topic the reader switched off. It selects nothing, and
     // its exclude_keywords veto nothing either, because it is not in play.
@@ -438,16 +462,31 @@ export async function loadReaders(
     .in("user_id", userIds);
   if (sourceError) throw new Error(`reading user_source_prefs: ${sourceError.message}`);
 
+  const { data: subs, error: subError } = await db
+    .from("subscriptions")
+    .select("user_id, plan")
+    .in("user_id", userIds);
+  if (subError) throw new Error(`reading subscriptions: ${subError.message}`);
+  const planOf = new Map<string, PlanTier>(
+    (subs ?? []).map((row) => [row.user_id, row.plan] as const),
+  );
+
   const readers = wanted.map((row) => {
-    const mine = (followed ?? []).filter((f) => f.user_id === row.user_id);
+    const mine = (followed ?? [])
+      .filter((f) => f.user_id === row.user_id)
+      .slice()
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+    const cap = PLAN_LIMITS[planOf.get(row.user_id) ?? "free"]?.topics ?? PLAN_LIMITS.free.topics;
+    const active = clipLabels(mine, cap);
 
     return {
       userId: row.user_id,
       density: row.density,
-      topics: mine.flatMap<ReaderTopic>((f) => {
+      topics: active.flatMap<ReaderTopic>((f) => {
         const topic = topics.get(f.topic_id);
         // A followed topic whose row has gone is not an error and not a match.
         if (!topic) return [];
+        if (!isCoveredTopic(topic.slug) && !isCoveredTopic(topic.label)) return [];
         return [
           {
             topicId: f.topic_id,
