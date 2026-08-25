@@ -24,8 +24,17 @@
 
 import { build } from "esbuild";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+// Node races IPv6 and IPv4 and gives the first family 250ms to answer. On a
+// connection that advertises IPv6 with no working route, that whole budget goes
+// on failing over, so any host further than a quarter-second away never gets
+// connected to — api.telegram.org is ~1.1s from South Asia and fails here while
+// curl to the same address succeeds. These scripts talk to Telegram, Resend and
+// the browser push services, so the launcher raises it once for all of them.
+net.setDefaultAutoSelectFamilyAttemptTimeout(5000);
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
