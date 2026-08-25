@@ -19,7 +19,7 @@ export type Story = {
   time: string;
   /** The same moment as `time`, dated. Rendered through `formatStoryTime`. */
   publishedAt: string;
-  sourceList: { name: string; at: string; url?: string }[];
+  sourceList: { name: string; at: string; url?: string; excerpt?: string }[];
   before: string;
   after: string;
   timeline: { at: string; label: string }[];

@@ -28,7 +28,9 @@ type Block =
 /** URLs are restricted to schemes that cannot execute — no javascript:, no data:. */
 function safeHref(raw: string): string | null {
   const url = raw.trim();
-  if (/^(https?:\/\/|mailto:|\/|#)/i.test(url)) return url;
+  if (url.startsWith("//")) return null;
+  if (/^(https?:\/\/|mailto:|#)/i.test(url)) return url;
+  if (url.startsWith("/")) return url;
   return null;
 }
 
