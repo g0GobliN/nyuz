@@ -25,10 +25,19 @@
  * Adding a stage
  * ---------------------------------------------------------------------------
  *
- * Dispatch is on `cron` — the schedule string that fired — so a later stage gets
- * its own schedule and its own branch here rather than being bolted onto this
- * one. Clustering and analysis have different shapes to ingestion: they cost
- * model tokens, so they want their own budget and their own failure story.
+ * Clustering and analysis have different shapes to ingestion: they cost model
+ * tokens, so they want their own budget and their own failure story. What they
+ * cannot have is their own trigger. Cloudflare registers **three Cron Triggers
+ * per Worker**, on the free plan and on paid alike, and the pipeline has six
+ * stages — declaring six is not an error at deploy, it simply leaves three of
+ * them unregistered, and the first anyone hears of it is empty briefings.
+ *
+ * So ingestion and digest keep a trigger each, and the remaining four stages
+ * share `STAGES_CRON` and are told apart by the minute they fire on. Those are
+ * the same minutes the separate schedules used, so the spacing between the
+ * stages is unchanged and each one is still its own invocation with its own
+ * subrequest budget. Adding a stage now means a minute in `stageForMinute`
+ * rather than a trigger there is no room for.
  */
 
 import { createAdminClient, type ServerEnv } from "@/lib/supabase/admin";
@@ -139,6 +148,37 @@ export const DIGEST_CRON = "*/5 * * * *";
  */
 export const DORMANT_CRON = "0 12 * * 1";
 
+/**
+ * The one trigger that carries every stage there is no trigger left for.
+ *
+ * Only the minutes the shared stages actually want, so an invocation that has
+ * nothing to do is the exception rather than the rule — the single exception
+ * being minute 0, which exists for a nudge that runs once a week.
+ */
+export const STAGES_CRON = "0,10,20,25,40,50,55 * * * *";
+
+type SharedStage = "cluster" | "analyse" | "match" | "dormant";
+
+/**
+ * Which stage a `STAGES_CRON` invocation is for, or null when the answer is
+ * nothing.
+ *
+ * Read off the schedule Cloudflare fired for, not off the wall clock, so a run
+ * that starts late still does the work of the minute it was scheduled for.
+ */
+export function stageForMinute(scheduledFor: Date): SharedStage | null {
+  const minute = scheduledFor.getUTCMinutes();
+  if (minute === 10 || minute === 40) return "cluster";
+  if (minute === 20 || minute === 50) return "analyse";
+  if (minute === 25 || minute === 55) return "match";
+  // Monday noon UTC, as DORMANT_CRON said. The other 23 firings of minute 0 in
+  // a day are deliberately nothing at all.
+  if (minute === 0 && scheduledFor.getUTCDay() === 1 && scheduledFor.getUTCHours() === 12) {
+    return "dormant";
+  }
+  return null;
+}
+
 export type ScheduledResult =
   | { stage: "ingest"; report: IngestReport }
   | { stage: "cluster"; report: ClusterReport }
@@ -146,7 +186,80 @@ export type ScheduledResult =
   | { stage: "match"; report: MatchReport }
   | { stage: "digest"; report: DigestReport }
   | { stage: "dormant"; report: DormantReport }
+  | { stage: "idle"; cron: string; minute: number }
   | { stage: "unknown"; cron: string };
+
+/**
+ * Runs whatever the given schedule is for.
+ *
+ * `force` is deliberately not set. An operator running the pipeline by hand
+ * wants to override the backoff; a cron firing every fifteen minutes must
+ * respect it, or the backoff means nothing and a dead feed is fetched ninety-six
+ * times a day.
+ */
+type Env = ServerEnv | undefined;
+
+async function runIngest(env: Env): Promise<ScheduledResult> {
+  const report = await ingest(createAdminClient(env), { limit: SCHEDULED_LIMIT });
+  return { stage: "ingest", report };
+}
+
+async function runCluster(env: Env): Promise<ScheduledResult> {
+  // The env bag is passed twice on purpose: once so the client can reach the
+  // database, and once as `secrets` so the AI router can read `ai_model_routes`
+  // and find the provider key. On Cloudflare there is no `process.env` for
+  // either of them to fall back to.
+  const report = await cluster(createAdminClient(env), {
+    limit: CLUSTER_LIMIT,
+    ...(env ? { secrets: env as Record<string, string | undefined> } : {}),
+  });
+  return { stage: "cluster", report };
+}
+
+async function runAnalyse(env: Env): Promise<ScheduledResult> {
+  const report = await analyse(createAdminClient(env), {
+    limit: ANALYSE_LIMIT,
+    ...(env ? { secrets: env as Record<string, string | undefined> } : {}),
+  });
+  return { stage: "analyse", report };
+}
+
+async function runMatch(env: Env): Promise<ScheduledResult> {
+  // No model. The channel env bags are passed because a newly matched event may
+  // fire a breaking alert, which sends immediately rather than waiting for digest.
+  const report = await match(createAdminClient(env), {
+    ...(env ? { email: env as EmailEnv, telegram: env as TelegramEnv, push: env as PushEnv } : {}),
+  });
+  return { stage: "match", report };
+}
+
+async function runDigest(env: Env): Promise<ScheduledResult> {
+  const report = await digest(createAdminClient(env), {
+    ...(env
+      ? {
+          secrets: env as Record<string, string | undefined>,
+          email: env as EmailEnv,
+          telegram: env as TelegramEnv,
+          push: env as PushEnv,
+        }
+      : {}),
+  });
+  return { stage: "digest", report };
+}
+
+async function runDormant(env: Env): Promise<ScheduledResult> {
+  const report = await dormant(createAdminClient(env), {
+    ...(env ? { email: env as EmailEnv } : {}),
+  });
+  return { stage: "dormant", report };
+}
+
+function runShared(stage: SharedStage, env: Env): Promise<ScheduledResult> {
+  if (stage === "cluster") return runCluster(env);
+  if (stage === "analyse") return runAnalyse(env);
+  if (stage === "match") return runMatch(env);
+  return runDormant(env);
+}
 
 /**
  * Runs whatever the given schedule is for.
@@ -159,63 +272,24 @@ export type ScheduledResult =
 export async function runScheduled(
   env: ServerEnv | undefined,
   cron: string,
+  scheduledFor: Date = new Date(),
 ): Promise<ScheduledResult> {
-  if (cron === INGEST_CRON) {
-    const report = await ingest(createAdminClient(env), { limit: SCHEDULED_LIMIT });
-    return { stage: "ingest", report };
+  if (cron === INGEST_CRON) return runIngest(env);
+  if (cron === DIGEST_CRON) return runDigest(env);
+
+  if (cron === STAGES_CRON) {
+    const stage = stageForMinute(scheduledFor);
+    if (!stage) return { stage: "idle", cron, minute: scheduledFor.getUTCMinutes() };
+    return runShared(stage, env);
   }
 
-  if (cron === CLUSTER_CRON) {
-    // The env bag is passed twice on purpose: once so the client can reach the
-    // database, and once as `secrets` so the AI router can read `ai_model_routes`
-    // and find the provider key. On Cloudflare there is no `process.env` for
-    // either of them to fall back to.
-    const report = await cluster(createAdminClient(env), {
-      limit: CLUSTER_LIMIT,
-      ...(env ? { secrets: env as Record<string, string | undefined> } : {}),
-    });
-    return { stage: "cluster", report };
-  }
-
-  if (cron === ANALYSE_CRON) {
-    const report = await analyse(createAdminClient(env), {
-      limit: ANALYSE_LIMIT,
-      ...(env ? { secrets: env as Record<string, string | undefined> } : {}),
-    });
-    return { stage: "analyse", report };
-  }
-
-  if (cron === MATCH_CRON) {
-    // No model. Email env is passed because a newly matched event may fire a
-    // breaking alert, which sends immediately rather than waiting for digest.
-    const report = await match(createAdminClient(env), {
-      ...(env
-        ? { email: env as EmailEnv, telegram: env as TelegramEnv, push: env as PushEnv }
-        : {}),
-    });
-    return { stage: "match", report };
-  }
-
-  if (cron === DIGEST_CRON) {
-    const report = await digest(createAdminClient(env), {
-      ...(env
-        ? {
-            secrets: env as Record<string, string | undefined>,
-            email: env as EmailEnv,
-            telegram: env as TelegramEnv,
-            push: env as PushEnv,
-          }
-        : {}),
-    });
-    return { stage: "digest", report };
-  }
-
-  if (cron === DORMANT_CRON) {
-    const report = await dormant(createAdminClient(env), {
-      ...(env ? { email: env as EmailEnv } : {}),
-    });
-    return { stage: "dormant", report };
-  }
+  // The per-stage schedules are no longer registered triggers, but they stay
+  // dispatchable: `npm run cron:test -- "10,40 * * * *"` has to force clustering
+  // rather than depend on the minute the operator happened to run it.
+  if (cron === CLUSTER_CRON) return runCluster(env);
+  if (cron === ANALYSE_CRON) return runAnalyse(env);
+  if (cron === MATCH_CRON) return runMatch(env);
+  if (cron === DORMANT_CRON) return runDormant(env);
 
   return { stage: "unknown", cron };
 }
@@ -230,6 +304,11 @@ export async function runScheduled(
 export function describe(result: ScheduledResult): string {
   if (result.stage === "unknown") {
     return `cron ${result.cron} fired and nothing is registered for it`;
+  }
+
+  if (result.stage === "idle") {
+    const minute = String(result.minute).padStart(2, "0");
+    return `cron ${result.cron} fired at :${minute} with no stage due`;
   }
 
   if (result.stage === "cluster") {

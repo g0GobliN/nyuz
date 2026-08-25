@@ -37,7 +37,15 @@ export default definePlugin((nitro) => {
   nitro.hooks.hook("cloudflare:scheduled", ({ controller, env }) => {
     const run = async (): Promise<void> => {
       try {
-        console.log(describe(await runScheduled(env as ServerEnv | undefined, controller.cron)));
+        // `scheduledTime` rather than `Date.now()`: STAGES_CRON reads the minute
+        // to decide which stage it is, and a run that starts late must still do
+        // the work of the minute it was scheduled for.
+        const result = await runScheduled(
+          env as ServerEnv | undefined,
+          controller.cron,
+          new Date(controller.scheduledTime),
+        );
+        console.log(describe(result));
       } catch (error) {
         // Nothing is listening for a throw from a cron, and an unhandled
         // rejection inside waitUntil is reported without the context that makes

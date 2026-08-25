@@ -16,6 +16,7 @@ import { Logo } from "@/components/landing/nav";
 import { LogoLoader } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DensityDial } from "@/components/density-dial";
+import { PageLoading } from "@/components/loading";
 import { useAuth } from "@/lib/auth";
 import { usePlan } from "@/lib/plan-state";
 import { formatTopicLimit } from "@/lib/plans";
@@ -56,7 +57,7 @@ const STEP_TITLES = [
 function Onboarding() {
   const navigate = useNavigate();
   const { prefs, update, hydrated } = usePrefs();
-  const { session } = useAuth();
+  const { session, loading: sessionLoading } = useAuth();
   const { topicLimit, loading: planLoading } = usePlan();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Prefs | null>(null);
@@ -73,9 +74,36 @@ function Onboarding() {
    */
   const exitTo = session ? "/dashboard" : "/auth";
 
+  /**
+   * A reader who has already done this does not get handed it again.
+   *
+   * "Get started" is a public call to action and does not know who is looking at
+   * it, so a signed-in reader reaches this route from the marketing header, from
+   * a bookmark, or by typing the URL. Without this they are walked back through
+   * four questions, the answers they already gave are replaced by a fresh draft,
+   * and the sequence ends by welcoming them to a product they have been using —
+   * which reads as the account having been made again.
+   *
+   * Both halves have to be known first. `sessionLoading` covers the session
+   * check and `hydrated` covers preferences arriving from storage; redirecting
+   * before either resolves would throw a genuine new reader out of the flow they
+   * just started.
+   */
+  const alreadyOnboarded = !sessionLoading && Boolean(session) && hydrated && prefs.onboarded;
+
+  useEffect(() => {
+    if (alreadyOnboarded) navigate({ to: "/dashboard", replace: true });
+  }, [alreadyOnboarded, navigate]);
+
   useEffect(() => {
     if (hydrated && !draft) setDraft({ ...prefs, topics: [], exclusions: [] });
   }, [hydrated, prefs, draft]);
+
+  // Ahead of the draft check so the wizard never paints for one frame on its way
+  // to the dashboard.
+  if (alreadyOnboarded) {
+    return <PageLoading label="Opening your dashboard" />;
+  }
 
   if (!draft) {
     return <div className="min-h-screen bg-background" />;

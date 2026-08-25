@@ -26,6 +26,15 @@ describe("selectItems", () => {
     expect(selectItems([], new Set(), 6)).toEqual([]);
     expect(selectItems([match("a", 1)], new Set(["a"]), 6)).toEqual([]);
   });
+
+  it("leaves a story scored zero out, however much room the cap has left", () => {
+    const picked = selectItems([match("a", 4), match("b", 0), match("c", 0.5)], new Set(), 18);
+    expect(picked.map((p) => p.eventId)).toEqual(["a", "c"]);
+  });
+
+  it("would rather send a short briefing than one the model tells you to skip", () => {
+    expect(selectItems([match("a", 0), match("b", 0)], new Set(), 18)).toEqual([]);
+  });
 });
 
 describe("readWhys", () => {

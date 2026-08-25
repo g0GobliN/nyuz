@@ -24,19 +24,17 @@ export default defineConfig({
       plugins: ["./src/nitro/scheduled.ts"],
       cloudflare: {
         wrangler: {
-          // Must match the CRON constants in src/lib/pipeline/cron.ts, which
-          // dispatches on the schedule string. A mismatch is a cron that fires
+          // Must match INGEST_CRON, DIGEST_CRON and STAGES_CRON in
+          // src/lib/pipeline/cron.ts, which dispatches on the schedule string
+          // and, for STAGES_CRON, on the minute. A mismatch is a cron that fires
           // and does nothing, so the handler logs the unrecognised schedule
           // rather than returning quietly.
+          //
+          // Three, because Cloudflare registers three Cron Triggers per Worker
+          // and silently drops the rest. cron.test.ts holds this list to the
+          // stages that read it.
           triggers: {
-            crons: [
-              "*/15 * * * *",
-              "10,40 * * * *",
-              "20,50 * * * *",
-              "25,55 * * * *",
-              "*/5 * * * *",
-              "0 12 * * 1",
-            ],
+            crons: ["*/15 * * * *", "*/5 * * * *", "0,10,20,25,40,50,55 * * * *"],
           },
         },
       },

@@ -8,6 +8,10 @@
  *   npm run cron:test -- "20,50 * * * *"     analysis — so does this one
  *   npm run cron:test -- "0 12 * * 1"        dormant nudge
  *
+ * The four stages above share one deployed trigger and are told apart by the
+ * minute, so these per-stage strings are kept dispatchable on purpose: they
+ * force a stage rather than depending on what minute it happens to be.
+ *
  * ---------------------------------------------------------------------------
  * Why this exists
  * ---------------------------------------------------------------------------
