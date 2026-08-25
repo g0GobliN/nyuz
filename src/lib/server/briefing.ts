@@ -1,8 +1,18 @@
 import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import { signedInOnly } from "./guard";
 import { backfill, WINDOW_HOURS } from "@/lib/pipeline/backfill";
-import type { Database } from "@/lib/supabase/types";
+import { nextSlot } from "@/lib/pipeline/schedule";
+import { PLAN_LIMITS } from "@/lib/plans";
+import { asPercent, clockOf, importanceBand, type Story } from "@/lib/story";
+import type {
+  Database,
+  DigestStatus,
+  PlanTier,
+  SourceKind,
+  SourcePref,
+} from "@/lib/supabase/types";
 
 /**
  * The reader's real matched events, and the call that fills them on day one.
@@ -30,15 +40,9 @@ import type { Database } from "@/lib/supabase/types";
  * they have to hold for the CLI and the Worker too, not only for the browser.
  *
  * ---------------------------------------------------------------------------
- * This is not stage 8
- * ---------------------------------------------------------------------------
- *
- * `loadMatches` returns real rows, and the dashboard renders them above the
- * fixtures it still carries. It deliberately does not try to be the fixture
- * shape: there is no `why_it_matters` yet — that is stage 7, the one paragraph
- * per person — and no story page behind these events yet, so nothing here links
- * to one. Replacing `sample-data` outright is stage 8's box, and the sample
- * notice stays until it is a lie.
+ * This is not the fixture dashboard. `loadHomeFeed` reads `digest_items` when a
+ * briefing exists and `user_events` when it does not, and the story page reads
+ * real `articles`. The sample notice comes down because nothing here is a fixture.
  */
 
 /** One matched event, flattened for the dashboard. */
@@ -209,3 +213,453 @@ export const startFirstBriefing = createServerFn({ method: "POST" })
       detail: report.detail,
     };
   });
+
+/* ---------------------------------------------------------------------- */
+/* Home, briefing, history, story                                          */
+/* ---------------------------------------------------------------------- */
+
+export type HomeFeed = {
+  stories: Story[];
+  /** `digest` when today's briefing exists, `matches` when only user_events do. */
+  source: "digest" | "matches" | "empty";
+  digestStatus: DigestStatus | null;
+  scheduledFor: string | null;
+  nextAt: string | null;
+  windowHours: number;
+};
+
+export const loadHomeFeed = createServerFn({ method: "GET" })
+  .middleware([signedInOnly])
+  .handler(async ({ context }): Promise<HomeFeed> => {
+    const { actor } = context;
+    const nextAt = await nextSend(actor.db, actor.id);
+
+    const latest = await latestDigest(actor.db, actor.id);
+    if (latest && (latest.status === "ready" || latest.status === "sent")) {
+      const stories = await storiesFromDigest(actor.db, latest.digest_id);
+      return {
+        stories,
+        source: "digest",
+        digestStatus: latest.status,
+        scheduledFor: latest.scheduled_for,
+        nextAt,
+        windowHours: WINDOW_HOURS,
+      };
+    }
+
+    if (latest?.status === "skipped") {
+      return {
+        stories: [],
+        source: "empty",
+        digestStatus: "skipped",
+        scheduledFor: latest.scheduled_for,
+        nextAt,
+        windowHours: WINDOW_HOURS,
+      };
+    }
+
+    const matches = await loadMatchedStories(actor.db, actor.id, PAGE);
+    return {
+      stories: matches,
+      source: matches.length > 0 ? "matches" : "empty",
+      digestStatus: latest?.status ?? null,
+      scheduledFor: latest?.scheduled_for ?? null,
+      nextAt,
+      windowHours: WINDOW_HOURS,
+    };
+  });
+
+export type HistoryDay = {
+  digestId: string;
+  iso: string;
+  date: string;
+  weekday: string;
+  count: number;
+  headline: string;
+  skipped: boolean;
+};
+
+export type HistoryFeed = {
+  days: HistoryDay[];
+  retentionDays: number;
+  retention: string;
+};
+
+export const loadHistory = createServerFn({ method: "GET" })
+  .middleware([signedInOnly])
+  .handler(async ({ context }): Promise<HistoryFeed> => {
+    const { actor } = context;
+    const plan = await planOf(actor.db, actor.id);
+    const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+    const since = new Date(Date.now() - limits.retentionDays * 86_400_000).toISOString();
+
+    const { data, error } = await actor.db
+      .from("digests")
+      .select("digest_id, scheduled_for, status, item_count")
+      .eq("user_id", actor.id)
+      .in("status", ["ready", "sent", "skipped"])
+      .gte("scheduled_for", since)
+      .order("scheduled_for", { ascending: false })
+      .limit(90);
+
+    if (error) throw new Error(`reading history: ${error.message}`);
+
+    const rows = data ?? [];
+    const headlines = await headlinesFor(
+      actor.db,
+      rows.filter((r) => r.item_count > 0).map((r) => r.digest_id),
+    );
+
+    const days: HistoryDay[] = rows.map((row) => {
+      const at = new Date(row.scheduled_for);
+      return {
+        digestId: row.digest_id,
+        iso: row.scheduled_for,
+        date: at.toLocaleDateString(undefined, { month: "long", day: "numeric" }),
+        weekday: at.toLocaleDateString(undefined, { weekday: "long" }),
+        count: row.item_count,
+        headline: headlines.get(row.digest_id) ?? "Nothing important for your nyuz",
+        skipped: row.status === "skipped" || row.item_count === 0,
+      };
+    });
+
+    return { days, retentionDays: limits.retentionDays, retention: limits.retention };
+  });
+
+export const loadDigestStories = createServerFn({ method: "GET" })
+  .middleware([signedInOnly])
+  .validator((input: unknown) =>
+    z.object({ digestId: z.string().uuid().optional() }).parse(input ?? {}),
+  )
+  .handler(async ({ context, data }): Promise<Story[]> => {
+    const { actor } = context;
+    if (data.digestId) {
+      const { data: row, error } = await actor.db
+        .from("digests")
+        .select("digest_id")
+        .eq("digest_id", data.digestId)
+        .eq("user_id", actor.id)
+        .maybeSingle();
+      if (error) throw new Error(`reading digest: ${error.message}`);
+      if (!row) return [];
+      return storiesFromDigest(actor.db, row.digest_id);
+    }
+    const latest = await latestDigest(actor.db, actor.id);
+    if (!latest || latest.item_count === 0) return [];
+    return storiesFromDigest(actor.db, latest.digest_id);
+  });
+
+export const loadSavedStories = createServerFn({ method: "GET" })
+  .middleware([signedInOnly])
+  .handler(async ({ context }): Promise<Story[]> => {
+    const { data, error } = await context.actor.db
+      .from("saved_stories")
+      .select("event_id")
+      .eq("user_id", context.actor.id)
+      .order("saved_at", { ascending: false });
+    if (error) throw new Error(`reading saved stories: ${error.message}`);
+    const ids = (data ?? []).map((r) => r.event_id);
+    return storiesFromEventIds(context.actor.db, context.actor.id, ids);
+  });
+
+export const searchStories = createServerFn({ method: "GET" })
+  .middleware([signedInOnly])
+  .validator((input: unknown) => z.object({ q: z.string().max(120) }).parse(input))
+  .handler(async ({ context, data }): Promise<Story[]> => {
+    const term = data.q.trim();
+    if (term.length < 2) return [];
+    const stories = await loadMatchedStories(context.actor.db, context.actor.id, 80);
+    const needle = term.toLowerCase();
+    return stories.filter(
+      (s) =>
+        s.title.toLowerCase().includes(needle) ||
+        s.org.toLowerCase().includes(needle) ||
+        s.what.toLowerCase().includes(needle) ||
+        s.topics.some((t) => t.toLowerCase().includes(needle)),
+    );
+  });
+
+export const loadStory = createServerFn({ method: "GET" })
+  .middleware([signedInOnly])
+  .validator((input: unknown) => z.object({ id: z.string().min(1).max(80) }).parse(input))
+  .handler(async ({ context, data }): Promise<Story | null> => {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.id)) {
+      return null;
+    }
+    const stories = await storiesFromEventIds(context.actor.db, context.actor.id, [data.id]);
+    return stories[0] ?? null;
+  });
+
+export type WatchedSource = {
+  id: string;
+  name: string;
+  kind: SourceKind;
+  homepage: string | null;
+  pref: SourcePref;
+};
+
+export type SourceGroup = { group: string; items: WatchedSource[] };
+
+const KIND_LABEL: Record<SourceKind, string> = {
+  company_blog: "Official company blogs",
+  news: "News sites",
+  rss: "RSS",
+  github: "GitHub",
+  research: "Research",
+  product: "Product announcements",
+  other: "Other",
+};
+
+export const loadWatchedSources = createServerFn({ method: "GET" })
+  .middleware([signedInOnly])
+  .handler(async ({ context }): Promise<SourceGroup[]> => {
+    const { actor } = context;
+    const [{ data: sources, error }, { data: prefs, error: prefError }] = await Promise.all([
+      actor.db.from("sources").select("id, name, kind, homepage").eq("active", true).order("name"),
+      actor.db.from("user_source_prefs").select("source_id, pref").eq("user_id", actor.id),
+    ]);
+    if (error) throw new Error(`reading sources: ${error.message}`);
+    if (prefError) throw new Error(`reading source prefs: ${prefError.message}`);
+
+    const prefOf = new Map((prefs ?? []).map((p) => [p.source_id, p.pref] as const));
+    const grouped = new Map<SourceKind, WatchedSource[]>();
+    for (const row of sources ?? []) {
+      const item: WatchedSource = {
+        id: row.id,
+        name: row.name,
+        kind: row.kind,
+        homepage: row.homepage,
+        pref: prefOf.get(row.id) ?? "normal",
+      };
+      grouped.set(row.kind, [...(grouped.get(row.kind) ?? []), item]);
+    }
+
+    return (Object.keys(KIND_LABEL) as SourceKind[])
+      .map((kind) => ({ group: KIND_LABEL[kind], items: grouped.get(kind) ?? [] }))
+      .filter((g) => g.items.length > 0);
+  });
+
+export const setSourcePref = createServerFn({ method: "POST" })
+  .middleware([signedInOnly])
+  .validator((input: unknown) =>
+    z
+      .object({ sourceId: z.string().uuid(), pref: z.enum(["normal", "priority", "muted"]) })
+      .parse(input),
+  )
+  .handler(async ({ context, data }): Promise<{ ok: true }> => {
+    const { error } = await context.actor.db.from("user_source_prefs").upsert({
+      user_id: context.actor.id,
+      source_id: data.sourceId,
+      pref: data.pref,
+    });
+    if (error) throw new Error(`saving source preference: ${error.message}`);
+    return { ok: true };
+  });
+
+/* ---------------------------------------------------------------------- */
+/* Mapping                                                                 */
+/* ---------------------------------------------------------------------- */
+
+type DigestHead = {
+  digest_id: string;
+  scheduled_for: string;
+  status: DigestStatus;
+  item_count: number;
+};
+
+async function latestDigest(db: Db, userId: string): Promise<DigestHead | null> {
+  const { data, error } = await db
+    .from("digests")
+    .select("digest_id, scheduled_for, status, item_count")
+    .eq("user_id", userId)
+    .in("status", ["ready", "sent", "skipped", "generating", "failed"])
+    .order("scheduled_for", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`reading latest digest: ${error.message}`);
+  return data;
+}
+
+async function nextSend(db: Db, userId: string): Promise<string | null> {
+  const { data } = await db
+    .from("notification_preferences")
+    .select("send_at, timezone, days, frequency, paused")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!data || data.paused) return null;
+  const slot = nextSlot(
+    {
+      sendAt: data.send_at,
+      timezone: data.timezone,
+      days: data.days,
+      frequency: data.frequency,
+    },
+    new Date(),
+  );
+  return slot?.toISOString() ?? null;
+}
+
+async function planOf(db: Db, userId: string): Promise<PlanTier> {
+  const { data } = await db
+    .from("subscriptions")
+    .select("plan")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return data?.plan ?? "free";
+}
+
+async function headlinesFor(db: Db, digestIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (digestIds.length === 0) return out;
+  const { data, error } = await db
+    .from("digest_items")
+    .select("digest_id, position, events ( title )")
+    .in("digest_id", digestIds)
+    .eq("position", 0);
+  if (error) throw new Error(`reading digest headlines: ${error.message}`);
+  for (const row of data ?? []) {
+    const title = (row.events as { title?: string } | null)?.title;
+    if (title) out.set(row.digest_id, title);
+  }
+  return out;
+}
+
+async function storiesFromDigest(db: Db, digestId: string): Promise<Story[]> {
+  const { data, error } = await db
+    .from("digest_items")
+    .select("event_id, position, why_it_matters")
+    .eq("digest_id", digestId)
+    .order("position", { ascending: true });
+  if (error) throw new Error(`reading digest_items: ${error.message}`);
+  const items = data ?? [];
+  const why = new Map(items.map((i) => [i.event_id, i.why_it_matters] as const));
+  const order = items.map((i) => i.event_id);
+  const stories = await hydrateEvents(db, order);
+  return stories.map((s) => ({ ...s, why: why.get(s.id) ?? s.why }));
+}
+
+async function loadMatchedStories(db: Db, userId: string, limit: number): Promise<Story[]> {
+  const { data, error } = await db
+    .from("user_events")
+    .select("event_id, relevance, matched_at")
+    .eq("user_id", userId)
+    .order("relevance", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`reading user_events: ${error.message}`);
+  const rows = data ?? [];
+  const stories = await hydrateEvents(
+    db,
+    rows.map((r) => r.event_id),
+  );
+  const relevance = new Map(rows.map((r) => [r.event_id, r.relevance] as const));
+  const matchedAt = new Map(rows.map((r) => [r.event_id, r.matched_at] as const));
+  return stories.map((s) => ({
+    ...s,
+    score: { ...s.score, relevance: asPercent(relevance.get(s.id) ?? 0) },
+    publishedAt: matchedAt.get(s.id) ?? s.publishedAt,
+    time: clockOf(matchedAt.get(s.id) ?? s.publishedAt),
+  }));
+}
+
+async function storiesFromEventIds(db: Db, userId: string, eventIds: string[]): Promise<Story[]> {
+  if (eventIds.length === 0) return [];
+  const stories = await hydrateEvents(db, eventIds);
+  const { data } = await db
+    .from("digest_items")
+    .select("event_id, why_it_matters, digests ( user_id, scheduled_for )")
+    .in("event_id", eventIds);
+  const why = new Map<string, string>();
+  for (const row of data ?? []) {
+    const digest = row.digests as { user_id?: string } | null;
+    if (digest?.user_id !== userId) continue;
+    if (!why.has(row.event_id)) why.set(row.event_id, row.why_it_matters);
+  }
+  return stories.map((s) => ({ ...s, why: why.get(s.id) ?? s.why }));
+}
+
+type EventBits = {
+  id: string;
+  title: string;
+  what_happened: string;
+  importance: number;
+  novelty: number;
+  before_state: string | null;
+  after_state: string | null;
+  first_seen_at: string;
+  analysed_at: string | null;
+};
+
+async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
+  if (eventIds.length === 0) return [];
+
+  const { data: events, error } = await db
+    .from("events")
+    .select(
+      "id, title, what_happened, importance, novelty, before_state, after_state, first_seen_at, analysed_at",
+    )
+    .in("id", eventIds);
+  if (error) throw new Error(`reading events: ${error.message}`);
+
+  const byId = new Map(((events ?? []) as EventBits[]).map((e) => [e.id, e] as const));
+  const [topics, articles] = await Promise.all([
+    topicsFor(db, eventIds),
+    articlesFor(db, eventIds),
+  ]);
+
+  return eventIds.flatMap((id) => {
+    const event = byId.get(id);
+    if (!event) return [];
+    const coverage = articles.get(id) ?? [];
+    const publishedAt = coverage[0]?.publishedAt ?? event.analysed_at ?? event.first_seen_at;
+    return [
+      {
+        id: event.id,
+        org: coverage[0]?.name ?? topics.get(id)?.[0] ?? "Unattributed",
+        title: event.title,
+        what: event.what_happened,
+        why: "",
+        importance: importanceBand(event.importance),
+        score: {
+          relevance: asPercent(event.importance),
+          importance: asPercent(event.importance),
+          novelty: asPercent(event.novelty),
+        },
+        sources: coverage.length,
+        topics: topics.get(id) ?? [],
+        time: clockOf(publishedAt),
+        publishedAt,
+        sourceList: coverage.map((c) => ({ name: c.name, at: clockOf(c.publishedAt), url: c.url })),
+        before: event.before_state ?? "",
+        after: event.after_state ?? "",
+        timeline: coverage.map((c) => ({
+          at: clockOf(c.publishedAt),
+          label: `${c.name} published`,
+        })),
+      },
+    ];
+  });
+}
+
+type Coverage = { name: string; url: string; publishedAt: string };
+
+async function articlesFor(db: Db, eventIds: string[]): Promise<Map<string, Coverage[]>> {
+  const { data, error } = await db
+    .from("articles")
+    .select("event_id, url, published_at, sources ( name )")
+    .in("event_id", eventIds)
+    .order("published_at", { ascending: true, nullsFirst: false });
+  if (error) throw new Error(`reading articles: ${error.message}`);
+
+  const out = new Map<string, Coverage[]>();
+  for (const row of data ?? []) {
+    if (!row.event_id) continue;
+    const name = (row.sources as { name?: string } | null)?.name ?? "Unattributed";
+    const publishedAt = row.published_at ?? "";
+    const list = out.get(row.event_id) ?? [];
+    if (!list.some((c) => c.url === row.url)) {
+      list.push({ name, url: row.url, publishedAt });
+    }
+    out.set(row.event_id, list);
+  }
+  return out;
+}

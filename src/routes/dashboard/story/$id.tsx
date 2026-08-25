@@ -1,4 +1,5 @@
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Bookmark,
@@ -13,19 +14,14 @@ import { DashboardShell } from "@/components/dashboard/shell";
 import { formatStoryTime } from "@/lib/story-time";
 import { Button } from "@/components/kit";
 import { useFeedback } from "@/lib/feedback-store";
-import { storyById } from "@/lib/sample-data";
+import { loadStory } from "@/lib/server/briefing";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/story/$id")({
-  loader: ({ params }) => {
-    const story = storyById(params.id);
-    if (!story) throw notFound();
-    return story;
-  },
-  head: ({ loaderData }) => ({
-    meta: [{ title: loaderData ? `${loaderData.title} — nyuz` : "nyuz" }],
-  }),
   component: StoryDetail,
+  head: ({ params }) => ({
+    meta: [{ title: params.id ? "Story — nyuz" : "nyuz" }],
+  }),
 });
 
 const PROMPTS = [
@@ -35,10 +31,38 @@ const PROMPTS = [
 ];
 
 function StoryDetail() {
-  const story = Route.useLoaderData();
+  const { id } = Route.useParams();
+  const storyQ = useQuery({
+    queryKey: ["briefing", "story", id],
+    queryFn: () => loadStory({ data: { id } }),
+    staleTime: 60_000,
+  });
+  const story = storyQ.data;
   const { state, vote, toggleSaved } = useFeedback();
-  const saved = state.saved.includes(story.id);
-  const current = state.votes[story.id];
+  const saved = story ? state.saved.includes(story.id) : false;
+  const current = story ? state.votes[story.id] : undefined;
+
+  if (storyQ.isLoading) {
+    return (
+      <DashboardShell title="Story">
+        <p className="text-[13px] text-muted-foreground">Loading…</p>
+      </DashboardShell>
+    );
+  }
+
+  if (!story) {
+    return (
+      <DashboardShell title="Story">
+        <p className="text-[15px]">This story is not in your briefing.</p>
+        <Link
+          to="/dashboard"
+          className="mt-4 inline-flex items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to your nyuz
+        </Link>
+      </DashboardShell>
+    );
+  }
 
   return (
     <DashboardShell title="Story">
@@ -73,52 +97,62 @@ function StoryDetail() {
               <p className="mt-3 text-[16px] leading-relaxed">{story.what}</p>
             </section>
 
-            <section className="rounded-3xl border border-signal/30 bg-surface p-6">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal">
-                Why it matters to you
-              </h2>
-              <p className="mt-3 text-[15px] leading-relaxed">{story.why}</p>
-            </section>
+            {story.why ? (
+              <section className="rounded-3xl border border-signal/30 bg-surface p-6">
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal">
+                  Why it matters to you
+                </h2>
+                <p className="mt-3 text-[15px] leading-relaxed">{story.why}</p>
+              </section>
+            ) : null}
 
-            <section>
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                What changed
-              </h2>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-hairline bg-surface-2 p-5">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                    Before
-                  </p>
-                  <p className="mt-2 text-[14px] leading-relaxed">{story.before}</p>
+            {story.before || story.after ? (
+              <section>
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  What changed
+                </h2>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-hairline bg-surface-2 p-5">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                      Before
+                    </p>
+                    <p className="mt-2 text-[14px] leading-relaxed">
+                      {story.before || "Not stated in the coverage."}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-signal/30 bg-surface p-5">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-signal">After</p>
+                    <p className="mt-2 text-[14px] leading-relaxed">
+                      {story.after || "Not stated in the coverage."}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-signal/30 bg-surface p-5">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-signal">After</p>
-                  <p className="mt-2 text-[14px] leading-relaxed">{story.after}</p>
-                </div>
-              </div>
-            </section>
+              </section>
+            ) : null}
 
-            <section>
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                How this event formed
-              </h2>
-              <ol className="relative mt-5 space-y-4 pl-6">
-                <span className="absolute bottom-2 left-[4px] top-2 w-px bg-border" />
-                {story.timeline.map((t, i) => (
-                  <li key={t.at} className="relative">
-                    <span
-                      className="absolute -left-6 top-[7px] h-[7px] w-[7px] rounded-full"
-                      style={{
-                        background:
-                          i === story.timeline.length - 1 ? "var(--signal)" : "var(--border)",
-                      }}
-                    />
-                    <p className="text-[12px] tabular-nums text-muted-foreground">{t.at}</p>
-                    <p className="mt-0.5 text-[14.5px]">{t.label}</p>
-                  </li>
-                ))}
-              </ol>
-            </section>
+            {story.timeline.length > 0 ? (
+              <section>
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  How this event formed
+                </h2>
+                <ol className="relative mt-5 space-y-4 pl-6">
+                  <span className="absolute bottom-2 left-[4px] top-2 w-px bg-border" />
+                  {story.timeline.map((t, i) => (
+                    <li key={`${t.at}-${t.label}`} className="relative">
+                      <span
+                        className="absolute -left-6 top-[7px] h-[7px] w-[7px] rounded-full"
+                        style={{
+                          background:
+                            i === story.timeline.length - 1 ? "var(--signal)" : "var(--border)",
+                        }}
+                      />
+                      <p className="text-[12px] tabular-nums text-muted-foreground">{t.at}</p>
+                      <p className="mt-0.5 text-[14.5px]">{t.label}</p>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            ) : null}
 
             <AskPanel />
           </div>
@@ -158,11 +192,26 @@ function StoryDetail() {
               </p>
               <ul className="mt-4 space-y-2.5">
                 {story.sourceList.map((s) => (
-                  <li key={s.name} className="flex items-center justify-between gap-3 text-[13px]">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{s.name}</span>
-                    </span>
+                  <li
+                    key={s.url ?? s.name}
+                    className="flex items-center justify-between gap-3 text-[13px]"
+                  >
+                    {s.url ? (
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex min-w-0 items-center gap-2 hover:underline"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{s.name}</span>
+                      </a>
+                    ) : (
+                      <span className="flex min-w-0 items-center gap-2">
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{s.name}</span>
+                      </span>
+                    )}
                     <span className="shrink-0 tabular-nums text-[12px] text-muted-foreground">
                       {s.at}
                     </span>
@@ -231,7 +280,6 @@ function AskPanel() {
     setQ(prompt);
     setAsking(true);
     setAnswered(null);
-    // Deliberately gated: the deeper model runs only when a person asks for it.
     setTimeout(() => {
       setAsking(false);
       setAnswered(prompt);

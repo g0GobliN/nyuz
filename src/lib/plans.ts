@@ -30,10 +30,13 @@ export const PLAN_TIERS: PlanTier[] = ["free", "personal", "pro"];
  * count without any caller special-casing "unlimited", and it formats to
  * something obviously wrong if one ever forgets to.
  */
-export const PLAN_LIMITS: Record<PlanTier, { topics: number; retention: string }> = {
-  free: { topics: 3, retention: "7-day history" },
-  personal: { topics: 15, retention: "90-day history" },
-  pro: { topics: Infinity, retention: "1-year history" },
+export const PLAN_LIMITS: Record<
+  PlanTier,
+  { topics: number; retention: string; retentionDays: number }
+> = {
+  free: { topics: 3, retention: "7-day history", retentionDays: 7 },
+  personal: { topics: 15, retention: "90-day history", retentionDays: 90 },
+  pro: { topics: Infinity, retention: "1-year history", retentionDays: 365 },
 };
 
 /** "3" or "unlimited" — never the literal Infinity. */

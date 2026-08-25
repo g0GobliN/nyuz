@@ -1,19 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Bookmark, Mail, MessageCircle } from "lucide-react";
 import { useMemo, useState } from "react";
-import {
-  DashboardShell,
-  EmptyState,
-  PageHeader,
-  SampleDataNotice,
-} from "@/components/dashboard/shell";
+import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { BriefingPreview } from "@/components/briefing-preview";
 import { Chip, LinkButton } from "@/components/kit";
-import { useFeedback } from "@/lib/feedback-store";
 import { useDisplayName } from "@/lib/auth";
-import { matchStories } from "@/lib/matching";
 import { usePrefs } from "@/lib/prefs-store";
-import { STORIES } from "@/lib/sample-data";
+import { loadDigestStories, loadSavedStories } from "@/lib/server/briefing";
 
 export const Route = createFileRoute("/dashboard/briefing")({
   component: Briefing,
@@ -25,7 +19,6 @@ type Tab = "today" | "saved";
 function Briefing() {
   const { prefs } = usePrefs();
   const who = useDisplayName() || prefs.name;
-  const { state } = useFeedback();
   const [tab, setTab] = useState<Tab>("today");
 
   const pretty = useMemo(() => {
@@ -37,21 +30,23 @@ function Briefing() {
     return `${hour}:${String(m).padStart(2, "0")} ${suffix}`;
   }, [prefs.time]);
 
-  // Matched against your topics first, exactly as the home feed is — a briefing
-  // that contained stories the dashboard filtered out would not be "exactly
-  // what landed in your inbox", which is what this page claims to be.
-  const today = matchStories(STORIES, prefs)
-    .map((m) => m.story)
-    .filter(
-      (s) =>
-        !state.dismissed.includes(s.id) && !s.topics.some((t) => state.mutedTopics.includes(t)),
-    );
-  const saved = STORIES.filter((s) => state.saved.includes(s.id));
+  const todayQ = useQuery({
+    queryKey: ["briefing", "today"],
+    queryFn: () => loadDigestStories({ data: {} }),
+    staleTime: 60_000,
+  });
+  const savedQ = useQuery({
+    queryKey: ["briefing", "saved"],
+    queryFn: () => loadSavedStories(),
+    staleTime: 60_000,
+  });
+
+  const today = todayQ.data ?? [];
+  const saved = savedQ.data ?? [];
   const shown = tab === "today" ? today : saved;
 
   return (
     <DashboardShell title="My briefing">
-      <SampleDataNotice />
       <PageHeader
         eyebrow="Delivered"
         title="Exactly what landed in your inbox."

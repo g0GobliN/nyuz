@@ -1,19 +1,13 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { Bell, BellOff, Zap } from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
+import { Bell, BellOff } from "lucide-react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { Chip, LinkButton } from "@/components/kit";
 import { usePrefs } from "@/lib/prefs-store";
-import { STORIES } from "@/lib/sample-data";
 
 export const Route = createFileRoute("/dashboard/alerts")({
   component: Alerts,
   head: () => ({ meta: [{ title: "Alerts — nyuz" }] }),
 });
-
-const SENT = [
-  { id: "openai-realtime", at: "Today · 06:14", reason: "Importance 91 · matched AI, OpenAI" },
-  { id: "nvidia-supply", at: "18 Aug · 14:02", reason: "Importance 82 · matched Chips" },
-];
 
 function Alerts() {
   const { prefs, update } = usePrefs();
@@ -68,26 +62,11 @@ function Alerts() {
             />
           </div>
         ) : (
-          <div className="mt-4 space-y-2">
-            {SENT.map((a) => {
-              const story = STORIES.find((s) => s.id === a.id);
-              if (!story) return null;
-              return (
-                <Link
-                  key={a.id}
-                  to="/dashboard/story/$id"
-                  params={{ id: story.id }}
-                  className="flex items-start gap-4 rounded-2xl border border-hairline bg-surface px-5 py-4 transition-colors hover:border-border"
-                >
-                  <Zap className="mt-1 h-4 w-4 shrink-0 text-signal" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[14.5px] font-medium leading-snug">{story.title}</p>
-                    <p className="mt-1.5 text-[12px] text-muted-foreground">{a.reason}</p>
-                  </div>
-                  <span className="shrink-0 text-[12px] text-muted-foreground">{a.at}</span>
-                </Link>
-              );
-            })}
+          <div className="mt-4">
+            <EmptyState
+              title="No alerts sent yet."
+              body="Breaking alerts fire outside your schedule, for events that should not wait. None have gone out."
+            />
           </div>
         )}
       </section>

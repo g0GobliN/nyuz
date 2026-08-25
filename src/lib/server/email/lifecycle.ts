@@ -211,6 +211,7 @@ export async function sendDormant(
   userId: string,
   details: { days: number; unsubscribeUrl: string },
   env?: EmailEnv,
+  idempotencyKey?: string,
 ): Promise<boolean> {
   const recipient = await findRecipient(db, userId);
   if (!recipient) return false;
@@ -224,6 +225,9 @@ export async function sendDormant(
       unsubscribeUrl: details.unsubscribeUrl,
     }),
     env,
-    { unsubscribeUrl: details.unsubscribeUrl },
+    {
+      unsubscribeUrl: details.unsubscribeUrl,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+    },
   );
 }

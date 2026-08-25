@@ -17,7 +17,7 @@ export const PALETTE = {
   hairline: "#e6e6e6",
   surface: "#ffffff",
   surfaceAlt: "#f6f6f6",
-  signal: "#c52c2a",
+  signal: "#0573AA",
   onSignal: "#ffffff",
 } as const;
 

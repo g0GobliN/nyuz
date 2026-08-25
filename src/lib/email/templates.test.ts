@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type Email } from "@/lib/email/shell";
 import {
+  briefingEmail,
   briefingsPausedEmail,
   dormantEmail,
   formatEmailDate,
@@ -42,6 +43,19 @@ const ALL: Email[] = [
   }),
   briefingsPausedEmail({ name: "Sam", baseUrl: BASE }),
   dormantEmail({ name: "Sam", baseUrl: BASE, days: 7, unsubscribeUrl: `${BASE}/u/abc` }),
+  briefingEmail({
+    name: "Sam",
+    baseUrl: BASE,
+    scheduledFor: new Date("2026-08-25T07:30:00Z"),
+    unsubscribeUrl: `${BASE}/dashboard/delivery`,
+    items: [
+      {
+        title: "OpenAI ships a faster realtime tier",
+        why: "If you build voice features, the latency budget just moved.",
+        href: `${BASE}/dashboard/story/abc`,
+      },
+    ],
+  }),
 ];
 
 describe("every template", () => {

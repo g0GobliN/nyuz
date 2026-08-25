@@ -1,21 +1,17 @@
 # Project status
 
-Last reviewed: 24 August 2026.
+Last reviewed: 25 August 2026.
 
 nyuz is **in development and not accepting customers.** This page is the honest,
 itemised version of that sentence.
 
 It exists because the app looks considerably more finished than it is. The marketing
 site, the accounts, the admin console and the blog are genuinely working software. As of
-this review the ingester is too — there are real articles in the database — those
-articles are grouped into real events, those events have been read and scored by a
-second model call, those scores have been matched against a real reader's topics, and a
-new account is matched against the existing corpus the moment it finishes onboarding — so
-the top of the dashboard is now real news rather than a fixture. The thing the product is
-actually for — a briefing **delivered** — is still not built: no digest has been generated
-and no reader has been sent anything. Everything below the Live badge on the dashboard is
-still sample data, and says so. Anyone forming a judgement from the screenshots alone will
-be wrong in one direction or the other.
+this review the pipeline is too: articles are collected, grouped into events, analysed,
+matched to readers, and assembled into a briefing with one personal paragraph per story.
+Whether a real inbox has received one: yes, on 25 August 2026, to the Resend
+account that owns the key. A stranger cannot receive mail until
+`RESEND_FROM_EMAIL` is a verified domain rather than `onboarding@resend.dev`.
 
 ---
 
@@ -30,7 +26,7 @@ be wrong in one direction or the other.
 | Blog (authoring + public pages)                        | **Built**                                    |
 | AI provider routing configuration                      | **Built** — two stages route through it      |
 | Billing (checkout, portal, webhook)                    | **Built** (test mode; unproven against live) |
-| Lifecycle email (account, billing, pause)              | **Built** (dormancy nudge has no trigger)    |
+| Lifecycle email (account, billing, pause)              | **Built** — dormant nudge fires weekly on `last_seen_at` |
 | Onboarding flow                                        | **Built**, persisted to the account          |
 | Source list (64 live feeds)                            | **Built**                                    |
 | Ingestion pipeline                                     | **Built** — 1040 articles stored             |
@@ -38,8 +34,8 @@ be wrong in one direction or the other.
 | Analysis and scoring (events → understood)             | **Built** — 48 of 98 events analysed         |
 | Matching (events → readers)                            | **Built** — 16 rows in `user_events`, free   |
 | Day-one backfill for a new account                     | **Built** — one query; pays only if empty    |
-| Digest generation and delivery                         | **Designed, not built**                      |
-| Customer dashboard                                     | **Part real** — live matches over fixtures   |
+| Digest generation and delivery                         | **Built** — email only; quiet days skip honestly |
+| Customer dashboard                                     | **Built** — reads `user_events` and `digest_items` |
 
 ---
 
@@ -184,47 +180,21 @@ switches the paid half off entirely.
 
 ## What is a prototype
 
-**The customer dashboard, below the first block.** The top of the home page is real: it
-reads `user_events` and renders the reader's own matched events. Everything under it still
-comes from `src/lib/sample-data.ts` — six fixtures — as do the briefing, history and story
-pages in full. The missing piece is no longer matching; it is `digest_items`, the one
-paragraph per person that says why a story matters to that reader, and the briefing built
-from it.
-
-Two things were done so that this is not misleading:
-
-1. **A "Sample data" notice** on the dashboard and briefing pages, saying plainly that
-   the stories are examples and nothing was gathered for the reader. Its wording was
-   revised twice, each time narrowing rather than widening: it used to claim collection
-   was not running, then that nothing on the page had been gathered for the reader. Both
-   became untrue in turn. It now says which half of the page is a fixture — the half below
-   it. Grep `SampleDataNotice`; it comes down when nothing on these pages is invented.
-
-2. **The fixtures are matched against the reader's real topics** by
-   `src/lib/matching.ts`. Previously all six stories were shown to everyone with a
-   hard-coded caption claiming what the reader followed, so someone who onboarded asking
-   for singing was told "You follow chips and AI infrastructure". Now a reader whose
-   interests match nothing sees an honest empty state.
-
-That second point is worth being precise about: it makes the _relationship_ between
-stated interests and displayed stories honest. It does not make the stories real.
-
 **The Pipeline page** at `/dashboard/admin`. Queue depths and funnel volumes are fixture
 figures from a local set. The business metrics on its economics tab are deliberately left
 empty rather than filled with plausible numbers.
+
+**Breaking alerts.** The preference exists and is stored. Nothing sends out of schedule
+yet, and the alerts page says so rather than listing invented sends.
 
 ---
 
 ## What is not built
 
-**Everything between a matched event and a reader's inbox.** Collection, grouping,
-analysis and matching work; delivery does not. `digests`, `digest_items` and `deliveries`
-have never had a row written to them by anything. The DeepSeek client is called for
-clustering, for analysis, and — at most once per account, only when a new reader would
-otherwise see nothing — for the day-one backfill. Nothing calls it per reader, and nothing
-calls it on a recurring basis for one.
+**Telegram and WhatsApp delivery.** Email is the only channel the digest stage sends on.
+The other two stay in `notification_preferences.channels` and are ignored at send time.
 
-The stages, in the order they need building:
+The stages:
 
 1. ~~**Collect** — fetch feeds on a schedule, record failures, back off dead sources.~~
    Built and verified, 23 August 2026.
@@ -243,8 +213,12 @@ The stages, in the order they need building:
 5. ~~**Match** — deterministic SQL against topics, keywords, exclusions and density.~~
    Built and verified, 23 August 2026. 16 rows in `user_events`, zero model calls. The
    day-one path that runs the same code for a brand-new account was verified 24 August.
-6. **Generate and deliver** — one paragraph per person per story, then send. **Next**, and
-   the first stage whose cost is per reader rather than per event.
+6. ~~**Generate and deliver** — one paragraph per person per story, then send.~~ Built
+   25 August 2026. `src/lib/pipeline/digest.ts` schedules on the reader's timezone,
+   writes `digest_items.why_it_matters` (the only per-reader model spend), skips with
+   zero items when nothing matched, and sends email through Resend with `deliveries`
+   retry. A quiet day is emailed as a quiet day, not padded. Cron `*/5 * * * *`.
+   `npm run pipeline -- digest --user ID --now` builds a slot immediately.
 
 **The project has now spent money on both of the stages that ever will share it.**
 Clustering costs roughly 610 tokens per article; analysis costs roughly 1,846 tokens per
@@ -259,14 +233,17 @@ incoming event is matched against the nyuz catalogue first — the Stripe accoun
 with another product, so an unmatched price is ignored rather than trusted. It has been
 exercised in test mode only. **No live payment has ever run through it.**
 
-**Delivery.** _Briefing_ delivery does not exist — no Telegram, no WhatsApp, and no
-briefing email. The `deliveries` table and its retry semantics are still designed and
-unused.
+**Delivery.** Email briefing delivery exists: `deliveries` rows, Resend transport,
+idempotency keys, and retry of queued failures up to five attempts. Telegram and
+WhatsApp do not. `RESEND_FROM_EMAIL` is still the Resend onboarding address, which
+only delivers to the account that owns the key.
 
-_Lifecycle_ email is a different thing and does work: welcome, subscription started,
+_Lifecycle_ email still works: welcome, subscription started,
 cancelled, payment failed and briefings-paused all send through Resend. The dormant-reader
-nudge is written and tested but has no caller, because nothing tracks whether a briefing
-was opened.
+nudge fires weekly (`0 12 * * 1`) for readers who have had a briefing and have not
+visited in seven days. `profiles.last_seen_at` is written from the dashboard, once an
+hour. Open-tracking on the mail itself is still not wired — a verified domain would
+need to exist first.
 
 ---
 
@@ -284,30 +261,22 @@ feed at any conventional path any more, so an Anthropic announcement will only e
 as somebody else's coverage of it. Named here because a reader who picks that topic is
 entitled to know.
 
-**`0007_source_stats.sql` has not been applied.** It creates a SQL function, and DDL
-cannot be run from a development machine here: there is no database password, no
-`SUPABASE_ACCESS_TOKEN` and no `supabase/config.toml`, so `supabase db push` will not run
-and PostgREST cannot execute DDL. Until somebody pastes it into the Supabase SQL editor,
-the console's source list prints "—" for per-source article counts, which it explains on
-the page rather than showing a zero.
+**`0007_source_stats.sql` is applied.** `admin_source_stats()` returns 68 sources and
+1,040 articles. Applied 25 August 2026 via the Supabase MCP, because `supabase db push`
+still cannot run from this machine.
 
-**PyTorch's feed is the wrong URL, and it has already cost a fifth of the analysis bill.**
-The source points at `releases.atom`, which for that repository returns
-continuous-integration branch tags rather than releases — `trunk/16ee93b8…: [vision hash
-update]`, `viable/strict/1787468606: Revert "…"`. **14 of the 1040 stored articles are refs
-of that shape.** Clustering recognises them and spends nothing deciding that unrelated
-commits are unrelated — but recognising a ref is not discarding it. 11 of the 14 still
-became events, and **analysis has read 10 of them at a cost of 18,157 tokens, 20.5% of all
-analysis spend to date**, measured against the live table. Each scored importance 0 or 1,
-so matching will keep them away from readers; the money went before any threshold could
-apply. Fixing it means pointing the source at a tag feed filtered to releases, or dropping
-the source — a coverage decision rather than a bug, but a metered one.
+**PyTorch's feed is the wrong URL.** It has already cost a fifth of the analysis bill
+(10 CI-ref events, 18,157 tokens). The URL is still a coverage decision. **The meter is
+stopped**: ingest drops titles matching `isVcsRef`, cluster parks leftovers as failed
+events, and analysis refuses a single-article ref with zero tokens. Real `v*` release
+tags still pass through.
 
 **The cron's per-run limit assumes a paid Cloudflare plan.** A Worker invocation may make
 50 subrequests on the free plan and 1000 on paid; `SCHEDULED_LIMIT` is 24 sources, which
 is roughly 120 subrequests. **On the free plan this must come down**, and it is the only
-one of the three that must: there are now three triggers — ingestion every fifteen
-minutes, clustering at `10,40`, analysis at `20,50` — and the two model stages are
+one of the three that must: there are now six triggers — ingestion every fifteen
+minutes, clustering at `10,40`, analysis at `20,50`, matching at `25,55`, digest
+every five minutes, and a weekly dormant nudge — and the two model stages are
 bounded by money and wall-clock rather than by subrequests. Clustering does 12 articles a
 run and analysis 6 events, roughly 35 subrequests, and neither tries to drain its backlog
 unattended.
@@ -327,10 +296,9 @@ to events whose headline already names something that reader follows, so it cann
 the backlog; but the money comes out of the same pocket, and the `admin_audit_log` rows
 with action `backfill.analyse` are where to look for what it has spent.
 
-**`--signal` is two different colours.** `public/logo.svg` is blue, `src/styles.css` is
-red (hue 27), `src/lib/email/shell.ts` is `#c52c2a`, and `AGENTS.md` claims hue 240. This
-needs settling before the first briefing email is built, or it will go out in whichever
-colour the template happened to inherit.
+**`--signal` is blue.** Hue 240 in `src/styles.css`, `#0573AA` / `#55AEE8` in
+`public/logo.svg`, and `PALETTE.signal` in the email shell. Settled before the first
+briefing mail so it does not go out red.
 
 **Onboarding preferences reach the account.** `user_topics`, `user_exclusions` and
 `notification_preferences` are all written; `localStorage` under `nyuz.prefs.v2` is now a
@@ -360,7 +328,7 @@ CI runs all four on every push and pull request — see
 ```
 npm run typecheck   # tsc --noEmit, with noUncheckedIndexedAccess on
 npm run lint        # eslint, currently 0 errors / 18 warnings
-npm run test        # vitest, 245 tests across 15 files
+npm run test        # vitest, 269 tests across 18 files
 npm run build       # vite + nitro, Cloudflare Workers target
 ```
 

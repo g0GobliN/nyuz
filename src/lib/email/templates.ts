@@ -1,4 +1,4 @@
-import { type Email, button, escapeHtml, layout, p, pMuted, panel } from "./shell";
+import { type Email, button, escapeHtml, layout, p, pMuted, panel, PALETTE } from "./shell";
 
 /**
  * Every lifecycle email nyuz sends, as pure functions.
@@ -344,6 +344,79 @@ export function dormantEmail({
       `Delivery settings: ${delivery}`,
       "",
       `If the honest answer is that you do not want it, unsubscribing is a perfectly good outcome and we will not chase it: ${unsubscribeUrl}`,
+    ].join("\n"),
+  };
+}
+
+/* ---------------------------------------------------------------------- */
+/* 7. Daily briefing                                                       */
+/* ---------------------------------------------------------------------- */
+
+export type BriefingItem = {
+  title: string;
+  why: string;
+  href: string;
+};
+
+export function briefingEmail({
+  name,
+  baseUrl,
+  scheduledFor,
+  items,
+  unsubscribeUrl,
+}: Base & { scheduledFor: Date; items: BriefingItem[]; unsubscribeUrl: string }): Email {
+  const date = formatEmailDate(scheduledFor);
+  const href = `${baseUrl}/dashboard/briefing`;
+  const quiet = items.length === 0;
+  const count = items.length;
+  const preheader = quiet
+    ? "Nothing crossed the threshold you set."
+    : (items[0]?.title ?? `${count} ${count === 1 ? "story" : "stories"}.`);
+
+  const storyBlocks = items
+    .map((item) => {
+      const title = escapeHtml(item.title);
+      const why = escapeHtml(item.why);
+      const link = escapeHtml(item.href);
+      return p(
+        `<a href="${link}" style="color:${PALETTE.ink};text-decoration:none;font-weight:600;">${title}</a><br>${why}`,
+      );
+    })
+    .join("");
+
+  const stories = quiet
+    ? p(
+        "Nothing crossed the threshold you set. A quiet day is a real answer, not a failure, so this briefing is empty on purpose.",
+      )
+    : storyBlocks;
+
+  const textStories = quiet
+    ? "Nothing crossed the threshold you set. A quiet day is a real answer, not a failure, so this briefing is empty on purpose."
+    : items.map((item) => `${item.title}\n${item.why}\n${item.href}`).join("\n\n");
+
+  return {
+    subject: quiet ? `Your nyuz — a quiet ${date}` : `Your nyuz — ${date}`,
+    html: layout({
+      preheader,
+      heading: quiet ? "A quiet day." : date,
+      baseUrl,
+      unsubscribeUrl,
+      body: [
+        p(greet(name)),
+        stories,
+        quiet ? "" : button("Open my briefing", href),
+        pMuted(
+          "Summaries are generated and can be wrong. Every story links to the reporting it came from.",
+        ),
+      ].join("\n"),
+    }),
+    text: [
+      greetText(name),
+      "",
+      textStories,
+      "",
+      ...(quiet ? [] : [`Open my briefing: ${href}`, ""]),
+      `Stop these: ${unsubscribeUrl}`,
     ].join("\n"),
   };
 }

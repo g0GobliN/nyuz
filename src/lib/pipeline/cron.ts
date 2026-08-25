@@ -32,8 +32,11 @@
  */
 
 import { createAdminClient, type ServerEnv } from "@/lib/supabase/admin";
+import type { EmailEnv } from "@/lib/server/email/send";
 import { analyse, describeAnalysis, type AnalysisReport } from "./analyse";
 import { cluster, describeCluster, type ClusterReport } from "./cluster";
+import { describeDigest, digest, type DigestReport } from "./digest";
+import { describeDormant, dormant, type DormantReport } from "./dormant";
 import { ingest, type IngestReport } from "./ingest";
 import { describeMatch, match, type MatchReport } from "./match";
 
@@ -114,11 +117,33 @@ export const ANALYSE_CRON = "20,50 * * * *";
  */
 export const MATCH_CRON = "25,55 * * * *";
 
+/**
+ * Digest generation and delivery, after matching.
+ *
+ * Every five minutes rather than twice an hour, because send_at is a clock time
+ * the reader chose. A half-hourly slot would smear 07:30 across half an hour;
+ * five minutes is the coarsest cadence that still lands "at the time you asked".
+ * Generation is capped per invocation the same way analysis is — this is the
+ * stage that spends per reader.
+ */
+export const DIGEST_CRON = "*/5 * * * *";
+
+/**
+ * Dormancy nudge, once a week.
+ *
+ * Keys off `profiles.last_seen_at`, which the dashboard writes, not off an email
+ * open pixel. Monday noon UTC is arbitrary and quiet: it is not a send_at the
+ * reader chose, and it is not every five minutes.
+ */
+export const DORMANT_CRON = "0 12 * * 1";
+
 export type ScheduledResult =
   | { stage: "ingest"; report: IngestReport }
   | { stage: "cluster"; report: ClusterReport }
   | { stage: "analyse"; report: AnalysisReport }
   | { stage: "match"; report: MatchReport }
+  | { stage: "digest"; report: DigestReport }
+  | { stage: "dormant"; report: DormantReport }
   | { stage: "unknown"; cron: string };
 
 /**
@@ -165,6 +190,25 @@ export async function runScheduled(
     return { stage: "match", report };
   }
 
+  if (cron === DIGEST_CRON) {
+    const report = await digest(createAdminClient(env), {
+      ...(env
+        ? {
+            secrets: env as Record<string, string | undefined>,
+            email: env as EmailEnv,
+          }
+        : {}),
+    });
+    return { stage: "digest", report };
+  }
+
+  if (cron === DORMANT_CRON) {
+    const report = await dormant(createAdminClient(env), {
+      ...(env ? { email: env as EmailEnv } : {}),
+    });
+    return { stage: "dormant", report };
+  }
+
   return { stage: "unknown", cron };
 }
 
@@ -195,6 +239,8 @@ export function describe(result: ScheduledResult): string {
   }
 
   if (result.stage === "match") return describeMatch(result.report);
+  if (result.stage === "digest") return describeDigest(result.report);
+  if (result.stage === "dormant") return describeDormant(result.report);
 
   const { report } = result;
   const seconds = Math.round((Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000);

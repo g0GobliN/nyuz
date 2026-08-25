@@ -1,5 +1,5 @@
 import { LogoMark } from "@/components/landing/nav";
-import type { Story } from "@/lib/sample-data";
+import type { Story } from "@/lib/story";
 import { cn } from "@/lib/utils";
 
 /**

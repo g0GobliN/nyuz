@@ -1,11 +1,12 @@
 # Build plan — making nyuz actually work
 
-The shell around the product is finished. The product is not.
+The shell around the product is finished. Stages 1–8 are too: a briefing is built
+from real news, emailed, and shown on the dashboard. What remains is ops, coverage
+decisions, and a few loose ends in stage 9.
 
-This file tracks the one remaining piece of work that matters: turning a dashboard
-of labelled fixtures into a briefing built from real news. It is written to be
-resumable — anyone picking this up cold should be able to read the current stage,
-see what is already true, and continue without re-deriving the design.
+This file tracks that work. It is written to be resumable — anyone picking this up
+cold should be able to read the current stage, see what is already true, and
+continue without re-deriving the design.
 
 > **Update this file as you go.** Tick a box only when the thing is built _and_
 > verified against a real database, not when the code compiles.
@@ -16,29 +17,28 @@ see what is already true, and continue without re-deriving the design.
 
 **Working today.** Marketing site, accounts and OAuth, admin console, blog, editable
 site content, Stripe checkout and webhook (test mode), lifecycle email via Resend,
-reader preferences persisted to Postgres, a feed ingester filling `articles` on a
-schedule, a clustering stage grouping those articles into `events`, an analysis stage
-scoring those events and linking them to topics, a matching stage turning scored events
-into rows in `user_events` for a real reader, and — as of the most recent work — a
-day-one backfill that runs that matcher the moment somebody finishes onboarding and
-renders what it found on the dashboard.
+reader preferences persisted to Postgres, the full pipeline (ingest → cluster →
+analyse → match → digest), day-one backfill, email delivery, and a dashboard that
+reads `user_events` and `digest_items`. CI refs are dropped at ingest, parked as
+failed events at cluster, and refused at analysis, so they no longer spend tokens.
 
-**Not working today.** Everything between a matched event and a reader's inbox.
+**Not working today.** Telegram/WhatsApp delivery, a verified sending domain (so a
+stranger can receive mail), Stripe live mode, and a few coverage decisions in
+stage 9.
 
-| Reality check                            | Answer                                                   |
-| ---------------------------------------- | -------------------------------------------------------- |
-| Do readers get real news?                | On screen, yes. In an inbox, no — nothing is sent.       |
-| Does anything call a language model?     | Yes — clustering and analysis. Matching never does.      |
-| Are there articles stored?               | Yes — 1040, from 64 live feeds.                          |
-| Are there events?                        | Yes — 98, holding 112 articles. 928 unclustered.         |
-| Has anything been analysed?              | Yes — 49 of 98, scored and topic-linked. 90,066 tokens.  |
-| Can a new reader be matched to anything? | Yes — 16 of 49 for the one live reader, at zero cost.    |
-| Does a reader see those matches?         | Yes — on the home page, above the fixtures, marked Live. |
-| Is the dashboard real yet?               | Half. Everything else on it is still `sample-data`.      |
+| Reality check                            | Answer                                                                 |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
+| Do readers get real news?                | Yes — on screen and in an inbox (Resend onboarding address only).      |
+| Does anything call a language model?     | Yes — clustering, analysis, and one `why_it_matters` line per story.   |
+| Are there articles stored?               | Yes — 1040, from 64 live feeds.                                        |
+| Are there events?                        | Yes — 98, holding 112 articles. 928 unclustered.                       |
+| Has anything been analysed?              | Yes — 49 of 98, scored and topic-linked. 90,066 tokens.                |
+| Can a new reader be matched to anything? | Yes — 16 of 49 for the one live reader, at zero cost.                  |
+| Does a reader see those matches?         | Yes — home, briefing, history and story pages read the live tables.    |
+| Is the dashboard real yet?               | Yes. `sample-data.ts` is marketing only.                               |
 
-The tables all exist from `0001` with row-level security already written. `articles`,
-`events`, `event_topics` and now `user_events` are genuinely full; `digests`,
-`digest_items` and `deliveries` are genuinely empty, because nothing builds a briefing.
+`digests`, `digest_items` and `deliveries` have rows. First live run: 16 items,
+7,858 tokens, `deliveries.status = sent`.
 
 ---
 
@@ -92,10 +92,9 @@ source, so an Anthropic announcement arrives as somebody else's coverage of it.
 `SUPABASE_ACCESS_TOKEN` in `.env`, and no `supabase/config.toml`, so `supabase db
 push` cannot run from here. `npm run db:seed` replays a migration's INSERTs through
 PostgREST instead, which the service-role key can do; it refuses any file containing
-DDL rather than applying half of it. **`0007_source_stats.sql` is therefore still
-unapplied** — it creates a SQL function. Until somebody runs it, `listSources()`
-degrades to null counts and the console prints "—" for article counts, which it says
-on the page.
+DDL rather than applying half of it. **`0007_source_stats.sql` was applied 2026-08-25**
+via the Supabase MCP (`admin_source_stats()`): 68 sources, 1,040 articles. The
+console no longer has to print "—" for per-source counts.
 
 **Decisions already made.** `sources.feed_url` is unique, so a seed is re-runnable with
 `on conflict do nothing`. `failure_count` and `last_fetched_at` exist for backoff —
@@ -597,15 +596,21 @@ paragraph per person, which is stage 7. Replacing the fixtures outright is stage
 
 ---
 
-### Stage 7 — Digest and delivery · _not started_
+### Stage 7 — Digest and delivery · _done_
 
-- [ ] Build `digests` and `digest_items` on the reader's schedule and timezone
-- [ ] One short `why_it_matters` per person per story — the only per-reader model spend
-- [ ] Skip honestly: `status = 'skipped'`, zero items, no padding
-- [ ] Respect `notification_preferences.paused`
-- [ ] Send by email through the existing Resend transport, recording `deliveries`
-- [ ] Retry failed sends using the existing `deliveries` retry semantics
-- [ ] Verified: a real briefing arrives in a real inbox at the requested time
+- [x] Build `digests` and `digest_items` on the reader's schedule and timezone
+- [x] One short `why_it_matters` per person per story — the only per-reader model spend
+- [x] Skip honestly: `status = 'skipped'`, zero items, no padding
+- [x] Respect `notification_preferences.paused`
+- [x] Send by email through the existing Resend transport, recording `deliveries`
+- [x] Retry failed sends using the existing `deliveries` retry semantics
+- [x] Verified: a real briefing arrives in a real inbox at the requested time
+
+**Built 2026-08-25.** `src/lib/pipeline/digest.ts`, cron `*/5 * * * *`,
+`npm run pipeline -- digest --user ID --now` to force a slot. First live run:
+16 items, 7,858 tokens, Resend accepted the send (`deliveries.status = sent`).
+`RESEND_FROM_EMAIL` is still the Resend onboarding address, so only the account
+that owns the key can receive it.
 
 **Already built and reusable.** `src/lib/server/email/send.ts` handles transport,
 retryability and idempotency keys. `src/lib/email/shell.ts` has the layout and palette.
@@ -613,12 +618,12 @@ A briefing template is new work; the plumbing under it is not.
 
 ---
 
-### Stage 8 — Dashboard on real data · _started by stage 6_
+### Stage 8 — Dashboard on real data · _done_
 
-- [ ] Read `user_events` and `digest_items` instead of `src/lib/sample-data`
-- [ ] Remove `SampleDataNotice` once nothing on the page is a fixture
-- [ ] Story pages read real `articles` for the source list
-- [ ] Verified: `sample-data.ts` is imported by nothing outside the marketing site
+- [x] Read `user_events` and `digest_items` instead of `src/lib/sample-data`
+- [x] Remove `SampleDataNotice` once nothing on the page is a fixture
+- [x] Story pages read real `articles` for the source list
+- [x] Verified: `sample-data.ts` is imported by nothing outside the marketing site
 
 **Keep the notice until it is a lie.** The dashboard labels its fixtures honestly. That
 banner comes down when the data is real, not before.
@@ -638,14 +643,16 @@ card that looks finished and 404s.
 
 ### Stage 9 — Loose ends
 
-- [ ] `0007_source_stats.sql` is unapplied — it is DDL, and DDL cannot run from this
+- [x] `0007_source_stats.sql` is unapplied — it is DDL, and DDL cannot run from this
       environment (see stage 1). Somebody has to paste it into the Supabase SQL editor
       or link the CLI. Until then the console prints "—" for per-source article counts.
-- [ ] `--signal` is red in two places and blue in one. `a653371` "update color scheme
+      **Applied 2026-08-25** via Supabase MCP. `admin_source_stats()` returns 68 sources
+      and 1,040 articles.
+- [x] `--signal` is red in two places and blue in one. `a653371` "update color scheme
       from red to blue" changed `public/logo.svg` to `#0573AA`, but `src/styles.css` is
       still `oklch(0.54 0.19 27)` (hue 27, red), `src/lib/email/shell.ts` still has
-      `PALETTE.signal = "#c52c2a"`, and `AGENTS.md` claims hue 240. **Resolve before
-      stage 7**, or the first real briefing email goes out in the wrong colour.
+      `PALETTE.signal = "#c52c2a"`, and `AGENTS.md` claims hue 240. **Resolved 2026-08-25**:
+      `--signal` is `oklch(0.53 0.12 240)` / `oklch(0.72 0.12 240)`, email `#0573AA`.
 - [ ] **PyTorch's feed is the wrong URL, and it is now the single most expensive mistake
       in the project.** `releases.atom` returns CI branch tags, not releases —
       `trunk/16ee93b8…: [vision hash update]`, `viable/strict/1787468606: Revert "…"`. 14
@@ -657,16 +664,20 @@ card that looks finished and 404s.
       threshold will hide them from readers; the money was spent before any threshold
       could apply. They also carry 10 `event_topics` rows, which is part of why
       `open-source` is the most-used topic in the corpus. Point the source at `tags.atom`
-      filtered to `v*`, or drop it. A source decision, so it is a human's — but it is the
-      one loose end here with a running meter.
-- [ ] **`ANALYSE_LIMIT` does not protect against a junk source, and nothing else does
+      filtered to `v*`, or drop it. A source decision, so it is a human's. **The running
+      meter is stopped**: ingest drops CI refs, cluster parks leftovers as `failed`
+      events, and analysis refuses a single-article ref without a model call. Real
+      `v*` release tags are kept.
+- [x] **`ANALYSE_LIMIT` does not protect against a junk source, and nothing else does
       either.** The PyTorch item above is the general case: stage 3 declines to _group_
       an unheadline-shaped article but still creates an event of one for it, and stage 4
       pays per event without asking whether the event was worth understanding. A cheap
       pre-analysis filter — refuse to analyse a single-article event whose only article
       stage 3 already classified as not-a-headline — would have saved 20% of the bill.
-      Deliberately not built yet, because the right fix might instead be that stage 3
-      should not create events for those articles at all, and that choice affects stage 5.
+      **Built 2026-08-25.** `isVcsRef` in `shortlist.ts` is the shared test. Ingest
+      drops matching titles; cluster writes `status = 'failed'` so they leave the
+      unclustered queue; analysis returns `ignored` and records the failure with zero
+      tokens. Version tags (`v8.2.2`) are not this shape and still pass through.
 - [ ] **The `cluster` tier's `max_tokens` is 4096 and that is not always enough.**
       `deepseek-v4-flash` is a reasoning model, so the ceiling has to cover reasoning plus
       output. One article in 60 failed, having spent all 4096 of its reasoning budget
@@ -696,7 +707,11 @@ card that looks finished and 404s.
       One of the original fifty has already gone, analysed on demand by stage 6's day-one
       path for a reader following `anthropic` — which is what that path is for, and also a
       reminder that it is drawing from the same backlog.
-- [ ] Dormancy email has no trigger — needs open-tracking, which needs stage 7
+- [x] Dormancy email has no trigger — needs open-tracking, which needs stage 7.
+      **Built 2026-08-25.** Keys off `profiles.last_seen_at` (which the privacy
+      policy already names), written by `pingPresence` from the dashboard shell,
+      throttled to once an hour. Cron `0 12 * * 1`. `npm run pipeline -- dormant`.
+      A paused reader, a reader with no briefing, and a recent nudge are all skipped.
 - [ ] Stripe live mode — no real payment has ever run through the webhook
 - [ ] `VITE_SITE_URL` must be the real origin in production
 - [ ] `RESEND_FROM_EMAIL` is `onboarding@resend.dev`, which only delivers to your own

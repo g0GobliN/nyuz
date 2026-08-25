@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { sendWelcome } from "@/lib/server/account";
 import { startFirstBriefing } from "@/lib/server/briefing";
 import { usePrefs, type Prefs } from "@/lib/prefs-store";
-import { IGNORE_POOL, TOPIC_POOL } from "@/lib/sample-data";
+import { IGNORE_POOL, TOPIC_POOL } from "@/lib/topics-pool";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/onboarding")({

@@ -6,6 +6,7 @@
  *   npm run cron:test -- "*\/15 * * * *"     a specific schedule
  *   npm run cron:test -- "10,40 * * * *"     clustering — this one spends money
  *   npm run cron:test -- "20,50 * * * *"     analysis — so does this one
+ *   npm run cron:test -- "0 12 * * 1"        dormant nudge
  *
  * ---------------------------------------------------------------------------
  * Why this exists
@@ -65,8 +66,9 @@ const env = {
   // than inventing anything: without them the handler falls back to env routing
   // and then fails on the first call with "Missing DEEPSEEK_API_KEY", which is
   // exactly what a deploy that forgot the secret would do.
-  DEEPSEEK_API_KEY: process.env["DEEPSEEK_API_KEY"],
-  DEEPSEEK_BASE_URL: process.env["DEEPSEEK_BASE_URL"],
+  RESEND_API_KEY: process.env["RESEND_API_KEY"],
+  RESEND_FROM_EMAIL: process.env["RESEND_FROM_EMAIL"],
+  VITE_SITE_URL: process.env["VITE_SITE_URL"],
 };
 
 if (!env.VITE_SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {

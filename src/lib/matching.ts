@@ -1,6 +1,6 @@
 import type { Prefs } from "@/lib/prefs-store";
 import { related } from "@/lib/relate";
-import type { Story } from "@/lib/sample-data";
+import type { Story } from "@/lib/story";
 
 /**
  * Which of the sample stories a given person should actually see.

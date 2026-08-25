@@ -14,7 +14,7 @@ import {
 import { usePlan } from "@/lib/plan-state";
 import { PLAN_NAMES, formatTopicLimit, nextPlanUp } from "@/lib/plans";
 import { usePrefs } from "@/lib/prefs-store";
-import { IGNORE_POOL, TOPIC_POOL } from "@/lib/sample-data";
+import { IGNORE_POOL, TOPIC_POOL } from "@/lib/topics-pool";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/topics")({

@@ -16,11 +16,13 @@ import {
   Tag,
   X,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { Logo } from "@/components/landing/nav";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { STORIES } from "@/lib/sample-data";
 import { usePrefs } from "@/lib/prefs-store";
+import { pingPresence } from "@/lib/server/account";
+import { searchStories } from "@/lib/server/briefing";
 import { cn } from "@/lib/utils";
 // From src/lib/viewer.ts rather than the console shell: importing it from there
 // would pull the entire admin console into this bundle for the sake of one
@@ -117,6 +119,12 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
   // avatar showing a stranger's initial is worse than one showing none.
   const who = useDisplayName() || prefs.name;
   const initial = who.trim().slice(0, 1).toUpperCase() || "·";
+
+  useEffect(() => {
+    void pingPresence().catch(() => {
+      // A missed ping must not take the dashboard down. The next load retries.
+    });
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -366,15 +374,14 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const term = q.trim().toLowerCase();
-  const results = term
-    ? STORIES.filter(
-        (s) =>
-          s.title.toLowerCase().includes(term) ||
-          s.org.toLowerCase().includes(term) ||
-          s.topics.some((t) => t.toLowerCase().includes(term)),
-      )
-    : [];
+  const term = q.trim();
+  const results = useQuery({
+    queryKey: ["briefing", "shell-search", term],
+    queryFn: () => searchStories({ data: { q: term } }),
+    enabled: term.length >= 2,
+    staleTime: 30_000,
+  });
+  const hits = results.data ?? [];
 
   return (
     <div
@@ -404,12 +411,12 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="max-h-[50vh] overflow-y-auto">
-          {term && results.length === 0 ? (
+          {term.length >= 2 && hits.length === 0 && !results.isFetching ? (
             <p className="px-5 py-8 text-center text-[13.5px] text-muted-foreground">
               Nothing in your archive matches that yet.
             </p>
           ) : null}
-          {results.map((s) => (
+          {hits.map((s) => (
             <Link
               key={s.id}
               to="/dashboard/story/$id"
@@ -428,41 +435,6 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
           ) : null}
         </div>
       </div>
-    </div>
-  );
-}
-
-/**
- * Says out loud that the stories are fixtures.
- *
- * Every story on every dashboard page comes from `src/lib/sample-data.ts`. A
- * briefing product that shows invented stories without saying so is
- * indistinguishable from one that is lying, and the person most likely to be
- * misled is a real signup.
- *
- * The wording has narrowed twice, and for the same reason both times: a notice
- * that overstates what is missing is its own small lie, in the modest direction.
- * Collection runs, articles are grouped into `events`, those events are scored,
- * and stage 6 now matches them into `user_events` and renders them on the home
- * page under a Live badge. So this no longer says "nothing here was gathered for
- * you" — it says which part of the page is a fixture, which is the part below it.
- *
- * What is still missing is `digest_items`: the one paragraph per person that says
- * why a story matters to *you*, and the briefing built from it. That is stage 7.
- *
- * DELETE THIS COMPONENT AND ITS USAGES when nothing on these pages is a fixture.
- * Grep for `SampleDataNotice`.
- */
-export function SampleDataNotice() {
-  return (
-    <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-dashed border-border px-4 py-3">
-      <span className="rounded-full border border-signal/40 px-2 py-0.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-signal">
-        Sample data
-      </span>
-      <span className="text-[12.5px] leading-relaxed text-muted-foreground">
-        The stories below are examples, not live reporting. Anything marked Live was collected from
-        a real source and matched to your topics; everything from here down is a fixture.
-      </span>
     </div>
   );
 }

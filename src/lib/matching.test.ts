@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { becauseYouFollow, matchStories } from "@/lib/matching";
 import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs-store";
-import type { Story } from "@/lib/sample-data";
+import type { Story } from "@/lib/story";
 
 /**
  * Regression tests for a bug that shipped: the dashboard showed all six sample

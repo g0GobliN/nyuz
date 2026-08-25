@@ -21,6 +21,7 @@ export type PlanState = {
   plan: PlanTier;
   topicLimit: number;
   retention: string;
+  retentionDays: number;
   /** True while the row is still loading — treat limits as unknown, not exceeded. */
   loading: boolean;
 };
@@ -50,12 +51,13 @@ export function usePlan(): PlanState {
   });
 
   const plan: PlanTier = data ?? "free";
-  const limits = PLAN_LIMITS[plan];
+  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
 
   return {
     plan,
     topicLimit: limits.topics,
     retention: limits.retention,
+    retentionDays: limits.retentionDays,
     loading: authLoading || isLoading,
   };
 }

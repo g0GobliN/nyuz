@@ -37,6 +37,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { canonicalUrl, contentHash } from "./canonical";
 import { parseFeed, type FeedItem } from "./feed";
 import { fetchFeed, mapLimit } from "./fetch";
+import { isVcsRef } from "./shortlist";
 import type { Database, Source } from "@/lib/supabase/types";
 
 export type Db = SupabaseClient<Database>;
@@ -440,6 +441,11 @@ async function toRows(
   for (const item of items) {
     const url = canonicalUrl(item.link);
     if (url === null) continue;
+
+    // CI branch tags are not news. They have already cost a fifth of the analysis
+    // bill; dropping them here means they never become an event. Version tags
+    // (`v8.2.2`) are kept — those are releases.
+    if (isVcsRef(item.title)) continue;
 
     // No date is kept; a date outside the window is not. `toIso` has already
     // refused anything implausibly far in the future.

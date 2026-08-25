@@ -3,9 +3,8 @@
 How a briefing is supposed to be produced, why the stages are in this order, and why the
 cost of running it does not rise with the number of subscribers.
 
-> **State:** the design below is complete and the database schema implements it. **The
-> first four stages are built and verified against the live database; the last two are not
-> built** — see [status.md](status.md). This page describes the target, and says at each
+> **State:** the design below is complete and the database schema implements it. **All six
+> stages are built** — see [status.md](status.md). This page describes the target, and says at each
 > stage whether that stage exists.
 
 ---
@@ -112,7 +111,7 @@ by a topic you follow. This ordering is a product promise, not an implementation
 **Cost:** arithmetic. No model. This is the stage that would otherwise scale with users,
 and it is deliberately free.
 
-### 6. Generate and deliver — _not built_
+### 6. Generate and deliver — _built_
 
 One short paragraph per person per story — `digest_items.why_it_matters` — explaining what
 this changes given what that person follows. Everything else in the briefing was written
@@ -142,11 +141,9 @@ the cheapest thing a language model can be asked for. It does not add a single a
 pass.
 
 > These figures are illustrative, not measured. Real numbers live in the admin console.
-> Five stages of the six now run, so all but the last of that funnel is real — 1040
-> articles collected, 112 of them grouped into 98 events, 49 of those events analysed for
-> 90,066 tokens, and 16 rows in `user_events` for the one live reader. The console still
-> shows zeroes for `digests` and `deliveries`, because delivery does not exist. The product
-> does not display plausible-looking figures nobody computed.
+> All six stages now run. Delivery still shows zeroes in the console until a digest has
+> actually been generated against the live database. The product does not display
+> plausible-looking figures nobody computed.
 
 ---
 

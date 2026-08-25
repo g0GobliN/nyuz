@@ -77,14 +77,14 @@
   --muted-foreground: oklch(0.505 0 0);
   --accent: oklch(0.955 0 0);
   --accent-foreground: oklch(0.16 0 0);
-  --signal: oklch(0.54 0.19 27);
+  --signal: oklch(0.53 0.12 240);
   --signal-foreground: oklch(1 0 0);
   --destructive: oklch(0.16 0 0);
   --destructive-foreground: oklch(1 0 0);
   --border: oklch(0.895 0 0);
   --hairline: oklch(0.925 0 0);
   --input: oklch(0.885 0 0);
-  --ring: oklch(0.54 0.19 27);
+  --ring: oklch(0.53 0.12 240);
   --gradient-veil: radial-gradient(
     120% 80% at 50% 0%,
     color-mix(in oklab, var(--signal) 12%, transparent) 0%,
@@ -114,17 +114,16 @@
   --muted-foreground: oklch(0.665 0 0);
   --accent: oklch(0.255 0 0);
   --accent-foreground: oklch(0.968 0 0);
-  /* Lifted well above the light-mode red so it carries on black: 6.31:1 against
-     the background. Chroma stays at 0.19 — pushing it higher at this lightness
-     leaves the sRGB gamut and the browser clips it to a flatter pink. */
-  --signal: oklch(0.68 0.19 27);
+  /* Lifted so it carries on black. Chroma matches light-mode --signal; the two
+     hex values in public/logo.svg are the sRGB form of these tokens. */
+  --signal: oklch(0.72 0.12 240);
   --signal-foreground: oklch(0.145 0 0);
   --destructive: oklch(0.968 0 0);
   --destructive-foreground: oklch(0.145 0 0);
   --border: oklch(1 0 0 / 12%);
   --hairline: oklch(1 0 0 / 9%);
   --input: oklch(1 0 0 / 16%);
-  --ring: oklch(0.68 0.19 27);
+  --ring: oklch(0.72 0.12 240);
   --shadow-float: 0 1px 2px oklch(0 0 0 / 0.4), 0 18px 50px -18px oklch(0 0 0 / 0.7);
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 6px 20px -10px oklch(0 0 0 / 0.5);
 }
