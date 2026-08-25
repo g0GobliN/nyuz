@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { floorFor, levelFor, thresholdFor } from "@/lib/density";
 import { matchStories } from "@/lib/matching";
 import { type Candidate, decide, type Reader, type ReaderTopic } from "@/lib/pipeline/match";
-import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs-store";
-import type { Story } from "@/lib/sample-data";
+import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
+import type { Story } from "@/lib/story";
 
 /**
  * Stage 5's specification is `src/lib/matching.test.ts`, and the plan's last box

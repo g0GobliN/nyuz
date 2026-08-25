@@ -31,7 +31,7 @@
 -- creates topics on demand as readers pick them, so this seed is not strictly
 -- required for correctness.
 --
--- It is here because the fifteen labels in `TOPIC_POOL` are the ones onboarding
+-- It is here because the labels in `TOPIC_POOL` are the ones onboarding
 -- actually offers, and seeding them means stage 4 can link `event_topics`
 -- against a stable vocabulary on the very first run — before any reader has
 -- signed up. Without it the first event analysed would invent its own topic
@@ -58,8 +58,12 @@ insert into public.topics (slug, label) values
   ('gaming',        'Gaming'),
   ('funding',       'Funding'),
   ('chips',         'Chips'),
-  ('open-source',   'Open source'),
-  ('robotics',      'Robotics')
+  ('open-source',      'Open source'),
+  ('robotics',         'Robotics'),
+  ('linux',            'Linux'),
+  ('hardware',         'Hardware'),
+  ('developer-tools',  'Developer tools'),
+  ('consumer-tech',    'Consumer tech')
 on conflict (slug) do nothing;
 
 -- ---------------------------------------------------------------------------
@@ -67,8 +71,10 @@ on conflict (slug) do nothing;
 -- ---------------------------------------------------------------------------
 --
 -- Coverage is chosen against `TOPIC_POOL`, because a reader who picks a topic
--- onboarding offered and then receives nothing has been mis-sold. Every one of
--- the fifteen topics above has at least two sources that plausibly cover it.
+-- onboarding offered and then receives nothing has been mis-sold. Every seeded
+-- topic above has at least two sources that plausibly cover it, except the four
+-- added later in 0009 (Linux, hardware, developer tools, consumer tech), which
+-- reuse existing feeds rather than adding new ones.
 --
 -- What this does NOT solve: onboarding also accepts free text, so a reader can
 -- still ask for something no feed here covers. That gap is a product decision
@@ -204,7 +210,9 @@ insert into public.sources (name, homepage, feed_url, kind) values
   ('Deno releases',           'https://github.com/denoland/deno',         'https://github.com/denoland/deno/releases.atom',               'github'),
   ('Vite releases',           'https://github.com/vitejs/vite',           'https://github.com/vitejs/vite/releases.atom',                 'github'),
   ('Tailwind CSS releases',   'https://github.com/tailwindlabs/tailwindcss', 'https://github.com/tailwindlabs/tailwindcss/releases.atom', 'github'),
-  ('PyTorch releases',        'https://github.com/pytorch/pytorch',       'https://github.com/pytorch/pytorch/releases.atom',             'github'),
+  -- GitHub's releases.atom for pytorch/pytorch is CI branch tags (`trunk/16ee…`),
+  -- not versioned releases. The company blog is the actual news feed.
+  ('PyTorch blog',            'https://pytorch.org/blog',            'https://pytorch.org/blog/feed/',                             'company_blog'),
   ('vLLM releases',           'https://github.com/vllm-project/vllm',     'https://github.com/vllm-project/vllm/releases.atom',           'github'),
   ('llama.cpp releases',      'https://github.com/ggml-org/llama.cpp',    'https://github.com/ggml-org/llama.cpp/releases.atom',          'github'),
   ('Supabase releases',       'https://github.com/supabase/supabase',     'https://github.com/supabase/supabase/releases.atom',            'github'),
@@ -213,3 +221,14 @@ insert into public.sources (name, homepage, feed_url, kind) values
   ('Product Hunt',            'https://www.producthunt.com',         'https://www.producthunt.com/feed',                                  'product'),
   ('Cursor changelog',        'https://cursor.com/changelog',        'https://cursor.com/changelog/rss.xml',                              'product')
 on conflict (feed_url) do nothing;
+
+-- Retarget an already-seeded pytorch/pytorch releases.atom. GitHub's feed for
+-- that repo is CI tags, not releases; the blog is the news.
+update public.sources
+set
+  name = 'PyTorch blog',
+  homepage = 'https://pytorch.org/blog',
+  feed_url = 'https://pytorch.org/blog/feed/',
+  kind = 'company_blog',
+  last_fetched_at = null
+where feed_url = 'https://github.com/pytorch/pytorch/releases.atom';

@@ -1,23 +1,26 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Bell, BellOff, Zap } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Bell, BellOff } from "lucide-react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { Chip, LinkButton } from "@/components/kit";
 import { usePrefs } from "@/lib/prefs-store";
-import { STORIES } from "@/lib/sample-data";
+import { loadRecentAlerts } from "@/lib/server/briefing";
+import { formatStoryTime } from "@/lib/story-time";
 
 export const Route = createFileRoute("/dashboard/alerts")({
   component: Alerts,
   head: () => ({ meta: [{ title: "Alerts — nyuz" }] }),
 });
 
-const SENT = [
-  { id: "openai-realtime", at: "Today · 06:14", reason: "Importance 91 · matched AI, OpenAI" },
-  { id: "nvidia-supply", at: "18 Aug · 14:02", reason: "Importance 82 · matched Chips" },
-];
-
 function Alerts() {
   const { prefs, update } = usePrefs();
   const off = prefs.breaking === "off";
+  const alertsQ = useQuery({
+    queryKey: ["alerts", "recent"],
+    queryFn: () => loadRecentAlerts(),
+    staleTime: 30_000,
+  });
+  const sent = alertsQ.data ?? [];
 
   return (
     <DashboardShell title="Alerts">
@@ -44,7 +47,7 @@ function Alerts() {
                 ? "Everything waits for your next scheduled briefing."
                 : prefs.breaking === "everything"
                   ? "Every matched event reaches you as it lands."
-                  : "Only events scoring high on importance interrupt you."}
+                  : "Only events scoring 6 or higher interrupt you, at most a few a week."}
             </p>
           </div>
         </div>
@@ -60,42 +63,51 @@ function Alerts() {
 
       <section className="mt-10">
         <h2 className="text-[17px] font-medium tracking-tight">Recently sent</h2>
-        {off ? (
+        {off && sent.length === 0 ? (
           <div className="mt-4">
             <EmptyState
               title="Nothing to show while alerts are off."
               body="Turn them back on and anything urgent enough to interrupt you will be listed here."
             />
           </div>
-        ) : (
-          <div className="mt-4 space-y-2">
-            {SENT.map((a) => {
-              const story = STORIES.find((s) => s.id === a.id);
-              if (!story) return null;
-              return (
-                <Link
-                  key={a.id}
-                  to="/dashboard/story/$id"
-                  params={{ id: story.id }}
-                  className="flex items-start gap-4 rounded-2xl border border-hairline bg-surface px-5 py-4 transition-colors hover:border-border"
-                >
-                  <Zap className="mt-1 h-4 w-4 shrink-0 text-signal" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[14.5px] font-medium leading-snug">{story.title}</p>
-                    <p className="mt-1.5 text-[12px] text-muted-foreground">{a.reason}</p>
-                  </div>
-                  <span className="shrink-0 text-[12px] text-muted-foreground">{a.at}</span>
-                </Link>
-              );
-            })}
+        ) : sent.length === 0 ? (
+          <div className="mt-4">
+            <EmptyState
+              title="No alerts sent yet."
+              body="Breaking alerts fire outside your schedule, for events that should not wait. None have gone out."
+            />
           </div>
+        ) : (
+          <ul className="mt-4 space-y-3">
+            {sent.map((alert) => (
+              <li key={alert.digestId}>
+                <Link
+                  to="/dashboard/story/$id"
+                  params={{ id: alert.eventId }}
+                  className="block rounded-3xl border border-hairline bg-surface p-5 transition-colors hover:border-foreground/20"
+                >
+                  <p className="text-[12px] tabular-nums text-muted-foreground">
+                    {formatStoryTime(alert.at)}
+                    {alert.status !== "sent" ? ` · ${alert.status}` : ""}
+                  </p>
+                  <p className="mt-2 text-[15px] font-medium leading-snug">{alert.title}</p>
+                  {alert.why ? (
+                    <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+                      {alert.why}
+                    </p>
+                  ) : null}
+                </Link>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
       <div className="mt-10 rounded-2xl border border-hairline bg-surface-2 px-5 py-5">
-        <p className="text-[14px] font-medium">Alerts follow your delivery channels</p>
+        <p className="text-[14px] font-medium">Alerts go out by email</p>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
-          They go wherever your briefing goes. Change that under Delivery.
+          Email is the live channel. Telegram and WhatsApp preferences are stored; they do not send
+          yet. Change that under Delivery.
         </p>
         <LinkButton to="/dashboard/delivery" variant="outline" size="sm" className="mt-4">
           Delivery settings

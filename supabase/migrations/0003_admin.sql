@@ -449,7 +449,7 @@ insert into public.ai_model_routes (capability, provider_id, model, max_tokens)
 select c.capability, p.id, c.model, c.max_tokens
   from public.ai_providers p,
        (values
-          ('cluster'::ai_capability, 'deepseek-v4-flash',  4096),
+          ('cluster'::ai_capability, 'deepseek-v4-flash',  8192),
           ('digest'::ai_capability,  'deepseek-v4-pro',    8192),
           ('reason'::ai_capability,  'deepseek-v4-pro',   16384)
        ) as c(capability, model, max_tokens)

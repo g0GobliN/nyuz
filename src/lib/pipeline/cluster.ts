@@ -35,8 +35,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { completeRoutedJson, type SecretBag } from "@/lib/ai/config";
-import type { Database } from "@/lib/supabase/types";
-import { shortlist, type Candidate } from "./shortlist";
+import type { Database, EventStatus } from "@/lib/supabase/types";
+import { isVcsRef, shortlist, type Candidate } from "./shortlist";
 
 type Db = SupabaseClient<Database>;
 
@@ -96,6 +96,7 @@ export type ArticleOutcome = {
     | "attached" // joined an event that already existed
     | "created" // started a new event, possibly with matched siblings
     | "alone" // no shortlist or no match: its own event
+    | "ignored" // a CI ref: stored, attached to a failed event, never analysed
     | "skipped" // dry run
     | "failed";
   eventId: string | null;
@@ -115,6 +116,7 @@ export type ClusterReport = {
   attached: number;
   created: number;
   alone: number;
+  ignored: number;
   failed: number;
   /** Articles that reached the model. The rest were decided for free. */
   modelCalls: number;
@@ -141,6 +143,7 @@ export async function cluster(db: Db, options: ClusterOptions = {}): Promise<Clu
     attached: outcomes.filter((o) => o.decision === "attached").length,
     created: outcomes.filter((o) => o.decision === "created").length,
     alone: outcomes.filter((o) => o.decision === "alone").length,
+    ignored: outcomes.filter((o) => o.decision === "ignored").length,
     failed: outcomes.filter((o) => o.decision === "failed").length,
     modelCalls: outcomes.filter((o) => o.candidates > 0).length,
     promptTokens: sum(outcomes, (o) => o.promptTokens),
@@ -194,6 +197,13 @@ async function runOne(
     promptTokens: 0,
     completionTokens: 0,
   };
+
+  if (isVcsRef(article.title)) {
+    if (options.dryRun === true) {
+      return { ...base, decision: "skipped", detail: "CI ref; would discard without analysing" };
+    }
+    return discardRef(db, article);
+  }
 
   let candidates: Candidate[];
   try {
@@ -355,6 +365,20 @@ async function attach(
 }
 
 /**
+ * Parks a CI ref as a failed event of one, so it leaves the unclustered queue
+ * without ever reaching the model in this stage or the next.
+ *
+ * `status = 'failed'` is what analysis already skips, and `event_id` is what
+ * clustering already uses as "done". Analysed-at stays null: this is not a claim
+ * to have understood anything.
+ */
+async function discardRef(db: Db, article: Unclustered): Promise<ArticleOutcome> {
+  const outcome = await createEvent(db, article, [], "CI ref, not a headline", "failed");
+  if (outcome.decision === "failed") return outcome;
+  return { ...outcome, decision: "ignored", detail: "CI ref, not a headline" };
+}
+
+/**
  * Starts an event for this article, and for any unclustered siblings matched with it.
  *
  * The event's title is this article's headline. It is a placeholder with a real
@@ -368,6 +392,7 @@ async function createEvent(
   article: Unclustered,
   siblings: Candidate[],
   why: string,
+  status: EventStatus = "pending",
 ): Promise<ArticleOutcome> {
   const failure = (detail: string): ArticleOutcome => ({
     articleId: article.id,
@@ -385,6 +410,7 @@ async function createEvent(
     .from("events")
     .insert({
       title: article.title,
+      status,
       ...(article.published_at !== null ? { first_seen_at: article.published_at } : {}),
     })
     .select("id")
@@ -431,7 +457,8 @@ export function describeCluster(report: ClusterReport): string {
 
   return (
     `cluster: ${report.considered} articles, ${report.attached} attached, ` +
-    `${report.created} new events, ${report.alone} alone, ${report.failed} failed, ` +
+    `${report.created} new events, ${report.alone} alone, ${report.ignored} ignored, ` +
+    `${report.failed} failed, ` +
     `${report.modelCalls} model calls, ` +
     `${report.promptTokens + report.completionTokens} tokens, ${seconds}s`
   );

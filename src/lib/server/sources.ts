@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { adminOnly, audit, AdminAuthError } from "@/lib/server/guard";
+import { isPublicHttpUrl } from "@/lib/net/public-url";
 import type { Source, SourceKind } from "@/lib/supabase/types";
 
 /**
@@ -103,8 +104,7 @@ const feedUrl = z
   .max(2048)
   .refine((value) => {
     try {
-      const parsed = new URL(value);
-      return parsed.protocol === "http:" || parsed.protocol === "https:";
+      return isPublicHttpUrl(value);
     } catch {
       return false;
     }
@@ -117,7 +117,12 @@ export const createSource = createServerFn({ method: "POST" })
       .object({
         name: z.string().trim().min(1).max(120),
         feedUrl,
-        homepage: z.string().trim().max(2048).optional(),
+        homepage: z
+          .string()
+          .trim()
+          .max(2048)
+          .optional()
+          .refine((v) => !v || isPublicHttpUrl(v), "Homepage must be a public http(s) URL."),
         kind: z.enum(SOURCE_KINDS).default("rss"),
       })
       .parse(input),

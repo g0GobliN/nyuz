@@ -4,6 +4,7 @@ import {
   MEDIA_DEFAULT,
   SECTIONS_DEFAULT,
   SECTION_KEYS,
+  announcementSchema,
   heroSchema,
   mediaSchema,
   moveSection,
@@ -138,5 +139,19 @@ describe("parseSetting", () => {
     const [value, used] = parseSetting(heroSchema, null, HERO_DEFAULT);
     expect(value).toEqual(HERO_DEFAULT);
     expect(used).toBe(false);
+  });
+});
+
+describe("announcementSchema", () => {
+  it("rejects javascript: hrefs that would land on every visitor", () => {
+    expect(() =>
+      announcementSchema.parse({ text: "Hi", href: "javascript:alert(1)", linkLabel: "Open" }),
+    ).toThrow();
+  });
+
+  it("accepts a same-origin path", () => {
+    expect(
+      announcementSchema.parse({ text: "Hi", href: "/blog/hello", linkLabel: "Read" }).href,
+    ).toBe("/blog/hello");
   });
 });

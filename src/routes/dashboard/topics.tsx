@@ -11,10 +11,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { isCoveredTopic } from "@/lib/coverage";
 import { usePlan } from "@/lib/plan-state";
 import { PLAN_NAMES, formatTopicLimit, nextPlanUp } from "@/lib/plans";
 import { usePrefs } from "@/lib/prefs-store";
-import { IGNORE_POOL, TOPIC_POOL } from "@/lib/sample-data";
+import { IGNORE_POOL, TOPIC_POOL } from "@/lib/topics-pool";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/topics")({
@@ -45,10 +46,8 @@ function Topics() {
   const [note, setNote] = useState("Only tell me about React when something significant happens.");
   const [limitPrompt, setLimitPrompt] = useState(false);
 
-  // Everything past the limit is carried but inert — the same rule the billing
-  // page describes. Showing it here is the point: a reader used to be able to
-  // add eight topics on Free and only discover on another page that five of
-  // them were never going to appear in a briefing.
+  // The server clips on save and match. Anything already stored past the cap
+  // is shown paused so the reader can drop it; they cannot add more.
   const overBy = Math.max(0, prefs.topics.length - topicLimit);
   const upgrade = nextPlanUp(plan);
 
@@ -61,20 +60,23 @@ function Topics() {
   );
 
   const custom = q.trim();
+  const poolHit = TOPIC_POOL.find(
+    (t) => isCoveredTopic(custom) && t.toLowerCase() === custom.toLowerCase(),
+  );
+  const atCap = !planLoading && prefs.topics.length >= topicLimit;
   const canAdd =
-    custom.length > 1 && !prefs.topics.some((t) => t.toLowerCase() === custom.toLowerCase());
+    Boolean(poolHit) &&
+    !prefs.topics.some((t) => t.toLowerCase() === custom.toLowerCase()) &&
+    !atCap;
 
   const add = (t: string) => {
-    // Adding is never blocked. A hard stop on a list the reader is still
-    // thinking about is worse than letting them build it and telling them
-    // plainly what will happen to the tail — and the limit applies when the
-    // briefing is built, not when the list is edited.
-    const crossesLimit = prefs.topics.length >= topicLimit;
+    if (!planLoading && prefs.topics.length >= topicLimit) {
+      setLimitPrompt(true);
+      return;
+    }
+    if (prefs.topics.some((x) => x.toLowerCase() === t.toLowerCase())) return;
     update({ topics: [...prefs.topics, t] });
     setQ("");
-    // Only on the crossing, not on every add past it. Repeating the dialog for
-    // topics six, seven and eight is nagging, and the list itself now says so.
-    if (crossesLimit && overBy === 0 && !planLoading) setLimitPrompt(true);
   };
   const remove = (t: string) => update({ topics: prefs.topics.filter((x) => x !== t) });
 
@@ -94,7 +96,7 @@ function Topics() {
       <PageHeader
         eyebrow="Your nyuz"
         title="What do you want to know about?"
-        sub="Topics decide what is even considered. Importance decides how much of it survives the filter."
+        sub="We cover technology. Pick from the list — a topic we do not source cannot appear in a briefing."
       />
 
       {!planLoading ? (
@@ -122,7 +124,7 @@ function Topics() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && canAdd && add(custom)}
-          placeholder="Add a company, technology or theme"
+          placeholder="Search the topics we cover"
           className="h-12 w-full bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
         />
         {canAdd ? (
@@ -293,20 +295,16 @@ function Topics() {
             <DialogDescription asChild>
               <div className="space-y-3 text-[13.5px] leading-relaxed">
                 <p>
-                  You can keep adding — nothing is deleted. But only the first{" "}
-                  {formatTopicLimit(topicLimit)} are matched when a briefing is built, and anything
-                  below that is carried without appearing.
-                </p>
-                <p>
-                  Reorder or remove to choose which {formatTopicLimit(topicLimit)} count
-                  {upgrade ? `, or move to ${PLAN_NAMES[upgrade]} to include them all` : ""}.
+                  Only {formatTopicLimit(topicLimit)} {topicLimit === 1 ? "topic is" : "topics are"}{" "}
+                  matched on this plan. Remove one to add another
+                  {upgrade ? `, or move to ${PLAN_NAMES[upgrade]}` : ""}.
                 </p>
               </div>
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-2">
             <Button variant="outline" size="sm" onClick={() => setLimitPrompt(false)}>
-              Keep choosing
+              Close
             </Button>
             {upgrade ? (
               <Link

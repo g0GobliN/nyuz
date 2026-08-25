@@ -6,6 +6,7 @@
  *   npm run pipeline -- ingest --dry-run      fetch and parse, write nothing
  *   npm run pipeline -- ingest --force        ignore backoff and the fetch interval
  *   npm run pipeline -- ingest --limit 5      the five most neglected feeds
+ *   npm run pipeline -- ingest --source ID    one feed, for checking a known case
  *   npm run pipeline -- cluster --limit 20    group twenty unclustered articles
  *   npm run pipeline -- cluster --dry-run     decide and print, write nothing
  *   npm run pipeline -- cluster --article ID  one article, for checking a known case
@@ -18,9 +19,16 @@
  *   npm run pipeline -- match --user ID       one reader, for checking a known case
  *   npm run pipeline -- match --since 72      only events analysed in the last 72 hours
  *   npm run pipeline -- match --paused        include readers who paused their briefings
+ *   npm run pipeline -- match --skip-alerts   write matches, do not send breaking alerts
  *   npm run pipeline -- backfill --user ID    day one for one reader: match, then analyse if empty
  *   npm run pipeline -- backfill --user ID --dry-run   report what day one would do
- *   npm run pipeline -- backfill --user ID --free      never analyse, however empty the result
+ *   npm run pipeline -- digest                generate due briefings and send them
+ *   npm run pipeline -- digest --dry-run      generate and print, write nothing
+ *   npm run pipeline -- digest --user ID      one reader
+ *   npm run pipeline -- digest --user ID --now  generate this slot immediately
+ *   npm run pipeline -- digest --skip-send    write the briefing, do not email it
+ *   npm run pipeline -- dormant               nudge readers who have not visited in a week
+ *   npm run pipeline -- dormant --dry-run     print who would be nudged, send nothing
  *
  * The same functions the scheduled Worker calls, with the same arguments. There is
  * no separate code path for running it manually, because a manual run whose
@@ -36,8 +44,9 @@
  * arithmetic over rows that already exist, and re-running it writes nothing the
  * second time.
  *
- * `analyse` will not analyse an event twice however it is invoked, including with
- * `--event`. That property is the product's cost structure and does not have a flag.
+ * `digest` spends the cheap per-reader tokens — one short paragraph per story —
+ * and then sends mail. `--now` is the flag that builds a slot immediately so a
+ * known reader can be verified without waiting for send_at.
  *
  * This holds the service-role key and bypasses row-level security. Nothing in
  * scripts/ may be imported from application code.
@@ -46,11 +55,13 @@
 import { analyse, type AnalysisReport, type EventOutcome } from "@/lib/pipeline/analyse";
 import { backfill, type BackfillReport } from "@/lib/pipeline/backfill";
 import { cluster, type ArticleOutcome, type ClusterReport } from "@/lib/pipeline/cluster";
+import { digest, type DigestReport } from "@/lib/pipeline/digest";
+import { dormant, type DormantReport } from "@/lib/pipeline/dormant";
 import { ingest, type IngestReport, type SourceOutcome } from "@/lib/pipeline/ingest";
 import { match, type MatchReport, type MissReason } from "@/lib/pipeline/match";
 import { db, fail, heading, main, row, say } from "./lib/db.ts";
 
-const STAGES = ["ingest", "cluster", "analyse", "match", "backfill"] as const;
+const STAGES = ["ingest", "cluster", "analyse", "match", "backfill", "digest", "dormant"] as const;
 type Stage = (typeof STAGES)[number];
 
 /**
@@ -72,6 +83,7 @@ const VALUED = new Set([
   "--articles",
   "--user",
   "--since",
+  "--source",
 ]);
 
 main(async () => {
@@ -91,6 +103,8 @@ main(async () => {
     if (stage === "analyse") await runAnalyse(args);
     if (stage === "match") await runMatch(args);
     if (stage === "backfill") await runBackfill(args);
+    if (stage === "digest") await runDigest(args);
+    if (stage === "dormant") await runDormant(args);
   }
 
   say();
@@ -124,6 +138,7 @@ function isStage(value: string): value is Stage {
 
 async function runIngest(args: string[]): Promise<void> {
   const limit = numberFlag(args, "--limit");
+  const source = stringFlag(args, "--source");
   const dryRun = args.includes("--dry-run");
 
   heading(dryRun ? "Ingest (dry run — nothing is written)" : "Ingest");
@@ -131,6 +146,7 @@ async function runIngest(args: string[]): Promise<void> {
     force: args.includes("--force"),
     dryRun,
     ...(limit === null ? {} : { limit }),
+    ...(source === null ? {} : { sourceIds: [source] }),
   });
 
   print(report, dryRun);
@@ -179,6 +195,7 @@ const DECISION: Record<ArticleOutcome["decision"], string> = {
   attached: "join  ",
   created: "group ",
   alone: "alone ",
+  ignored: "skip  ",
   skipped: "dry   ",
   failed: "FAIL  ",
 };
@@ -201,6 +218,7 @@ function printCluster(report: ClusterReport, dryRun: boolean): void {
   say(row("joined an event", report.attached));
   say(row("new grouped events", report.created));
   say(row("events of one", report.alone));
+  say(row("ignored (CI refs)", report.ignored));
   say(row("failed", report.failed));
   say(row("model calls", report.modelCalls));
   say(row("decided for free", report.considered - report.modelCalls));
@@ -236,6 +254,7 @@ const VERDICT: Record<EventOutcome["decision"], string> = {
   skipped: "dry   ",
   claimed: "held  ",
   empty: "empty ",
+  ignored: "skip  ",
   failed: "FAIL  ",
 };
 
@@ -265,6 +284,7 @@ function printAnalysis(report: AnalysisReport, dryRun: boolean): void {
   say(row("events considered", report.considered));
   say(row(dryRun ? "would be analysed" : "analysed", report.analysed + report.skipped));
   say(row("failed", report.failed));
+  say(row("ignored (CI refs)", report.ignored));
   say(row("held by another run", report.claimed));
   say(row("model calls", report.modelCalls));
   say(row("prompt tokens", report.promptTokens));
@@ -288,6 +308,7 @@ async function runMatch(args: string[]): Promise<void> {
   const report = await match(db(), {
     dryRun,
     includePaused: args.includes("--paused"),
+    skipAlerts: args.includes("--skip-alerts"),
     ...(limit === null ? {} : { limit }),
     ...(since === null ? {} : { sinceHours: since }),
     ...(user === null ? {} : { userIds: [user] }),
@@ -326,6 +347,75 @@ async function runBackfill(args: string[]): Promise<void> {
   });
 
   printBackfill(report);
+}
+
+async function runDigest(args: string[]): Promise<void> {
+  const user = stringFlag(args, "--user");
+  const limit = numberFlag(args, "--limit");
+  const dryRun = args.includes("--dry-run");
+
+  heading(dryRun ? "Digest (dry run — nothing is written)" : "Digest");
+
+  const report = await digest(db(), {
+    dryRun,
+    immediate: args.includes("--now"),
+    skipSend: args.includes("--skip-send"),
+    ...(limit === null ? {} : { limit }),
+    ...(user === null ? {} : { userIds: [user] }),
+  });
+
+  printDigest(report, dryRun);
+}
+
+function printDigest(report: DigestReport, dryRun: boolean): void {
+  for (const outcome of report.outcomes) {
+    say(
+      `${outcome.decision.padEnd(10)} ${String(outcome.items).padStart(2)} items  ` +
+        `${outcome.userId}  ${outcome.detail}`,
+    );
+  }
+
+  const seconds = (Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000;
+
+  heading(dryRun ? "Summary (nothing was written)" : "Summary");
+  say(row("slots created", report.scheduled));
+  say(row("generated", report.generated));
+  say(row("skipped (quiet)", report.skipped));
+  say(row("paused", report.paused));
+  say(row("failed", report.failed));
+  say(row(dryRun ? "would be sent" : "sent", report.sent));
+  say(row("retrying", report.retried));
+  say(row("tokens", report.tokens));
+  say(row("seconds", Math.round(seconds)));
+}
+
+async function runDormant(args: string[]): Promise<void> {
+  const limit = numberFlag(args, "--limit");
+  const dryRun = args.includes("--dry-run");
+
+  heading(dryRun ? "Dormant (dry run — nothing is sent)" : "Dormant");
+
+  const report = await dormant(db(), {
+    dryRun,
+    ...(limit === null ? {} : { limit }),
+  });
+
+  printDormant(report, dryRun);
+}
+
+function printDormant(report: DormantReport, dryRun: boolean): void {
+  for (const outcome of report.outcomes) {
+    say(`${outcome.decision.padEnd(8)} ${outcome.userId}  ${outcome.detail}`);
+  }
+
+  const seconds = (Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000;
+
+  heading(dryRun ? "Summary (nothing was sent)" : "Summary");
+  say(row("due", report.considered));
+  say(row(dryRun ? "would send" : "sent", report.sent));
+  say(row("skipped", report.skipped));
+  say(row("failed", report.failed));
+  say(row("seconds", Math.round(seconds)));
 }
 
 function printBackfill(report: BackfillReport): void {

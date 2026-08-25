@@ -6,10 +6,12 @@ import { Logo, LogoMark } from "@/components/landing/nav";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DensityDial } from "@/components/density-dial";
 import { useAuth } from "@/lib/auth";
+import { usePlan } from "@/lib/plan-state";
+import { formatTopicLimit } from "@/lib/plans";
 import { sendWelcome } from "@/lib/server/account";
 import { startFirstBriefing } from "@/lib/server/briefing";
 import { usePrefs, type Prefs } from "@/lib/prefs-store";
-import { IGNORE_POOL, TOPIC_POOL } from "@/lib/sample-data";
+import { IGNORE_POOL, TOPIC_POOL } from "@/lib/topics-pool";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/onboarding")({
@@ -44,6 +46,7 @@ function Onboarding() {
   const navigate = useNavigate();
   const { prefs, update, hydrated } = usePrefs();
   const { session } = useAuth();
+  const { topicLimit, loading: planLoading } = usePlan();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Prefs | null>(null);
 
@@ -141,7 +144,14 @@ function Onboarding() {
             <div key={step} className="animate-rise">
               <h1 className="display text-[clamp(2rem,5.5vw,3rem)]">{STEP_TITLES[step]}</h1>
 
-              {step === 0 ? <StepTopics draft={draft} patch={patch} /> : null}
+              {step === 0 ? (
+                <StepTopics
+                  draft={draft}
+                  patch={patch}
+                  topicLimit={topicLimit}
+                  planLoading={planLoading}
+                />
+              ) : null}
               {step === 1 ? <StepIgnore draft={draft} patch={patch} /> : null}
               {step === 2 ? <StepSchedule draft={draft} patch={patch} /> : null}
               {step === 3 ? <StepChannels draft={draft} patch={patch} /> : null}
@@ -187,82 +197,57 @@ function Onboarding() {
 
 type StepProps = { draft: Prefs; patch: (p: Partial<Prefs>) => void };
 
-function StepTopics({ draft, patch }: StepProps) {
+function StepTopics({
+  draft,
+  patch,
+  topicLimit,
+  planLoading,
+}: StepProps & { topicLimit: number; planLoading: boolean }) {
   const [q, setQ] = useState("");
-  const toggle = (t: string) =>
-    patch({
-      topics: draft.topics.includes(t) ? draft.topics.filter((x) => x !== t) : [...draft.topics, t],
-    });
+  const atCap = !planLoading && Number.isFinite(topicLimit) && draft.topics.length >= topicLimit;
+  const toggle = (t: string) => {
+    if (draft.topics.includes(t)) {
+      patch({ topics: draft.topics.filter((x) => x !== t) });
+      return;
+    }
+    if (atCap) return;
+    patch({ topics: [...draft.topics, t] });
+  };
 
   const matches = useMemo(
     () => TOPIC_POOL.filter((t) => t.toLowerCase().includes(q.trim().toLowerCase())),
     [q],
   );
 
-  const custom = q.trim();
-  const canAddCustom =
-    custom.length > 1 && !TOPIC_POOL.some((t) => t.toLowerCase() === custom.toLowerCase());
-
   return (
     <div className="mt-8">
-      <div className="flex items-center gap-2.5 rounded-full border border-input bg-surface px-4">
+      <p className="text-[14px] leading-relaxed text-muted-foreground">
+        Coverage is technology — company blogs, newsrooms, research. Pick from the list. This plan
+        includes {formatTopicLimit(topicLimit)} topics.
+      </p>
+      <div className="mt-5 flex items-center gap-2.5 rounded-full border border-input bg-surface px-4">
         <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && canAddCustom) {
-              toggle(custom);
-              setQ("");
-            }
-          }}
           placeholder="Search topics, companies, technologies"
           className="h-12 w-full bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
         />
       </div>
 
-      {canAddCustom ? (
-        <button
-          onClick={() => {
-            toggle(custom);
-            setQ("");
-          }}
-          className="mt-3 text-[13px] text-signal"
-        >
-          Add &ldquo;{custom}&rdquo; as a topic
-        </button>
-      ) : null}
-
       <div className="mt-6 flex flex-wrap gap-2">
         {matches.map((t) => (
-          <Chip key={t} active={draft.topics.includes(t)} onClick={() => toggle(t)}>
+          <Chip
+            key={t}
+            active={draft.topics.includes(t)}
+            onClick={() => toggle(t)}
+            className={!draft.topics.includes(t) && atCap ? "opacity-40" : undefined}
+          >
             {draft.topics.includes(t) ? <Check className="mr-1 inline h-3 w-3" /> : null}
             {t}
           </Chip>
         ))}
       </div>
-
-      {draft.topics.filter((t) => !TOPIC_POOL.some((p) => p === t)).length > 0 ? (
-        <div className="mt-5">
-          <p className="text-[11.5px] uppercase tracking-[0.16em] text-muted-foreground">Yours</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {draft.topics
-              .filter((t) => !TOPIC_POOL.some((p) => p === t))
-              .map((t) => (
-                <Chip key={t} active onClick={() => toggle(t)}>
-                  <Check className="mr-1 inline h-3 w-3" />
-                  {t}
-                </Chip>
-              ))}
-          </div>
-        </div>
-      ) : null}
-
-      <p className="mt-7 text-[13px] text-muted-foreground">
-        {draft.topics.length === 0
-          ? "Most people start with four or five."
-          : `${draft.topics.length} selected. You can change these any time.`}
-      </p>
     </div>
   );
 }
@@ -476,7 +461,7 @@ function SetupSequence({ name, onDone }: { name: string; onDone: () => void }) {
           className="absolute inset-0 rounded-full border border-signal/40"
           style={{ animation: "pulse-ring 2.2s ease-out infinite" }}
         />
-        <LogoMark className="h-7 w-auto text-foreground" />
+        <LogoMark className="h-7 w-7" />
       </span>
 
       {/* Greeted by name only when there actually is one. This line used to

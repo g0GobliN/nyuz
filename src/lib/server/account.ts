@@ -45,3 +45,21 @@ export const notifyBriefingsPaused = createServerFn({ method: "POST" })
     const sent = await sendBriefingsPaused(context.actor.db, context.actor.id);
     return { sent };
   });
+
+/**
+ * Records that this reader is looking at the product.
+ *
+ * Throttled to once an hour so a burst of dashboard fetches is one write, not
+ * one per card. `last_seen_at` is what the dormant nudge keys off, and what the
+ * privacy policy already says we store.
+ */
+export const pingPresence = createServerFn({ method: "POST" })
+  .middleware([signedInOnly])
+  .handler(async ({ context }): Promise<void> => {
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    await context.actor.db
+      .from("profiles")
+      .update({ last_seen_at: new Date().toISOString() })
+      .eq("id", context.actor.id)
+      .or(`last_seen_at.is.null,last_seen_at.lt."${hourAgo}"`);
+  });

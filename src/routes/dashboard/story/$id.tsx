@@ -1,4 +1,5 @@
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Bookmark,
@@ -11,21 +12,19 @@ import {
 import { useState } from "react";
 import { DashboardShell } from "@/components/dashboard/shell";
 import { formatStoryTime } from "@/lib/story-time";
+import { storyGrafs } from "@/lib/article-body";
 import { Button } from "@/components/kit";
 import { useFeedback } from "@/lib/feedback-store";
-import { storyById } from "@/lib/sample-data";
+import { usePlan } from "@/lib/plan-state";
+import { loadStory, askStory } from "@/lib/server/briefing";
+import type { Story } from "@/lib/story";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/story/$id")({
-  loader: ({ params }) => {
-    const story = storyById(params.id);
-    if (!story) throw notFound();
-    return story;
-  },
-  head: ({ loaderData }) => ({
-    meta: [{ title: loaderData ? `${loaderData.title} — nyuz` : "nyuz" }],
-  }),
   component: StoryDetail,
+  head: ({ params }) => ({
+    meta: [{ title: params.id ? "Story — nyuz" : "nyuz" }],
+  }),
 });
 
 const PROMPTS = [
@@ -35,10 +34,39 @@ const PROMPTS = [
 ];
 
 function StoryDetail() {
-  const story = Route.useLoaderData();
+  const { id } = Route.useParams();
+  const storyQ = useQuery({
+    queryKey: ["briefing", "story", id],
+    queryFn: () => loadStory({ data: { id } }),
+    staleTime: 60_000,
+  });
+  const story = storyQ.data;
+  const { asksPerDay, loading: planLoading } = usePlan();
   const { state, vote, toggleSaved } = useFeedback();
-  const saved = state.saved.includes(story.id);
-  const current = state.votes[story.id];
+  const saved = story ? state.saved.includes(story.id) : false;
+  const current = story ? state.votes[story.id] : undefined;
+
+  if (storyQ.isLoading) {
+    return (
+      <DashboardShell title="Story">
+        <p className="text-[13px] text-muted-foreground">Loading…</p>
+      </DashboardShell>
+    );
+  }
+
+  if (!story) {
+    return (
+      <DashboardShell title="Story">
+        <p className="text-[15px]">This story is not in your briefing.</p>
+        <Link
+          to="/dashboard"
+          className="mt-4 inline-flex items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to your nyuz
+        </Link>
+      </DashboardShell>
+    );
+  }
 
   return (
     <DashboardShell title="Story">
@@ -62,65 +90,63 @@ function StoryDetail() {
           </span>
         </div>
 
-        <h1 className="display mt-4 max-w-3xl text-[clamp(1.9rem,4.5vw,2.9rem)]">{story.title}</h1>
+        <h1 className="display mt-4 max-w-[40rem] text-[clamp(1.9rem,4.5vw,2.9rem)]">
+          {story.title}
+        </h1>
+        <p className="mt-4 text-[13px] text-muted-foreground">
+          {story.org}
+          <span aria-hidden> · </span>
+          {formatStoryTime(story.publishedAt)}
+          <span aria-hidden> · </span>
+          {story.sources} {story.sources === 1 ? "source" : "sources"}
+        </p>
 
         <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_260px]">
           <div className="min-w-0 space-y-9">
-            <section>
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                What happened
-              </h2>
-              <p className="mt-3 text-[16px] leading-relaxed">{story.what}</p>
-            </section>
+            <ArticleBody story={story} />
 
-            <section className="rounded-3xl border border-signal/30 bg-surface p-6">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal">
-                Why it matters to you
-              </h2>
-              <p className="mt-3 text-[15px] leading-relaxed">{story.why}</p>
-            </section>
+            {story.timeline.length > 0 ? (
+              <section>
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  How this event formed
+                </h2>
+                <ol className="relative mt-5 space-y-4 pl-6">
+                  <span className="absolute bottom-2 left-[4px] top-2 w-px bg-border" />
+                  {story.timeline.map((t, i) => (
+                    <li key={`${t.at}-${t.label}`} className="relative">
+                      <span
+                        className="absolute -left-6 top-[7px] h-[7px] w-[7px] rounded-full"
+                        style={{
+                          background:
+                            i === story.timeline.length - 1 ? "var(--signal)" : "var(--border)",
+                        }}
+                      />
+                      <p className="text-[12px] tabular-nums text-muted-foreground">{t.at}</p>
+                      <p className="mt-0.5 text-[14.5px]">{t.label}</p>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            ) : null}
 
-            <section>
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                What changed
-              </h2>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-hairline bg-surface-2 p-5">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                    Before
-                  </p>
-                  <p className="mt-2 text-[14px] leading-relaxed">{story.before}</p>
-                </div>
-                <div className="rounded-2xl border border-signal/30 bg-surface p-5">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-signal">After</p>
-                  <p className="mt-2 text-[14px] leading-relaxed">{story.after}</p>
-                </div>
-              </div>
-            </section>
-
-            <section>
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                How this event formed
-              </h2>
-              <ol className="relative mt-5 space-y-4 pl-6">
-                <span className="absolute bottom-2 left-[4px] top-2 w-px bg-border" />
-                {story.timeline.map((t, i) => (
-                  <li key={t.at} className="relative">
-                    <span
-                      className="absolute -left-6 top-[7px] h-[7px] w-[7px] rounded-full"
-                      style={{
-                        background:
-                          i === story.timeline.length - 1 ? "var(--signal)" : "var(--border)",
-                      }}
-                    />
-                    <p className="text-[12px] tabular-nums text-muted-foreground">{t.at}</p>
-                    <p className="mt-0.5 text-[14.5px]">{t.label}</p>
-                  </li>
-                ))}
-              </ol>
-            </section>
-
-            <AskPanel />
+            {!planLoading && asksPerDay > 0 ? (
+              <AskPanel eventId={story.id} />
+            ) : !planLoading ? (
+              <section className="rounded-3xl border border-hairline bg-surface-2 p-6">
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Ask about this
+                </h2>
+                <p className="mt-3 text-[13.5px] leading-relaxed text-muted-foreground">
+                  Ask runs a stronger model. It is included on Personal and Pro.
+                </p>
+                <Link
+                  to="/dashboard/billing"
+                  className="mt-4 inline-block text-[13px] text-signal underline-offset-4 hover:underline"
+                >
+                  See plans
+                </Link>
+              </section>
+            ) : null}
           </div>
 
           <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
@@ -158,11 +184,26 @@ function StoryDetail() {
               </p>
               <ul className="mt-4 space-y-2.5">
                 {story.sourceList.map((s) => (
-                  <li key={s.name} className="flex items-center justify-between gap-3 text-[13px]">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                      <span className="truncate">{s.name}</span>
-                    </span>
+                  <li
+                    key={s.url ?? s.name}
+                    className="flex items-center justify-between gap-3 text-[13px]"
+                  >
+                    {s.url ? (
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex min-w-0 items-center gap-2 hover:underline"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{s.name}</span>
+                      </a>
+                    ) : (
+                      <span className="flex min-w-0 items-center gap-2">
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{s.name}</span>
+                      </span>
+                    )}
                     <span className="shrink-0 tabular-nums text-[12px] text-muted-foreground">
                       {s.at}
                     </span>
@@ -221,21 +262,57 @@ function StoryDetail() {
   );
 }
 
-function AskPanel() {
+function ArticleBody({ story }: { story: Story }) {
+  const grafs = storyGrafs({
+    what: story.what,
+    before: story.before,
+    after: story.after,
+    excerpts: story.sourceList.flatMap((s) => (s.excerpt ? [s.excerpt] : [])),
+  });
+  const dek = grafs[0];
+  const rest = grafs.slice(1);
+
+  return (
+    <section className="max-w-[40rem]">
+      {dek ? <p className="text-[19px] leading-[1.65] tracking-[-0.01em]">{dek}</p> : null}
+      {rest.map((graf) => (
+        <p key={graf.slice(0, 48)} className="mt-6 text-[16.5px] leading-[1.8]">
+          {graf}
+        </p>
+      ))}
+      {story.why ? (
+        <div className="mt-10 rounded-3xl border border-signal/30 bg-surface p-6">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal">
+            Why it matters to you
+          </h2>
+          <p className="mt-3 text-[15px] leading-relaxed">{story.why}</p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function AskPanel({ eventId }: { eventId: string }) {
   const [q, setQ] = useState("");
   const [asking, setAsking] = useState(false);
   const [answered, setAnswered] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const ask = (prompt: string) => {
-    if (!prompt.trim()) return;
+  const ask = async (prompt: string) => {
+    if (!prompt.trim() || asking) return;
     setQ(prompt);
     setAsking(true);
     setAnswered(null);
-    // Deliberately gated: the deeper model runs only when a person asks for it.
-    setTimeout(() => {
+    setError(null);
+    try {
+      const result = await askStory({ data: { eventId, question: prompt } });
+      if (result.ok) setAnswered(result.answer);
+      else setError(result.detail);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The explanation could not be generated.");
+    } finally {
       setAsking(false);
-      setAnswered(prompt);
-    }, 1100);
+    }
   };
 
   return (
@@ -244,14 +321,14 @@ function AskPanel() {
         <Sparkles className="h-3.5 w-3.5" /> Ask about this
       </h2>
       <p className="mt-3 text-[13.5px] leading-relaxed text-muted-foreground">
-        This runs a stronger model, so it only runs when you ask. Nothing here is pre-generated.
+        Ask anything about this story. Coding help and unrelated questions are refused.
       </p>
 
       <div className="mt-5 flex flex-wrap gap-2">
         {PROMPTS.map((p) => (
           <button
             key={p}
-            onClick={() => ask(p)}
+            onClick={() => void ask(p)}
             className="rounded-full border border-border bg-surface px-3.5 py-1.5 text-[12.5px] transition-colors hover:border-foreground/25"
           >
             {p}
@@ -263,11 +340,11 @@ function AskPanel() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && ask(q)}
-          placeholder="Ask anything about this story"
+          onKeyDown={(e) => e.key === "Enter" && void ask(q)}
+          placeholder="A question about this story"
           className="h-11 flex-1 rounded-full border border-input bg-surface px-4 text-[14px] outline-none placeholder:text-muted-foreground focus:border-signal"
         />
-        <Button size="sm" onClick={() => ask(q)} disabled={asking || !q.trim()}>
+        <Button size="sm" onClick={() => void ask(q)} disabled={asking || !q.trim()}>
           {asking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Ask"}
         </Button>
       </div>
@@ -284,14 +361,17 @@ function AskPanel() {
         </div>
       ) : null}
 
+      {error ? (
+        <p className="mt-5 text-[13.5px] leading-relaxed text-muted-foreground">{error}</p>
+      ) : null}
+
       {answered ? (
-        <div className="mt-5 rounded-2xl border border-hairline bg-surface p-5">
-          <p className="text-[12px] text-muted-foreground">{answered}</p>
-          <p className="mt-3 text-[14.5px] leading-relaxed">
-            A deeper explanation would appear here, written against this event and the sources
-            behind it. Connect a model provider to enable it — the interface, gating and cost
-            boundary are already in place.
-          </p>
+        <div className="mt-5 space-y-4 rounded-2xl border border-hairline bg-surface p-5">
+          {answered.split(/\n\n+/).map((graf) => (
+            <p key={graf.slice(0, 48)} className="text-[14.5px] leading-relaxed">
+              {graf}
+            </p>
+          ))}
         </div>
       ) : null}
     </section>

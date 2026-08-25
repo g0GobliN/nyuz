@@ -118,6 +118,14 @@ export async function sendBriefingsPaused(
   const recipient = await findRecipient(db, userId);
   if (!recipient) return false;
 
+  const { data, error } = await db
+    .from("profiles")
+    .update({ paused_notified_at: new Date().toISOString() })
+    .eq("id", userId)
+    .is("paused_notified_at", null)
+    .select("id");
+  if (error || !data || data.length === 0) return false;
+
   return deliver(
     recipient.email,
     briefingsPausedEmail({ name: recipient.name, baseUrl: siteUrl(env) }),
@@ -211,6 +219,7 @@ export async function sendDormant(
   userId: string,
   details: { days: number; unsubscribeUrl: string },
   env?: EmailEnv,
+  idempotencyKey?: string,
 ): Promise<boolean> {
   const recipient = await findRecipient(db, userId);
   if (!recipient) return false;
@@ -224,6 +233,9 @@ export async function sendDormant(
       unsubscribeUrl: details.unsubscribeUrl,
     }),
     env,
-    { unsubscribeUrl: details.unsubscribeUrl },
+    {
+      unsubscribeUrl: details.unsubscribeUrl,
+      ...(idempotencyKey ? { idempotencyKey } : {}),
+    },
   );
 }

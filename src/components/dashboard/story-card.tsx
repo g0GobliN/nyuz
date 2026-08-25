@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Bookmark, EyeOff, Sparkles, ThumbsDown, ThumbsUp, VolumeX } from "lucide-react";
 import { becauseYouFollow } from "@/lib/matching";
-import type { Story } from "@/lib/sample-data";
+import type { Story } from "@/lib/story";
 import type { FeedbackState, Vote } from "@/lib/feedback-store";
 import { formatStoryTime } from "@/lib/story-time";
 import { cn } from "@/lib/utils";
@@ -64,18 +64,17 @@ export function StoryCard({
 
       <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">{story.what}</p>
 
-      <div className="mt-4 rounded-2xl bg-surface-2 p-4">
-        <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-          Why it matters to you
-        </p>
-        <p className="mt-2 text-[13.5px] leading-relaxed">
-          {/* The "you follow X" half is generated from the topics that actually
-              matched, never asserted — it used to be a fixed sentence naming
-              interests the reader may never have chosen. */}
-          {because ? <span>{because} </span> : null}
-          {story.why}
-        </p>
-      </div>
+      {because || story.why ? (
+        <div className="mt-4 rounded-2xl bg-surface-2 p-4">
+          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+            Why it matters to you
+          </p>
+          <p className="mt-2 text-[13.5px] leading-relaxed">
+            {because ? <span>{because} </span> : null}
+            {story.why}
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-muted-foreground">
         <span>

@@ -39,6 +39,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { completeRoutedJson, resolvePrompt, type SecretBag } from "@/lib/ai/config";
 import { TruncatedCompletionError } from "@/lib/ai/deepseek";
 import type { Database, EventStatus } from "@/lib/supabase/types";
+import { isVcsRef } from "./shortlist";
 
 type Db = SupabaseClient<Database>;
 
@@ -121,7 +122,7 @@ function contract(slugs: string[]): string {
 
 {
   "title": "one neutral line naming what happened, under 100 characters",
-  "what_happened": "one to three sentences, plain past tense",
+  "what_happened": "3 to 5 short paragraphs separated by blank lines. Plain past tense. A news brief, not an essay.",
   "before_state": "what was true before this, or null if the coverage does not say",
   "after_state": "what is true now that was not before, or null",
   "importance": 0,
@@ -132,7 +133,9 @@ function contract(slugs: string[]): string {
 what_happened is about the event, not about the coverage of it. Name who did what:
 "OpenAI wrote to the governor opposing SB 1047", never "an article reported that
 OpenAI wrote to the governor". Where the only thing that happened is that somebody
-published an argument or a review, name them and say what they argued.
+published an argument or a review, name them and say what they argued. Each
+paragraph is one or two sentences. Separate them with a blank line so a Read
+page can set them as a news column.
 
 importance, 0 to 10 - how much this changes for someone working in the field:
   0-2   routine. A point release, a blog post, a conference talk.
@@ -177,6 +180,7 @@ export type EventOutcome = {
     | "skipped" // dry run
     | "claimed" // another worker got there first
     | "empty" // an event with no articles: nothing to read, no call made
+    | "ignored" // a single-article CI ref: marked failed, no model call
     | "failed";
   articles: number;
   importance: number | null;
@@ -197,6 +201,7 @@ export type AnalysisReport = {
   failed: number;
   skipped: number;
   claimed: number;
+  ignored: number;
   /** Events that reached the model. The rest cost nothing. */
   modelCalls: number;
   promptTokens: number;
@@ -232,6 +237,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
     failed: outcomes.filter((o) => o.decision === "failed").length,
     skipped: outcomes.filter((o) => o.decision === "skipped").length,
     claimed: outcomes.filter((o) => o.decision === "claimed").length,
+    ignored: outcomes.filter((o) => o.decision === "ignored").length,
     modelCalls: outcomes.filter((o) => o.promptTokens > 0 || o.completionTokens > 0).length,
     promptTokens: outcomes.reduce((total, o) => total + o.promptTokens, 0),
     completionTokens: outcomes.reduce((total, o) => total + o.completionTokens, 0),
@@ -343,6 +349,18 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
     return { ...base, decision: "empty", detail: "no articles attached" };
   }
 
+  if (isUnanalysable(articles, total)) {
+    if (ctx.options.dryRun !== true) {
+      await recordFailure(db, event, 0, ctx.options);
+    }
+    return {
+      ...base,
+      articles: total,
+      decision: "ignored",
+      detail: "single-article CI ref, not a headline",
+    };
+  }
+
   const claim = await claimEvent(db, event, ctx.options);
   if (claim !== "held") {
     return { ...base, articles: total, decision: "claimed", detail: claim };
@@ -408,6 +426,23 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
   if (written) return { ...shared, decision: "failed", detail: written };
 
   return { ...shared, decision: "analysed", detail: summarise(parsed) };
+}
+
+/**
+ * A single-article event whose only coverage is a CI ref.
+ *
+ * Stage 3 used to create an event of one for these (the cheap cluster path) and
+ * this stage then paid to "understand" them. That was 20% of the analysis bill.
+ * Refusing here, before the claim, means a leftover of that shape costs nothing
+ * and is marked failed so the schedule does not retry it.
+ *
+ * A real release tag (`v8.2.2`) is not this: it is news, just a thin headline.
+ * Two articles, even two refs, also are not — the second outlet is evidence of
+ * something worth a look.
+ */
+export function isUnanalysable(articles: { title: string }[], total: number): boolean {
+  const only = articles[0];
+  return total === 1 && only !== undefined && isVcsRef(only.title);
 }
 
 /**
@@ -717,7 +752,7 @@ export function describeAnalysis(report: AnalysisReport): string {
 
   return (
     `analyse: ${report.considered} events, ${report.analysed} analysed, ` +
-    `${report.failed} failed, ${report.claimed} held elsewhere, ` +
+    `${report.ignored} ignored, ${report.failed} failed, ${report.claimed} held elsewhere, ` +
     `${report.modelCalls} model calls, ` +
     `${report.promptTokens + report.completionTokens} tokens, ${seconds}s`
   );

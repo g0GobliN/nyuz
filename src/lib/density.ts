@@ -57,11 +57,11 @@ export type DensityLevel = {
   /**
    * Stories a day, as printed on the dial.
    *
-   * This is the dial's claim, not a measurement, and nothing has yet checked it
-   * against a real corpus — see status.md. It is display copy and no code reads
-   * it to make a decision.
+   * Display copy. The hard cap digest generation actually applies is `cap`.
    */
   count: string;
+  /** Inclusive upper bound of `count`. Digest generation will not exceed this. */
+  cap: number;
   /** Minimum `events.importance` that reaches a reader at this setting. */
   threshold: number;
 };
@@ -71,6 +71,7 @@ const DEEP: DensityLevel = {
   label: "Deep",
   detail: "Everything with a plausible claim on your attention.",
   count: "12–18",
+  cap: 18,
   threshold: 0,
 };
 
@@ -80,6 +81,7 @@ export const LEVELS: DensityLevel[] = [
     label: "Minimal",
     detail: "Only the things you would regret missing.",
     count: "2–3",
+    cap: 3,
     threshold: 6,
   },
   {
@@ -87,6 +89,7 @@ export const LEVELS: DensityLevel[] = [
     label: "Focused",
     detail: "Clear developments in the areas you track.",
     count: "4–6",
+    cap: 6,
     threshold: 3,
   },
   {
@@ -94,6 +97,7 @@ export const LEVELS: DensityLevel[] = [
     label: "Broad",
     detail: "Adds context and adjacent industry moves.",
     count: "7–10",
+    cap: 10,
     threshold: 1,
   },
   DEEP,
@@ -106,6 +110,11 @@ export function levelFor(value: number): DensityLevel {
 /** The minimum `events.importance` a reader at this density will be shown. */
 export function thresholdFor(density: number): number {
   return levelFor(density).threshold;
+}
+
+/** How many stories a briefing at this density is allowed to carry. */
+export function capFor(density: number): number {
+  return levelFor(density).cap;
 }
 
 /**

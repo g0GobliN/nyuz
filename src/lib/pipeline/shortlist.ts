@@ -128,6 +128,18 @@ const TITLE_CASE_RATIO = 0.6;
 const VCS_REF = /^[^\s/]+\/\S*\b[0-9a-f]{6,}\b/i;
 
 /**
+ * A CI branch tag wearing a headline's clothes.
+ *
+ * Distinct from a version tag (`v8.2.2`), which is real news from a release feed.
+ * Those have no whitespace and cost nothing to cluster; they are still worth
+ * storing. This shape is not: it is a commit subject published by a tags feed,
+ * and analysing it has already burned a fifth of the analysis bill.
+ */
+export function isVcsRef(title: string): boolean {
+  return VCS_REF.test(title.trim());
+}
+
+/**
  * The distinctive words in a headline, most distinctive first.
  *
  * Ranked by two signals, in order.
@@ -166,7 +178,7 @@ const VCS_REF = /^[^\s/]+\/\S*\b[0-9a-f]{6,}\b/i;
 export function titleTokens(title: string): string[] {
   const text = title.trim();
   if (!/\s/.test(text)) return [];
-  if (VCS_REF.test(text)) return [];
+  if (isVcsRef(text)) return [];
 
   const words: { word: string; proper: boolean }[] = [];
   const seen = new Set<string>();

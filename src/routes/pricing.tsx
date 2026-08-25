@@ -1,14 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Check, ArrowRight } from "lucide-react";
-import { useState } from "react";
 import { Eyebrow, LinkButton, Section, buttonClass } from "@/components/kit";
 import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
 import { DensityDial } from "@/components/density-dial";
 import { getPublicSiteContent } from "@/lib/server/settings";
-import type { Prices } from "@/lib/site-content";
 import { useReveal } from "@/lib/use-reveal";
 import { cn } from "@/lib/utils";
+import { DEFAULT_ANNUAL_PRICES, DEFAULT_PLAN_PRICES, formatUsd } from "@/lib/plans";
 
 export const Route = createFileRoute("/pricing")({
   loader: () => getPublicSiteContent(),
@@ -28,13 +27,12 @@ export const Route = createFileRoute("/pricing")({
 });
 
 /**
- * Plan copy is hard-coded; only the numbers come from the console.
+ * Plan copy is hard-coded; the numbers are the Stripe catalogue in `plans.ts`.
  *
  * Feature lists are product decisions that need a deploy anyway — shipping
  * "WhatsApp delivery" as editable text would let someone promise a feature that
- * does not exist. Prices are different: they change for commercial reasons, on
- * commercial timescales, and waiting for a deploy to correct one is how a page
- * ends up disagreeing with the invoice.
+ * does not exist. Prices come from Stripe, not the console, so the page cannot
+ * disagree with the invoice.
  */
 type Plan = {
   name: string;
@@ -62,7 +60,6 @@ const PLANS: Plan[] = [
       "15 topics",
       "Daily and weekly briefings",
       "Custom delivery time",
-      "Telegram delivery",
       "Breaking alerts",
       "Custom instructions",
       "90-day history",
@@ -79,8 +76,6 @@ const PLANS: Plan[] = [
       "Unlimited topics",
       "Multiple schedules",
       "Breaking alerts",
-      "WhatsApp delivery",
-      "Advanced personalisation",
       "1-year history",
       "Deeper AI explanations",
       "Priority processing",
@@ -96,14 +91,11 @@ const PLANS: Plan[] = [
  * this" — so it comes back as null rather than 0, which would render as "$0 per
  * year" on a paid plan.
  */
-function planPrice(
-  prices: Prices,
-  key: Plan["priceKey"],
-): { monthly: number; annual: number | null } {
+function planPrice(key: Plan["priceKey"]): { monthly: number; annual: number | null } {
   if (key === "free") return { monthly: 0, annual: null };
-  const monthly = key === "personal" ? prices.personal : prices.pro;
-  const annual = key === "personal" ? prices.personalAnnual : prices.proAnnual;
-  return { monthly, annual: annual > 0 ? annual : null };
+  const monthly = DEFAULT_PLAN_PRICES[key];
+  const annual = DEFAULT_ANNUAL_PRICES[key];
+  return { monthly, annual };
 }
 
 /**
@@ -112,10 +104,10 @@ function planPrice(
  * the charge, and an operator who sets an annual price with no saving in it gets
  * silence rather than a false discount.
  */
-function annualCaption(prices: Prices): string | null {
+function annualCaption(): string | null {
   const savings = (["personal", "pro"] as const)
     .map((key) => {
-      const { monthly, annual } = planPrice(prices, key);
+      const { monthly, annual } = planPrice(key);
       if (monthly <= 0 || annual === null) return 0;
       return (monthly * 12 - annual) / monthly;
     })
@@ -149,14 +141,8 @@ const FAQ = [
 
 function Pricing() {
   const content = Route.useLoaderData();
-  const { prices } = content;
-  const [annual, setAnnual] = useState(false);
   const ref = useReveal<HTMLDivElement>();
-
-  // No annual price on any paid plan means the toggle has nothing to toggle.
-  const annualOffered =
-    planPrice(prices, "personal").annual !== null || planPrice(prices, "pro").annual !== null;
-  const caption = annualCaption(prices);
+  const caption = annualCaption();
 
   return (
     <div ref={ref} className="min-h-screen bg-background">
@@ -174,42 +160,14 @@ function Pricing() {
               around you.
             </p>
 
-            {annualOffered ? (
-              <>
-                <div className="mt-9 inline-flex items-center gap-1 rounded-full border border-hairline bg-surface p-1">
-                  {[
-                    { k: false, label: "Monthly" },
-                    { k: true, label: "Annual" },
-                  ].map((o) => (
-                    <button
-                      key={String(o.k)}
-                      onClick={() => setAnnual(o.k)}
-                      className={cn(
-                        "rounded-full px-4 py-1.5 text-[13px] transition-all duration-300",
-                        annual === o.k
-                          ? "bg-foreground text-background"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
-                {annual && caption ? (
-                  <p className="mt-3 text-[12px] text-muted-foreground">{caption}</p>
-                ) : null}
-              </>
-            ) : null}
+            {caption ? <p className="mt-9 text-[13px] text-muted-foreground">{caption}</p> : null}
           </div>
         </section>
 
         <Section className="pt-4">
           <div className="grid gap-5 lg:grid-cols-3">
             {PLANS.map((p, i) => {
-              const { monthly, annual: yearly } = planPrice(prices, p.priceKey);
-              const showAnnual = annual && yearly !== null;
-              const price = monthly === 0 ? "$0" : showAnnual ? `$${yearly}` : `$${monthly}`;
-              const period = monthly === 0 ? "forever" : showAnnual ? "per year" : "per month";
+              const { monthly, annual: yearly } = planPrice(p.priceKey);
               return (
                 <div
                   key={p.name}
@@ -230,9 +188,18 @@ function Pricing() {
                     ) : null}
                   </div>
 
-                  <div className="mt-6 flex items-baseline gap-2">
-                    <span className="display text-5xl tabular-nums">{price}</span>
-                    <span className="text-[13px] text-muted-foreground">{period}</span>
+                  <div className="mt-6">
+                    <div className="flex items-baseline gap-2">
+                      <span className="display text-5xl tabular-nums">{formatUsd(monthly)}</span>
+                      <span className="text-[13px] text-muted-foreground">
+                        {monthly === 0 ? "forever" : "per month"}
+                      </span>
+                    </div>
+                    {yearly !== null ? (
+                      <p className="mt-2 text-[13px] tabular-nums text-muted-foreground">
+                        {formatUsd(yearly)} per year
+                      </p>
+                    ) : null}
                   </div>
                   <p className="mt-3 text-[13.5px] leading-relaxed text-muted-foreground">
                     {p.tagline}

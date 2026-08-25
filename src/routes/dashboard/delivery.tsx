@@ -1,14 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  AlertTriangle,
-  Check,
-  Mail,
-  MessageCircle,
-  Pause,
-  Phone,
-  Play,
-  RefreshCw,
-} from "lucide-react";
+import { Check, Mail, MessageCircle, Pause, Phone, Play } from "lucide-react";
 import { useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
@@ -40,7 +31,6 @@ function Delivery() {
   // thing that actually receives a briefing.
   const email = useAuth().user?.email ?? "";
   const [saved, setSaved] = useState(false);
-  const [failed, setFailed] = useState(true);
 
   const touch = (p: Parameters<typeof update>[0]) => {
     update(p);
@@ -84,21 +74,6 @@ function Delivery() {
           <Check className="h-3.5 w-3.5" /> Saved
         </span>
       </PageHeader>
-
-      {failed ? (
-        <div className="mb-8 flex flex-wrap items-center gap-3 rounded-2xl border border-destructive/30 bg-surface px-5 py-4">
-          <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
-          <div className="flex-1">
-            <p className="text-[14px] font-medium">Telegram delivery failed on 20 August</p>
-            <p className="mt-1 text-[12.5px] text-muted-foreground">
-              The chat could not be reached. Your email briefing was delivered normally.
-            </p>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => setFailed(false)}>
-            <RefreshCw className="h-3.5 w-3.5" /> Retry now
-          </Button>
-        </div>
-      ) : null}
 
       {/* At the top because it overrides everything under it. Somebody looking
           for "make it stop" should not have to read a schedule editor first. */}
@@ -199,7 +174,7 @@ function Delivery() {
             <Channel
               icon={MessageCircle}
               label="Telegram"
-              detail="Connected · short form with tap-through"
+              detail="Preference stored · nothing is sent on this channel yet"
               on={prefs.channels.telegram}
               onToggle={() =>
                 touch({ channels: { ...prefs.channels, telegram: !prefs.channels.telegram } })
@@ -208,7 +183,7 @@ function Delivery() {
             <Channel
               icon={Phone}
               label="WhatsApp"
-              detail="Available on Pro"
+              detail="Preference stored · nothing is sent on this channel yet"
               on={prefs.channels.whatsapp}
               onToggle={() =>
                 touch({ channels: { ...prefs.channels, whatsapp: !prefs.channels.whatsapp } })

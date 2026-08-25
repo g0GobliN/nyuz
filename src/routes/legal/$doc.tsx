@@ -9,10 +9,9 @@ import { getPublicSiteContent } from "@/lib/server/settings";
  * ────────────────────────────────────────────────────────────────────────
  * BEFORE LAUNCH: these are drafts, not vetted legal documents. They describe
  * what this system actually does — which is the hard part and the part a
- * template cannot give you — but they have not been reviewed by a lawyer, and
- * the jurisdiction, entity name and address in `ENTITY` below are placeholders.
- * Get them reviewed against the jurisdiction you actually incorporate in, and
- * fill in ENTITY, before taking a paying customer.
+ * template cannot give you — but they have not been reviewed by a lawyer.
+ * ENTITY is filled for an unregistered operator in Japan; incorporate later
+ * and this block has to change.
  * ────────────────────────────────────────────────────────────────────────
  *
  * Kept in the bundle rather than in `site_settings` on purpose. Policy text is
@@ -22,12 +21,21 @@ import { getPublicSiteContent } from "@/lib/server/settings";
  * therefore a code review.
  */
 
-/** Placeholders. Replace all four before launch — search for "ENTITY". */
+/**
+ * Operator identity. Not a registered company — a sole trader trading as nyuz.
+ * Address is city + postcode only; no building.
+ */
 const ENTITY = {
-  name: "[Company legal name]",
-  address: "[Registered address]",
-  jurisdiction: "[Jurisdiction]",
-  email: "[contact@yourdomain]",
+  name: "nyuz",
+  operator: 'Vishal "goblin" Gurung',
+  address: "Matsudo, Chiba, 〒270-0004, Japan",
+  jurisdiction: "Japan",
+  mail: {
+    contact: "contact@nyuz.app",
+    privacy: "privacy@nyuz.app",
+    security: "security@nyuz.app",
+    billing: "billing@nyuz.app",
+  },
 } as const;
 
 type Section = {
@@ -46,20 +54,20 @@ type Doc = {
   sections: Section[];
 };
 
-const UPDATED = "22 August 2026";
+const UPDATED = "25 August 2026";
 
 const DOCS: Record<string, Doc> = {
   privacy: {
     title: "Privacy",
     updated: UPDATED,
-    group: "Policies",
+    group: "Trust",
     intro:
-      "nyuz exists to send you less. That principle applies to the data we hold about you as much as to the stories we send.",
+      "We hold as little as the product needs, and we never send your interest list to a model.",
     sections: [
       {
         h: "Who we are",
         p: [
-          `${ENTITY.name} of ${ENTITY.address} is the controller of the personal data described here. For anything in this policy, write to ${ENTITY.email}.`,
+          `${ENTITY.operator}, trading as ${ENTITY.name}, of ${ENTITY.address}, is the controller of the personal data described here. For anything in this policy, write to ${ENTITY.mail.privacy}.`,
         ],
       },
       {
@@ -82,7 +90,7 @@ const DOCS: Record<string, Doc> = {
         p: [
           "To perform our contract with you: your account, your interests, your schedule and your delivery history. Without these there is no product.",
           "Our legitimate interest in a working service: security logs, failure counts and aggregate volume figures, held in the smallest form that answers the question.",
-          "Your consent, where you have given it, for optional channels such as Telegram or WhatsApp delivery. You can withdraw it at any time in Delivery settings.",
+          "Your consent, where you have given it, for optional delivery channels. Telegram and WhatsApp can be stored as a preference today; only email actually sends. You can withdraw either at any time in Delivery settings.",
         ],
       },
       {
@@ -96,7 +104,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Your rights",
         p: [
-          "You can ask us for a copy of your data, ask us to correct it, ask us to delete it, or ask us to stop processing it. Most of these you can do yourself from Settings; for the rest, write to us and we will respond within 30 days.",
+          `You can ask us for a copy of your data, ask us to correct it, ask us to delete it, or ask us to stop processing it. Most of these you can do yourself from Settings; for the rest, write to ${ENTITY.mail.privacy} and we will respond within 30 days.`,
         ],
         list: [
           "Access — a copy of everything we hold about you.",
@@ -141,12 +149,12 @@ const DOCS: Record<string, Doc> = {
     updated: UPDATED,
     group: "Policies",
     intro:
-      "Plain terms for a simple product: we watch public sources and send you a summary of what changed.",
+      "We watch public sources and send you a summary of what changed. These terms are the agreement for that, under Japanese law.",
     sections: [
       {
         h: "The agreement",
         p: [
-          `These terms are between you and ${ENTITY.name}. Using nyuz means accepting them. They are governed by the laws of ${ENTITY.jurisdiction}.`,
+          `These terms are between you and ${ENTITY.operator}, trading as ${ENTITY.name}. Using nyuz means accepting them. They are governed by the laws of ${ENTITY.jurisdiction}.`,
         ],
       },
       {
@@ -286,7 +294,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "How to ask",
         p: [
-          `Write to ${ENTITY.email} from the address on the account. Refunds are processed to the original payment method and take up to ten working days to appear.`,
+          `Write to ${ENTITY.mail.billing} from the address on the account. Refunds are processed to the original payment method and take up to ten working days to appear.`,
         ],
       },
     ],
@@ -353,7 +361,7 @@ const DOCS: Record<string, Doc> = {
     updated: UPDATED,
     group: "Trust",
     intro:
-      "How the service is built to protect your data, and how to tell us when we have got something wrong.",
+      "How the service is built so one account cannot read another, and how to tell us when that is no longer true.",
     sections: [
       {
         h: "How access is controlled",
@@ -377,7 +385,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Reporting a vulnerability",
         p: [
-          `Write to ${ENTITY.email} with enough detail to reproduce it. Please give us a reasonable window before disclosing publicly.`,
+          `Write to ${ENTITY.mail.security} with enough detail to reproduce it. Please give us a reasonable window before disclosing publicly.`,
           "We will confirm receipt within two working days, keep you updated through the fix, and credit you when it ships if you would like us to. We will not pursue anyone who reports in good faith and does not access or destroy other people's data.",
         ],
       },
@@ -394,7 +402,7 @@ const DOCS: Record<string, Doc> = {
     title: "Cookie policy",
     updated: UPDATED,
     group: "Policies",
-    intro: "We use the smallest set of cookies that lets the product work.",
+    intro: "A session cookie to stay signed in. Nothing that follows you off this site.",
     sections: [
       {
         h: "Essential",
@@ -428,36 +436,38 @@ const DOCS: Record<string, Doc> = {
     title: "Contact",
     updated: UPDATED,
     group: "Company",
-    intro: "A small team. Real replies.",
+    intro: "One operator. Four mailboxes. A reply, not a ticket queue.",
     sections: [
       {
         h: "Support",
         p: [
           "For anything about your account, delivery or billing, reach us from the Settings page in your dashboard so we can see your configuration alongside your message.",
-          `If you cannot sign in, write to ${ENTITY.email} from the address on the account.`,
+          `If you cannot sign in, write to ${ENTITY.mail.contact} from the address on the account.`,
         ],
       },
       {
         h: "Publishers and sources",
         p: [
-          "If you publish a source we monitor and want your attribution changed, your content excluded, or your feed prioritised, get in touch and we will action it.",
+          `If you publish a source we monitor and want your attribution changed, your content excluded, or your feed prioritised, write to ${ENTITY.mail.contact} and we will action it.`,
         ],
       },
       {
         h: "Privacy requests",
         p: [
-          "Access, correction, deletion and portability requests go to the same address and are answered within 30 days. Most of them you can complete yourself in Settings, faster.",
+          `Access, correction, deletion and portability requests go to ${ENTITY.mail.privacy} and are answered within 30 days. Most of them you can complete yourself in Settings, faster.`,
         ],
       },
       {
         h: "Security",
         p: [
-          "Report a vulnerability privately before disclosing it. The Security page has the detail.",
+          `Report a vulnerability privately to ${ENTITY.mail.security} before disclosing it. The Security page has the detail.`,
         ],
       },
       {
-        h: "Company details",
-        p: [`${ENTITY.name}, ${ENTITY.address}. Registered in ${ENTITY.jurisdiction}.`],
+        h: "Operator details",
+        p: [
+          `${ENTITY.name} is operated by ${ENTITY.operator} as a sole trader, not a registered company. Correspondence: ${ENTITY.address}. Write to ${ENTITY.mail.contact}. Governed by the laws of ${ENTITY.jurisdiction}.`,
+        ],
       },
     ],
   },

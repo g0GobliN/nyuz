@@ -1,4 +1,4 @@
-import type { Prefs } from "@/lib/prefs-store";
+import type { Prefs } from "@/lib/prefs";
 import type { DeliveryChannel, NotificationPreferences } from "@/lib/supabase/types";
 
 /**

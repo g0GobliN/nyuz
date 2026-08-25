@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readAnalysis, renderCoverage } from "./analyse";
+import { isUnanalysable, readAnalysis, renderCoverage } from "./analyse";
 
 /**
  * What the model says, and what is written down because of it.
@@ -264,5 +264,35 @@ describe("renderCoverage", () => {
     const rendered = renderCoverage([article({ source_id: "gone" })], 1, outlets);
 
     expect(rendered).toContain("1. OpenAI opposes SB 1047 (2026-08-21)");
+  });
+});
+
+describe("isUnanalysable", () => {
+  it("refuses a single-article CI ref", () => {
+    expect(
+      isUnanalysable(
+        [{ title: "trunk/16ee93b8a9e7e2dd215a2f5d07eada25e31ec123: [vision hash]" }],
+        1,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not refuse a version tag, which is a real release", () => {
+    expect(isUnanalysable([{ title: "v8.2.2" }], 1)).toBe(false);
+  });
+
+  it("does not refuse a real headline, or a cluster of more than one", () => {
+    expect(isUnanalysable([{ title: "OpenAI opposes California's AI safety bill" }], 1)).toBe(
+      false,
+    );
+    expect(
+      isUnanalysable(
+        [
+          { title: "trunk/16ee93b8a9e7e2dd215a2f5d07eada25e31ec123: [vision hash]" },
+          { title: "trunk/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: [other]" },
+        ],
+        2,
+      ),
+    ).toBe(false);
   });
 });

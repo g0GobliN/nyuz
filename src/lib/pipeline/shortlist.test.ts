@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { orFilter, STOPWORDS, titleTokens } from "./shortlist";
+import { isVcsRef, orFilter, STOPWORDS, titleTokens } from "./shortlist";
 
 /**
  * The shortlist is the reason stage 3 is affordable, so what is tested here is
@@ -95,6 +95,12 @@ describe("titleTokens", () => {
     expect(titleTokens('viable/strict/1787468606: Revert "Remove caffe2/core/timer.h"')).toEqual(
       [],
     );
+  });
+
+  it("names a CI ref so later stages can refuse it without re-deriving the regex", () => {
+    expect(isVcsRef("trunk/16ee93b8a9e7e2dd215a2f5d07eada25e31ec123: [vision hash]")).toBe(true);
+    expect(isVcsRef("v8.2.2")).toBe(false);
+    expect(isVcsRef("AI/ML hiring is booming again")).toBe(false);
   });
 
   it("does not mistake a slash in a real headline for a ref", () => {

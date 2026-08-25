@@ -1,20 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Clock, Sparkles } from "lucide-react";
 import { useMemo } from "react";
-import {
-  DashboardShell,
-  EmptyState,
-  PageHeader,
-  SampleDataNotice,
-} from "@/components/dashboard/shell";
-import { LiveBriefing } from "@/components/dashboard/live-briefing";
+import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { StoryCard } from "@/components/dashboard/story-card";
 import { LinkButton } from "@/components/kit";
 import { useDisplayName } from "@/lib/auth";
 import { useFeedback } from "@/lib/feedback-store";
-import { matchStories } from "@/lib/matching";
 import { usePrefs } from "@/lib/prefs-store";
-import { STORIES } from "@/lib/sample-data";
+import { loadHomeFeed } from "@/lib/server/briefing";
+import { clockInZone } from "@/lib/pipeline/schedule";
 import { useReveal } from "@/lib/use-reveal";
 
 export const Route = createFileRoute("/dashboard/")({
@@ -31,38 +26,41 @@ function greeting() {
 
 function DashboardHome() {
   const { prefs } = usePrefs();
-  // The account is the authority on who you are; the locally stored name is a
-  // fallback for anyone who set one before signing in. Neither invents a name,
-  // so the greeting drops the comma rather than addressing a stranger.
   const who = useDisplayName() || prefs.name;
   const { state, signals, vote, toggleSaved, dismiss, muteTopic, restore } = useFeedback();
   const ref = useReveal<HTMLDivElement>();
 
-  // Interests first, then feedback. A story you never asked for should not be
-  // something you have to dismiss — it should never have been here.
-  const matches = useMemo(() => matchStories(STORIES, prefs), [prefs]);
+  const feed = useQuery({
+    queryKey: ["briefing", "home"],
+    queryFn: () => loadHomeFeed(),
+    staleTime: 60_000,
+  });
+
+  const stories = useMemo(() => feed.data?.stories ?? [], [feed.data?.stories]);
 
   const visible = useMemo(
     () =>
-      matches.filter(
-        ({ story }) =>
+      stories.filter(
+        (story) =>
           !state.dismissed.includes(story.id) &&
           !story.topics.some((t) => state.mutedTopics.includes(t)),
       ),
-    [matches, state.dismissed, state.mutedTopics],
+    [stories, state.dismissed, state.mutedTopics],
   );
 
-  const hidden = matches.length - visible.length;
+  const hidden = stories.length - visible.length;
   const noTopics = prefs.topics.length === 0;
+  const quiet = feed.data?.digestStatus === "skipped" || feed.data?.source === "empty";
+
+  const nextLabel = prefs.paused
+    ? "Paused"
+    : feed.data?.nextAt
+      ? `${clockInZone(new Date(feed.data.nextAt), prefs.timezone)}`
+      : `Tomorrow · ${prefs.time}`;
 
   return (
     <DashboardShell title="Home">
       <div ref={ref}>
-        {/* Real matches first, fixtures second, and each labelled. The order is
-            the honest one: what the pipeline actually produced for this reader
-            outranks a sample of what it will eventually look like. */}
-        <LiveBriefing />
-        <SampleDataNotice />
         <PageHeader
           eyebrow={new Date().toLocaleDateString(undefined, {
             weekday: "long",
@@ -84,11 +82,11 @@ function DashboardHome() {
         <div className="grid gap-8 lg:grid-cols-[1fr_260px]">
           <div className="space-y-4">
             {visible.length > 0 ? (
-              visible.map(({ story, matched }, i) => (
+              visible.map((story, i) => (
                 <StoryCard
                   key={story.id}
                   story={story}
-                  matched={matched}
+                  matched={story.topics.filter((t) => prefs.topics.includes(t))}
                   index={i}
                   feedback={state}
                   onVote={vote}
@@ -107,18 +105,20 @@ function DashboardHome() {
                   </LinkButton>
                 }
               />
-            ) : (
-              /* Distinguishes "quiet day" from "we do not cover your interests",
-                 because the honest answer differs and only one of them is fixed
-                 by waiting. */
+            ) : quiet ? (
               <EmptyState
                 title="Nothing matched your topics."
-                body={`Nothing in today's set touches ${prefs.topics.slice(0, 3).join(", ")}. Coverage today is weighted towards technology, so interests outside that may stay quiet for now.`}
+                body={`Nothing in the last ${feed.data?.windowHours ?? 48} hours touched ${prefs.topics.slice(0, 3).join(", ")}. A quiet day is a real answer, not a failure.`}
                 action={
                   <LinkButton to="/dashboard/topics" variant="outline" size="sm">
                     Adjust my topics
                   </LinkButton>
                 }
+              />
+            ) : (
+              <EmptyState
+                title="Your briefing is still assembling."
+                body="Matches are in. The personal briefing goes out at the time you set — until then this page shows what has already been matched for you."
               />
             )}
 
@@ -142,10 +142,6 @@ function DashboardHome() {
               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 Your nyuz
               </p>
-              {/* Your topics, not a fixture list. The bar is how many of today's
-                  stories that topic actually pulled in — so a topic nothing
-                  matched reads as empty rather than as a confident weighting
-                  nobody computed. */}
               <div className="mt-4 space-y-3">
                 {prefs.topics.length === 0 ? (
                   <p className="text-[12.5px] leading-relaxed text-muted-foreground">
@@ -153,8 +149,8 @@ function DashboardHome() {
                   </p>
                 ) : (
                   prefs.topics.slice(0, 6).map((topic) => {
-                    const hits = matches.filter((m) => m.matched.includes(topic)).length;
-                    const pct = matches.length > 0 ? Math.round((hits / matches.length) * 100) : 0;
+                    const hits = stories.filter((s) => s.topics.includes(topic)).length;
+                    const pct = stories.length > 0 ? Math.round((hits / stories.length) * 100) : 0;
                     return (
                       <div key={topic}>
                         <div className="flex justify-between text-[12.5px]">
@@ -186,9 +182,7 @@ function DashboardHome() {
               <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 <Clock className="h-3.5 w-3.5" /> Your next briefing
               </p>
-              <p className="mt-3 font-serif text-2xl tabular-nums">
-                {prefs.paused ? "Paused" : `Tomorrow · ${prefs.time}`}
-              </p>
+              <p className="mt-3 font-serif text-2xl tabular-nums">{nextLabel}</p>
               <p className="mt-1 text-[12px] text-muted-foreground">
                 {prefs.paused
                   ? "Nothing is being sent until you resume."

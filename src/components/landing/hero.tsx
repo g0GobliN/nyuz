@@ -108,7 +108,7 @@ export function HeroPipeline() {
 
       {/* Layer 3 — delivery */}
       <div className="mx-auto flex items-center justify-center gap-2">
-        {["7:30 AM", "Email", "Telegram", "WhatsApp"].map((d, i) => (
+        {["7:30 AM", "Email"].map((d, i) => (
           <span
             key={d}
             className="rounded-full border px-3 py-1.5 text-[11.5px] transition-all duration-700"

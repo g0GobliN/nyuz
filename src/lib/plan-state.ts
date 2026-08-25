@@ -13,14 +13,17 @@ import { useAuth } from "@/lib/auth";
  * would add nothing but latency.
  *
  * Not a security boundary. This decides what the interface says and what it
- * warns about; the plan limits that actually matter are enforced when a briefing
- * is built, against the same row read server-side.
+ * warns about; the plan limits that actually matter are enforced in
+ * `savePreferences`, `loadReaders`, `askStory`, and the `enforce_topic_cap`
+ * trigger on `user_topics`.
  */
 
 export type PlanState = {
   plan: PlanTier;
   topicLimit: number;
+  asksPerDay: number;
   retention: string;
+  retentionDays: number;
   /** True while the row is still loading — treat limits as unknown, not exceeded. */
   loading: boolean;
 };
@@ -50,12 +53,14 @@ export function usePlan(): PlanState {
   });
 
   const plan: PlanTier = data ?? "free";
-  const limits = PLAN_LIMITS[plan];
+  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
 
   return {
     plan,
     topicLimit: limits.topics,
+    asksPerDay: limits.asksPerDay,
     retention: limits.retention,
+    retentionDays: limits.retentionDays,
     loading: authLoading || isLoading,
   };
 }

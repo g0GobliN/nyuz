@@ -1,13 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { type Actor, signedInOnly } from "./guard";
-import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs-store";
-import {
-  isUsableTopic,
-  notificationRowToPrefs,
-  prefsToNotificationRow,
-  topicSlug,
-} from "@/lib/preferences-map";
+import { keepCoveredTopics } from "@/lib/coverage";
+import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
+import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
+import { notificationRowToPrefs, prefsToNotificationRow, topicSlug } from "@/lib/preferences-map";
 
 /**
  * The reader's own settings, on the server.
@@ -149,6 +146,9 @@ export const savePreferences = createServerFn({ method: "POST" })
 
     if (data.topics !== undefined) await replaceTopics(actor, data.topics);
     if (data.exclusions !== undefined) await replaceExclusions(actor, data.exclusions);
+    if (data.paused === false) {
+      await actor.db.from("profiles").update({ paused_notified_at: null }).eq("id", actor.id);
+    }
 
     return { ok: true };
   });
@@ -183,12 +183,18 @@ async function replaceExclusions(actor: Actor, terms: string[]): Promise<void> {
 async function replaceTopics(actor: Actor, labels: string[]): Promise<void> {
   const { db, id: userId } = actor;
 
+  const { data: sub } = await db
+    .from("subscriptions")
+    .select("plan")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const limit = PLAN_LIMITS[sub?.plan ?? "free"]?.topics ?? PLAN_LIMITS.free.topics;
+  const allowed = clipLabels(keepCoveredTopics(labels), limit);
+
   const wanted = new Map<string, string>();
-  for (const label of labels) {
-    const trimmed = label.trim();
-    if (!isUsableTopic(trimmed)) continue;
-    // First spelling wins, so "OpenAI" is not relabelled by a later "openai".
-    if (!wanted.has(topicSlug(trimmed))) wanted.set(topicSlug(trimmed), trimmed);
+  for (const label of allowed) {
+    const slug = topicSlug(label);
+    if (!wanted.has(slug)) wanted.set(slug, label);
   }
 
   const slugs = [...wanted.keys()];
@@ -219,10 +225,10 @@ async function replaceTopics(actor: Actor, labels: string[]): Promise<void> {
   const toAdd = wantedIds.filter((id) => !existingIds.has(id));
   const toRemove = [...existingIds].filter((id) => !wantedIds.includes(id));
 
-  if (toAdd.length > 0) {
-    await db.from("user_topics").insert(toAdd.map((topic_id) => ({ user_id: userId, topic_id })));
-  }
   if (toRemove.length > 0) {
     await db.from("user_topics").delete().eq("user_id", userId).in("topic_id", toRemove);
+  }
+  if (toAdd.length > 0) {
+    await db.from("user_topics").insert(toAdd.map((topic_id) => ({ user_id: userId, topic_id })));
   }
 }

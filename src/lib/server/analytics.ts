@@ -7,6 +7,7 @@ import type {
   Database,
   DeliveryStatus,
   DigestStatus,
+  EventStatus,
   FeedbackVote,
   PlanTier,
 } from "@/lib/supabase/types";
@@ -355,4 +356,67 @@ export const getTopicUptake = createServerFn({ method: "GET" })
       }))
       .sort((a, b) => b.users - a.users)
       .slice(0, 12);
+  });
+
+export type PipelineEvent = {
+  id: string;
+  title: string;
+  importance: number;
+  status: EventStatus;
+  sources: number;
+  topics: string[];
+};
+
+/** Newest events, for the staff pipeline page — not a fixture list. */
+export const listRecentEvents = createServerFn({ method: "GET" })
+  .middleware([adminOnly])
+  .handler(async ({ context }): Promise<PipelineEvent[]> => {
+    const db = context.actor.db;
+    const { data, error } = await db
+      .from("events")
+      .select("id, title, importance, status")
+      .order("last_updated_at", { ascending: false })
+      .limit(8);
+    if (error) throw new Error(`listing events: ${error.message}`);
+    const rows = data ?? [];
+    if (rows.length === 0) return [];
+
+    const ids = rows.map((r) => r.id);
+    const [
+      { data: articles, error: articleError },
+      { data: links, error: linkError },
+      { data: topicRows, error: topicError },
+    ] = await Promise.all([
+      db.from("articles").select("event_id").in("event_id", ids),
+      db.from("event_topics").select("event_id, topic_id").in("event_id", ids),
+      db.from("topics").select("id, label"),
+    ]);
+    if (articleError) throw new Error(`counting event articles: ${articleError.message}`);
+    if (linkError) throw new Error(`reading event topics: ${linkError.message}`);
+    if (topicError) throw new Error(`reading topics: ${topicError.message}`);
+
+    const sourceCount = new Map<string, number>();
+    for (const row of articles ?? []) {
+      if (!row.event_id) continue;
+      sourceCount.set(row.event_id, (sourceCount.get(row.event_id) ?? 0) + 1);
+    }
+
+    const labelOf = new Map((topicRows ?? []).map((t) => [t.id, t.label] as const));
+    const topics = new Map<string, string[]>();
+    for (const row of links ?? []) {
+      const label = labelOf.get(row.topic_id);
+      if (!label) continue;
+      const list = topics.get(row.event_id) ?? [];
+      if (!list.includes(label)) list.push(label);
+      topics.set(row.event_id, list);
+    }
+
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      importance: row.importance,
+      status: row.status,
+      sources: sourceCount.get(row.id) ?? 0,
+      topics: topics.get(row.id) ?? [],
+    }));
   });

@@ -764,7 +764,7 @@ function PricesForm({ row }: { row: SettingRow | undefined }) {
     <SettingForm
       settingKey="billing.prices"
       row={row}
-      note="Whole US dollars. These feed the pricing page and the revenue estimate on the overview. Nothing here talks to the payment provider."
+      note="Must match the Stripe catalogue: nyuz personal $7.00/mo and $70.00/yr, nyuz pro $15.00/mo and $150.00/yr. Checkout charges Stripe, not this form."
       value={prices}
       defaults={PRICES_DEFAULT}
       onReset={() => {

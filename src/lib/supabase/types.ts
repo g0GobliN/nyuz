@@ -18,6 +18,7 @@ export type TopicImportance = "everything" | "notable" | "only_major";
 export type TopicFrequency = "daily" | "weekly" | "breaking_only";
 export type EventStatus = "pending" | "analysing" | "complete" | "failed";
 export type DigestStatus = "scheduled" | "generating" | "ready" | "sent" | "skipped" | "failed";
+export type DigestKind = "briefing" | "alert";
 export type DeliveryChannel = "email" | "telegram" | "whatsapp";
 export type DeliveryStatus = "queued" | "sent" | "failed" | "bounced";
 export type DigestFrequency = "daily" | "weekly";
@@ -51,6 +52,8 @@ export type Profile = {
   last_seen_at: string | null;
   /** Set the first time the welcome email goes out, so it goes out once. */
   welcomed_at: string | null;
+  /** Set when the pause confirmation is sent, cleared when briefings resume. */
+  paused_notified_at: string | null;
 };
 
 export type Subscription = {
@@ -178,6 +181,8 @@ export type Digest = {
   status: DigestStatus;
   item_count: number;
   generation_tokens: number;
+  /** Scheduled briefing vs out-of-schedule alert. Default `briefing`. */
+  kind: DigestKind;
 };
 
 export type DigestItem = {
@@ -206,6 +211,14 @@ export type Feedback = {
 };
 
 export type SavedStory = { user_id: string; event_id: string; saved_at: string };
+
+/** One Ask call. RLS on, no policy — service role only (0010). */
+export type AskLog = {
+  id: string;
+  user_id: string;
+  event_id: string;
+  created_at: string;
+};
 
 /* ------------------------------------------------------------------------ */
 /* Admin console                                                            */
@@ -325,7 +338,14 @@ export type Database = {
     Tables: {
       profiles: Table<
         Profile,
-        "display_name" | "timezone" | "onboarded_at" | "created_at" | "email" | "last_seen_at"
+        | "display_name"
+        | "timezone"
+        | "onboarded_at"
+        | "created_at"
+        | "email"
+        | "last_seen_at"
+        | "welcomed_at"
+        | "paused_notified_at"
       >;
       subscriptions: Table<
         Subscription,
@@ -380,7 +400,7 @@ export type Database = {
       user_events: Table<UserEvent, "relevance" | "matched_at">;
       digests: Table<
         Digest,
-        "digest_id" | "generated_at" | "status" | "item_count" | "generation_tokens"
+        "digest_id" | "generated_at" | "status" | "item_count" | "generation_tokens" | "kind"
       >;
       digest_items: Table<DigestItem, "why_it_matters">;
       deliveries: Table<
@@ -389,6 +409,7 @@ export type Database = {
       >;
       feedback: Table<Feedback, "created_at">;
       saved_stories: Table<SavedStory, "saved_at">;
+      ask_log: Table<AskLog, "id" | "created_at">;
 
       user_roles: Table<UserRole, "role" | "granted_by" | "granted_at">;
       user_bans: Table<UserBan, "reason" | "banned_by" | "banned_at" | "expires_at">;
@@ -428,6 +449,19 @@ export type Database = {
       increment_post_view: {
         Args: { p_slug: string };
         Returns: undefined;
+      };
+      /**
+       * Atomically claims one Ask against the daily cap. Service-role only.
+       * Returns ok | plan | quota | cooldown.
+       */
+      claim_ask: {
+        Args: {
+          p_user_id: string;
+          p_event_id: string;
+          p_cap: number;
+          p_cooldown_ms: number;
+        };
+        Returns: string;
       };
       is_admin: {
         Args: { uid?: string };

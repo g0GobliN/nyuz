@@ -261,6 +261,7 @@ async function runMatch(
     sinceHours: windowHours,
     ...(options.dryRun ? { dryRun: true } : {}),
     now,
+    skipAlerts: true,
   });
 
   const outcome = report.outcomes[0];

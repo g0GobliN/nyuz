@@ -1,51 +1,8 @@
+import type { Story } from "@/lib/story";
+export { IGNORE_POOL, TOPIC_POOL } from "@/lib/topics-pool";
+
+export type { Story } from "@/lib/story";
 export type Profile = "developer" | "founder" | "investor" | "researcher";
-
-export const TOPIC_POOL = [
-  "AI",
-  "OpenAI",
-  "Anthropic",
-  "NVIDIA",
-  "Cursor",
-  "React",
-  "Next.js",
-  "TypeScript",
-  "Startups",
-  "Cybersecurity",
-  "Gaming",
-  "Funding",
-  "Chips",
-  "Open source",
-  "Robotics",
-] as const;
-
-export const IGNORE_POOL = [
-  "Crypto",
-  "Politics",
-  "Celebrity news",
-  "Sports",
-  "Rumours",
-  "Opinion columns",
-];
-
-export type Story = {
-  id: string;
-  org: string;
-  title: string;
-  what: string;
-  why: string;
-  importance: "High" | "Medium" | "Notable";
-  score: { relevance: number; importance: number; novelty: number };
-  sources: number;
-  topics: string[];
-  /** Clock time on its own, for places that already sit under a date heading. */
-  time: string;
-  /** The same moment as `time`, dated. Rendered through `formatStoryTime`. */
-  publishedAt: string;
-  sourceList: { name: string; at: string }[];
-  before: string;
-  after: string;
-  timeline: { at: string; label: string }[];
-};
 
 const src = (names: string[]): { name: string; at: string }[] =>
   names.map((n, i) => ({ name: n, at: `0${4 + i}:${(11 + i * 7) % 60}`.padEnd(5, "0") }));
