@@ -311,14 +311,9 @@ function StepVisual({ kind }: { kind: (typeof STEPS)[number]["kind"] }) {
     <div className="space-y-4">
       <p className="font-serif text-4xl">7:30 AM</p>
       <div className="flex gap-2">
-        {["Email", "Telegram", "WhatsApp"].map((c) => (
-          <span
-            key={c}
-            className="rounded-full border border-hairline px-3 py-1.5 text-[12.5px] text-muted-foreground"
-          >
-            {c}
-          </span>
-        ))}
+        <span className="rounded-full border border-hairline px-3 py-1.5 text-[12.5px] text-muted-foreground">
+          Email
+        </span>
       </div>
       <div className="rounded-2xl border border-hairline bg-surface-2 p-4">
         <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">

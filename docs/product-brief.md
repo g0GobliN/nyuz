@@ -1114,7 +1114,7 @@ Start Personal
 
 Annual:
 
-$60/year
+$70/year
 
 Pro
 
@@ -1138,7 +1138,7 @@ Priority processing
 
 Annual:
 
-$120/year
+$150/year
 
 Do not artificially limit the number of “news articles” users receive.
 

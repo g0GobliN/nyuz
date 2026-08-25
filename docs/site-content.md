@@ -116,10 +116,9 @@ Live in two places on purpose:
 override was applied, so the overview can distinguish "operator set this" from "we fell
 back".
 
-The annual defaults are **not** `monthly × 10`. The shipped page charges $60 and $120 while
-its own caption says "two months back", which would be $70 and $150. Copying the page
-rather than the caption means the console opens showing what customers are actually quoted,
-and the hint beside each field points out the discrepancy rather than papering over it.
+The annual defaults match the Stripe catalogue: Personal $70/year, Pro $150/year
+(two months free against monthly $7 and $15). `plans.ts` owns both the monthly and
+annual numbers; `billing.prices` is the console override.
 
 ---
 
@@ -133,7 +132,7 @@ of logged-out traffic at random is worse than not shipping it.
 | Flag               | Effect                                        |
 | ------------------ | --------------------------------------------- |
 | `blog`             | Blog in nav and footer; `/blog` 404s when off |
-| `signups_open`     | Close registration without a deploy           |
+| `signups_open`     | Close registration. Enforced in Postgres on `auth.users` insert, not only in the UI. |
 | `announcement_bar` | Show the configured banner                    |
 | `breaking_alerts`  | Out-of-schedule sends                         |
 | `deep_explain`     | Premium reasoning tier                        |

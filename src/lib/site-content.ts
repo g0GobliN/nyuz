@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DEFAULT_PLAN_PRICES } from "@/lib/plans";
+import { DEFAULT_ANNUAL_PRICES, DEFAULT_PLAN_PRICES } from "@/lib/plans";
 
 /**
  * The shape of everything the console can change about the public site.
@@ -47,7 +47,7 @@ export const HERO_DEFAULT: Hero = {
   ctaHref: "/onboarding",
   secondaryLabel: "See how it works",
   secondaryHref: "/how-it-works",
-  footnote: "327 sources monitored · duplicates merged · one briefing",
+  footnote: "Live sources · duplicates merged · one briefing",
 };
 
 /* ---------------------------------------------------------------------- */
@@ -57,7 +57,15 @@ export const HERO_DEFAULT: Hero = {
 /** Empty `text` means the bar does not render at all. That is the off switch. */
 export const announcementSchema = z.object({
   text: z.string().max(200),
-  href: z.string().max(200),
+  href: z
+    .string()
+    .max(200)
+    .refine(
+      (v) => v === "" || v.startsWith("/") || v.startsWith("https://") || v.startsWith("mailto:"),
+      {
+        message: "Use a path beginning with /, an https:// URL, or mailto:.",
+      },
+    ),
   linkLabel: z.string().max(40),
 });
 
@@ -292,7 +300,7 @@ export const SEO_DEFAULT: Seo = {
   title: "nyuz — Stop searching. Start knowing.",
   description:
     "You don't read the news. It reports to you. nyuz watches hundreds of sources, merges the duplicates, and sends you the handful of things worth knowing.",
-  ogImage: "/og-image.jpg",
+  ogImage: "/og-image.png",
 };
 
 export const footerSchema = z.object({
@@ -337,21 +345,15 @@ export type Prices = z.infer<typeof pricesSchema>;
  *
  * Monthly figures come from `plans.ts` so that repricing there moves this default
  * too, rather than leaving the console showing last quarter's numbers as "the
- * bundled copy". The annual figures are literals because `plans.ts` has no annual
- * column — it exists for revenue arithmetic, which is monthly.
- *
- * These annual numbers are deliberately not `monthly * 10`. The shipped page
- * charges $60 and $120 while its own caption says "two months back", which would
- * be $70 and $150. Copying the page rather than the caption means the console
- * opens showing what customers are being quoted, and the annual hint beside each
- * field will point out the discrepancy instead of quietly papering over it.
+ * bundled copy". Annual figures come from the same file: they are the Stripe
+ * catalogue — $70 and $150, two months free against monthly.
  */
 export const PRICES_DEFAULT: Prices = {
   free: 0,
   personal: DEFAULT_PLAN_PRICES.personal,
   pro: DEFAULT_PLAN_PRICES.pro,
-  personalAnnual: 60,
-  proAnnual: 120,
+  personalAnnual: DEFAULT_ANNUAL_PRICES.personal,
+  proAnnual: DEFAULT_ANNUAL_PRICES.pro,
 };
 
 /* ---------------------------------------------------------------------- */

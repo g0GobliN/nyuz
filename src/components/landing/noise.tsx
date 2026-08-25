@@ -49,32 +49,34 @@ export function NoiseSection() {
         </div>
       </div>
 
-      <div className="relative h-[340px] overflow-hidden rounded-3xl border border-hairline bg-surface-2 p-4">
-        <div className="flex flex-wrap content-start gap-2">
-          {NOISE_LINES.map((line, i) => {
-            const keep = KEEP.has(i);
-            const dim = calm && !keep;
-            return (
-              <span
-                key={line}
-                className="rounded-lg border px-2.5 py-1.5 text-[11.5px] transition-all duration-[1200ms]"
-                style={{
-                  borderColor: calm && keep ? "var(--signal)" : "var(--hairline)",
-                  background: calm && keep ? "var(--surface)" : "transparent",
-                  color: dim ? "var(--muted-foreground)" : "var(--foreground)",
-                  opacity: dim ? 0.14 : 1,
-                  filter: dim ? "blur(0.6px)" : "none",
-                  transform: dim ? "scale(0.97)" : "scale(1)",
-                  transitionDelay: `${(i % 8) * 55}ms`,
-                }}
-              >
-                {line}
-              </span>
-            );
-          })}
+      <div className="flex h-[360px] flex-col overflow-hidden rounded-3xl border border-hairline bg-surface-2">
+        <div className="relative min-h-0 flex-1 overflow-hidden px-4 pt-4">
+          <div className="flex flex-wrap content-start gap-2">
+            {NOISE_LINES.map((line, i) => {
+              const keep = KEEP.has(i);
+              const dim = calm && !keep;
+              return (
+                <span
+                  key={line}
+                  className="rounded-lg border px-2.5 py-1.5 text-[11.5px] transition-all duration-[1200ms]"
+                  style={{
+                    borderColor: calm && keep ? "var(--signal)" : "var(--hairline)",
+                    background: calm && keep ? "var(--surface)" : "transparent",
+                    color: dim ? "var(--muted-foreground)" : "var(--foreground)",
+                    opacity: dim ? 0.14 : 1,
+                    filter: dim ? "blur(0.6px)" : "none",
+                    transform: dim ? "scale(0.97)" : "scale(1)",
+                    transitionDelay: `${(i % 8) * 55}ms`,
+                  }}
+                >
+                  {line}
+                </span>
+              );
+            })}
+          </div>
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-b from-transparent to-surface-2" />
         </div>
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-b from-transparent to-surface-2" />
-        <p className="absolute bottom-4 left-4 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+        <p className="shrink-0 bg-surface-2 px-4 pb-4 pt-3 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
           {calm ? "3 events worth knowing" : "Everything published in 20 minutes"}
         </p>
       </div>

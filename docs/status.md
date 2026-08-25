@@ -31,10 +31,13 @@ account that owns the key. A stranger cannot receive mail until
 | Source list (64 live feeds)                            | **Built**                                    |
 | Ingestion pipeline                                     | **Built** — 1040 articles stored             |
 | Clustering (articles → events)                         | **Built** — 112 articles in 98 events        |
-| Analysis and scoring (events → understood)             | **Built** — 48 of 98 events analysed         |
-| Matching (events → readers)                            | **Built** — 16 rows in `user_events`, free   |
+| Analysis and scoring (events → understood)             | **Built** — 98 of 99 analysed; 181,980 tokens |
+| Matching (events → readers)                            | **Built** — 29 rows in `user_events`, free   |
 | Day-one backfill for a new account                     | **Built** — one query; pays only if empty    |
 | Digest generation and delivery                         | **Built** — email only; quiet days skip honestly |
+| Breaking alerts                                        | **Built** — `kind=alert` digest, email send, skip on backfill |
+| Story Ask                                              | **Built** — `reason` tier, gated by `deep_explain` |
+| Staff pipeline page                                    | **Built** — live `getOverview` counts        |
 | Customer dashboard                                     | **Built** — reads `user_events` and `digest_items` |
 
 ---
@@ -110,9 +113,11 @@ arriving. Verified through the built Worker, not just the source. See
 **Analysis.** Each event is read once, ever, and what comes out is a neutral title, a
 plain-past-tense account of what happened, the before and after state where the coverage
 supports them, scores for importance and novelty, and links into the shared `topics`
-table. **49 of the 98 events are analysed** as of this review, for **90,066 tokens** —
-about 1,840 per event on average — with **no failures**. `event_topics` has 46 rows, the first
-this project has written to a table stage 5 depends on.
+table. **98 of 99 events are analysed** as of this review, for **181,980 tokens** —
+about 1,857 per event. The last 41 were drained 25 August 2026 (79,238 tokens, 0
+failures, 0 CI refs). One event is `failed` (a parked CI ref). New topic slugs
+(`consumer-tech`, `hardware`, `developer-tools`, `linux`) were used on that drain.
+23 analysed events still have no topic.
 
 The property the pricing rests on is that this happens **once per event forever**, and it
 was verified three ways rather than asserted. Asking for an analysed event by name is
@@ -130,19 +135,18 @@ against. And `before_state` is null for 29 of 48, because the model is told to a
 null rather than fill a gap; a plausible sentence there would be a fabrication printed
 under a real headline.
 
-**Matching.** `user_events` has rows for the first time: **15 of the 48 analysed events**
-matched the one live reader, for **zero model calls**. This is the stage that would
-otherwise scale with readers, so it calls nothing, resolves no AI route, and is set
-arithmetic over rows that already exist. Re-running it is free and writes nothing — a
-second run reported all 15 already matched and left one distinct `matched_at`.
+**Matching.** `user_events` has **29 of 98 analysed events** for the one live reader,
+zero model calls. A match run after the 25 August drain wrote 13 new rows and fired
+no breaking alerts — none of the new matches cleared importance 6. This is the stage
+that would otherwise scale with readers, so it calls nothing, resolves no AI route, and
+is set arithmetic over rows that already exist. Re-running it is free and writes nothing.
 
 Each rule was exercised against the live database by changing a real preference and
-putting it back: at the default density the same 15 events split into 7 admitted and 8
-below the threshold; an added exclusion vetoed exactly one story while leaving the topic
+putting it back: at the default density the same events split into admitted and
+below-threshold; an added exclusion vetoed exactly one story while leaving the topic
 that selected it intact; muting an event's only source dropped exactly that event; and
-marking a source `priority` reordered the briefing without changing what was in it. Misses
-plus matches reconcile to 48 in every run. Details and figures in
-[plan.md](plan.md#stage-5--matching--done).
+marking a source `priority` reordered the briefing without changing what was in it.
+Details and figures in [plan.md](plan.md#stage-5--matching--done).
 
 Three limits worth stating plainly. **The density dial's story counts are the dial's
 claim, not a measurement** — no code reads them to make a decision, but nothing has
@@ -178,21 +182,10 @@ switches the paid half off entirely.
 
 ---
 
-## What is a prototype
-
-**The Pipeline page** at `/dashboard/admin`. Queue depths and funnel volumes are fixture
-figures from a local set. The business metrics on its economics tab are deliberately left
-empty rather than filled with plausible numbers.
-
-**Breaking alerts.** The preference exists and is stored. Nothing sends out of schedule
-yet, and the alerts page says so rather than listing invented sends.
-
----
-
 ## What is not built
 
-**Telegram and WhatsApp delivery.** Email is the only channel the digest stage sends on.
-The other two stay in `notification_preferences.channels` and are ignored at send time.
+**Telegram and WhatsApp delivery.** Email is the only channel that sends. The other two
+toggles store a preference and say so — they do not pretend a bot is connected.
 
 The stages:
 
@@ -207,11 +200,11 @@ The stages:
    928 are a backlog the schedule works through, or a deliberate
    `npm run pipeline -- cluster --limit N`.
 4. ~~**Understand** — one analysis pass per event; importance, novelty, before/after.~~
-   Built and verified, 23 August 2026. 49 of 98 events analysed, 49 waiting with
-   `analysed_at` null; the schedule takes six an hour, and
-   `npm run pipeline -- analyse --limit N` drains the rest deliberately.
+   Built and verified, 23 August 2026. **98 of 99 analysed** as of 25 August 2026
+   (181,980 tokens). The pending backlog was drained the same day.
 5. ~~**Match** — deterministic SQL against topics, keywords, exclusions and density.~~
-   Built and verified, 23 August 2026. 16 rows in `user_events`, zero model calls. The
+   Built and verified, 23 August 2026. 29 rows in `user_events` after the 25 August
+   drain, zero model calls. The
    day-one path that runs the same code for a brand-new account was verified 24 August.
 6. ~~**Generate and deliver** — one paragraph per person per story, then send.~~ Built
    25 August 2026. `src/lib/pipeline/digest.ts` schedules on the reader's timezone,
@@ -219,10 +212,21 @@ The stages:
    zero items when nothing matched, and sends email through Resend with `deliveries`
    retry. A quiet day is emailed as a quiet day, not padded. Cron `*/5 * * * *`.
    `npm run pipeline -- digest --user ID --now` builds a slot immediately.
+7. ~~**Breaking alerts** — out-of-schedule send for a newly matched event.~~ Built
+   25 August 2026. `digests.kind = 'alert'`, no model call (`generation_tokens = 0`),
+   email via the same `deliveries` path. `important` uses the Minimal floor (importance
+   ≥ 6) and caps at three a week. Day-one backfill sets `skipAlerts`.
+8. ~~**Story Ask** — on-demand `reason` call against one event.~~ Built 25 August 2026.
+   `deep_explain` is on. A caller can only ask about an event in their `user_events`.
+   Fail-closed if the flag is missing. Free has 0 calls. Paid plans have a silent
+   daily ceiling (Personal 24, Pro 48) that is not advertised; off-topic and coding
+   asks are refused before a model call. 8s cooldown.
+   Quota is claimed in Postgres (`claim_ask`) so parallel requests
+   cannot drain the reason tier.
 
 **The project has now spent money on both of the stages that ever will share it.**
 Clustering costs roughly 610 tokens per article; analysis costs roughly 1,846 tokens per
-event, once. `events.analysis_tokens` holds **90,066 across 49 rows** — the number the
+event, once. `events.analysis_tokens` holds **181,980 across 98 rows** — the number the
 whole cost argument gets audited against, and the reason it is stored on the event rather
 than summed from a log. A single figure there that ever doubled would mean an event had
 been understood twice, which is the one failure this design cannot absorb.
@@ -249,27 +253,21 @@ need to exist first.
 
 ## Known gaps and rough edges
 
-**Coverage does not match the interest picker.** `TOPIC_POOL` offers fifteen topics and
-all fifteen are technology, but onboarding accepts any free-text topic. So the interface
-implies coverage the product does not have. Either narrow onboarding to state that
-coverage is technology, or broaden sourcing. This is a product decision, not a bug to fix
-in code — and it is now live rather than hypothetical, because the 64 feeds being fetched
-are all technology feeds.
-
-**Anthropic has no primary source.** It is in `TOPIC_POOL`, and the company publishes no
-feed at any conventional path any more, so an Anthropic announcement will only ever arrive
-as somebody else's coverage of it. Named here because a reader who picks that topic is
-entitled to know.
+**Coverage is the topic pool.** Onboarding and Topics only offer `TOPIC_POOL`. Save and
+match drop anything else, so a free-text "knitting" row cannot select an event. Anthropic
+is in the pool with no primary feed (re-checked 25 August 2026: `/rss.xml`, `/feed.xml`,
+`/news/rss.xml`, `/news/feed` all 404) — an announcement arrives only as somebody else's
+coverage.
 
 **`0007_source_stats.sql` is applied.** `admin_source_stats()` returns 68 sources and
 1,040 articles. Applied 25 August 2026 via the Supabase MCP, because `supabase db push`
 still cannot run from this machine.
 
-**PyTorch's feed is the wrong URL.** It has already cost a fifth of the analysis bill
-(10 CI-ref events, 18,157 tokens). The URL is still a coverage decision. **The meter is
-stopped**: ingest drops titles matching `isVcsRef`, cluster parks leftovers as failed
-events, and analysis refuses a single-article ref with zero tokens. Real `v*` release
-tags still pass through.
+**PyTorch's GitHub feed was the wrong URL.** It cost a fifth of the analysis bill
+(10 CI-ref events, 18,157 tokens). **Retargeted 25 August 2026** to the company blog
+(`https://pytorch.org/blog/feed/`). GitHub `releases.atom` and `tags.atom` are the same
+CI stream; there is no version filter. First fetch stored 8 real posts. Ingest still
+drops CI-ref titles; cluster parks leftovers as failed events.
 
 **The cron's per-run limit assumes a paid Cloudflare plan.** A Worker invocation may make
 50 subrequests on the free plan and 1000 on paid; `SCHEDULED_LIMIT` is 24 sources, which
@@ -281,13 +279,11 @@ bounded by money and wall-clock rather than by subrequests. Clustering does 12 a
 run and analysis 6 events, roughly 35 subrequests, and neither tries to drain its backlog
 unattended.
 
-**Fifteen topics cannot cover what the sources publish.** Sixteen of the 49 analysed
-events carry no topic at all — game reviews, phone trade-in guides, consumer how-tos —
-because analysis is told to choose nothing rather than something loose. Those events are
-correctly scored and permanently unmatchable: with no row in `event_topics` there is
-nothing for a reader's topics to join against. Either the vocabulary grows or some of
-these are the wrong sources; both are product decisions, and matching will make the
-consequence visible rather than fix it.
+**The topic pool grew on 25 August 2026.** Linux, Hardware, Developer tools and Consumer
+tech were added (`0009_alerts.sql`) so new analysis has somewhere to put game reviews and
+how-tos. Events already analysed keep whatever topics they had — `analysed_at` is
+once-ever, so a prior no-topic row stays unmatchable until an operator re-runs analysis
+by name, which this codebase refuses to do automatically.
 
 **The day-one path draws from the same analysis backlog.** When a new account
 matches nothing, the on-demand pass analyses up to three events — from the 49 still
@@ -305,13 +301,12 @@ briefing mail so it does not go out red.
 cache in front of the account rather than the store of record. Noted because earlier
 versions of this page said otherwise.
 
-**Legal documents are unreviewed drafts.** `src/routes/legal/$doc.tsx` contains eight
-policies with an `ENTITY` constant holding four placeholders. They describe what the
-system genuinely does, which is the part a template cannot supply, but they have not been
-seen by a lawyer.
+**Legal documents are unreviewed drafts.** `src/routes/legal/$doc.tsx` names Vishal
+"goblin" Gurung trading as nyuz, correspondence Matsudo, Chiba, 〒270-0004, Japan, contact
+`contact@`, `privacy@`, `security@` and `billing@nyuz.app`. They describe what the system genuinely does, but they have not been
+seen by a lawyer. Not a registered company — do not say "Registered in Japan".
 
-**The licence has placeholders too.** `LICENSE` names `[Company legal name]`. A
-copyright notice naming nobody is hard to enforce.
+**The licence names Vishal "goblin" Gurung** and `contact@nyuz.app`. Still not lawyer-reviewed.
 
 **`react-refresh/only-export-components` warnings.** Eighteen of them, all in files that
 export both a component and a helper. They affect hot-reload granularity in development

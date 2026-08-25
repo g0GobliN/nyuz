@@ -173,14 +173,9 @@ export function Infrastructure() {
             </div>
           ))}
           <div className="mt-5 flex gap-2">
-            {["Email", "Telegram", "WhatsApp"].map((c) => (
-              <span
-                key={c}
-                className="rounded-full border border-signal/40 px-3 py-1.5 text-[12px] text-signal"
-              >
-                {c}
-              </span>
-            ))}
+            <span className="rounded-full border border-signal/40 px-3 py-1.5 text-[12px] text-signal">
+              Email
+            </span>
           </div>
         </div>
 

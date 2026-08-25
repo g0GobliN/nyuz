@@ -81,8 +81,8 @@ yet.
 - [ ] `npm run ci` green locally, and CI green on the commit
 - [ ] Migrations applied to the target project
 - [ ] Secrets set for every active AI provider and the service role
-- [ ] `ENTITY` placeholders filled in `src/routes/legal/$doc.tsx`
-- [ ] `[Company legal name]` and contact filled in `LICENSE`
+- [x] `ENTITY` filled in `src/routes/legal/$doc.tsx` (sole trader, Japan; contact / privacy / security / billing @nyuz.app)
+- [x] Copyright holder and contact filled in `LICENSE`
 - [ ] Subprocessor table regions filled in the legal pages
 - [ ] At least one superadmin granted on the target project
 - [ ] Sample-data notice removed **only if** the pipeline is actually live

@@ -1,5 +1,5 @@
 nyuz — Proprietary Software License
-Copyright (c) 2026 [Company legal name]. All rights reserved.
+Copyright (c) 2026 Vishal "goblin" Gurung. All rights reserved.
 
 THIS IS NOT OPEN SOURCE SOFTWARE.
 
@@ -82,22 +82,7 @@ trade secret law. The copyright holder reserves every remedy available.
 8. PERMISSIONS
 
 Licences are available by agreement. To ask about one, contact
-[contact@yourdomain].
+contact@nyuz.app.
 
----
+This text has not been reviewed by a lawyer.
 
-NOTE FOR THE REPOSITORY OWNER — DELETE THIS SECTION BEFORE PUBLISHING
-
-Two placeholders above must be filled in before this licence means anything:
-`[Company legal name]` and `[contact@yourdomain]`. A copyright notice naming
-nobody is difficult to enforce.
-
-This text has not been reviewed by a lawyer. It is a strict all-rights-reserved
-notice, which is the correct default for a commercial product, but if you plan
-to take investment, hire, or accept outside contributions, have counsel review
-it — particularly clause 2, which is deliberately one-sided.
-
-Also note: making a GitHub repository public does not license it, but it does
-grant other GitHub users the limited right to view and fork it within GitHub,
-under the GitHub Terms of Service, regardless of what this file says. If that
-is not acceptable, keep the repository private.

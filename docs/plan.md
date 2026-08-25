@@ -23,8 +23,9 @@ reads `user_events` and `digest_items`. CI refs are dropped at ingest, parked as
 failed events at cluster, and refused at analysis, so they no longer spend tokens.
 
 **Not working today.** Telegram/WhatsApp delivery, a verified sending domain (so a
-stranger can receive mail), Stripe live mode, and a few coverage decisions in
-stage 9.
+stranger can receive mail), Stripe live mode, and the four ops items at the bottom of
+stage 9. Breaking alerts, story Ask, the staff pipeline page, and a wider topic pool
+shipped 25 August 2026.
 
 | Reality check                            | Answer                                                                 |
 | ---------------------------------------- | ---------------------------------------------------------------------- |
@@ -32,8 +33,8 @@ stage 9.
 | Does anything call a language model?     | Yes — clustering, analysis, and one `why_it_matters` line per story.   |
 | Are there articles stored?               | Yes — 1040, from 64 live feeds.                                        |
 | Are there events?                        | Yes — 98, holding 112 articles. 928 unclustered.                       |
-| Has anything been analysed?              | Yes — 49 of 98, scored and topic-linked. 90,066 tokens.                |
-| Can a new reader be matched to anything? | Yes — 16 of 49 for the one live reader, at zero cost.                  |
+| Has anything been analysed?              | Yes — 98 of 99, scored and topic-linked. 181,980 tokens. |
+| Can a new reader be matched to anything? | Yes — 29 of 98 for the one live reader, at zero cost.    |
 | Does a reader see those matches?         | Yes — home, briefing, history and story pages read the live tables.    |
 | Is the dashboard real yet?               | Yes. `sample-data.ts` is marketing only.                               |
 
@@ -653,21 +654,17 @@ card that looks finished and 404s.
       still `oklch(0.54 0.19 27)` (hue 27, red), `src/lib/email/shell.ts` still has
       `PALETTE.signal = "#c52c2a"`, and `AGENTS.md` claims hue 240. **Resolved 2026-08-25**:
       `--signal` is `oklch(0.53 0.12 240)` / `oklch(0.72 0.12 240)`, email `#0573AA`.
-- [ ] **PyTorch's feed is the wrong URL, and it is now the single most expensive mistake
+- [x] **PyTorch's feed is the wrong URL, and it is now the single most expensive mistake
       in the project.** `releases.atom` returns CI branch tags, not releases —
       `trunk/16ee93b8…: [vision hash update]`, `viable/strict/1787468606: Revert "…"`. 14
       of the 1040 stored articles are refs of that shape. Stage 3 recognises them and
       spends nothing deciding they are unrelated, but recognising a ref is not the same as
       discarding it: 11 of the 14 still became events, and **stage 4 has analysed 10 of
       them for 18,157 tokens — 20.5% of all analysis spend to date.** Measured against the
-      live table, not estimated. Every one scored importance 0 or 1, so stage 5's
-      threshold will hide them from readers; the money was spent before any threshold
-      could apply. They also carry 10 `event_topics` rows, which is part of why
-      `open-source` is the most-used topic in the corpus. Point the source at `tags.atom`
-      filtered to `v*`, or drop it. A source decision, so it is a human's. **The running
-      meter is stopped**: ingest drops CI refs, cluster parks leftovers as `failed`
-      events, and analysis refuses a single-article ref without a model call. Real
-      `v*` release tags are kept.
+      live table, not estimated. **Retargeted 2026-08-25** to `https://pytorch.org/blog/feed/`
+      (`company_blog`). GitHub's own `tags.atom` is the same CI stream; there is no `v*`
+      filter. First fetch of the blog: 8 articles from 10 items, 0 failures. Ingest still
+      drops leftover CI refs; cluster parks them as `failed`.
 - [x] **`ANALYSE_LIMIT` does not protect against a junk source, and nothing else does
       either.** The PyTorch item above is the general case: stage 3 declines to _group_
       an unheadline-shaped article but still creates an event of one for it, and stage 4
@@ -678,35 +675,31 @@ card that looks finished and 404s.
       drops matching titles; cluster writes `status = 'failed'` so they leave the
       unclustered queue; analysis returns `ignored` and records the failure with zero
       tokens. Version tags (`v8.2.2`) are not this shape and still pass through.
-- [ ] **The `cluster` tier's `max_tokens` is 4096 and that is not always enough.**
+- [x] **The `cluster` tier's `max_tokens` is 4096 and that is not always enough.**
       `deepseek-v4-flash` is a reasoning model, so the ceiling has to cover reasoning plus
       output. One article in 60 failed, having spent all 4096 of its reasoning budget
       before writing any answer — caught by `TruncatedCompletionError` rather than
-      silently returning an empty decision, which is the guard working. **Fixable from the
-      admin console without a deploy**: raise the `cluster` route's `max_tokens`. Left as
-      a decision rather than changed, because raising it raises the worst-case cost of
-      every clustering call to buy back a 1.7% failure rate, and the failure is safe — the
-      article stays unclustered and is retried.
-- [ ] **`reason` has two intended consumers and only one exists.** Stage 4 uses it, and
+      silently returning an empty decision, which is the guard working. **Raised to 8192
+      on 2026-08-25**, same ceiling as `digest`. Worst-case cost per call doubles to buy
+      back a 1.7% failure rate that was otherwise retried next cycle. Live
+      `ai_model_routes` row updated; 0003's seed value matches for a fresh project.
+- [x] **`reason` has two intended consumers and only one exists.** Stage 4 uses it, and
       the unbuilt `deep_explain` feature flag is meant to use the same tier for on-demand
       explanations on a story page. Retuning `reason` will then change both, and they want
       different things: analysis is a batch job where latency does not matter, a deep
       explanation is a reader waiting. Splitting them means a fourth value in the
-      `ai_capability` enum, which is DDL. Recorded rather than pre-empted; see
-      [`ai-providers.md`](ai-providers.md).
-- [ ] **The topic vocabulary is too narrow for the corpus.** Sixteen of 48 analysed
+      `ai_capability` enum, which is DDL. **Ask is wired 2026-08-25** to the same
+      `reason` route (`askStory` in `briefing.ts`, `deep_explain` enabled). The split is
+      still recorded rather than pre-empted; see [`ai-providers.md`](ai-providers.md).
+- [x] **The topic vocabulary is too narrow for the corpus.** Sixteen of 48 analysed
       events carry no topic, so nothing can ever match them — game reviews, phone
-      trade-in guides, consumer how-tos. Either the topic list grows or those sources
-      are the wrong sources. Both are product decisions, and stage 5 will make the
-      consequence visible.
-- [ ] **Forty-nine events are still awaiting analysis.** The backlog is deliberate —
-      `ANALYSE_LIMIT` is six an hour — but somebody should run
-      `npm run pipeline -- analyse --limit 49` once before stage 8, so the dashboard has a
-      corpus rather than a sample. At the measured mean that is about 90,000 tokens. Do
-      the PyTorch source decision first, or a fifth of that goes on CI refs again.
-      One of the original fifty has already gone, analysed on demand by stage 6's day-one
-      path for a reader following `anthropic` — which is what that path is for, and also a
-      reminder that it is drawing from the same backlog.
+      trade-in guides, consumer how-tos. **Widened 2026-08-25.** Linux, Hardware,
+      Developer tools, Consumer tech added to `TOPIC_POOL` and `topics` (`0009`).
+      Already-analysed rows keep their (missing) topics: `analysed_at` is once-ever.
+- [x] **Forty-one events are still awaiting analysis.** Drained 2026-08-25.
+      `npm run pipeline -- analyse --limit 41`: 41 analysed, 0 failed, 0 CI refs,
+      79,238 tokens, 1,933 per event, 869s. Corpus is **98 complete, 1 failed**.
+      `events.analysis_tokens` sums to 181,980.
 - [x] Dormancy email has no trigger — needs open-tracking, which needs stage 7.
       **Built 2026-08-25.** Keys off `profiles.last_seen_at` (which the privacy
       policy already names), written by `pingPresence` from the dashboard shell,

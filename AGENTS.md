@@ -50,7 +50,8 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
   `SECTION_COMPONENTS` in `src/routes/index.tsx`. Missing one is a type error.
 - Legal text is deliberately NOT editable from the console — it is a legal
   commitment that should require a deploy and therefore a code review. It lives
-  in `src/routes/legal/$doc.tsx`, where `ENTITY` still holds placeholders.
+  in `src/routes/legal/$doc.tsx`. `ENTITY` is the unregistered operator in Japan
+  (city + postcode, no building). Incorporate later and this block has to change.
 - `/how-it-works` must not re-render the landing page's sections. The home page
   argues; that page explains. Its content is `pipeline-explainer.tsx`.
 
