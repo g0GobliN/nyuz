@@ -6,20 +6,35 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { PUBLIC_CONTENT_FALLBACK, type PublicSiteContent } from "@/lib/site-content";
 
 /**
- * The nyuz mark, inline so it inherits the theme: the glyph takes currentColor
- * and the terminal dot takes --signal, so it stays correct in light and dark
- * without shipping two files. viewBox is the mark's exact bounding box.
+ * The nyuz mark.
+ *
+ * Inline rather than an <img> so the letterform can take `currentColor` and the
+ * dot the --signal token: the mark then follows the theme instead of carrying a
+ * baked-in field, which is what made the old JPEG sit in a white box on every
+ * dark surface. Geometry is the same path as public/logo.svg — edit both, or
+ * neither.
  */
-export function LogoMark({ className }: { className?: string }) {
+export function LogoMark({ className, alt = "nyuz" }: { className?: string; alt?: string }) {
+  const label = alt.trim();
   return (
-    <svg viewBox="0 0 27.48 30" className={className} role="img" aria-label="nyuz" fill="none">
+    <svg
+      viewBox="0 0 40 40"
+      className={className}
+      fill="none"
+      role={label ? "img" : "presentation"}
+      aria-hidden={label ? undefined : true}
+      {...(label ? { "aria-label": label } : {})}
+    >
+      {/* The stem is one unbroken stroke from cap to foot; the shoulder springs
+          off it partway down. That overlap leaves the notch at the top left,
+          which is the letterform — do not merge them into a symmetric arch.
+          Geometry matches public/logo.svg; edit both, or neither. */}
       <path
-        d="M1.77 30V13.77a11.97 11.97 0 0 1 23.94 0V24.3"
+        d="M7.89 34.95V5M7.89 18.85A12.11 12.11 0 0 1 32.11 18.85V29.7"
         stroke="currentColor"
-        strokeWidth="3.53"
-        strokeLinecap="butt"
+        strokeWidth="3.48"
       />
-      <circle cx="25.71" cy="28" r="1.8" fill="var(--signal)" />
+      <circle cx="32.11" cy="33.21" r="1.79" fill="var(--signal)" />
     </svg>
   );
 }
@@ -27,7 +42,7 @@ export function LogoMark({ className }: { className?: string }) {
 export function Logo({ className }: { className?: string }) {
   return (
     <Link to="/" className={"flex items-center gap-2.5 " + (className ?? "")}>
-      <LogoMark className="h-[22px] w-auto text-foreground" />
+      <LogoMark alt="" className="h-[22px] w-[22px]" />
       <span className="text-[15px] font-semibold tracking-tight">nyuz</span>
     </Link>
   );
@@ -47,6 +62,10 @@ const BASE_LINKS: NavLink[] = [
   { to: "/how-it-works", label: "How it works" },
   { to: "/pricing", label: "Pricing" },
 ];
+
+function safeAnnouncementHref(href: string): boolean {
+  return href.startsWith("/") || href.startsWith("https://") || href.startsWith("mailto:");
+}
 
 /**
  * The nav, and above it the announcement strip.
@@ -93,7 +112,7 @@ export function SiteNav({
                   match it, and text that wrapped to two lines would leave the page
                   content overlapped by exactly the amount it wrapped. */}
               <p className="min-w-0 flex-1 truncate">{bar.text}</p>
-              {bar.href && bar.linkLabel ? (
+              {safeAnnouncementHref(bar.href) && bar.linkLabel ? (
                 <a
                   href={bar.href}
                   className="shrink-0 underline decoration-background/40 underline-offset-4 transition-colors hover:decoration-background"

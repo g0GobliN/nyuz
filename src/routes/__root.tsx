@@ -90,9 +90,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "You don't read the news. It reports to you. nyuz watches hundreds of sources, merges the duplicates, and sends you the handful of things worth knowing.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:image", content: "/og-image.jpg" },
+      { property: "og:image", content: "/og-image.png" },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:image", content: "/og-image.jpg" },
+      { name: "twitter:image", content: "/og-image.png" },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -105,9 +107,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      // SVG favicon: one file, sharp at every size, and it carries its own
-      // dark-mode rule so the mark stays visible against dark browser chrome.
-      { rel: "icon", href: "/logo.svg", type: "image/svg+xml" },
+      // Chrome requests /favicon.ico on its own. Without that file it draws the
+      // globe even when an SVG icon is listed. SVG second, for browsers that use it:
+      // anything that understands image/svg+xml prefers it regardless of order, so
+      // the .ico is only ever the fallback for browsers that cannot.
+      //
+      // That is why the two look different on purpose. favicon.svg is the bare mark
+      // and swaps colour with the OS theme. The .ico and the iOS icon cannot carry a
+      // media query, so a bare dark mark would disappear on a dark tab strip — they
+      // get the ink field instead, which reads on any background.
+      { rel: "icon", href: "/favicon.ico", sizes: "32x32" },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
     ],
   }),
   shellComponent: RootShell,

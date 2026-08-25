@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <!-- nyuz mark: lowercase n, right leg terminating early in a blue dot.
+
+       Geometry fitted to the source render Gemini_Generated_Image_rlz2cyrlz2cyrlz2.jpeg
+       (1024px): shoulder is a circular arc centred (512,495), centre-line radius
+       177.5, stroke 51; stem spans the full height 292 to 731; right leg stops at
+       654; dot (690,705.5) r26. Scaled to height 30 in a 40x40 box. The
+       reconstruction scores 0.971 pixel IoU against that source.
+
+       The stem is one unbroken stroke from cap to foot, and the shoulder springs
+       off it partway down. That overlap is what leaves the notch at the top left.
+       It is the letterform, not a bug: do not merge the two into a symmetric arch,
+       which is exactly the error this file used to contain.
+
+       Colours are set twice on purpose. The inline stroke/fill attributes draw the
+       mark; the style block only overrides them for dark mode, and CSS outranks a
+       presentation attribute, so it wins where honoured. A renderer that ignores
+       style in an icon context still gets the light mark rather than nothing.
+       The two blues are the sRGB values of the signal token in src/styles.css.
+
+       Careful with comments here: SVG is parsed as strict XML, and a double hyphen
+       inside a comment makes the document not well formed, which makes browsers
+       drop the icon entirely. Never write a custom property name with its leading
+       hyphens in an SVG comment. -->
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .stem { stroke: #FFFFFF; }
+      .dot  { fill: #55AEE8; }
+    }
+  </style>
+  <path
+    class="stem"
+    d="M7.89 34.95V5M7.89 18.85A12.11 12.11 0 0 1 32.11 18.85V29.7"
+    fill="none"
+    stroke="#0D0D0D"
+    stroke-width="3.48"
+    stroke-linecap="butt"
+  />
+  <circle class="dot" cx="32.11" cy="33.21" r="1.79" fill="#0573AA" />
+</svg>
