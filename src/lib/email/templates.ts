@@ -1,4 +1,15 @@
-import { type Email, button, escapeHtml, layout, p, pMuted, panel, PALETTE } from "./shell";
+import { mailWhy } from "@/lib/article-body";
+import {
+  type Email,
+  button,
+  emptyState,
+  escapeHtml,
+  layout,
+  p,
+  pMuted,
+  panel,
+  storyBrief,
+} from "./shell";
 
 /**
  * Every lifecycle email nyuz sends, as pure functions.
@@ -77,6 +88,7 @@ export function welcomeEmail({ name, baseUrl }: Base): Email {
     subject: "Your nyuz account is ready",
     html: layout({
       preheader: "Tell it what to watch for and your first briefing follows.",
+      eyebrow: "Account",
       heading: "Welcome to nyuz.",
       baseUrl,
       body: [
@@ -127,6 +139,7 @@ export function subscriptionStartedEmail({
     subject: `You are on nyuz ${plan}`,
     html: layout({
       preheader: `${plan} is active. Renews ${renews}.`,
+      eyebrow: "Billing",
       heading: `You are on ${plan}.`,
       baseUrl,
       body: [
@@ -181,6 +194,7 @@ export function subscriptionCancelledEmail({
     subject: `Your nyuz ${plan} plan is cancelled`,
     html: layout({
       preheader: `You keep ${plan} until ${until}. Nothing is deleted.`,
+      eyebrow: "Billing",
       heading: "Your plan is cancelled.",
       baseUrl,
       body: [
@@ -228,6 +242,7 @@ export function paymentFailedEmail({
     subject: "Your nyuz payment did not go through",
     html: layout({
       preheader: `We will try again on ${retry}. Your briefings keep arriving until then.`,
+      eyebrow: "Billing",
       heading: "That payment did not go through.",
       baseUrl,
       body: [
@@ -269,6 +284,7 @@ export function briefingsPausedEmail({ name, baseUrl }: Base): Email {
     subject: "Your nyuz briefings are paused",
     html: layout({
       preheader: "Nothing will arrive until you turn them back on.",
+      eyebrow: "Delivery",
       heading: "Briefings paused.",
       baseUrl,
       body: [
@@ -311,6 +327,7 @@ export function dormantEmail({
     subject: `You have not opened nyuz in ${days} days`,
     html: layout({
       preheader: "Worth tuning, or worth turning off. Both are one click.",
+      eyebrow: "Your briefing",
       heading: "Is this still useful?",
       baseUrl,
       unsubscribeUrl,
@@ -356,10 +373,29 @@ export type BriefingItem = {
   title: string;
   why: string;
   href: string;
+  /** Half the Read column. Empty falls back to `why` so older callers still send a body. */
+  grafs?: string[] | undefined;
 };
 
+function resolvedGrafs(item: { grafs?: string[] | undefined; why: string }): string[] {
+  if (item.grafs && item.grafs.length > 0) return item.grafs;
+  return item.why.trim() ? [item.why] : [];
+}
+
+function storyText(item: BriefingItem): string {
+  const grafs = resolvedGrafs(item);
+  const why = mailWhy(item.why, grafs);
+  return [
+    item.title,
+    "",
+    ...grafs,
+    ...(why ? ["", `Why it matters: ${why}`] : []),
+    "",
+    `Read the full story: ${item.href}`,
+  ].join("\n");
+}
+
 export function briefingEmail({
-  name,
   baseUrl,
   scheduledFor,
   items,
@@ -374,48 +410,103 @@ export function briefingEmail({
     : (items[0]?.title ?? `${count} ${count === 1 ? "story" : "stories"}.`);
 
   const storyBlocks = items
-    .map((item) => {
-      const title = escapeHtml(item.title);
-      const why = escapeHtml(item.why);
-      const link = escapeHtml(item.href);
-      return p(
-        `<a href="${link}" style="color:${PALETTE.ink};text-decoration:none;font-weight:600;">${title}</a><br>${why}`,
-      );
+    .map((item, i) => {
+      const grafs = resolvedGrafs(item);
+      return storyBrief({
+        index: i,
+        title: item.title,
+        grafs,
+        why: mailWhy(item.why, grafs),
+        href: item.href,
+        last: i === items.length - 1,
+      });
     })
     .join("");
 
   const stories = quiet
-    ? p(
-        "Nothing crossed the threshold you set. A quiet day is a real answer, not a failure, so this briefing is empty on purpose.",
+    ? emptyState(
+        p(
+          "Nothing crossed the threshold you set. A quiet day is a real answer, not a failure, so this briefing is empty on purpose.",
+        ),
       )
     : storyBlocks;
 
   const textStories = quiet
     ? "Nothing crossed the threshold you set. A quiet day is a real answer, not a failure, so this briefing is empty on purpose."
-    : items.map((item) => `${item.title}\n${item.why}\n${item.href}`).join("\n\n");
+    : items.map(storyText).join("\n\n");
 
   return {
     subject: quiet ? `Your nyuz — a quiet ${date}` : `Your nyuz — ${date}`,
     html: layout({
       preheader,
-      heading: quiet ? "A quiet day." : date,
+      eyebrow: date,
+      heading: quiet ? "A quiet day." : "Your briefing",
       baseUrl,
       unsubscribeUrl,
+      disclaimer: true,
       body: [
-        p(greet(name)),
         stories,
-        quiet ? "" : button("Open my briefing", href),
-        pMuted(
-          "Summaries are generated and can be wrong. Every story links to the reporting it came from.",
-        ),
+        quiet
+          ? ""
+          : [
+              pMuted(
+                "The rest of each piece — sources, the longer brief, and questions — is on nyuz.",
+              ),
+              button("Open the rest on nyuz", href),
+            ].join("\n"),
       ].join("\n"),
     }),
     text: [
-      greetText(name),
-      "",
       textStories,
       "",
-      ...(quiet ? [] : [`Open my briefing: ${href}`, ""]),
+      ...(quiet ? [] : [`Open the rest on nyuz: ${href}`, ""]),
+      `Stop these: ${unsubscribeUrl}`,
+    ].join("\n"),
+  };
+}
+
+/* ---------------------------------------------------------------------- */
+/* 8. Breaking alert                                                       */
+/* ---------------------------------------------------------------------- */
+
+export function breakingEmail({
+  baseUrl,
+  title,
+  why,
+  href,
+  grafs,
+  unsubscribeUrl,
+}: Base & {
+  title: string;
+  why: string;
+  href: string;
+  grafs?: string[] | undefined;
+  unsubscribeUrl: string;
+}): Email {
+  const bodyGrafs = resolvedGrafs({ grafs, why });
+  const aside = mailWhy(why, bodyGrafs);
+  const preview = (bodyGrafs[0] ?? why).slice(0, 90);
+
+  return {
+    subject: title,
+    html: layout({
+      preheader: preview,
+      eyebrow: "Breaking",
+      heading: "Outside your schedule.",
+      baseUrl,
+      unsubscribeUrl,
+      disclaimer: true,
+      body: [
+        storyBrief({ index: 0, title, grafs: bodyGrafs, why: aside, href, last: true }),
+        pMuted("The full story, sources, and questions are on nyuz."),
+        button("Open the rest on nyuz", href),
+      ].join("\n"),
+    }),
+    text: [
+      storyText({ title, why, href, grafs: bodyGrafs }),
+      "",
+      `Open the rest on nyuz: ${href}`,
+      "",
       `Stop these: ${unsubscribeUrl}`,
     ].join("\n"),
   };

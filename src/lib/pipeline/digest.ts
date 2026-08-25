@@ -28,8 +28,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { completeRoutedJson, type SecretBag } from "@/lib/ai/config";
 import { TruncatedCompletionError } from "@/lib/ai/deepseek";
+import { keepCoveredTopics } from "@/lib/coverage";
 import { capFor } from "@/lib/density";
-import { briefingEmail } from "@/lib/email/templates";
+import { mailGrafs } from "@/lib/article-body";
+import { briefingEmail, breakingEmail } from "@/lib/email/templates";
+import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
 import { findRecipient } from "@/lib/server/email/lifecycle";
 import { sendEmail, siteUrl, type EmailEnv } from "@/lib/server/email/send";
 import type {
@@ -562,16 +565,22 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
 }
 
 async function readerTopics(db: Db, userId: string): Promise<string[]> {
-  const { data, error } = await db
-    .from("user_topics")
-    .select("topics ( label ), muted")
-    .eq("user_id", userId)
-    .eq("muted", false);
+  const [{ data, error }, { data: sub }] = await Promise.all([
+    db
+      .from("user_topics")
+      .select("created_at, topics ( label ), muted")
+      .eq("user_id", userId)
+      .eq("muted", false)
+      .order("created_at", { ascending: true }),
+    db.from("subscriptions").select("plan").eq("user_id", userId).maybeSingle(),
+  ]);
   if (error) throw new Error(`reading user_topics: ${error.message}`);
-  return (data ?? []).flatMap((row) => {
+  const labels = (data ?? []).flatMap((row) => {
     const label = (row.topics as { label?: string } | null)?.label;
     return label ? [label] : [];
   });
+  const cap = PLAN_LIMITS[sub?.plan ?? "free"]?.topics ?? PLAN_LIMITS.free.topics;
+  return clipLabels(keepCoveredTopics(labels), cap);
 }
 
 function renderReader(briefs: EventBrief[], topics: string[], instructions: string): string {
@@ -610,6 +619,16 @@ async function queueDeliveries(
 }
 
 type DeliveryReport = { sent: number; retried: number; byDigest: Map<string, number> };
+
+/**
+ * Sends every queued email delivery, optionally for one set of readers.
+ *
+ * Exported so a breaking alert can flush the row it just queued without waiting
+ * for the digest cron, using the same retry and idempotency path.
+ */
+export async function flushDeliveries(db: Db, options: DigestOptions): Promise<DeliveryReport> {
+  return deliverDue(db, options);
+}
 
 async function deliverDue(db: Db, options: DigestOptions): Promise<DeliveryReport> {
   const query = db
@@ -655,7 +674,7 @@ async function sendOne(
 ): Promise<"sent" | "retried" | "failed"> {
   const { data: digestRow, error } = await db
     .from("digests")
-    .select("digest_id, user_id, scheduled_for, status, item_count")
+    .select("digest_id, user_id, scheduled_for, status, item_count, kind")
     .eq("digest_id", row.digest_id)
     .maybeSingle();
   if (error || !digestRow) return "failed";
@@ -672,22 +691,36 @@ async function sendOne(
 
   const items = await loadMailItems(db, row.digest_id);
   const origin = siteUrl(options.email);
-  const message = briefingEmail({
-    name: recipient.name,
-    baseUrl: origin,
-    scheduledFor: new Date(digestRow.scheduled_for),
-    items: items.map((item) => ({
-      title: item.title,
-      why: item.why,
-      href: `${origin}/dashboard/story/${item.eventId}`,
-    })),
-    unsubscribeUrl: `${origin}/dashboard/delivery`,
-  });
+  const first = items[0];
+  const unsubscribeUrl = `${origin}/dashboard/delivery`;
+  const message =
+    digestRow.kind === "alert" && first
+      ? breakingEmail({
+          name: recipient.name,
+          baseUrl: origin,
+          title: first.title,
+          why: first.why,
+          grafs: first.grafs,
+          href: `${origin}/dashboard/story/${first.eventId}`,
+          unsubscribeUrl,
+        })
+      : briefingEmail({
+          name: recipient.name,
+          baseUrl: origin,
+          scheduledFor: new Date(digestRow.scheduled_for),
+          items: items.map((item) => ({
+            title: item.title,
+            why: item.why,
+            grafs: item.grafs,
+            href: `${origin}/dashboard/story/${item.eventId}`,
+          })),
+          unsubscribeUrl,
+        });
 
   const result = await sendEmail({
     to: recipient.email,
     message,
-    unsubscribeUrl: `${origin}/dashboard/delivery`,
+    unsubscribeUrl,
     idempotencyKey: `digest:${row.digest_id}:email`,
     env: options.email,
   });
@@ -729,22 +762,72 @@ async function markDelivery(
   if (error) throw new Error(`updating delivery: ${error.message}`);
 }
 
-async function loadMailItems(
-  db: Db,
-  digestId: string,
-): Promise<{ eventId: string; title: string; why: string }[]> {
+type MailEvent = {
+  title?: string;
+  what_happened?: string;
+  before_state?: string | null;
+  after_state?: string | null;
+};
+
+type MailItem = { eventId: string; title: string; why: string; grafs: string[] };
+
+async function loadMailItems(db: Db, digestId: string): Promise<MailItem[]> {
   const { data, error } = await db
     .from("digest_items")
-    .select("event_id, position, why_it_matters, events ( title )")
+    .select(
+      "event_id, position, why_it_matters, events ( title, what_happened, before_state, after_state )",
+    )
     .eq("digest_id", digestId)
     .order("position", { ascending: true });
   if (error) throw new Error(`reading digest_items: ${error.message}`);
 
-  return (data ?? []).flatMap((row) => {
-    const title = (row.events as { title?: string } | null)?.title;
+  const rows = data ?? [];
+  const excerpts = await excerptsFor(
+    db,
+    rows.map((row) => row.event_id),
+  );
+
+  return rows.flatMap((row) => {
+    const joined = row.events as MailEvent | MailEvent[] | null;
+    const event = Array.isArray(joined) ? joined[0] : joined;
+    const title = event?.title;
     if (!title) return [];
-    return [{ eventId: row.event_id, title, why: row.why_it_matters }];
+    return [
+      {
+        eventId: row.event_id,
+        title,
+        why: row.why_it_matters,
+        grafs: mailGrafs({
+          what: event?.what_happened ?? "",
+          before: event?.before_state ?? "",
+          after: event?.after_state ?? "",
+          excerpts: excerpts.get(row.event_id) ?? [],
+        }),
+      },
+    ];
   });
+}
+
+async function excerptsFor(db: Db, eventIds: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (eventIds.length === 0) return out;
+  const { data, error } = await db
+    .from("articles")
+    .select("event_id, excerpt")
+    .in("event_id", eventIds)
+    .order("published_at", { ascending: true, nullsFirst: false });
+  if (error) throw new Error(`reading article excerpts: ${error.message}`);
+
+  for (const row of data ?? []) {
+    if (!row.event_id) continue;
+    const excerpt = (row.excerpt ?? "").trim();
+    if (excerpt.length < 40) continue;
+    const list = out.get(row.event_id) ?? [];
+    if (list.length >= 6) continue;
+    list.push(excerpt);
+    out.set(row.event_id, list);
+  }
+  return out;
 }
 
 export function describeDigest(report: DigestReport): string {

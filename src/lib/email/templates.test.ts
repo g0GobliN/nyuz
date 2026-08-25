@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { type Email } from "@/lib/email/shell";
 import {
   briefingEmail,
+  breakingEmail,
   briefingsPausedEmail,
   dormantEmail,
   formatEmailDate,
@@ -53,8 +54,20 @@ const ALL: Email[] = [
         title: "OpenAI ships a faster realtime tier",
         why: "If you build voice features, the latency budget just moved.",
         href: `${BASE}/dashboard/story/abc`,
+        grafs: [
+          "OpenAI launched a realtime API that cuts round-trip latency for voice agents.",
+          "Traffic on the older streaming endpoints will start to look expensive this quarter.",
+        ],
       },
     ],
+  }),
+  breakingEmail({
+    name: "Sam",
+    baseUrl: BASE,
+    title: "OpenAI ships a faster realtime tier",
+    why: "If you build voice features, the latency budget just moved.",
+    href: `${BASE}/dashboard/story/abc`,
+    unsubscribeUrl: `${BASE}/dashboard/delivery`,
   }),
 ];
 
@@ -86,6 +99,12 @@ describe("every template", () => {
   it("sets a preheader so the inbox preview is not scraped from the footer", () => {
     for (const email of ALL) {
       expect(email.html).toMatch(/display:none;max-height:0/);
+    }
+  });
+
+  it("marks layout tables as presentational", () => {
+    for (const email of ALL) {
+      expect(email.html).toContain('role="presentation"');
     }
   });
 });
@@ -147,6 +166,64 @@ describe("unsubscribe", () => {
       renewsOn: new Date("2026-09-03T00:00:00Z"),
     });
     expect(email.html).not.toContain("Unsubscribe");
+  });
+});
+
+describe("briefing design", () => {
+  it("puts a half brief in the mail, then pulls to the site for the rest", () => {
+    const email = briefingEmail({
+      name: "Sam",
+      baseUrl: BASE,
+      scheduledFor: new Date("2026-08-25T07:30:00Z"),
+      unsubscribeUrl: `${BASE}/dashboard/delivery`,
+      items: [
+        {
+          title: "OpenAI ships a faster realtime tier",
+          why: "If you build voice features, the latency budget just moved.",
+          href: `${BASE}/dashboard/story/abc`,
+          grafs: [
+            "OpenAI launched a realtime API that cuts round-trip latency for voice agents.",
+            "Traffic on the older streaming endpoints will start to look expensive this quarter.",
+          ],
+        },
+      ],
+    });
+    expect(email.html).toContain("Your briefing");
+    expect(email.html).toContain("#0d0d0d");
+    expect(email.html).toContain("#0573AA");
+    expect(email.html).toContain("/logo-mark.png");
+    expect(email.html).not.toContain("cid:");
+    expect(email.html).toContain("OpenAI launched a realtime API");
+    expect(email.html).toContain("Why it matters to you");
+    expect(email.html).toContain("Read the full story on nyuz");
+    expect(email.html).toContain("Open the rest on nyuz");
+    expect(email.html).not.toContain("Hello Sam");
+    expect(email.html).toContain("Summaries are generated");
+    expect(email.text).toContain("OpenAI launched a realtime API");
+    expect(email.text).toContain("Read the full story:");
+  });
+
+  it("does not stamp the briefing disclaimer on a receipt", () => {
+    const email = welcomeEmail({ name: "Sam", baseUrl: BASE });
+    expect(email.html).not.toContain("Summaries are generated");
+    expect(email.html).toContain("Account");
+  });
+
+  it("escapes a hostile story title inside the brief", () => {
+    const email = briefingEmail({
+      baseUrl: BASE,
+      scheduledFor: new Date("2026-08-25T07:30:00Z"),
+      unsubscribeUrl: `${BASE}/dashboard/delivery`,
+      items: [
+        {
+          title: "<img src=x onerror=alert(1)>",
+          why: "ok",
+          href: `${BASE}/dashboard/story/abc`,
+        },
+      ],
+    });
+    expect(email.html).not.toContain("<img src=x");
+    expect(email.html).toContain("&lt;img");
   });
 });
 
