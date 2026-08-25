@@ -1,11 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Check, Mail, MessageCircle, Pause, Phone, Play } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check, Bell, Mail, MessageCircle, Pause, Phone, Play } from "lucide-react";
 import { useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
 import { DensityDial } from "@/components/density-dial";
 import { useAuth } from "@/lib/auth";
 import { notifyBriefingsPaused } from "@/lib/server/account";
+import {
+  createTelegramLink,
+  disconnectTelegram,
+  getTelegramStatus,
+} from "@/lib/server/telegram/account";
+import { getPushStatus } from "@/lib/server/push/account";
+import { disablePush, enablePush, pushSupported } from "@/lib/push/client";
 import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +39,16 @@ function Delivery() {
   // thing that actually receives a briefing.
   const email = useAuth().user?.email ?? "";
   const [saved, setSaved] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const telegramQ = useQuery({
+    queryKey: ["telegram", "status"],
+    queryFn: () => getTelegramStatus(),
+  });
+  const pushQ = useQuery({
+    queryKey: ["push", "status"],
+    queryFn: () => getPushStatus(),
+  });
 
   const touch = (p: Parameters<typeof update>[0]) => {
     update(p);
@@ -42,6 +60,40 @@ function Delivery() {
     touch({
       days: prefs.days.includes(d) ? prefs.days.filter((x) => x !== d) : [...prefs.days, d],
     });
+
+  /**
+   * Asks the browser and stores the endpoint. Separate from the toggle because
+   * the pref can already be on with no subscription behind it: onboarding sets
+   * the channel without a browser prompt, and permission can also be revoked
+   * from site settings. In both cases the toggle already reads "on", so without
+   * a way to subscribe on its own the only route through is off and on again.
+   */
+  const subscribe = async (): Promise<boolean> => {
+    setPushError(null);
+    const key = pushQ.data?.publicKey;
+    if (!key || !pushQ.data?.configured) {
+      setPushError("Notifications are not configured on this instance.");
+      return false;
+    }
+    const result = await enablePush(key);
+    if (!result.ok) {
+      setPushError(result.error ?? "Could not enable notifications.");
+      return false;
+    }
+    void queryClient.invalidateQueries({ queryKey: ["push", "status"] });
+    return true;
+  };
+
+  const togglePush = async () => {
+    setPushError(null);
+    if (prefs.channels.push) {
+      await disablePush();
+      touch({ channels: { ...prefs.channels, push: false } });
+      void queryClient.invalidateQueries({ queryKey: ["push", "status"] });
+      return;
+    }
+    if (await subscribe()) touch({ channels: { ...prefs.channels, push: true } });
+  };
 
   /**
    * Stops or resumes everything.
@@ -174,21 +226,43 @@ function Delivery() {
             <Channel
               icon={MessageCircle}
               label="Telegram"
-              detail="Preference stored · nothing is sent on this channel yet"
+              detail={telegramDetail(telegramQ.data, prefs.channels.telegram)}
               on={prefs.channels.telegram}
               onToggle={() =>
                 touch({ channels: { ...prefs.channels, telegram: !prefs.channels.telegram } })
               }
+              extra={<TelegramConnect />}
             />
             <Channel
-              icon={Phone}
-              label="WhatsApp"
-              detail="Preference stored · nothing is sent on this channel yet"
-              on={prefs.channels.whatsapp}
-              onToggle={() =>
-                touch({ channels: { ...prefs.channels, whatsapp: !prefs.channels.whatsapp } })
+              icon={Bell}
+              label="Notifications"
+              detail={pushDetail(pushQ.data, prefs.channels.push)}
+              on={prefs.channels.push}
+              onToggle={() => void togglePush()}
+              extra={
+                <PushConnect
+                  error={pushError}
+                  needsPermission={
+                    prefs.channels.push &&
+                    pushSupported() &&
+                    Boolean(pushQ.data?.configured) &&
+                    !pushQ.data?.subscribed
+                  }
+                  onAllow={() => void subscribe()}
+                />
               }
             />
+            <div className="flex w-full items-center gap-4 rounded-2xl border border-hairline p-4 opacity-60">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <Phone className="h-4 w-4" />
+              </span>
+              <span className="flex-1">
+                <span className="block text-[15px] font-medium">More soon</span>
+                <span className="mt-0.5 block text-[12.5px] text-muted-foreground">
+                  Other services later. Nothing is sent from this row.
+                </span>
+              </span>
+            </div>
           </div>
         </Panel>
 
@@ -236,27 +310,150 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
+function telegramDetail(
+  status: { configured: boolean; linked: boolean } | undefined,
+  on: boolean,
+): string {
+  if (!status) return "Short form. Connect below, then turn this on.";
+  if (!status.configured) return "Not available on this instance yet";
+  if (status.linked) {
+    return on
+      ? "Linked · short form, tap through for the full story"
+      : "Linked · turn this on to receive briefings here";
+  }
+  if (on) return "Turned on · connect below to start receiving";
+  return "Short form. Connect below, then turn this on.";
+}
+
+function pushDetail(
+  status: { configured: boolean; subscribed: boolean } | undefined,
+  on: boolean,
+): string {
+  if (!pushSupported()) return "This browser cannot show notifications.";
+  if (!status) return "One notice per story. Dismiss just clears the notice.";
+  if (!status.configured) return "Not available on this instance yet";
+  if (on && status.subscribed) {
+    return "On · one notice per story. Dismissing does not remove it from your dashboard.";
+  }
+  if (on) return "Turned on · allow notifications when the browser asks.";
+  return "One notice per story. Tap to read, dismiss the rest. Your dashboard still has everything.";
+}
+
+function PushConnect({
+  error,
+  needsPermission,
+  onAllow,
+}: {
+  error: string | null;
+  needsPermission: boolean;
+  onAllow: () => void;
+}) {
+  return (
+    <div className="space-y-2.5">
+      {needsPermission ? (
+        <Button variant="outline" size="sm" onClick={onAllow}>
+          Allow notifications
+        </Button>
+      ) : null}
+      <p className="text-[12.5px] text-muted-foreground">
+        {error ??
+          "Clearing a notice only clears the notice. Come back here, or Home, to read the rest."}
+      </p>
+    </div>
+  );
+}
+
+function TelegramConnect() {
+  const queryClient = useQueryClient();
+  const [waiting, setWaiting] = useState(false);
+  const status = useQuery({
+    queryKey: ["telegram", "status"],
+    queryFn: () => getTelegramStatus(),
+    refetchInterval: (q) => (waiting && !q.state.data?.linked ? 4_000 : false),
+  });
+
+  const connect = useMutation({
+    mutationFn: () => createTelegramLink(),
+    onSuccess: (data) => {
+      void queryClient.invalidateQueries({ queryKey: ["telegram", "status"] });
+      if (data.connectUrl) {
+        setWaiting(true);
+        window.open(data.connectUrl, "_blank", "noopener,noreferrer");
+      }
+    },
+  });
+
+  const unlink = useMutation({
+    mutationFn: () => disconnectTelegram(),
+    onSuccess: () => {
+      setWaiting(false);
+      void queryClient.invalidateQueries({ queryKey: ["telegram", "status"] });
+    },
+  });
+
+  const data = status.data;
+
+  if (status.isLoading && !data) return null;
+  if (!data?.configured) {
+    return <p className="text-[12.5px] text-muted-foreground">Telegram is not configured here.</p>;
+  }
+
+  if (data.linked) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[12.5px] text-muted-foreground">This Telegram account is linked.</p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={unlink.isPending}
+          onClick={() => unlink.mutate()}
+        >
+          Disconnect
+        </Button>
+      </div>
+    );
+  }
+
+  const error = connect.data?.error;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <p className="text-[12.5px] text-muted-foreground">
+        {error ??
+          (waiting
+            ? "Tap Start in Telegram, then come back here."
+            : "Opens Telegram with a one-time link. Expires in 30 minutes.")}
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={connect.isPending}
+        onClick={() => connect.mutate()}
+      >
+        Connect Telegram
+      </Button>
+    </div>
+  );
+}
+
 function Channel({
   icon: Icon,
   label,
   detail,
   on,
   onToggle,
+  extra,
 }: {
   icon: typeof Mail;
   label: string;
   detail: string;
   on: boolean;
   onToggle: () => void;
+  extra?: React.ReactNode;
 }) {
-  return (
-    <button
-      onClick={onToggle}
-      className={cn(
-        "flex w-full items-center gap-4 rounded-2xl border p-4 text-left transition-all duration-300",
-        on ? "border-signal/50 bg-surface-2" : "border-hairline hover:border-border",
-      )}
-    >
+  const row = (
+    <>
       <span
         className={cn(
           "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
@@ -280,6 +477,39 @@ function Channel({
           style={{ left: on ? "1.375rem" : "0.25rem" }}
         />
       </span>
+    </>
+  );
+
+  if (extra) {
+    return (
+      <div
+        className={cn(
+          "rounded-2xl border transition-all duration-300",
+          on ? "border-signal/50 bg-surface-2" : "border-hairline",
+        )}
+      >
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex w-full items-center gap-4 p-4 text-left"
+        >
+          {row}
+        </button>
+        <div className="border-t border-hairline px-4 py-3">{extra}</div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={cn(
+        "flex w-full items-center gap-4 rounded-2xl border p-4 text-left transition-all duration-300",
+        on ? "border-signal/50 bg-surface-2" : "border-hairline hover:border-border",
+      )}
+    >
+      {row}
     </button>
   );
 }

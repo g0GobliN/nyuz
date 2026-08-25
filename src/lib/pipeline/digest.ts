@@ -35,6 +35,10 @@ import { briefingEmail, breakingEmail } from "@/lib/email/templates";
 import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
 import { findRecipient } from "@/lib/server/email/lifecycle";
 import { sendEmail, siteUrl, type EmailEnv } from "@/lib/server/email/send";
+import { sendTelegramMessage, type TelegramEnv } from "@/lib/server/telegram/send";
+import { sendStoryPushes, type PushEnv } from "@/lib/server/push/send";
+import { formatTelegramAlert, formatTelegramBriefing } from "@/lib/telegram/format";
+import { storyPush } from "@/lib/push/payload";
 import type {
   Database,
   DeliveryChannel,
@@ -84,6 +88,8 @@ export type DigestOptions = {
   limit?: number | undefined;
   secrets?: SecretBag | undefined;
   email?: EmailEnv | undefined;
+  telegram?: TelegramEnv | undefined;
+  push?: PushEnv | undefined;
   /** Skip sending after generating. */
   skipSend?: boolean | undefined;
   /**
@@ -363,7 +369,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   if (picked.length === 0) {
     if (options.dryRun !== true) {
       await finish(db, due.digest_id, "skipped", 0, 0);
-      await queueDeliveries(db, due.digest_id, prefs.channels);
+      await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
     }
     return { ...base, decision: "skipped", detail: "nothing matched since the last briefing" };
   }
@@ -433,7 +439,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   }
 
   await finish(db, due.digest_id, "ready", whys.length, tokens);
-  await queueDeliveries(db, due.digest_id, prefs.channels);
+  await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
 
   return {
     ...base,
@@ -601,27 +607,51 @@ function renderReader(briefs: EventBrief[], topics: string[], instructions: stri
   return lines.join("\n");
 }
 
+export function queuedChannels(
+  channels: DeliveryChannel[],
+  linked: { telegram: boolean; push: boolean },
+): DeliveryChannel[] {
+  const out: DeliveryChannel[] = [];
+  if (channels.includes("email")) out.push("email");
+  if (channels.includes("telegram") && linked.telegram) out.push("telegram");
+  if (channels.includes("push") && linked.push) out.push("push");
+  return out;
+}
+
+export async function deliveryTargets(
+  db: Db,
+  userId: string,
+): Promise<{ telegram: boolean; push: boolean }> {
+  const [{ data: telegram }, { count: pushCount }] = await Promise.all([
+    db.from("telegram_accounts").select("chat_id").eq("user_id", userId).maybeSingle(),
+    db
+      .from("push_subscriptions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId),
+  ]);
+  return { telegram: Boolean(telegram?.chat_id), push: (pushCount ?? 0) > 0 };
+}
+
 async function queueDeliveries(
   db: Db,
   digestId: string,
+  userId: string,
   channels: DeliveryChannel[],
 ): Promise<void> {
-  const email = channels.includes("email");
-  if (!email) return;
+  const toQueue = queuedChannels(channels, await deliveryTargets(db, userId));
+  if (toQueue.length === 0) return;
 
-  const { error } = await db
-    .from("deliveries")
-    .upsert(
-      { digest_id: digestId, channel: "email", status: "queued" },
-      { onConflict: "digest_id,channel", ignoreDuplicates: true },
-    );
+  const { error } = await db.from("deliveries").upsert(
+    toQueue.map((channel) => ({ digest_id: digestId, channel, status: "queued" as const })),
+    { onConflict: "digest_id,channel", ignoreDuplicates: true },
+  );
   if (error) throw new Error(`queueing delivery: ${error.message}`);
 }
 
 type DeliveryReport = { sent: number; retried: number; byDigest: Map<string, number> };
 
 /**
- * Sends every queued email delivery, optionally for one set of readers.
+ * Sends every queued email and Telegram delivery, optionally for one set of readers.
  *
  * Exported so a breaking alert can flush the row it just queued without waiting
  * for the digest cron, using the same retry and idempotency path.
@@ -635,7 +665,7 @@ async function deliverDue(db: Db, options: DigestOptions): Promise<DeliveryRepor
     .from("deliveries")
     .select("id, digest_id, channel, status, attempts, last_error")
     .eq("status", "queued")
-    .eq("channel", "email")
+    .in("channel", ["email", "telegram", "push"])
     .lt("attempts", MAX_ATTEMPTS);
 
   const { data, error } = await query;
@@ -669,7 +699,7 @@ async function deliverDue(db: Db, options: DigestOptions): Promise<DeliveryRepor
 
 async function sendOne(
   db: Db,
-  row: { id: string; digest_id: string; attempts: number },
+  row: { id: string; digest_id: string; channel: DeliveryChannel; attempts: number },
   options: DigestOptions,
 ): Promise<"sent" | "retried" | "failed"> {
   const { data: digestRow, error } = await db
@@ -679,20 +709,57 @@ async function sendOne(
     .maybeSingle();
   if (error || !digestRow) return "failed";
 
-  // Generating/failed briefings are not mail. Skipped ones are: the promise
-  // is that a quiet day is told, not padded and not silently omitted.
   if (digestRow.status !== "ready" && digestRow.status !== "skipped") return "failed";
-
-  const recipient = await findRecipient(db, digestRow.user_id);
-  if (!recipient) {
-    await markDelivery(db, row.id, row.attempts + 1, "failed", "no email on profile");
-    return "failed";
-  }
 
   const items = await loadMailItems(db, row.digest_id);
   const origin = siteUrl(options.email);
   const first = items[0];
   const unsubscribeUrl = `${origin}/dashboard/delivery`;
+
+  const result =
+    row.channel === "telegram"
+      ? await sendTelegramDelivery(db, digestRow, items, first, origin, options)
+      : row.channel === "push"
+        ? await sendPushDelivery(db, digestRow, items, origin, options)
+        : await sendEmailDelivery(db, digestRow, items, first, origin, unsubscribeUrl, options);
+
+  const attempts = row.attempts + 1;
+  if (result.ok) {
+    await markDelivery(db, row.id, attempts, "sent", null);
+    if (digestRow.status === "ready") {
+      const { count } = await db
+        .from("deliveries")
+        .select("id", { count: "exact", head: true })
+        .eq("digest_id", row.digest_id)
+        .eq("status", "queued");
+      if ((count ?? 0) === 0) {
+        await db.from("digests").update({ status: "sent" }).eq("digest_id", row.digest_id);
+      }
+    }
+    return "sent";
+  }
+
+  if (result.retryable && attempts < MAX_ATTEMPTS) {
+    await markDelivery(db, row.id, attempts, "queued", result.error);
+    return "retried";
+  }
+
+  await markDelivery(db, row.id, attempts, "failed", result.error);
+  return "failed";
+}
+
+async function sendEmailDelivery(
+  db: Db,
+  digestRow: { digest_id: string; user_id: string; scheduled_for: string; kind: string | null },
+  items: MailItem[],
+  first: MailItem | undefined,
+  origin: string,
+  unsubscribeUrl: string,
+  options: DigestOptions,
+) {
+  const recipient = await findRecipient(db, digestRow.user_id);
+  if (!recipient) return { ok: false as const, error: "no email on profile", retryable: false };
+
   const message =
     digestRow.kind === "alert" && first
       ? breakingEmail({
@@ -717,30 +784,91 @@ async function sendOne(
           unsubscribeUrl,
         });
 
-  const result = await sendEmail({
+  return sendEmail({
     to: recipient.email,
     message,
     unsubscribeUrl,
-    idempotencyKey: `digest:${row.digest_id}:email`,
+    idempotencyKey: `digest:${digestRow.digest_id}:email`,
     env: options.email,
   });
+}
 
-  const attempts = row.attempts + 1;
-  if (result.ok) {
-    await markDelivery(db, row.id, attempts, "sent", null);
-    if (digestRow.status === "ready") {
-      await db.from("digests").update({ status: "sent" }).eq("digest_id", row.digest_id);
-    }
-    return "sent";
+async function sendTelegramDelivery(
+  db: Db,
+  digestRow: { user_id: string; scheduled_for: string; kind: string | null; digest_id: string },
+  items: MailItem[],
+  first: MailItem | undefined,
+  origin: string,
+  options: DigestOptions,
+) {
+  const { data: account } = await db
+    .from("telegram_accounts")
+    .select("chat_id")
+    .eq("user_id", digestRow.user_id)
+    .maybeSingle();
+  if (!account?.chat_id) {
+    return { ok: false as const, error: "telegram not linked", retryable: false };
   }
 
-  if (result.retryable && attempts < MAX_ATTEMPTS) {
-    await markDelivery(db, row.id, attempts, "queued", result.error);
-    return "retried";
+  const html =
+    digestRow.kind === "alert" && first
+      ? formatTelegramAlert({
+          title: first.title,
+          why: first.why,
+          href: `${origin}/dashboard/story/${first.eventId}`,
+        })
+      : formatTelegramBriefing({
+          scheduledFor: new Date(digestRow.scheduled_for),
+          items: items.map((item) => ({
+            title: item.title,
+            why: item.why,
+            href: `${origin}/dashboard/story/${item.eventId}`,
+          })),
+          briefingHref: `${origin}/dashboard/briefing`,
+        });
+
+  return sendTelegramMessage({ chatId: account.chat_id, html, env: options.telegram });
+}
+
+async function sendPushDelivery(
+  db: Db,
+  digestRow: { user_id: string; kind: string | null },
+  items: MailItem[],
+  origin: string,
+  options: DigestOptions,
+) {
+  const { data: rows } = await db
+    .from("push_subscriptions")
+    .select("id, endpoint, p256dh, auth")
+    .eq("user_id", digestRow.user_id);
+  const subscriptions = rows ?? [];
+  if (subscriptions.length === 0) {
+    return { ok: false as const, error: "no push subscription", retryable: false };
   }
 
-  await markDelivery(db, row.id, attempts, "failed", result.error);
-  return "failed";
+  const stories = items.map((item) =>
+    storyPush({
+      title: item.title,
+      why: item.why,
+      href: `${origin}/dashboard/story/${item.eventId}`,
+      eventId: item.eventId,
+      breaking: digestRow.kind === "alert",
+    }),
+  );
+
+  const result = await sendStoryPushes({
+    subscriptions,
+    stories,
+    urgency: digestRow.kind === "alert" ? "high" : "normal",
+    env: options.push,
+  });
+
+  if (result.dropIds.length > 0) {
+    await db.from("push_subscriptions").delete().in("id", result.dropIds);
+  }
+
+  if (result.ok) return { ok: true as const };
+  return { ok: false as const, error: result.error, retryable: result.retryable };
 }
 
 async function markDelivery(

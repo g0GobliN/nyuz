@@ -19,10 +19,12 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type ReactNode } from "react";
 import { Logo } from "@/components/landing/nav";
+import { PanelLoading } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { usePrefs } from "@/lib/prefs-store";
 import { pingPresence } from "@/lib/server/account";
 import { searchStories } from "@/lib/server/briefing";
+import { refreshPush } from "@/lib/push/client";
 import { cn } from "@/lib/utils";
 // From src/lib/viewer.ts rather than the console shell: importing it from there
 // would pull the entire admin console into this bundle for the sake of one
@@ -125,6 +127,15 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
       // A missed ping must not take the dashboard down. The next load retries.
     });
   }, []);
+
+  useEffect(() => {
+    if (!prefs.channels.push) return;
+    const key = import.meta.env["VITE_VAPID_PUBLIC_KEY"];
+    if (typeof key !== "string" || !key) return;
+    void refreshPush(key).catch(() => {
+      // A stale subscription is retried the next time they open Delivery.
+    });
+  }, [prefs.channels.push]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -306,13 +317,7 @@ export function StaffOnly({ children, title }: { children: ReactNode; title: str
   if (isLoading) {
     return (
       <DashboardShell title={title}>
-        <div className="flex min-h-[40vh] items-center justify-center">
-          <span className="sr-only">Checking your access…</span>
-          <span
-            className="h-2 w-2 rounded-full bg-signal"
-            style={{ animation: "pulse-ring 1.6s ease-out infinite" }}
-          />
-        </div>
+        <PanelLoading label="Checking your access" />
       </DashboardShell>
     );
   }

@@ -48,6 +48,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { floorFor, thresholdFor } from "@/lib/density";
 import { related } from "@/lib/relate";
 import type { EmailEnv } from "@/lib/server/email/send";
+import type { TelegramEnv } from "@/lib/server/telegram/send";
+import type { PushEnv } from "@/lib/server/push/send";
 import type { Database, PlanTier, SourcePref, TopicImportance } from "@/lib/supabase/types";
 import { isCoveredTopic } from "@/lib/coverage";
 import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
@@ -90,6 +92,8 @@ export type MatchOptions = {
   skipAlerts?: boolean | undefined;
   /** Passed through to alert sends. Absent on a dry run, required on Cloudflare. */
   email?: EmailEnv | undefined;
+  telegram?: TelegramEnv | undefined;
+  push?: PushEnv | undefined;
 };
 
 /** Why an event did not reach a reader. Counted per reader, for the report. */
@@ -375,6 +379,8 @@ async function matchReader(
         })),
         ...(options.now ? { now: options.now } : {}),
         ...(options.email ? { email: options.email } : {}),
+        ...(options.telegram ? { telegram: options.telegram } : {}),
+        ...(options.push ? { push: options.push } : {}),
       });
     }
   }

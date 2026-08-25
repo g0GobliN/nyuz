@@ -3,6 +3,7 @@ import "./lib/error-capture";
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { handleStripeWebhook, type WebhookEnv } from "./lib/server/stripe/webhook";
+import { handleTelegramWebhook, type TelegramWebhookEnv } from "./lib/server/telegram/webhook";
 
 /**
  * Stripe posts here.
@@ -16,6 +17,7 @@ import { handleStripeWebhook, type WebhookEnv } from "./lib/server/stripe/webhoo
  * a third party by definition and carries no same-origin credentials.
  */
 const STRIPE_WEBHOOK_PATH = "/api/stripe/webhook";
+const TELEGRAM_WEBHOOK_PATH = "/api/telegram/webhook";
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -61,8 +63,12 @@ function isH3SwallowedErrorBody(body: string): boolean {
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
-      if (new URL(request.url).pathname === STRIPE_WEBHOOK_PATH) {
+      const path = new URL(request.url).pathname;
+      if (path === STRIPE_WEBHOOK_PATH) {
         return await handleStripeWebhook(request, env as WebhookEnv | undefined);
+      }
+      if (path === TELEGRAM_WEBHOOK_PATH) {
+        return await handleTelegramWebhook(request, env as TelegramWebhookEnv | undefined);
       }
 
       const handler = await getServerEntry();

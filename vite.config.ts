@@ -55,5 +55,9 @@ export default defineConfig({
   },
   server: {
     port: 8080,
+    // Telegram only posts to public HTTPS, so a local webhook needs a tunnel in
+    // front of this server. Vite otherwise rejects the tunnel's Host header and
+    // Telegram sees nothing but failures.
+    allowedHosts: [".trycloudflare.com"],
   },
 });

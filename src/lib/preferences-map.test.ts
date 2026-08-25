@@ -48,15 +48,27 @@ describe("weekdays", () => {
 
 describe("channels", () => {
   it("round-trips", () => {
-    const channels: Prefs["channels"] = { email: true, telegram: false, whatsapp: true };
+    const channels: Prefs["channels"] = {
+      email: true,
+      telegram: false,
+      whatsapp: true,
+      push: false,
+    };
     expect(channelsFromArray(channelsToArray(channels))).toEqual(channels);
   });
 
   it("treats every channel off as an empty array, not as a default", () => {
     // "Send me nothing anywhere" is a real choice and must not silently become
     // "email", which is what a defaulting fallback would do.
-    expect(channelsToArray({ email: false, telegram: false, whatsapp: false })).toEqual([]);
-    expect(channelsFromArray([])).toEqual({ email: false, telegram: false, whatsapp: false });
+    expect(
+      channelsToArray({ email: false, telegram: false, whatsapp: false, push: false }),
+    ).toEqual([]);
+    expect(channelsFromArray([])).toEqual({
+      email: false,
+      telegram: false,
+      whatsapp: false,
+      push: false,
+    });
   });
 });
 
@@ -116,7 +128,7 @@ describe("notification row", () => {
     time: "06:45",
     timezone: "Asia/Tokyo",
     days: ["Mon", "Wed", "Fri"],
-    channels: { email: true, telegram: true, whatsapp: false },
+    channels: { email: true, telegram: true, whatsapp: false, push: false },
     density: 62,
     frequency: "weekly",
     breaking: "everything",
