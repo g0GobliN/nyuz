@@ -6,7 +6,8 @@ import { TOPIC_POOL } from "@/lib/topics-pool";
  *
  * Onboarding used to accept any string, which implied coverage we do not have.
  * Matching is a join onto `topics` that analysis filled from this same pool, so
- * a free-text "knitting" row can never select an event. The list is the product.
+ * a free-text "knitting" row can never select an event. The list is the product
+ * — world, sports, music, politics, games, and the tech beat.
  */
 const COVERED = new Set(TOPIC_POOL.map((label) => topicSlug(label)));
 
