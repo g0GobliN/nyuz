@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { becauseYouFollow, matchStories } from "@/lib/matching";
-import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs-store";
+import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
 import type { Story } from "@/lib/story";
 
 /**

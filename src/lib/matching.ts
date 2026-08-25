@@ -1,4 +1,4 @@
-import type { Prefs } from "@/lib/prefs-store";
+import type { Prefs } from "@/lib/prefs";
 import { related } from "@/lib/relate";
 import type { Story } from "@/lib/story";
 
