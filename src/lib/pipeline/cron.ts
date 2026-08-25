@@ -33,6 +33,8 @@
 
 import { createAdminClient, type ServerEnv } from "@/lib/supabase/admin";
 import type { EmailEnv } from "@/lib/server/email/send";
+import type { TelegramEnv } from "@/lib/server/telegram/send";
+import type { PushEnv } from "@/lib/server/push/send";
 import { analyse, describeAnalysis, type AnalysisReport } from "./analyse";
 import { cluster, describeCluster, type ClusterReport } from "./cluster";
 import { describeDigest, digest, type DigestReport } from "./digest";
@@ -187,7 +189,9 @@ export async function runScheduled(
     // No model. Email env is passed because a newly matched event may fire a
     // breaking alert, which sends immediately rather than waiting for digest.
     const report = await match(createAdminClient(env), {
-      ...(env ? { email: env as EmailEnv } : {}),
+      ...(env
+        ? { email: env as EmailEnv, telegram: env as TelegramEnv, push: env as PushEnv }
+        : {}),
     });
     return { stage: "match", report };
   }
@@ -198,6 +202,8 @@ export async function runScheduled(
         ? {
             secrets: env as Record<string, string | undefined>,
             email: env as EmailEnv,
+            telegram: env as TelegramEnv,
+            push: env as PushEnv,
           }
         : {}),
     });

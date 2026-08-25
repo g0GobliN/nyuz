@@ -13,8 +13,10 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { EmailEnv } from "@/lib/server/email/send";
+import type { TelegramEnv } from "@/lib/server/telegram/send";
+import type { PushEnv } from "@/lib/server/push/send";
 import type { BreakingMode, Database } from "@/lib/supabase/types";
-import { flushDeliveries } from "./digest";
+import { flushDeliveries, queuedChannels, deliveryTargets } from "./digest";
 
 type Db = SupabaseClient<Database>;
 
@@ -31,6 +33,8 @@ export type AlertOptions = {
   hits: AlertHit[];
   now?: Date | undefined;
   email?: EmailEnv | undefined;
+  telegram?: TelegramEnv | undefined;
+  push?: PushEnv | undefined;
 };
 
 export type AlertReport = {
@@ -137,19 +141,22 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
       continue;
     }
 
-    if (prefs.channels.includes("email")) {
-      const { error: queueError } = await db
-        .from("deliveries")
-        .upsert(
-          { digest_id: digest.digest_id, channel: "email", status: "queued" },
-          { onConflict: "digest_id,channel", ignoreDuplicates: true },
-        );
-      if (queueError) {
-        console.error(`alert queue for ${digest.digest_id}: ${queueError.message}`);
-        continue;
-      }
-      queued += 1;
+    const toQueue = queuedChannels(prefs.channels, await deliveryTargets(db, options.userId));
+    if (toQueue.length === 0) continue;
+
+    const { error: queueError } = await db.from("deliveries").upsert(
+      toQueue.map((channel) => ({
+        digest_id: digest.digest_id,
+        channel,
+        status: "queued" as const,
+      })),
+      { onConflict: "digest_id,channel", ignoreDuplicates: true },
+    );
+    if (queueError) {
+      console.error(`alert queue for ${digest.digest_id}: ${queueError.message}`);
+      continue;
     }
+    queued += toQueue.length;
   }
 
   let sent = 0;
@@ -157,6 +164,8 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
     const flushed = await flushDeliveries(db, {
       userIds: [options.userId],
       ...(options.email ? { email: options.email } : {}),
+      ...(options.telegram ? { telegram: options.telegram } : {}),
+      ...(options.push ? { push: options.push } : {}),
     });
     sent = flushed.sent;
   }

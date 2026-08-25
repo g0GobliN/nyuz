@@ -14,6 +14,18 @@ import { PUBLIC_CONTENT_FALLBACK, type PublicSiteContent } from "@/lib/site-cont
  * dark surface. Geometry is the same path as public/logo.svg — edit both, or
  * neither.
  */
+/**
+ * The letterform, as one string. Exported so the loading mark in
+ * `src/components/loading.tsx` traces exactly this path rather than carrying a
+ * fourth copy of the geometry — the SVG files in public/ are the only other
+ * places it appears, and `src/lib/brand-assets.test.ts` holds them together.
+ *
+ * The stem is one unbroken stroke from cap to foot; the shoulder springs off it
+ * partway down. That overlap leaves the notch at the top left, which is the
+ * letterform — do not merge them into a symmetric arch.
+ */
+export const MARK_PATH = "M7.89 34.95V5M7.89 18.85A12.11 12.11 0 0 1 32.11 18.85V29.7";
+
 export function LogoMark({ className, alt = "nyuz" }: { className?: string; alt?: string }) {
   const label = alt.trim();
   return (
@@ -25,15 +37,8 @@ export function LogoMark({ className, alt = "nyuz" }: { className?: string; alt?
       aria-hidden={label ? undefined : true}
       {...(label ? { "aria-label": label } : {})}
     >
-      {/* The stem is one unbroken stroke from cap to foot; the shoulder springs
-          off it partway down. That overlap leaves the notch at the top left,
-          which is the letterform — do not merge them into a symmetric arch.
-          Geometry matches public/logo.svg; edit both, or neither. */}
-      <path
-        d="M7.89 34.95V5M7.89 18.85A12.11 12.11 0 0 1 32.11 18.85V29.7"
-        stroke="currentColor"
-        strokeWidth="3.48"
-      />
+      {/* Geometry matches public/logo.svg; edit both, or neither. */}
+      <path d={MARK_PATH} stroke="currentColor" strokeWidth="3.48" />
       <circle cx="32.11" cy="33.21" r="1.79" fill="var(--signal)" />
     </svg>
   );

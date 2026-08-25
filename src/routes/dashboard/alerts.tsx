@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Bell, BellOff } from "lucide-react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { Chip, LinkButton } from "@/components/kit";
+import { Loading } from "@/components/loading";
 import { usePrefs } from "@/lib/prefs-store";
 import { loadRecentAlerts } from "@/lib/server/briefing";
 import { formatStoryTime } from "@/lib/story-time";
@@ -63,7 +64,9 @@ function Alerts() {
 
       <section className="mt-10">
         <h2 className="text-[17px] font-medium tracking-tight">Recently sent</h2>
-        {off && sent.length === 0 ? (
+        {alertsQ.isLoading ? (
+          <Loading label="Reading recent alerts" className="justify-center" />
+        ) : off && sent.length === 0 ? (
           <div className="mt-4">
             <EmptyState
               title="Nothing to show while alerts are off."
@@ -104,10 +107,10 @@ function Alerts() {
       </section>
 
       <div className="mt-10 rounded-2xl border border-hairline bg-surface-2 px-5 py-5">
-        <p className="text-[14px] font-medium">Alerts go out by email</p>
+        <p className="text-[14px] font-medium">Alerts go out on connected channels</p>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
-          Email is the live channel. Telegram and WhatsApp preferences are stored; they do not send
-          yet. Change that under Delivery.
+          Email, Telegram once linked, and one notification per story if you enable them. Dismissing
+          a notice only clears the notice — Home still has the full set. Change that under Delivery.
         </p>
         <LinkButton to="/dashboard/delivery" variant="outline" size="sm" className="mt-4">
           Delivery settings

@@ -1,8 +1,19 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, Check, Mail, MessageCircle, Phone, Search, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bell,
+  Check,
+  Mail,
+  MessageCircle,
+  Phone,
+  Search,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, Chip } from "@/components/kit";
-import { Logo, LogoMark } from "@/components/landing/nav";
+import { Logo } from "@/components/landing/nav";
+import { LogoLoader } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DensityDial } from "@/components/density-dial";
 import { useAuth } from "@/lib/auth";
@@ -222,7 +233,7 @@ function StepTopics({
   return (
     <div className="mt-8">
       <p className="text-[14px] leading-relaxed text-muted-foreground">
-        Coverage is technology — company blogs, newsrooms, research. Pick from the list. This plan
+        Coverage is the list — world, sports, music, politics, games, tech. Pick from it. This plan
         includes {formatTopicLimit(topicLimit)} topics.
       </p>
       <div className="mt-5 flex items-center gap-2.5 rounded-full border border-input bg-surface px-4">
@@ -230,7 +241,7 @@ function StepTopics({
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search topics, companies, technologies"
+          placeholder="Search topics — music, sports, politics, games…"
           className="h-12 w-full bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
         />
       </div>
@@ -369,9 +380,14 @@ const CHANNELS = [
     key: "telegram",
     label: "Telegram",
     icon: MessageCircle,
-    note: "Short form, tap through for detail.",
+    note: "Connect in Delivery after you finish. Short form, tap through for detail.",
   },
-  { key: "whatsapp", label: "WhatsApp", icon: Phone, note: "Available on Pro." },
+  {
+    key: "push",
+    label: "Notifications",
+    icon: Bell,
+    note: "One notice per story. Allow them in Delivery after you finish.",
+  },
 ] as const;
 
 function StepChannels({ draft, patch }: StepProps) {
@@ -412,6 +428,17 @@ function StepChannels({ draft, patch }: StepProps) {
           </button>
         );
       })}
+      <div className="flex w-full items-center gap-4 rounded-2xl border border-hairline bg-surface p-4 opacity-60">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+          <Phone className="h-4 w-4" />
+        </span>
+        <span className="flex-1">
+          <span className="block text-[15px] font-medium">More soon</span>
+          <span className="mt-0.5 block text-[12.5px] text-muted-foreground">
+            Other services later. Nothing is sent from this row.
+          </span>
+        </span>
+      </div>
       <p className="pt-3 text-[13px] text-muted-foreground">
         You can add or remove channels later from Delivery settings.
       </p>
@@ -454,14 +481,12 @@ function SetupSequence({ name, onDone }: { name: string; onDone: () => void }) {
 
   return (
     <div className="animate-rise text-center">
-      {/* The pulse conveys "scanning"; the mark keeps it ours rather than a
-          generic scanning animation. */}
-      <span className="relative mx-auto flex h-16 w-16 items-center justify-center">
-        <span
-          className="absolute inset-0 rounded-full border border-signal/40"
-          style={{ animation: "pulse-ring 2.2s ease-out infinite" }}
-        />
-        <LogoMark className="h-7 w-7" />
+      {/* The same mark that stands in for every other wait in the product, at
+          the one size where the stroke is worth watching. A ring pulsed around
+          a static mark here before; two loops on different clocks drifted
+          against each other, and the product only needs one waiting motion. */}
+      <span className="mx-auto flex h-16 w-16 items-center justify-center">
+        <LogoLoader className="h-14 w-14" label="Setting up your nyuz" />
       </span>
 
       {/* Greeted by name only when there actually is one. This line used to

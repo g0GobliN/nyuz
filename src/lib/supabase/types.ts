@@ -19,7 +19,7 @@ export type TopicFrequency = "daily" | "weekly" | "breaking_only";
 export type EventStatus = "pending" | "analysing" | "complete" | "failed";
 export type DigestStatus = "scheduled" | "generating" | "ready" | "sent" | "skipped" | "failed";
 export type DigestKind = "briefing" | "alert";
-export type DeliveryChannel = "email" | "telegram" | "whatsapp";
+export type DeliveryChannel = "email" | "telegram" | "whatsapp" | "push";
 export type DeliveryStatus = "queued" | "sent" | "failed" | "bounced";
 export type DigestFrequency = "daily" | "weekly";
 export type BreakingMode = "important" | "everything" | "off";
@@ -211,6 +211,24 @@ export type Feedback = {
 };
 
 export type SavedStory = { user_id: string; event_id: string; saved_at: string };
+
+/** Chat id is written only by the bot webhook. No RLS write policy (0013). */
+export type TelegramAccount = {
+  user_id: string;
+  chat_id: string | null;
+  connect_nonce: string | null;
+  connect_expires_at: string | null;
+  linked_at: string | null;
+};
+
+export type PushEndpoint = {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  created_at: string;
+};
 
 /** One Ask call. RLS on, no policy — service role only (0010). */
 export type AskLog = {
@@ -410,6 +428,11 @@ export type Database = {
       feedback: Table<Feedback, "created_at">;
       saved_stories: Table<SavedStory, "saved_at">;
       ask_log: Table<AskLog, "id" | "created_at">;
+      telegram_accounts: Table<
+        TelegramAccount,
+        "chat_id" | "connect_nonce" | "connect_expires_at" | "linked_at"
+      >;
+      push_subscriptions: Table<PushEndpoint, "id" | "created_at">;
 
       user_roles: Table<UserRole, "role" | "granted_by" | "granted_at">;
       user_bans: Table<UserBan, "reason" | "banned_by" | "banned_at" | "expires_at">;

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Logo } from "@/components/landing/nav";
+import { PageLoading } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 import { isAdmin, useViewer } from "@/lib/viewer";
@@ -86,15 +87,7 @@ export function AdminLayout() {
   const { data: viewer, isLoading } = useViewer();
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <span className="sr-only">Checking your access…</span>
-        <span
-          className="h-2 w-2 rounded-full bg-signal"
-          style={{ animation: "pulse-ring 1.6s ease-out infinite" }}
-        />
-      </div>
-    );
+    return <PageLoading label="Checking your access" />;
   }
 
   // Mirrors the server's 404 for a non-admin. A stranger learning that a console
@@ -347,17 +340,11 @@ export function ErrorNote({ error }: { error: unknown }) {
   );
 }
 
-export function Loading({ label = "Loading" }: { label?: string }) {
-  return (
-    <div className="flex items-center gap-2.5 py-10 text-[13px] text-muted-foreground">
-      <span
-        className="h-1.5 w-1.5 rounded-full bg-signal"
-        style={{ animation: "pulse-ring 1.6s ease-out infinite" }}
-      />
-      {label}…
-    </div>
-  );
-}
+/**
+ * Re-exported so the console's existing imports keep working; the wait itself is
+ * the mark drawing itself, same as everywhere else in the product.
+ */
+export { Loading } from "@/components/loading";
 
 /**
  * Wraps a mutation so every console write refreshes what it changed and reports

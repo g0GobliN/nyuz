@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { PageLoading } from "@/components/loading";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/dashboard")({
@@ -21,15 +22,7 @@ function DashboardGuard() {
   }, [loading, session, navigate]);
 
   if (loading || !session) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <span className="sr-only">Checking your session…</span>
-        <span
-          className="h-2 w-2 rounded-full bg-signal"
-          style={{ animation: "pulse-ring 1.6s ease-out infinite" }}
-        />
-      </div>
-    );
+    return <PageLoading label="Checking your session" />;
   }
 
   return <Outlet />;

@@ -11,7 +11,8 @@ describe("isCoveredTopic", () => {
 
   it("rejects a label we do not cover", () => {
     expect(isCoveredTopic("Knitting")).toBe(false);
-    expect(isCoveredTopic("Politics")).toBe(false);
+    expect(isCoveredTopic("Politics")).toBe(true);
+    expect(isCoveredTopic("Music")).toBe(true);
   });
 });
 

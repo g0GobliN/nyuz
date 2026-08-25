@@ -1,7 +1,17 @@
 export const TOPIC_POOL = [
+  "World",
+  "Politics",
+  "Sports",
+  "Music",
+  "Gaming",
+  "Film",
+  "Climate",
+  "Economy",
+  "Health",
   "AI",
   "OpenAI",
   "Anthropic",
+  "Claude",
   "NVIDIA",
   "Cursor",
   "React",
@@ -9,7 +19,6 @@ export const TOPIC_POOL = [
   "TypeScript",
   "Startups",
   "Cybersecurity",
-  "Gaming",
   "Funding",
   "Chips",
   "Open source",
@@ -22,9 +31,8 @@ export const TOPIC_POOL = [
 
 export const IGNORE_POOL = [
   "Crypto",
-  "Politics",
   "Celebrity news",
-  "Sports",
   "Rumours",
   "Opinion columns",
-];
+  "Clickbait",
+] as const;

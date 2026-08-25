@@ -82,6 +82,7 @@ export function usePrefs() {
       // First visit: adopt the browser's timezone so the schedule step opens on
       // the right one instead of making everybody correct UTC by hand.
       ...(local ?? { timezone: detectTimezone() }),
+      channels: { ...DEFAULT_PREFS.channels, ...local?.channels },
     });
     setHydrated(true);
   }, []);
@@ -103,7 +104,13 @@ export function usePrefs() {
         // they have done so far.
         const unsynced = local && remote.topics.length === 0 && (local.topics?.length ?? 0) > 0;
 
-        const next = unsynced ? { ...remote, ...local } : remote;
+        const next = unsynced
+          ? {
+              ...remote,
+              ...local,
+              channels: { ...DEFAULT_PREFS.channels, ...remote.channels, ...local.channels },
+            }
+          : remote;
         setPrefs(next);
         writeLocal(next);
 

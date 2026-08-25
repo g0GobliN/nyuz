@@ -41,6 +41,7 @@ export function channelsToArray(channels: Prefs["channels"]): DeliveryChannel[] 
   const out: DeliveryChannel[] = [];
   if (channels.email) out.push("email");
   if (channels.telegram) out.push("telegram");
+  if (channels.push) out.push("push");
   if (channels.whatsapp) out.push("whatsapp");
   return out;
 }
@@ -49,6 +50,7 @@ export function channelsFromArray(channels: DeliveryChannel[]): Prefs["channels"
   return {
     email: channels.includes("email"),
     telegram: channels.includes("telegram"),
+    push: channels.includes("push"),
     whatsapp: channels.includes("whatsapp"),
   };
 }

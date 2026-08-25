@@ -74,7 +74,7 @@ export function BriefingPreview({
 
       <div className="flex items-center justify-between border-t border-hairline px-5 py-4 text-[12px] text-muted-foreground sm:px-7">
         <span>Delivered at {time}</span>
-        <span>Email · Telegram</span>
+        <span>Email · Telegram · Notifications</span>
       </div>
     </div>
   );

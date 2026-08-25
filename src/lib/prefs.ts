@@ -13,7 +13,7 @@ export type Prefs = {
   time: string;
   timezone: string;
   days: string[];
-  channels: { email: boolean; telegram: boolean; whatsapp: boolean };
+  channels: { email: boolean; telegram: boolean; whatsapp: boolean; push: boolean };
   density: number; // 0 minimal .. 100 deep
   frequency: "daily" | "weekly";
   breaking: "important" | "everything" | "off";
@@ -44,7 +44,7 @@ export const DEFAULT_PREFS: Prefs = {
   // needed because this is read during SSR, where there is no browser.
   timezone: "UTC",
   days: ["Mon", "Tue", "Wed", "Thu", "Fri"],
-  channels: { email: true, telegram: false, whatsapp: false },
+  channels: { email: true, telegram: false, whatsapp: false, push: false },
   density: 35,
   frequency: "daily",
   breaking: "important",

@@ -96,7 +96,7 @@ function Topics() {
       <PageHeader
         eyebrow="Your nyuz"
         title="What do you want to know about?"
-        sub="We cover technology. Pick from the list — a topic we do not source cannot appear in a briefing."
+        sub="Pick from the list — a topic we do not source cannot appear in a briefing."
       />
 
       {!planLoading ? (

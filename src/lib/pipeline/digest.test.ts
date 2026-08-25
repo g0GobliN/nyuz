@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { capFor } from "@/lib/density";
-import { readWhys, selectItems, type MatchRow } from "./digest";
+import { queuedChannels, readWhys, selectItems, type MatchRow } from "./digest";
 
 function match(id: string, relevance: number, at = "2026-08-25T06:00:00Z"): MatchRow {
   return { eventId: id, relevance, matchedAt: at };
@@ -63,5 +63,27 @@ describe("readWhys", () => {
         ids,
       ),
     ).toBeNull();
+  });
+});
+
+describe("queuedChannels", () => {
+  it("queues email whenever it is selected", () => {
+    expect(queuedChannels(["email"], { telegram: false, push: false })).toEqual(["email"]);
+  });
+
+  it("queues telegram only when a chat is linked", () => {
+    expect(queuedChannels(["telegram"], { telegram: false, push: false })).toEqual([]);
+    expect(queuedChannels(["telegram"], { telegram: true, push: false })).toEqual(["telegram"]);
+  });
+
+  it("queues push only when a device is subscribed", () => {
+    expect(queuedChannels(["push"], { telegram: false, push: false })).toEqual([]);
+    expect(queuedChannels(["push"], { telegram: false, push: true })).toEqual(["push"]);
+  });
+
+  it("never queues whatsapp", () => {
+    expect(
+      queuedChannels(["email", "telegram", "whatsapp", "push"], { telegram: true, push: true }),
+    ).toEqual(["email", "telegram", "push"]);
   });
 });

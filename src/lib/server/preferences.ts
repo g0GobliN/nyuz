@@ -29,7 +29,7 @@ const prefsInput = z.object({
   timezone: z.string().max(64).optional(),
   days: z.array(z.string().max(3)).max(7).optional(),
   channels: z
-    .object({ email: z.boolean(), telegram: z.boolean(), whatsapp: z.boolean() })
+    .object({ email: z.boolean(), telegram: z.boolean(), whatsapp: z.boolean(), push: z.boolean() })
     .optional(),
   density: z.number().int().min(0).max(100).optional(),
   frequency: z.enum(["daily", "weekly"]).optional(),

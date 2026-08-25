@@ -204,14 +204,51 @@
   }
 }
 
-@keyframes pulse-ring {
+/* The mark writing itself: one dash the length of the whole letterform, its
+   offset unwound so the stroke arrives stem first, then the shoulder, then the
+   leg. 78.84 is the measured length of MARK_PATH in nav.tsx — change the
+   geometry and this number moves with it, or the stroke stops short.
+
+   The finished mark then fades out rather than snapping back, because the reset
+   is the one frame of a looping animation anybody notices. Offset returns to
+   full length while the stroke is already invisible, so the cycle closes on
+   itself.
+
+   A travelling dash was the first attempt and is the wrong shape here: with the
+   pattern tiled once across an open path, the segment spends part of every
+   cycle clipped past the end and the mark simply goes dark. */
+@keyframes mark-draw {
   0% {
-    transform: scale(0.7);
-    opacity: 0.5;
+    stroke-dashoffset: 78.84;
+    opacity: 1;
+  }
+  62% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  86% {
+    stroke-dashoffset: 0;
+    opacity: 0;
   }
   100% {
-    transform: scale(1.9);
+    stroke-dashoffset: 78.84;
     opacity: 0;
+  }
+}
+
+/* The dot is the one place the letterform carries colour, so it lights as the
+   stroke reaches it rather than pulsing on its own clock. */
+@keyframes mark-dot {
+  0%,
+  55% {
+    opacity: 0.2;
+  }
+  66%,
+  82% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.2;
   }
 }
 
@@ -221,6 +258,15 @@
 
 @utility animate-drift {
   animation: drift 6s ease-in-out infinite;
+}
+
+.mark-trace {
+  stroke-dasharray: 78.84;
+  animation: mark-draw 1.6s ease-in-out infinite;
+}
+
+.mark-dot {
+  animation: mark-dot 1.6s ease-in-out infinite;
 }
 
 .reveal {
@@ -248,5 +294,15 @@
   .reveal {
     opacity: 1;
     transform: none;
+  }
+  /* The blanket rule above stops the animation on its first frame, which for a
+     drawn-on stroke is an empty box. Reduced motion gets the whole letterform,
+     at rest. */
+  .mark-trace {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+  }
+  .mark-dot {
+    opacity: 1;
   }
 }

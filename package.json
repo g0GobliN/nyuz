@@ -18,12 +18,15 @@
     "db:seed": "node --env-file=.env scripts/tsrun.mjs scripts/apply-seed.ts",
     "check:feeds": "node --env-file=.env scripts/tsrun.mjs scripts/check-feeds.ts",
     "pipeline": "node --env-file=.env scripts/tsrun.mjs scripts/pipeline.ts",
-    "cron:test": "node --env-file=.env scripts/test-scheduled.mjs"
+    "cron:test": "node --env-file=.env scripts/test-scheduled.mjs",
+    "telegram:webhook": "node --env-file=.env scripts/tsrun.mjs scripts/telegram-webhook.ts",
+    "vapid": "node --env-file=.env scripts/tsrun.mjs scripts/vapid.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"
   },
   "dependencies": {
+    "@block65/webcrypto-web-push": "^1.0.2",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",

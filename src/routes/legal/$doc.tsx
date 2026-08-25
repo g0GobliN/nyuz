@@ -90,7 +90,7 @@ const DOCS: Record<string, Doc> = {
         p: [
           "To perform our contract with you: your account, your interests, your schedule and your delivery history. Without these there is no product.",
           "Our legitimate interest in a working service: security logs, failure counts and aggregate volume figures, held in the smallest form that answers the question.",
-          "Your consent, where you have given it, for optional delivery channels. Telegram and WhatsApp can be stored as a preference today; only email actually sends. You can withdraw either at any time in Delivery settings.",
+          "Your consent, where you have given it, for optional delivery channels. Telegram sends once you connect it in Delivery. Browser notifications send one notice per story if you enable them; dismissing a notice does not delete the story. Other services may be added later. You can withdraw any of these in Delivery settings.",
         ],
       },
       {
@@ -336,6 +336,18 @@ const DOCS: Record<string, Doc> = {
               "Briefing delivery",
               "Your email address and the briefing being sent",
               "[Region]",
+            ],
+            [
+              "Telegram",
+              "Optional briefing delivery",
+              "Your Telegram chat id and the briefing being sent",
+              "Global",
+            ],
+            [
+              "Browser push services",
+              "Optional per-story notifications",
+              "Story title, a short line, and a link to the story",
+              "Your browser vendor",
             ],
           ],
         },

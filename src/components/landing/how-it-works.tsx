@@ -7,13 +7,13 @@ const STEPS = [
   {
     n: "01",
     title: "Tell it what matters",
-    body: "Topics, companies, technologies — and, just as importantly, what to ignore.",
+    body: "Topics you actually follow — teams, artists, beats, games — and, just as importantly, what to ignore.",
     kind: "interests",
   },
   {
     n: "02",
     title: "It watches",
-    body: "Hundreds of sources on a schedule. Company blogs, newsrooms, research pages, release notes.",
+    body: "Hundreds of sources on a schedule. Newsrooms, sports desks, music sites, wires, company blogs.",
     kind: "sources",
   },
   {
@@ -31,7 +31,7 @@ const STEPS = [
   {
     n: "05",
     title: "You receive it",
-    body: "One briefing. Your time, your timezone, your channel.",
+    body: "One briefing. Your time, your timezone. Email, Telegram, or a notification per story.",
     kind: "deliver",
   },
 ] as const;
@@ -201,19 +201,21 @@ function StepVisual({ kind }: { kind: (typeof STEPS)[number]["kind"] }) {
           I care about
         </p>
         <div className="space-y-2">
-          {["AI", "Developer tools", "OpenAI", "Anthropic", "Startups"].map((t, i) => (
-            <div
-              key={t}
-              className="flex items-center gap-2.5 rounded-xl border border-hairline px-3 py-2 text-[14px] animate-rise"
-              style={{ animationDelay: `${i * 70}ms` }}
-            >
-              <Check className="h-3.5 w-3.5 text-signal" /> {t}
-            </div>
-          ))}
+          {["Music", "Sports", "Politics", "Gaming", "World", "AI", "Anthropic", "Claude"].map(
+            (t, i) => (
+              <div
+                key={t}
+                className="flex items-center gap-2.5 rounded-xl border border-hairline px-3 py-2 text-[14px] animate-rise"
+                style={{ animationDelay: `${i * 70}ms` }}
+              >
+                <Check className="h-3.5 w-3.5 text-signal" /> {t}
+              </div>
+            ),
+          )}
         </div>
         <p className="pt-2 text-[12px] uppercase tracking-[0.16em] text-muted-foreground">Ignore</p>
         <div className="flex flex-wrap gap-2">
-          {["Crypto", "Celebrity news", "Politics"].map((t) => (
+          {["Crypto", "Celebrity news", "Rumours"].map((t) => (
             <span
               key={t}
               className="inline-flex items-center gap-1.5 rounded-full border border-hairline px-3 py-1.5 text-[12.5px] text-muted-foreground line-through"
@@ -229,13 +231,13 @@ function StepVisual({ kind }: { kind: (typeof STEPS)[number]["kind"] }) {
     return (
       <div className="relative h-[260px] overflow-hidden">
         {[
+          "Newsrooms",
+          "Sports",
+          "Music",
+          "Wires",
+          "Politics desks",
           "Company blogs",
-          "News",
-          "RSS",
-          "GitHub",
-          "Product announcements",
           "Research",
-          "Industry sources",
         ].map((s, i) => (
           <div
             key={s}
@@ -270,9 +272,7 @@ function StepVisual({ kind }: { kind: (typeof STEPS)[number]["kind"] }) {
         </p>
         <div className="rounded-2xl border border-signal/40 bg-surface p-4">
           <p className="text-[10.5px] uppercase tracking-[0.16em] text-signal">1 event</p>
-          <p className="mt-1 text-[15px] font-medium">
-            OpenAI ships a lower-latency realtime model tier
-          </p>
+          <p className="mt-1 text-[15px] font-medium">Overnight talks stall, then resume</p>
         </div>
         <p className="text-[12.5px] leading-relaxed text-muted-foreground">
           We don&apos;t summarise thirty copies. We identify the event underneath them.
@@ -310,10 +310,15 @@ function StepVisual({ kind }: { kind: (typeof STEPS)[number]["kind"] }) {
   return (
     <div className="space-y-4">
       <p className="font-serif text-4xl">7:30 AM</p>
-      <div className="flex gap-2">
-        <span className="rounded-full border border-hairline px-3 py-1.5 text-[12.5px] text-muted-foreground">
-          Email
-        </span>
+      <div className="flex flex-wrap gap-2">
+        {["Email", "Telegram", "Notifications"].map((d) => (
+          <span
+            key={d}
+            className="rounded-full border border-hairline px-3 py-1.5 text-[12.5px] text-muted-foreground"
+          >
+            {d}
+          </span>
+        ))}
       </div>
       <div className="rounded-2xl border border-hairline bg-surface-2 p-4">
         <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
@@ -321,10 +326,10 @@ function StepVisual({ kind }: { kind: (typeof STEPS)[number]["kind"] }) {
         </p>
         <p className="mt-2 text-[14px] font-medium">4 things worth knowing</p>
         <ul className="mt-3 space-y-2 text-[13px] text-muted-foreground">
-          <li>OpenAI realtime tier goes GA</li>
-          <li>Cursor adds background review agents</li>
-          <li>React compiler reaches stable</li>
-          <li>TypeScript checker gets faster</li>
+          <li>Overnight talks resume</li>
+          <li>Final decided in extra time</li>
+          <li>Surprise album at midnight</li>
+          <li>Narrow vote passes</li>
         </ul>
       </div>
     </div>
