@@ -40,7 +40,7 @@ const STAGES: Stage[] = [
   {
     n: "01",
     title: "Collect",
-    input: "A list of feeds — company blogs, newsrooms, research pages, release notes.",
+    input: "A list of feeds — newsrooms, sports desks, music sites, wires, company blogs.",
     operation:
       "Each source is fetched on its own schedule. A source that fails is counted, backed off, and retired if it keeps failing, so one dead feed cannot stall the run.",
     output: "Raw articles, timestamped and attributed to the source they came from.",

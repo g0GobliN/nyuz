@@ -1,8 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Github, Loader2, Lock, Mail, User as UserIcon } from "lucide-react";
+import { Github, Lock, Mail, User as UserIcon } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/kit";
 import { Logo } from "@/components/landing/nav";
+import { LogoLoader } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth, type OAuthProvider } from "@/lib/auth";
 import { getPublicSiteContent } from "@/lib/server/settings";
@@ -201,7 +202,11 @@ function Auth() {
             <Button type="submit" className="mt-6 w-full" disabled={busy}>
               {busy ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <LogoLoader
+                    className="h-4 w-4"
+                    tone="current"
+                    label={mode === "signup" ? "Creating account" : "Signing in"}
+                  />
                   {mode === "signup" ? "Creating account" : "Signing in"}
                 </>
               ) : mode === "signup" ? (

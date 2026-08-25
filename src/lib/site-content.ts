@@ -47,7 +47,7 @@ export const HERO_DEFAULT: Hero = {
   ctaHref: "/onboarding",
   secondaryLabel: "See how it works",
   secondaryHref: "/how-it-works",
-  footnote: "Live sources · duplicates merged · one briefing",
+  footnote: "Live sources · Email, Telegram or notifications",
 };
 
 /* ---------------------------------------------------------------------- */
@@ -299,7 +299,7 @@ export type Seo = z.infer<typeof seoSchema>;
 export const SEO_DEFAULT: Seo = {
   title: "nyuz — Stop searching. Start knowing.",
   description:
-    "You don't read the news. It reports to you. nyuz watches hundreds of sources, merges the duplicates, and sends you the handful of things worth knowing.",
+    "You don't read the news. It reports to you. Music, sports, politics, games, or the world — nyuz watches the sources, merges the duplicates, and sends the handful of things worth knowing.",
   ogImage: "/og-image.png",
 };
 

@@ -4,6 +4,7 @@ import { ArrowRight, Clock, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { StoryCard } from "@/components/dashboard/story-card";
+import { PanelLoading } from "@/components/loading";
 import { LinkButton } from "@/components/kit";
 import { useDisplayName } from "@/lib/auth";
 import { useFeedback } from "@/lib/feedback-store";
@@ -95,6 +96,8 @@ function DashboardHome() {
                   onMute={muteTopic}
                 />
               ))
+            ) : feed.isLoading ? (
+              <PanelLoading label="Building your feed" />
             ) : noTopics ? (
               <EmptyState
                 title="You haven't told us what to watch for yet."

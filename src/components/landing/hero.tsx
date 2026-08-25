@@ -6,18 +6,21 @@ import { BriefingPreview } from "@/components/briefing-preview";
 import { STORIES } from "@/lib/sample-data";
 
 const FEED = [
-  "OpenAI changelog",
-  "Hacker News",
-  "The Verge",
-  "GitHub releases",
-  "arXiv",
+  "BBC World",
+  "ESPN",
+  "Pitchfork",
   "Reuters",
-  "Anthropic news",
-  "Vercel blog",
-  "Ars Technica",
-  "Reddit r/programming",
-  "Newsletter #418",
-  "NVIDIA newsroom",
+  "The Guardian",
+  "Politico",
+  "The Athletic",
+  "NPR",
+  "Billboard",
+  "AP News",
+  "Al Jazeera",
+  "Variety",
+  "OpenAI",
+  "Anthropic",
+  "Cursor",
 ];
 
 /** Cinematic hero: sources → AI → one event → your briefing. */
@@ -83,12 +86,12 @@ export function HeroPipeline() {
                 zIndex: i === 1 ? 2 : 1,
               }}
             >
-              <p className="text-[10.5px] uppercase tracking-[0.16em] text-signal">OpenAI</p>
+              <p className="text-[10.5px] uppercase tracking-[0.16em] text-signal">Reuters</p>
               <p className="mt-1 text-[14px] font-medium leading-snug">
-                Lower-latency realtime tier goes GA
+                Overnight talks stall, then resume
               </p>
               <p className="mt-2 text-[11px] text-muted-foreground">
-                {phase === 0 ? "12 articles, same story" : "12 sources → 1 event"}
+                {phase === 0 ? "18 articles, same story" : "18 sources → 1 event"}
               </p>
             </div>
           ))}
@@ -108,7 +111,7 @@ export function HeroPipeline() {
 
       {/* Layer 3 — delivery */}
       <div className="mx-auto flex items-center justify-center gap-2">
-        {["7:30 AM", "Email"].map((d, i) => (
+        {["7:30 AM", "Email", "Telegram", "Notifications"].map((d, i) => (
           <span
             key={d}
             className="rounded-full border px-3 py-1.5 text-[11.5px] transition-all duration-700"
@@ -128,20 +131,24 @@ export function HeroPipeline() {
 }
 
 const DEMO_TOPICS = [
-  "AI",
-  "OpenAI",
-  "Anthropic",
-  "NVIDIA",
-  "Cursor",
-  "React",
-  "Next.js",
-  "Startups",
-  "Cybersecurity",
+  "Music",
+  "Sports",
+  "Politics",
+  "World",
   "Gaming",
+  "Film",
+  "Climate",
+  "Economy",
+  "Health",
+  "AI",
+  "Anthropic",
+  "Claude",
+  "OpenAI",
+  "Cursor",
 ];
 
 export function InterestDemo() {
-  const [selected, setSelected] = useState<string[]>(["AI", "OpenAI", "Cursor"]);
+  const [selected, setSelected] = useState<string[]>(["Music", "Sports", "Politics"]);
   const [building, setBuilding] = useState(false);
 
   const stories = useMemo(() => {

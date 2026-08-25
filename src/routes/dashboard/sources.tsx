@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, Volume2, VolumeX } from "lucide-react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
+import { Loading } from "@/components/loading";
 import { loadWatchedSources, setSourcePref, type WatchedSource } from "@/lib/server/briefing";
 import type { SourcePref } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,8 @@ function Sources() {
         title="Sources we're watching for you."
         sub="You never have to touch this. It exists for the times you want a publication weighted differently, or gone."
       />
+
+      {sources.isLoading ? <Loading label="Reading your feeds" className="justify-center" /> : null}
 
       <div className="space-y-8">
         {groups.map((g) => (

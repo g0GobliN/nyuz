@@ -4,6 +4,7 @@ import { Search } from "lucide-react";
 import { useState } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { LinkButton } from "@/components/kit";
+import { Loading } from "@/components/loading";
 import { usePlan } from "@/lib/plan-state";
 import { loadHistory, searchStories } from "@/lib/server/briefing";
 import { useReveal } from "@/lib/use-reveal";
@@ -61,6 +62,9 @@ function HistoryPage() {
               {(results.data ?? []).length === 1 ? "result" : "results"} for &ldquo;{term}&rdquo;
             </p>
             <div className="mt-4 space-y-2">
+              {results.isLoading ? (
+                <Loading label="Searching your archive" className="justify-center" />
+              ) : null}
               {(results.data ?? []).map((s) => (
                 <Link
                   key={s.id}
@@ -75,7 +79,7 @@ function HistoryPage() {
                   </p>
                 </Link>
               ))}
-              {results.data?.length === 0 ? (
+              {!results.isLoading && results.data?.length === 0 ? (
                 <EmptyState
                   title="Nothing in your archive matches that."
                   body="Try a company name or a topic. Search covers headlines, summaries and tags."
@@ -86,7 +90,9 @@ function HistoryPage() {
         ) : (
           <div className="relative mt-10 pl-7">
             <span className="absolute bottom-4 left-[5px] top-4 w-px bg-border" />
-            {days.length === 0 ? (
+            {history.isLoading ? (
+              <Loading label="Opening your archive" />
+            ) : days.length === 0 ? (
               <EmptyState
                 title="No briefings in this window."
                 body="Once a briefing is generated it lands here, including the quiet days."

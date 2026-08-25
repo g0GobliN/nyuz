@@ -75,10 +75,11 @@ describe("favicon.ico", () => {
 });
 
 /**
- * The mark is drawn in three places: two SVG files and one inline React
- * component. Nothing links them, and every raster in public/ is generated from
- * the same geometry, so a drift here silently ships a different logo to email,
- * the tab and the social card.
+ * The mark is drawn in three places: two SVG files and the `MARK_PATH` constant
+ * in nav.tsx, which every React drawing of it (the nav, the loading mark) reads.
+ * Nothing links the three, and every raster in public/ is generated from the
+ * same geometry, so a drift here silently ships a different logo to email, the
+ * tab and the social card.
  *
  * The path is deliberately two subpaths: a full-height stem, then the shoulder
  * springing off it partway down. The overlap is what leaves the notch at the top
@@ -91,7 +92,7 @@ describe("the mark is one shape everywhere", () => {
   const sources = {
     "public/logo.svg": read("logo.svg"),
     "public/favicon.svg": read("favicon.svg"),
-    "nav.tsx <LogoMark>": readFileSync(
+    "nav.tsx MARK_PATH": readFileSync(
       join(process.cwd(), "src/components/landing/nav.tsx"),
       "utf8",
     ),
@@ -103,7 +104,9 @@ describe("the mark is one shape everywhere", () => {
 
   it.each(Object.entries(sources))("%s keeps the stem above the springing point", (_name, src) => {
     // Two subpaths, not one. A single "M" means stem and shoulder were fused.
-    const d = src.match(/d="(M7\.89[^"]*)"/)?.[1] ?? "";
+    // Quoted rather than keyed on d=, so this reads the TS constant as well as
+    // the two SVG attributes.
+    const d = src.match(/"(M7\.89[^"]*)"/)?.[1] ?? "";
     expect(d.match(/M/g) ?? []).toHaveLength(2);
     // Stem caps at y=5; the shoulder's centre line sits at y=18.85, far below it.
     expect(d).toMatch(/V5M/);

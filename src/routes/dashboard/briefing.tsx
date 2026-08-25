@@ -4,6 +4,7 @@ import { Bookmark, Mail, MessageCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { BriefingPreview } from "@/components/briefing-preview";
+import { PanelLoading } from "@/components/loading";
 import { Chip, LinkButton } from "@/components/kit";
 import { useDisplayName } from "@/lib/auth";
 import { usePrefs } from "@/lib/prefs-store";
@@ -44,6 +45,10 @@ function Briefing() {
   const today = todayQ.data ?? [];
   const saved = savedQ.data ?? [];
   const shown = tab === "today" ? today : saved;
+  // An in-flight query and a genuinely empty briefing look identical once the
+  // data defaults to []. Without this the page asserts "No briefing today"
+  // before it has asked, which is the one thing a briefing must never get wrong.
+  const waiting = tab === "today" ? todayQ.isLoading : savedQ.isLoading;
 
   return (
     <DashboardShell title="My briefing">
@@ -75,7 +80,11 @@ function Briefing() {
         </div>
       </div>
 
-      {shown.length > 0 ? (
+      {waiting ? (
+        <PanelLoading
+          label={tab === "today" ? "Fetching today's briefing" : "Fetching your saves"}
+        />
+      ) : shown.length > 0 ? (
         <BriefingPreview
           key={tab}
           stories={shown}

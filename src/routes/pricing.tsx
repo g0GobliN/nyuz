@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Check, ArrowRight } from "lucide-react";
+import { useState } from "react";
 import { Eyebrow, LinkButton, Section, buttonClass } from "@/components/kit";
 import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
@@ -143,6 +144,7 @@ function Pricing() {
   const content = Route.useLoaderData();
   const ref = useReveal<HTMLDivElement>();
   const caption = annualCaption();
+  const [annual, setAnnual] = useState(false);
 
   return (
     <div ref={ref} className="min-h-screen bg-background">
@@ -160,7 +162,29 @@ function Pricing() {
               around you.
             </p>
 
-            {caption ? <p className="mt-9 text-[13px] text-muted-foreground">{caption}</p> : null}
+            <div className="mt-9 flex flex-col items-center gap-4">
+              <div className="inline-flex items-center gap-1 rounded-full border border-hairline bg-surface p-1">
+                {[
+                  { k: false, label: "Monthly" },
+                  { k: true, label: "Annual" },
+                ].map((o) => (
+                  <button
+                    key={String(o.k)}
+                    type="button"
+                    onClick={() => setAnnual(o.k)}
+                    className={cn(
+                      "rounded-full px-3.5 py-1 text-[12.5px] transition-all duration-300",
+                      annual === o.k
+                        ? "bg-foreground text-background"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+              {caption ? <p className="text-[13px] text-muted-foreground">{caption}</p> : null}
+            </div>
           </div>
         </section>
 
@@ -190,14 +214,18 @@ function Pricing() {
 
                   <div className="mt-6">
                     <div className="flex items-baseline gap-2">
-                      <span className="display text-5xl tabular-nums">{formatUsd(monthly)}</span>
+                      <span className="display text-5xl tabular-nums">
+                        {formatUsd(annual && yearly !== null ? yearly : monthly)}
+                      </span>
                       <span className="text-[13px] text-muted-foreground">
-                        {monthly === 0 ? "forever" : "per month"}
+                        {monthly === 0 ? "forever" : annual ? "per year" : "per month"}
                       </span>
                     </div>
                     {yearly !== null ? (
                       <p className="mt-2 text-[13px] tabular-nums text-muted-foreground">
-                        {formatUsd(yearly)} per year
+                        {annual
+                          ? `${formatUsd(monthly)} per month`
+                          : `${formatUsd(yearly)} per year`}
                       </p>
                     ) : null}
                   </div>

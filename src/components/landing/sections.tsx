@@ -5,7 +5,7 @@ import { PROFILE_BRIEFS, STORIES, type Profile } from "@/lib/sample-data";
 import { cn } from "@/lib/utils";
 
 export function ProfileDemo() {
-  const [profile, setProfile] = useState<Profile>("developer");
+  const [profile, setProfile] = useState<Profile>("sports");
   const cfg = PROFILE_BRIEFS[profile];
   const stories = cfg.storyIds
     .map((id) => STORIES.find((s) => s.id === id))
@@ -172,10 +172,15 @@ export function Infrastructure() {
               {i < rows.length - 1 ? <div className="h-4 w-px bg-border" /> : null}
             </div>
           ))}
-          <div className="mt-5 flex gap-2">
-            <span className="rounded-full border border-signal/40 px-3 py-1.5 text-[12px] text-signal">
-              Email
-            </span>
+          <div className="mt-5 flex flex-wrap gap-2">
+            {["Email", "Telegram", "Notifications"].map((d) => (
+              <span
+                key={d}
+                className="rounded-full border border-signal/40 px-3 py-1.5 text-[12px] text-signal"
+              >
+                {d}
+              </span>
+            ))}
           </div>
         </div>
 

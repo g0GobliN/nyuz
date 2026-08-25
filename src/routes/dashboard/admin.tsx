@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Check, Info, Loader2 } from "lucide-react";
+import { AlertTriangle, Check, Info } from "lucide-react";
 import { useState } from "react";
 import { DashboardShell, PageHeader, StaffOnly } from "@/components/dashboard/shell";
+import { Loading, LogoLoader, PanelLoading } from "@/components/loading";
 import { Chip } from "@/components/kit";
 import {
   getOverview,
@@ -69,7 +70,7 @@ function PipelineView() {
       </div>
 
       {overviewQ.isLoading ? (
-        <p className="text-[13px] text-muted-foreground">Loading…</p>
+        <PanelLoading label="Counting the pipeline" />
       ) : overviewQ.error ? (
         <p className="text-[13px] text-muted-foreground">
           {overviewQ.error instanceof Error
@@ -232,7 +233,7 @@ function PipelineTab({ data }: { data: Overview }) {
 }
 
 function EventsTab({ events, loading }: { events: PipelineEvent[] | undefined; loading: boolean }) {
-  if (loading) return <p className="text-[13px] text-muted-foreground">Loading…</p>;
+  if (loading) return <Loading label="Reading recent events" />;
   if (!events || events.length === 0) {
     return <p className="text-[13px] text-muted-foreground">No events yet.</p>;
   }
@@ -253,7 +254,9 @@ function EventsTab({ events, loading }: { events: PipelineEvent[] | undefined; l
                   : "border-border text-muted-foreground",
               )}
             >
-              {e.status === "analysing" ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+              {e.status === "analysing" ? (
+                <LogoLoader className="h-3.5 w-3.5" tone="current" label="Analysing" />
+              ) : null}
               {e.status === "complete" ? <Check className="h-3 w-3" /> : null}
               {statusLabel(e.status)}
             </span>

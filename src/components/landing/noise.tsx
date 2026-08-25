@@ -28,8 +28,8 @@ export function NoiseSection() {
         <div className="mt-6 max-w-md space-y-4 text-[15px] leading-relaxed text-muted-foreground">
           <p>
             Every morning the same ritual. Twenty tabs. Four newsletters you skim and delete. An
-            hour on X telling yourself it&apos;s research. And still the one thing that actually
-            mattered to your work reached you three days late, from a colleague, in passing.
+            hour on X telling yourself it&apos;s catching up. And still the one thing that actually
+            mattered to you reached you three days late, from a friend, in passing.
           </p>
           <p>
             The problem was never access to information. It&apos;s that there is far too much of it,

@@ -1,16 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  Bookmark,
-  ExternalLink,
-  Loader2,
-  Sparkles,
-  ThumbsDown,
-  ThumbsUp,
-} from "lucide-react";
+import { ArrowLeft, Bookmark, ExternalLink, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useState } from "react";
 import { DashboardShell } from "@/components/dashboard/shell";
+import { LogoLoader, PanelLoading } from "@/components/loading";
 import { formatStoryTime } from "@/lib/story-time";
 import { storyGrafs } from "@/lib/article-body";
 import { Button } from "@/components/kit";
@@ -49,7 +42,7 @@ function StoryDetail() {
   if (storyQ.isLoading) {
     return (
       <DashboardShell title="Story">
-        <p className="text-[13px] text-muted-foreground">Loading…</p>
+        <PanelLoading label="Opening the story" />
       </DashboardShell>
     );
   }
@@ -345,7 +338,7 @@ function AskPanel({ eventId }: { eventId: string }) {
           className="h-11 flex-1 rounded-full border border-input bg-surface px-4 text-[14px] outline-none placeholder:text-muted-foreground focus:border-signal"
         />
         <Button size="sm" onClick={() => void ask(q)} disabled={asking || !q.trim()}>
-          {asking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Ask"}
+          {asking ? <LogoLoader className="h-4 w-4" tone="current" label="Asking" /> : "Ask"}
         </Button>
       </div>
 
