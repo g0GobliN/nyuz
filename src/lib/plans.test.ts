@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PLAN_PRICES, resolvePlanPrices } from "@/lib/plans";
+import {
+  DEFAULT_ANNUAL_PRICES,
+  DEFAULT_PLAN_PRICES,
+  formatUsd,
+  resolvePlanPrices,
+} from "@/lib/plans";
 
 /**
  * These figures multiply into the MRR estimate on the console overview. A
@@ -43,5 +48,26 @@ describe("resolvePlanPrices", () => {
   it("does not mutate the shared default table", () => {
     resolvePlanPrices({ personal: 99 });
     expect(DEFAULT_PLAN_PRICES.personal).toBe(7);
+  });
+});
+
+describe("DEFAULT_PLAN_PRICES", () => {
+  it("matches the Stripe catalogue", () => {
+    expect(DEFAULT_PLAN_PRICES.personal).toBe(7);
+    expect(DEFAULT_PLAN_PRICES.pro).toBe(15);
+  });
+});
+
+describe("DEFAULT_ANNUAL_PRICES", () => {
+  it("matches the Stripe catalogue", () => {
+    expect(DEFAULT_ANNUAL_PRICES.personal).toBe(70);
+    expect(DEFAULT_ANNUAL_PRICES.pro).toBe(150);
+  });
+});
+
+describe("formatUsd", () => {
+  it("uses the two-decimal form Stripe shows", () => {
+    expect(formatUsd(7)).toBe("$7.00");
+    expect(formatUsd(150)).toBe("$150.00");
   });
 });

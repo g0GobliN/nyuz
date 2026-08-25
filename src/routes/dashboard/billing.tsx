@@ -5,8 +5,13 @@ import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button } from "@/components/kit";
 import { openBillingPortal, startCheckout } from "@/lib/server/billing";
 import { usePlan } from "@/lib/plan-state";
-import { DEFAULT_PLAN_PRICES, PLAN_LIMITS, formatTopicLimit } from "@/lib/plans";
-import { PRICES_DEFAULT } from "@/lib/site-content";
+import {
+  DEFAULT_ANNUAL_PRICES,
+  DEFAULT_PLAN_PRICES,
+  PLAN_LIMITS,
+  formatTopicLimit,
+  formatUsd,
+} from "@/lib/plans";
 import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 
@@ -28,24 +33,19 @@ const PLANS = [
     id: "personal",
     name: "Personal",
     monthly: DEFAULT_PLAN_PRICES.personal,
-    annual: PRICES_DEFAULT.personalAnnual,
+    annual: DEFAULT_ANNUAL_PRICES.personal,
     ...PLAN_LIMITS.personal,
-    features: ["Daily and weekly", "Telegram", "Breaking alerts", "AI explanations"],
+    features: ["Daily and weekly", "Breaking alerts", "Custom instructions", "AI explanations"],
   },
   {
     id: "pro",
     name: "Pro",
     monthly: DEFAULT_PLAN_PRICES.pro,
-    annual: PRICES_DEFAULT.proAnnual,
+    annual: DEFAULT_ANNUAL_PRICES.pro,
     ...PLAN_LIMITS.pro,
-    features: ["Multiple schedules", "WhatsApp", "Deeper explanations", "Priority processing"],
+    features: ["Multiple schedules", "Deeper explanations", "Priority processing"],
   },
 ] as const;
-
-const INVOICES = [
-  { id: "INV-0004", date: "1 August 2026", amount: "$0.00", note: "Free plan" },
-  { id: "INV-0003", date: "1 July 2026", amount: "$0.00", note: "Free plan" },
-];
 
 function Billing() {
   const { prefs } = usePrefs();
@@ -115,10 +115,10 @@ function Billing() {
             </p>
             <p className="mt-1 text-[13px] tabular-nums">
               {plan.monthly === 0
-                ? "$0"
+                ? formatUsd(0)
                 : annual
-                  ? `$${plan.annual} / year`
-                  : `$${plan.monthly} / month`}
+                  ? `${formatUsd(plan.annual)} / year`
+                  : `${formatUsd(plan.monthly)} / month`}
             </p>
           </div>
         </div>
@@ -193,13 +193,22 @@ function Billing() {
                   </span>
                 ) : null}
               </div>
-              <p className="mt-4 flex items-baseline gap-1.5">
-                <span className="display text-4xl tabular-nums">
-                  ${annual ? p.annual : p.monthly}
+              <p className="mt-4">
+                <span className="flex items-baseline gap-1.5">
+                  <span className="display text-4xl tabular-nums">
+                    {formatUsd(annual && p.monthly > 0 ? p.annual : p.monthly)}
+                  </span>
+                  <span className="text-[12.5px] text-muted-foreground">
+                    {p.monthly === 0 ? "forever" : annual ? "per year" : "per month"}
+                  </span>
                 </span>
-                <span className="text-[12.5px] text-muted-foreground">
-                  {p.monthly === 0 ? "forever" : annual ? "per year" : "per month"}
-                </span>
+                {p.monthly > 0 ? (
+                  <span className="mt-1 block text-[12.5px] tabular-nums text-muted-foreground">
+                    {annual
+                      ? `${formatUsd(p.monthly)} per month`
+                      : `${formatUsd(p.annual)} per year`}
+                  </span>
+                ) : null}
               </p>
               <ul className="mt-5 flex-1 space-y-2">
                 <li className="flex items-start gap-2 text-[13.5px]">
@@ -265,22 +274,10 @@ function Billing() {
 
       <section className="mt-10">
         <h2 className="text-[17px] font-medium tracking-tight">Invoices</h2>
-        <div className="mt-4 overflow-hidden rounded-2xl border border-hairline bg-surface">
-          {INVOICES.map((inv) => (
-            <div
-              key={inv.id}
-              className="flex flex-wrap items-center gap-4 border-b border-hairline px-5 py-4 last:border-0"
-            >
-              <span className="text-[13.5px] tabular-nums">{inv.id}</span>
-              <span className="text-[13px] text-muted-foreground">{inv.date}</span>
-              <span className="text-[12.5px] text-muted-foreground">{inv.note}</span>
-              <span className="ml-auto text-[13.5px] tabular-nums">{inv.amount}</span>
-              <button className="text-[12.5px] text-muted-foreground hover:text-foreground">
-                Receipt
-              </button>
-            </div>
-          ))}
-        </div>
+        <p className="mt-4 rounded-2xl border border-hairline bg-surface px-5 py-8 text-[13.5px] leading-relaxed text-muted-foreground">
+          Receipts from Stripe will show here after a paid period. The free plan does not generate
+          one.
+        </p>
       </section>
     </DashboardShell>
   );

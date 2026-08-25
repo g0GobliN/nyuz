@@ -1,19 +1,31 @@
 import type { PlanTier } from "@/lib/supabase/types";
 
 /**
- * Monthly price per plan, in whole US dollars.
+ * Stripe product catalogue (live, 23 Aug 2026). Display, checkout copy and
+ * revenue arithmetic all read these — not the admin override, which can only
+ * drift from what Stripe actually charges.
  *
- * The marketing copy on /pricing is written by hand and is the thing customers
- * read; this table is what revenue arithmetic uses. They are separate on
- * purpose — a price change has to be made in both places, and having to touch
- * the page is a useful forcing function. The admin console can override these
- * without a deploy via the `billing.prices` site setting.
+ *   nyuz personal         US$7.00 / month
+ *   nyuz personal annual  US$70.00 / year
+ *   nyuz pro              US$15.00 / month
+ *   nyuz pro annual       US$150.00 / year
  */
 export const DEFAULT_PLAN_PRICES: Record<PlanTier, number> = {
   free: 0,
   personal: 7,
   pro: 15,
 };
+
+/** Annual totals. Two months free against twelve months of the monthly price. */
+export const DEFAULT_ANNUAL_PRICES: Record<Exclude<PlanTier, "free">, number> = {
+  personal: 70,
+  pro: 150,
+};
+
+/** "$7.00" — the same two-decimal form Stripe shows. */
+export function formatUsd(amount: number): string {
+  return `$${amount.toFixed(2)}`;
+}
 
 export const PLAN_TIERS: PlanTier[] = ["free", "personal", "pro"];
 
@@ -32,12 +44,50 @@ export const PLAN_TIERS: PlanTier[] = ["free", "personal", "pro"];
  */
 export const PLAN_LIMITS: Record<
   PlanTier,
-  { topics: number; retention: string; retentionDays: number }
+  { topics: number; retention: string; retentionDays: number; asksPerDay: number }
 > = {
-  free: { topics: 3, retention: "7-day history", retentionDays: 7 },
-  personal: { topics: 15, retention: "90-day history", retentionDays: 90 },
-  pro: { topics: Infinity, retention: "1-year history", retentionDays: 365 },
+  free: { topics: 3, retention: "7-day history", retentionDays: 7, asksPerDay: 0 },
+  personal: { topics: 15, retention: "90-day history", retentionDays: 90, asksPerDay: 24 },
+  pro: { topics: Infinity, retention: "1-year history", retentionDays: 365, asksPerDay: 48 },
 };
+
+/** Quiet gap so a loop cannot drain the reason tier. Follow-ups should still feel instant. */
+export const ASK_COOLDOWN_MS = 8_000;
+
+/** Reasoning plus a short answer. The route default is far larger than Ask needs. */
+export const ASK_MAX_TOKENS = 4096;
+
+export type AskDecision =
+  { ok: true } | { ok: false; reason: "disabled" | "plan" | "quota" | "cooldown" };
+
+/**
+ * Whether this Ask is allowed. Pure, so the cap can be tested without a model.
+ *
+ * `flagOn` is fail-closed: missing or false both refuse. Free has a zero cap,
+ * which is the same as "not on this plan" rather than a quota message.
+ */
+export function decideAsk(input: {
+  flagOn: boolean | null;
+  plan: PlanTier;
+  usedToday: number;
+  lastAt: Date | null;
+  now: Date;
+}): AskDecision {
+  if (input.flagOn !== true) return { ok: false, reason: "disabled" };
+  const cap = PLAN_LIMITS[input.plan]?.asksPerDay ?? 0;
+  if (cap <= 0) return { ok: false, reason: "plan" };
+  if (input.usedToday >= cap) return { ok: false, reason: "quota" };
+  if (input.lastAt && input.now.getTime() - input.lastAt.getTime() < ASK_COOLDOWN_MS) {
+    return { ok: false, reason: "cooldown" };
+  }
+  return { ok: true };
+}
+
+/** First `limit` items. `Infinity` means the whole list. */
+export function clipLabels<T>(labels: T[], limit: number): T[] {
+  if (!Number.isFinite(limit)) return labels;
+  return labels.slice(0, Math.max(0, limit));
+}
 
 /** "3" or "unlimited" — never the literal Infinity. */
 export function formatTopicLimit(limit: number): string {

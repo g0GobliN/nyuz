@@ -14,6 +14,10 @@ export const TOPIC_POOL = [
   "Chips",
   "Open source",
   "Robotics",
+  "Linux",
+  "Hardware",
+  "Developer tools",
+  "Consumer tech",
 ] as const;
 
 export const IGNORE_POOL = [
