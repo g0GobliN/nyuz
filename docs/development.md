@@ -70,6 +70,11 @@ credential problem and a PR needs no real secrets.
 A second push to a branch cancels the earlier run; `main` is excluded so its history stays
 fully checked.
 
+A fifth job, `deploy`, runs only for a push to `main` and only once the commit-message
+check and all four steps above are green. It rebuilds with the real configuration —
+the checked build's placeholders must never reach a browser — and ships to Cloudflare.
+See [deployment.md](deployment.md).
+
 ---
 
 ## Conventions

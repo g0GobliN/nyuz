@@ -25,6 +25,51 @@ packages. Two copies of React break hooks; two routers break context lookups at 
 
 ## Deploying
 
+**Merging to `main` deploys.** `.github/workflows/ci.yml` runs the commit-message check,
+typecheck, lint, test and build; if all of them pass, its `deploy` job rebuilds with the
+real configuration and runs `wrangler deploy`. Nothing else is needed, and a red run
+cannot ship — the job `needs` both of the others.
+
+A pull request is checked and never deployed. Neither is any branch but `main`.
+
+### Setting it up once
+
+The workflow reads one secret and five variables from the repository. Under
+**Settings → Secrets and variables → Actions**:
+
+| Name                     | Kind     | Value                                    |
+| ------------------------ | -------- | ---------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`   | Secret   | A token with **Edit Cloudflare Workers** |
+| `CLOUDFLARE_ACCOUNT_ID`  | Variable | The account ID from the dashboard URL    |
+| `VITE_SUPABASE_URL`      | Variable | `https://<ref>.supabase.co`              |
+| `VITE_SUPABASE_ANON_KEY` | Variable | The anon key                             |
+| `VITE_SITE_URL`          | Variable | Absolute origin, no trailing slash       |
+| `VITE_VAPID_PUBLIC_KEY`  | Variable | From `npm run vapid`                     |
+
+The four `VITE_` values are variables and not secrets on purpose: Vite compiles them into
+the bundle every visitor downloads, so calling them secret would be theatre. Everything
+that is actually secret is a Worker secret and never passes through GitHub — see below.
+
+Mint the token at **My Profile → API Tokens → Create Token → Edit Cloudflare Workers**,
+scoped to this account. It is the only credential the workflow holds, and it is scoped to
+the `production` GitHub Environment rather than to the repository, so no other workflow
+can read it. Put a required reviewer on that environment if a deploy should need a human.
+
+An unset `VITE_` variable would not fail the build — Vite would inline `undefined` and
+`src/lib/supabase/client.ts` would throw for every visitor. The job checks for them first
+and refuses rather than shipping a bundle that CI called green.
+
+### The worker name is pinned
+
+`vite.config.ts` sets `name: "nyuz"`. Left unset, nitro infers a name from the git remote,
+and a worker's name is its identity on Cloudflare — anything that changed the inference
+would not fail, it would create a _second_ worker and leave the first one live with the
+cron triggers and the secrets still on it.
+
+### By hand
+
+Still possible, and the fastest way to check a change against the real runtime:
+
 ```bash
 npm run build
 npx nitro deploy --prebuilt
@@ -41,7 +86,12 @@ npm run preview
 ## Secrets
 
 Set every server-side secret with `wrangler secret put` — never in `wrangler.json`, never
-in a table, never `VITE_`-prefixed.
+in a table, never `VITE_`-prefixed, and **not in GitHub**.
+
+The deploy workflow does not carry them. `wrangler deploy` leaves existing Worker secrets
+untouched, so they are set once against Cloudflare and stay there; routing them through
+Actions on every deploy would put a second copy of every key in a second system and buy
+nothing.
 
 ```bash
 wrangler secret put SUPABASE_SERVICE_ROLE_KEY
@@ -74,11 +124,16 @@ cleanly.
 before deploying the code, or the running deployment queries a column that does not exist
 yet.
 
+Automatic deployment sharpens that. There is no longer a gap between merging and shipping
+in which to remember, so a change that needs a migration means pushing the migration
+first and merging second — not the other way round.
+
 ---
 
 ## Release checklist
 
-- [ ] `npm run ci` green locally, and CI green on the commit
+- [ ] `npm run ci` green locally — CI green on `main` is what actually deploys
+- [ ] `CLOUDFLARE_API_TOKEN` and the five variables set on the repository
 - [ ] Cron Triggers tab shows every schedule in `triggers.crons` registered — Cloudflare
       takes three per Worker and drops the rest without failing the deploy
 - [ ] Migrations applied to the target project
