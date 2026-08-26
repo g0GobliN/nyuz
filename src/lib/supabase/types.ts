@@ -171,6 +171,16 @@ export type UserEvent = {
   event_id: string;
   relevance: number;
   matched_at: string;
+  /**
+   * Engagement, added in `0016_engagement.sql`. Written only by the server —
+   * a browser that could set these could inflate its own relevance.
+   */
+  impressions: number;
+  open_count: number;
+  opened_at: string | null;
+  read_ms: number;
+  reached_end: boolean;
+  engaged_at: string | null;
 };
 
 export type Digest = {
@@ -415,7 +425,17 @@ export type Database = {
         "id" | "source_id" | "event_id" | "author" | "excerpt" | "published_at" | "fetched_at"
       >;
       event_topics: Table<EventTopic, "confidence">;
-      user_events: Table<UserEvent, "relevance" | "matched_at">;
+      user_events: Table<
+        UserEvent,
+        | "relevance"
+        | "matched_at"
+        | "impressions"
+        | "open_count"
+        | "opened_at"
+        | "read_ms"
+        | "reached_end"
+        | "engaged_at"
+      >;
       digests: Table<
         Digest,
         "digest_id" | "generated_at" | "status" | "item_count" | "generation_tokens" | "kind"

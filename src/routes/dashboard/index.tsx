@@ -8,15 +8,31 @@ import { PanelLoading } from "@/components/loading";
 import { LinkButton } from "@/components/kit";
 import { useDisplayName } from "@/lib/auth";
 import { useFeedback } from "@/lib/feedback-store";
+import { useImpressions } from "@/lib/use-engagement";
 import { usePrefs } from "@/lib/prefs-store";
 import { loadHomeFeed } from "@/lib/server/briefing";
 import { clockInZone } from "@/lib/pipeline/schedule";
 import { useReveal } from "@/lib/use-reveal";
+import type { Story } from "@/lib/story";
 
 export const Route = createFileRoute("/dashboard/")({
   component: DashboardHome,
   head: () => ({ meta: [{ title: "Your nyuz" }] }),
 });
+
+/**
+ * Records that these stories were put in front of the reader. Renders nothing.
+ *
+ * Its own component so the `useMemo` over ids does not re-run on every state
+ * change in the page — a vote or a dismissal must not look like a fresh
+ * impression, or skipping a card would quietly count as having been shown it
+ * again.
+ */
+function ImpressionTracker({ stories }: { stories: Story[] }) {
+  const ids = useMemo(() => stories.map((s) => s.id), [stories]);
+  useImpressions(ids);
+  return null;
+}
 
 function greeting() {
   const h = new Date().getHours();
@@ -79,6 +95,8 @@ function DashboardHome() {
             Read as a briefing <ArrowRight className="h-4 w-4" />
           </LinkButton>
         </PageHeader>
+
+        <ImpressionTracker stories={visible} />
 
         <div className="grid gap-8 lg:grid-cols-[1fr_260px]">
           <div className="space-y-4">
