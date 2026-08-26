@@ -444,6 +444,82 @@ const DOCS: Record<string, Doc> = {
     ],
   },
 
+  tokushoho: {
+    title: "Commercial disclosure",
+    updated: UPDATED,
+    group: "Company",
+    intro:
+      "The disclosure Japanese law requires from anyone selling online. Who is charging you, what for, and how to stop.",
+    sections: [
+      {
+        h: "特定商取引法に基づく表記",
+        p: [
+          "This page is the notice required by Article 11 of Japan's Act on Specified Commercial Transactions. It applies because nyuz is operated from Japan and sells subscriptions to consumers.",
+        ],
+        table: {
+          head: ["Item", "Detail"],
+          rows: [
+            [
+              "販売業者 — Seller",
+              `${ENTITY.operator}, trading as ${ENTITY.name}. A sole trader, not a registered company.`,
+            ],
+            ["運営統括責任者 — Operator", ENTITY.operator],
+            [
+              "所在地 — Address",
+              "Not published here. Disclosed without delay on request — see below.",
+            ],
+            [
+              "電話番号 — Telephone",
+              "Not published here. Disclosed without delay on request — see below.",
+            ],
+            ["メールアドレス — Email", ENTITY.mail.contact],
+            [
+              "販売価格 — Price",
+              "Free: US$0. Personal: US$7.00 per month or US$69.00 per year. Pro: US$15.00 per month or US$149.00 per year. Current prices are always on the Pricing page.",
+            ],
+            [
+              "商品代金以外の必要料金 — Additional charges",
+              "None from us. Prices are in US dollars, so your bank or card issuer may add its own currency conversion fee.",
+            ],
+            [
+              "支払方法 — Payment method",
+              "Credit and debit card, processed by Stripe. We never see or store your card number.",
+            ],
+            [
+              "支払時期 — Payment timing",
+              "Charged when you subscribe, then at the start of each renewal period until you cancel.",
+            ],
+            [
+              "役務の提供時期 — Service start",
+              "Immediately on payment. Your first briefing follows the delivery schedule you set.",
+            ],
+            [
+              "返品・キャンセル — Cancellation",
+              "Cancel any time from Settings. Refund terms are on the Refunds page.",
+            ],
+            [
+              "動作環境 — Requirements",
+              "A current web browser and a working email address. Telegram and browser notifications are optional extras.",
+            ],
+          ],
+        },
+      },
+      {
+        h: "Address and telephone",
+        p: [
+          `nyuz is one person with no business premises, so neither is printed above. The law permits that on condition the operator hands them over promptly when asked, and we will: write to ${ENTITY.mail.contact} and you will have both without delay and without needing to give a reason.`,
+        ],
+      },
+      {
+        h: "Cancelling and refunds",
+        p: [
+          "Cancelling stops the next renewal and keeps your access until the period you have already paid for ends. There is nothing to return and no cancellation fee.",
+          "A full refund is available on request within 14 days of your first paid period, and beyond that where the service failed you. The Refunds page has the detail.",
+        ],
+      },
+    ],
+  },
+
   contact: {
     title: "Contact",
     updated: UPDATED,
@@ -514,7 +590,7 @@ function LegalDoc() {
       <main className="px-5 pb-24 pt-32 sm:px-8">
         <div className="mx-auto grid w-full max-w-5xl gap-14 md:grid-cols-[180px_1fr]">
           <nav className="md:sticky md:top-28 md:self-start">
-            {/* Grouped rather than one flat run: there are eight documents now,
+            {/* Grouped rather than one flat run: there are nine documents now,
                 and "Refunds" sitting between "Privacy" and "Security" tells a
                 reader nothing about which of them answers their question. */}
             {GROUPS.map((group) => {

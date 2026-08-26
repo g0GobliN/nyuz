@@ -93,6 +93,9 @@ export function SiteFooter({
             <Link to="/legal/$doc" params={{ doc: "contact" }} className={footerLink}>
               Contact
             </Link>
+            <Link to="/legal/$doc" params={{ doc: "tokushoho" }} className={footerLink}>
+              Commercial disclosure
+            </Link>
             <Link to="/auth" className={footerLink}>
               Sign in
             </Link>
