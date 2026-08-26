@@ -51,7 +51,7 @@ const PLANS: Plan[] = [
     priceKey: "free",
     tagline: "See whether a briefing changes your morning.",
     features: [
-      "3 topics and 3 priority sources",
+      "3 topics · prioritise any source",
       "Up to 18 stories per briefing",
       "Daily Flash briefing",
       "Email delivery",
@@ -64,7 +64,7 @@ const PLANS: Plan[] = [
     priceKey: "personal",
     tagline: "A nyuz shaped around what you actually do.",
     features: [
-      "15 topics and 15 priority sources",
+      "15 topics · prioritise any source",
       "Up to 30 stories per briefing",
       "Pro-quality daily briefing",
       "Custom delivery time",
@@ -81,7 +81,7 @@ const PLANS: Plan[] = [
     priceKey: "pro",
     tagline: "For people whose job is knowing first.",
     features: [
-      "Unlimited topics and priority sources",
+      "Unlimited topics · prioritise any source",
       "Up to 50 stories per briefing",
       "Pro-quality daily briefing",
       "Up to 10 configurable alerts per day",

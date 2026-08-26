@@ -41,7 +41,7 @@ however convenient it looks at the time.
 | `topics`            | Global topic vocabulary                                 |
 | `user_topics`       | Per-user importance, frequency, keywords, weight, muted |
 | `user_exclusions`   | Terms that beat topics at match time                    |
-| `user_source_prefs` | Prioritise / normal / mute, with plan caps on priority  |
+| `user_source_prefs` | Prioritise / normal / mute, uncapped on every plan      |
 
 ### Content — global, pipeline-written
 

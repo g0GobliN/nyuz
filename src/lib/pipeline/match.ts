@@ -485,24 +485,13 @@ export async function loadReaders(
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
     const cap = PLAN_LIMITS[plan]?.topics ?? PLAN_LIMITS.free.topics;
     const active = clipLabels(mine, cap);
-    const mineSourcePrefs = (sourcePrefs ?? []).filter((p) => p.user_id === row.user_id);
-    const priorityCap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
-    const activePriority = new Set(
-      clipLabels(
-        mineSourcePrefs
-          .filter((p) => p.pref === "priority")
-          .slice()
-          .sort((a, b) => a.created_at.localeCompare(b.created_at)),
-        priorityCap,
-      ).map((p) => p.source_id),
-    );
-    const effectiveSourcePrefs: [string, SourcePref][] = [];
-    for (const pref of mineSourcePrefs) {
-      if (pref.pref === "muted") effectiveSourcePrefs.push([pref.source_id, "muted"]);
-      else if (pref.pref === "priority" && activePriority.has(pref.source_id)) {
-        effectiveSourcePrefs.push([pref.source_id, "priority"]);
-      }
-    }
+    // Every priority a reader has set counts, on every plan. Weighting a feed
+    // costs nothing to honour — the story it promotes was ingested, clustered
+    // and analysed once for everybody, and this stage spends no tokens either
+    // way. See the note at the top of the file.
+    const effectiveSourcePrefs: [string, SourcePref][] = (sourcePrefs ?? [])
+      .filter((p) => p.user_id === row.user_id && p.pref !== "normal")
+      .map((p) => [p.source_id, p.pref]);
 
     return {
       userId: row.user_id,

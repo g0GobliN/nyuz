@@ -21,7 +21,6 @@ import { useAuth } from "@/lib/auth";
 export type PlanState = {
   plan: PlanTier;
   topicLimit: number;
-  prioritySourceLimit: number;
   asksPerDay: number;
   retention: string;
   retentionDays: number;
@@ -59,7 +58,6 @@ export function usePlan(): PlanState {
   return {
     plan,
     topicLimit: limits.topics,
-    prioritySourceLimit: limits.prioritySources,
     asksPerDay: limits.asksPerDay,
     retention: limits.retention,
     retentionDays: limits.retentionDays,

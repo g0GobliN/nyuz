@@ -11,7 +11,6 @@ import {
   ASK_MAX_TOKENS,
   PLAN_LIMITS,
   askCapabilityFor,
-  clipLabels,
   decideAsk,
 } from "@/lib/plans";
 import { judgeStoryQuestion } from "@/lib/ask-scope";
@@ -629,8 +628,6 @@ export type WatchedSource = {
   kind: SourceKind;
   homepage: string | null;
   pref: SourcePref;
-  /** False only when a downgrade preserved a priority beyond the new plan cap. */
-  priorityActive: boolean;
 };
 
 export type SourceGroup = { group: string; items: WatchedSource[] };
@@ -649,34 +646,15 @@ export const loadWatchedSources = createServerFn({ method: "GET" })
   .middleware([signedInOnly])
   .handler(async ({ context }): Promise<SourceGroup[]> => {
     const { actor } = context;
-    const [{ data: sources, error }, { data: prefs, error: prefError }, { data: subscription }] =
-      await Promise.all([
-        actor.db
-          .from("sources")
-          .select("id, name, kind, homepage")
-          .eq("active", true)
-          .order("name"),
-        actor.db
-          .from("user_source_prefs")
-          .select("source_id, pref, created_at")
-          .eq("user_id", actor.id),
-        actor.db.from("subscriptions").select("plan").eq("user_id", actor.id).maybeSingle(),
-      ]);
+    // No plan read: every preference on this page applies on every plan.
+    const [{ data: sources, error }, { data: prefs, error: prefError }] = await Promise.all([
+      actor.db.from("sources").select("id, name, kind, homepage").eq("active", true).order("name"),
+      actor.db.from("user_source_prefs").select("source_id, pref").eq("user_id", actor.id),
+    ]);
     if (error) throw new Error(`reading sources: ${error.message}`);
     if (prefError) throw new Error(`reading source prefs: ${prefError.message}`);
 
     const prefOf = new Map((prefs ?? []).map((p) => [p.source_id, p.pref] as const));
-    const plan = subscription?.plan ?? "free";
-    const priorityCap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
-    const activePriorities = new Set(
-      clipLabels(
-        (prefs ?? [])
-          .filter((p) => p.pref === "priority")
-          .slice()
-          .sort((a, b) => a.created_at.localeCompare(b.created_at)),
-        priorityCap,
-      ).map((p) => p.source_id),
-    );
     const grouped = new Map<SourceKind, WatchedSource[]>();
     for (const row of sources ?? []) {
       const item: WatchedSource = {
@@ -685,7 +663,6 @@ export const loadWatchedSources = createServerFn({ method: "GET" })
         kind: row.kind,
         homepage: row.homepage,
         pref: prefOf.get(row.id) ?? "normal",
-        priorityActive: activePriorities.has(row.id),
       };
       grouped.set(row.kind, [...(grouped.get(row.kind) ?? []), item]);
     }
@@ -702,27 +679,15 @@ export const setSourcePref = createServerFn({ method: "POST" })
       .object({ sourceId: z.string().uuid(), pref: z.enum(["normal", "priority", "muted"]) })
       .parse(input),
   )
-  .handler(async ({ context, data }): Promise<{ ok: boolean; reason?: "plan" }> => {
-    if (data.pref === "priority") {
-      const plan = await planOf(context.actor.db, context.actor.id);
-      const cap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
-      if (Number.isFinite(cap)) {
-        const { count } = await context.actor.db
-          .from("user_source_prefs")
-          .select("source_id", { count: "exact", head: true })
-          .eq("user_id", context.actor.id)
-          .eq("pref", "priority");
-        if ((count ?? 0) >= cap) return { ok: false, reason: "plan" };
-      }
-    }
+  // Weighting a feed is free to honour on any plan: the story it promotes was
+  // ingested and analysed once for every reader, and matching spends no tokens.
+  // Nothing here is metered, so nothing here needs a cap.
+  .handler(async ({ context, data }): Promise<{ ok: boolean }> => {
     const { error } = await context.actor.db.from("user_source_prefs").upsert({
       user_id: context.actor.id,
       source_id: data.sourceId,
       pref: data.pref,
     });
-    if (error?.message.includes("priority source cap exceeded")) {
-      return { ok: false, reason: "plan" };
-    }
     if (error) throw new Error(`saving source preference: ${error.message}`);
     return { ok: true };
   });
