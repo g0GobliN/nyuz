@@ -100,6 +100,23 @@ holds `"OPENAI_API_KEY"`, not the key. See
 
 `.env` is gitignored. `.env.example` is not — never put a real value there.
 
+**CI enforces the table above rather than trusting it.** Vite compiles every
+`VITE_`-prefixed variable into the browser bundle, so the difference between a Worker
+secret and a published one is a naming convention — and a naming convention is not a
+control. Two jobs in `.github/workflows/ci.yml` make it one:
+
+- `audit` rejects any `VITE_`-prefixed name containing `SECRET`, `SERVICE_ROLE`,
+  `PRIVATE_KEY`, `API_KEY`, `PASSWORD` or `TOKEN`, across `src/`, `scripts/` and
+  `.env.example`. This runs on pull requests, so the mistake is caught while it is still
+  a name and before it ever holds a value.
+- `deploy` scans `.output/public` after the build and before the upload for Stripe,
+  Resend, OpenAI-style and Telegram key shapes, and decodes every JWT it finds to
+  confirm the role is `anon`. A service-role key and an anon key are both JWTs and look
+  alike; only the payload distinguishes them, and only one of them is safe to publish.
+
+If either fires, treat the value as disclosed and rotate it — a failed run has already
+printed it to a build log.
+
 On Cloudflare Workers there is **no ambient `process.env` at module scope**, so the
 service-role client is built per call from the env handed to the request rather than
 captured at import time.
@@ -134,7 +151,10 @@ the app issues one.
       `audit()`.
 - [ ] Does it add a table? Then RLS is enabled and the policies are deliberate. Denying by
       default is a valid choice; forgetting is not.
-- [ ] Does it add a secret? Then it is a Worker secret, referenced by name.
+- [ ] Does it add a secret? Then it is a Worker secret, referenced by name, and its name
+      does not begin with `VITE_`.
+- [ ] Does it add a workflow step using a third-party action? Then it is pinned to a
+      commit SHA, with the version in a comment.
 - [ ] Does it render user- or operator-supplied text? Then it is escaped, and any URL is
       scheme-checked.
 - [ ] Does it read a role? Then from `user_roles`, server-side, per call.

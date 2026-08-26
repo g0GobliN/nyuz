@@ -25,12 +25,24 @@ packages. Two copies of React break hooks; two routers break context lookups at 
 
 ## Deploying
 
-**Merging to `main` deploys.** `.github/workflows/ci.yml` runs the commit-message check,
-typecheck, lint, test and build; if all of them pass, its `deploy` job rebuilds with the
-real configuration and runs `wrangler deploy`. Nothing else is needed, and a red run
-cannot ship — the job `needs` both of the others.
+**Merging to `main` deploys.** `.github/workflows/ci.yml` runs three jobs in parallel —
+the commit-message check; a dependency and secret-name audit; and typecheck, lint, test
+and build. If all three pass, the `deploy` job rebuilds with the real configuration,
+scans the bundle it just built, runs `wrangler deploy`, and asks the deployment for a
+200 before calling itself green. A red run cannot ship: `deploy` `needs` all three.
 
 A pull request is checked and never deployed. Neither is any branch but `main`.
+
+Two of those gates exist because a bad deploy cannot be taken back. The bundle scan runs
+between the build and the upload, since every visitor who loads a published bundle keeps
+a copy of whatever was in it. The smoke check runs after, because `wrangler deploy`
+succeeding only means Cloudflare accepted the upload — a Worker that throws at module
+scope uploads perfectly and then fails for everyone.
+
+Every third-party action is pinned to a commit SHA rather than a tag. A tag is a pointer
+its owner can move, and `deploy` hands whatever it resolves to an API token that can
+rewrite the live Worker. Upgrading one is a reviewed line in the workflow; the version
+each SHA belongs to is in the comment beside it.
 
 ### Setting it up once
 
