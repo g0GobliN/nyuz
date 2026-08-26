@@ -26,13 +26,27 @@ export function toGrafs(text: string): string[] {
   return grafs;
 }
 
-export function clipGraf(text: string, max = 420): string {
+export function clipGraf(text: string, max = 560): string {
   const clean = stripMarkup(text);
   if (clean.length <= max) return clean;
   const cut = clean.slice(0, max);
   const at = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("? "), cut.lastIndexOf("! "));
   return at >= 24 ? cut.slice(0, at + 1) : `${cut.trimEnd()}…`;
 }
+
+/**
+ * How many paragraphs the Read page builds up to.
+ *
+ * Raised from eight because the column read short: an event summary plus a
+ * before and after leaves only five slots for actual coverage, and a story with
+ * several sources ran out before it felt like an article. Ten is still bounded —
+ * this is a briefing, not a reprint — and the length floor below means a feed
+ * with nothing to add cannot pad it out.
+ *
+ * `mailGrafs` is unaffected on purpose. It takes the first four whatever this
+ * is, because an email is the summary and the site is the whole thing.
+ */
+const STORY_GRAFS = 10;
 
 export function storyGrafs(input: {
   what: string;
@@ -49,7 +63,7 @@ export function storyGrafs(input: {
     if (graf.length < 40) continue;
     if (grafs.some((g) => nearDuplicate(g, graf))) continue;
     grafs.push(graf);
-    if (grafs.length >= 8) break;
+    if (grafs.length >= STORY_GRAFS) break;
   }
   return grafs;
 }
