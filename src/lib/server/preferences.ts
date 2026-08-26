@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { type Actor, signedInOnly } from "./guard";
 import { keepCoveredTopics } from "@/lib/coverage";
-import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
+import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
 import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
 import { notificationRowToPrefs, prefsToNotificationRow, topicSlug } from "@/lib/preferences-map";
 
@@ -52,7 +52,7 @@ export const loadPreferences = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<Prefs> => {
     const { actor } = context;
 
-    const [profile, notifications, topics, exclusions] = await Promise.all([
+    const [profile, notifications, topics, exclusions, subscription] = await Promise.all([
       actor.db
         .from("profiles")
         .select("display_name, onboarded_at")
@@ -66,6 +66,7 @@ export const loadPreferences = createServerFn({ method: "GET" })
         .eq("muted", false)
         .order("created_at", { ascending: true }),
       actor.db.from("user_exclusions").select("term").eq("user_id", actor.id),
+      actor.db.from("subscriptions").select("plan").eq("user_id", actor.id).maybeSingle(),
     ]);
 
     // Order is the weighting the product has — the topics page pauses the tail
@@ -74,9 +75,15 @@ export const loadPreferences = createServerFn({ method: "GET" })
       .map((row) => (row.topics as { label?: string } | null)?.label)
       .filter((label): label is string => Boolean(label));
 
+    const stored: Partial<Prefs> = notifications.data
+      ? notificationRowToPrefs(notifications.data)
+      : {};
+    const plan = subscription.data?.plan ?? "free";
+
     return {
       ...DEFAULT_PREFS,
-      ...(notifications.data ? notificationRowToPrefs(notifications.data) : {}),
+      ...stored,
+      breaking: allowedBreaking(plan, stored.breaking ?? DEFAULT_PREFS.breaking),
       name: profile.data?.display_name ?? "",
       topics: topicLabels,
       exclusions: (exclusions.data ?? []).map((row) => row.term),
@@ -135,7 +142,10 @@ export const savePreferences = createServerFn({ method: "POST" })
       if (data.channels !== undefined) patch["channels"] = row.channels;
       if (data.density !== undefined) patch["density"] = row.density;
       if (data.frequency !== undefined) patch["frequency"] = row.frequency;
-      if (data.breaking !== undefined) patch["breaking"] = row.breaking;
+      if (data.breaking !== undefined) {
+        const plan = await planFor(actor);
+        patch["breaking"] = allowedBreaking(plan, row.breaking);
+      }
       if (data.paused !== undefined) patch["paused"] = row.paused;
       patch["updated_at"] = new Date().toISOString();
 
@@ -147,7 +157,13 @@ export const savePreferences = createServerFn({ method: "POST" })
     if (data.topics !== undefined) await replaceTopics(actor, data.topics);
     if (data.exclusions !== undefined) await replaceExclusions(actor, data.exclusions);
     if (data.paused === false) {
-      await actor.db.from("profiles").update({ paused_notified_at: null }).eq("id", actor.id);
+      await actor.db
+        .from("profiles")
+        .update({ paused_notified_at: null, auto_paused_at: null })
+        .eq("id", actor.id);
+    } else if (data.paused === true) {
+      // A deliberate reader pause must never be undone by the presence ping.
+      await actor.db.from("profiles").update({ auto_paused_at: null }).eq("id", actor.id);
     }
 
     return { ok: true };
@@ -183,16 +199,12 @@ async function replaceExclusions(actor: Actor, terms: string[]): Promise<void> {
 async function replaceTopics(actor: Actor, labels: string[]): Promise<void> {
   const { db, id: userId } = actor;
 
-  const { data: sub } = await db
-    .from("subscriptions")
-    .select("plan")
-    .eq("user_id", userId)
-    .maybeSingle();
-  const limit = PLAN_LIMITS[sub?.plan ?? "free"]?.topics ?? PLAN_LIMITS.free.topics;
-  const allowed = clipLabels(keepCoveredTopics(labels), limit);
+  const plan = await planFor(actor);
+  const limit = PLAN_LIMITS[plan]?.topics ?? PLAN_LIMITS.free.topics;
+  const covered = keepCoveredTopics(labels);
 
   const wanted = new Map<string, string>();
-  for (const label of allowed) {
+  for (const label of covered) {
     const slug = topicSlug(label);
     if (!wanted.has(slug)) wanted.set(slug, label);
   }
@@ -204,22 +216,42 @@ async function replaceTopics(actor: Actor, labels: string[]): Promise<void> {
     return;
   }
 
-  // Create any topic that does not exist yet. `topics` is readable by everyone
+  const { data: existing } = await db
+    .from("user_topics")
+    .select("topic_id, topics ( slug )")
+    .eq("user_id", userId);
+  const existingSlugToId = new Map<string, string>();
+  for (const row of existing ?? []) {
+    const slug = (row.topics as { slug?: string } | null)?.slug;
+    if (slug) existingSlugToId.set(slug, row.topic_id);
+  }
+
+  // A downgrade does not delete preferences. Existing rows past the new cap
+  // remain stored and become inert in matching; only genuinely new rows are
+  // limited. Removing one still removes it normally.
+  const retainedExisting = slugs.filter((slug) => existingSlugToId.has(slug));
+  const room = Number.isFinite(limit) ? Math.max(0, limit - retainedExisting.length) : Infinity;
+  const admittedNew = slugs.filter((slug) => !existingSlugToId.has(slug)).slice(0, room);
+  const admittedSlugs = new Set([...retainedExisting, ...admittedNew]);
+
+  // Create any admitted topic that does not exist yet. `topics` is readable by everyone
   // and writable only by service_role, which is why this runs here and not in
   // the browser. `ignoreDuplicates` makes a race between two readers adding the
   // same new topic a no-op rather than an error.
   await db.from("topics").upsert(
-    slugs.map((slug) => ({ slug, label: wanted.get(slug) ?? slug })),
+    [...admittedSlugs].map((slug) => ({ slug, label: wanted.get(slug) ?? slug })),
     { onConflict: "slug", ignoreDuplicates: true },
   );
 
-  const { data: topicRows } = await db.from("topics").select("id, slug").in("slug", slugs);
+  const { data: topicRows } = await db
+    .from("topics")
+    .select("id, slug")
+    .in("slug", [...admittedSlugs]);
   const idBySlug = new Map((topicRows ?? []).map((row) => [row.slug, row.id]));
-  const wantedIds = slugs
+  const wantedIds = [...admittedSlugs]
     .map((slug) => idBySlug.get(slug))
     .filter((id): id is string => Boolean(id));
 
-  const { data: existing } = await db.from("user_topics").select("topic_id").eq("user_id", userId);
   const existingIds = new Set((existing ?? []).map((row) => row.topic_id));
 
   const toAdd = wantedIds.filter((id) => !existingIds.has(id));
@@ -231,4 +263,13 @@ async function replaceTopics(actor: Actor, labels: string[]): Promise<void> {
   if (toAdd.length > 0) {
     await db.from("user_topics").insert(toAdd.map((topic_id) => ({ user_id: userId, topic_id })));
   }
+}
+
+async function planFor(actor: Actor) {
+  const { data } = await actor.db
+    .from("subscriptions")
+    .select("plan")
+    .eq("user_id", actor.id)
+    .maybeSingle();
+  return data?.plan ?? "free";
 }

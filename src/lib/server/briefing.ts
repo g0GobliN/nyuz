@@ -6,7 +6,14 @@ import { TruncatedCompletionError } from "@/lib/ai/deepseek";
 import { signedInOnly } from "./guard";
 import { backfill, WINDOW_HOURS } from "@/lib/pipeline/backfill";
 import { nextSlot } from "@/lib/pipeline/schedule";
-import { ASK_COOLDOWN_MS, ASK_MAX_TOKENS, PLAN_LIMITS, decideAsk } from "@/lib/plans";
+import {
+  ASK_COOLDOWN_MS,
+  ASK_MAX_TOKENS,
+  PLAN_LIMITS,
+  askCapabilityFor,
+  clipLabels,
+  decideAsk,
+} from "@/lib/plans";
 import { judgeStoryQuestion } from "@/lib/ask-scope";
 import { asPercent, clockOf, importanceBand, type Story } from "@/lib/story";
 import type {
@@ -304,7 +311,7 @@ export const loadHistory = createServerFn({ method: "GET" })
       .in("status", ["ready", "sent", "skipped"])
       .gte("scheduled_for", since)
       .order("scheduled_for", { ascending: false })
-      .limit(90);
+      .limit(Math.min(400, limits.retentionDays + 5));
 
     if (error) throw new Error(`reading history: ${error.message}`);
 
@@ -545,7 +552,8 @@ export const askStory = createServerFn({ method: "POST" })
       };
     }
 
-    const cap = PLAN_LIMITS[plan]?.asksPerDay ?? 0;
+    const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+    const cap = limits.asksPerDay;
     const { data: claimed, error: claimError } = await actor.db.rpc("claim_ask", {
       p_user_id: actor.id,
       p_event_id: data.eventId,
@@ -582,11 +590,17 @@ export const askStory = createServerFn({ method: "POST" })
       .join("\n");
 
     try {
+      const capability = askCapabilityFor(limits.askModel);
+      if (capability === null) {
+        return { ok: false, reason: "plan", detail: "Ask is included on Personal and Pro." };
+      }
       const result = await completeRouted({
-        capability: "reason",
+        capability,
         system: ASK_SYSTEM,
         user: coverage,
         maxTokens: ASK_MAX_TOKENS,
+        meterUserId: actor.id,
+        userMonthlyTokenCap: limits.monthlyAiTokenCap,
         signal: AbortSignal.timeout(25_000),
       });
       const answer = result.content.trim();
@@ -615,6 +629,8 @@ export type WatchedSource = {
   kind: SourceKind;
   homepage: string | null;
   pref: SourcePref;
+  /** False only when a downgrade preserved a priority beyond the new plan cap. */
+  priorityActive: boolean;
 };
 
 export type SourceGroup = { group: string; items: WatchedSource[] };
@@ -633,14 +649,34 @@ export const loadWatchedSources = createServerFn({ method: "GET" })
   .middleware([signedInOnly])
   .handler(async ({ context }): Promise<SourceGroup[]> => {
     const { actor } = context;
-    const [{ data: sources, error }, { data: prefs, error: prefError }] = await Promise.all([
-      actor.db.from("sources").select("id, name, kind, homepage").eq("active", true).order("name"),
-      actor.db.from("user_source_prefs").select("source_id, pref").eq("user_id", actor.id),
-    ]);
+    const [{ data: sources, error }, { data: prefs, error: prefError }, { data: subscription }] =
+      await Promise.all([
+        actor.db
+          .from("sources")
+          .select("id, name, kind, homepage")
+          .eq("active", true)
+          .order("name"),
+        actor.db
+          .from("user_source_prefs")
+          .select("source_id, pref, created_at")
+          .eq("user_id", actor.id),
+        actor.db.from("subscriptions").select("plan").eq("user_id", actor.id).maybeSingle(),
+      ]);
     if (error) throw new Error(`reading sources: ${error.message}`);
     if (prefError) throw new Error(`reading source prefs: ${prefError.message}`);
 
     const prefOf = new Map((prefs ?? []).map((p) => [p.source_id, p.pref] as const));
+    const plan = subscription?.plan ?? "free";
+    const priorityCap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
+    const activePriorities = new Set(
+      clipLabels(
+        (prefs ?? [])
+          .filter((p) => p.pref === "priority")
+          .slice()
+          .sort((a, b) => a.created_at.localeCompare(b.created_at)),
+        priorityCap,
+      ).map((p) => p.source_id),
+    );
     const grouped = new Map<SourceKind, WatchedSource[]>();
     for (const row of sources ?? []) {
       const item: WatchedSource = {
@@ -649,6 +685,7 @@ export const loadWatchedSources = createServerFn({ method: "GET" })
         kind: row.kind,
         homepage: row.homepage,
         pref: prefOf.get(row.id) ?? "normal",
+        priorityActive: activePriorities.has(row.id),
       };
       grouped.set(row.kind, [...(grouped.get(row.kind) ?? []), item]);
     }
@@ -665,12 +702,27 @@ export const setSourcePref = createServerFn({ method: "POST" })
       .object({ sourceId: z.string().uuid(), pref: z.enum(["normal", "priority", "muted"]) })
       .parse(input),
   )
-  .handler(async ({ context, data }): Promise<{ ok: true }> => {
+  .handler(async ({ context, data }): Promise<{ ok: boolean; reason?: "plan" }> => {
+    if (data.pref === "priority") {
+      const plan = await planOf(context.actor.db, context.actor.id);
+      const cap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
+      if (Number.isFinite(cap)) {
+        const { count } = await context.actor.db
+          .from("user_source_prefs")
+          .select("source_id", { count: "exact", head: true })
+          .eq("user_id", context.actor.id)
+          .eq("pref", "priority");
+        if ((count ?? 0) >= cap) return { ok: false, reason: "plan" };
+      }
+    }
     const { error } = await context.actor.db.from("user_source_prefs").upsert({
       user_id: context.actor.id,
       source_id: data.sourceId,
       pref: data.pref,
     });
+    if (error?.message.includes("priority source cap exceeded")) {
+      return { ok: false, reason: "plan" };
+    }
     if (error) throw new Error(`saving source preference: ${error.message}`);
     return { ok: true };
   });

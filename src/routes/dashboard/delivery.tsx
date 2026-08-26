@@ -16,6 +16,8 @@ import { getPushStatus } from "@/lib/server/push/account";
 import { disablePush, enablePush, pushSupported } from "@/lib/push/client";
 import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
+import { usePlan } from "@/lib/plan-state";
+import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
 
 export const Route = createFileRoute("/dashboard/delivery")({
   component: Delivery,
@@ -35,6 +37,9 @@ const ZONES = [
 
 function Delivery() {
   const { prefs, update } = usePrefs();
+  const { plan } = usePlan();
+  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+  const effectiveBreaking = allowedBreaking(plan, prefs.breaking);
   // The address on the account, not a stored copy — the account is the only
   // thing that actually receives a briefing.
   const email = useAuth().user?.email ?? "";
@@ -278,15 +283,34 @@ function Delivery() {
           <div className="mt-7">
             <p className="text-[13px] text-muted-foreground">Breaking alerts</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {(["important", "everything", "off"] as const).map((b) => (
-                <Chip key={b} active={prefs.breaking === b} onClick={() => touch({ breaking: b })}>
-                  {b === "important" ? "Only important" : b === "everything" ? "Everything" : "Off"}
-                </Chip>
-              ))}
+              {(["important", "everything", "off"] as const).map((b) => {
+                const locked =
+                  (limits.alerts === "none" && b !== "off") ||
+                  (limits.alerts === "important" && b === "everything");
+                return (
+                  <Chip
+                    key={b}
+                    active={effectiveBreaking === b}
+                    onClick={() => {
+                      if (!locked) touch({ breaking: b });
+                    }}
+                  >
+                    {b === "important"
+                      ? "Only important"
+                      : b === "everything"
+                        ? "Everything"
+                        : "Off"}
+                    {locked ? ` · ${b === "everything" ? "Pro" : "Paid"}` : ""}
+                  </Chip>
+                );
+              })}
             </div>
             <p className="mt-3 text-[12.5px] leading-relaxed text-muted-foreground">
-              Breaking alerts arrive outside your schedule. On &ldquo;only important&rdquo; we send
-              at most a couple a week.
+              {limits.alerts === "none"
+                ? "Alerts are a paid feature. Free stories wait for the next scheduled briefing."
+                : limits.alerts === "important"
+                  ? `Important alerts arrive outside your schedule, up to ${limits.alertWeeklyCap} per week.`
+                  : `Choose important or everything, with a hard cap of ${limits.alertDailyCap} alerts per day.`}
             </p>
           </div>
         </Panel>

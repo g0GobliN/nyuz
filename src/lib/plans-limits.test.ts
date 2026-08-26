@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { isCoveredTopic, keepCoveredTopics } from "@/lib/coverage";
-import { ASK_COOLDOWN_MS, PLAN_LIMITS, clipLabels, decideAsk } from "@/lib/plans";
+import {
+  ASK_COOLDOWN_MS,
+  PLAN_LIMITS,
+  allowedBreaking,
+  askCapabilityFor,
+  clipLabels,
+  decideAsk,
+  digestCapabilityFor,
+} from "@/lib/plans";
 
 describe("isCoveredTopic", () => {
   it("accepts pool labels regardless of case and spacing", () => {
@@ -41,8 +49,35 @@ describe("PLAN_LIMITS.asksPerDay", () => {
   });
 
   it("gives paid plans a daily cap", () => {
-    expect(PLAN_LIMITS.personal.asksPerDay).toBe(24);
-    expect(PLAN_LIMITS.pro.asksPerDay).toBe(48);
+    expect(PLAN_LIMITS.personal.asksPerDay).toBe(10);
+    expect(PLAN_LIMITS.pro.asksPerDay).toBe(15);
+  });
+
+  it("keeps expensive features bounded per plan", () => {
+    expect(PLAN_LIMITS.free.storyCaps.deep).toBe(18);
+    expect(PLAN_LIMITS.personal.storyCaps.deep).toBe(30);
+    expect(PLAN_LIMITS.pro.storyCaps.deep).toBe(50);
+    expect(PLAN_LIMITS.free.alerts).toBe("none");
+    expect(PLAN_LIMITS.personal.alertWeeklyCap).toBe(3);
+    expect(PLAN_LIMITS.pro.alertDailyCap).toBe(10);
+  });
+});
+
+describe("plan feature routing", () => {
+  it("uses Flash for Free digests and Personal Ask", () => {
+    expect(digestCapabilityFor(PLAN_LIMITS.free.digestModel)).toBe("cluster");
+    expect(askCapabilityFor(PLAN_LIMITS.personal.askModel)).toBe("cluster");
+  });
+
+  it("uses Pro routes for paid digests and Pro Ask", () => {
+    expect(digestCapabilityFor(PLAN_LIMITS.personal.digestModel)).toBe("digest");
+    expect(askCapabilityFor(PLAN_LIMITS.pro.askModel)).toBe("reason");
+  });
+
+  it("clamps alert settings to the active plan", () => {
+    expect(allowedBreaking("free", "everything")).toBe("off");
+    expect(allowedBreaking("personal", "everything")).toBe("important");
+    expect(allowedBreaking("pro", "everything")).toBe("everything");
   });
 });
 

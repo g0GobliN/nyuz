@@ -464,7 +464,7 @@ export async function loadReaders(
 
   const { data: sourcePrefs, error: sourceError } = await db
     .from("user_source_prefs")
-    .select("user_id, source_id, pref")
+    .select("user_id, source_id, pref, created_at")
     .in("user_id", userIds);
   if (sourceError) throw new Error(`reading user_source_prefs: ${sourceError.message}`);
 
@@ -478,12 +478,31 @@ export async function loadReaders(
   );
 
   const readers = wanted.map((row) => {
+    const plan = planOf.get(row.user_id) ?? "free";
     const mine = (followed ?? [])
       .filter((f) => f.user_id === row.user_id)
       .slice()
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
-    const cap = PLAN_LIMITS[planOf.get(row.user_id) ?? "free"]?.topics ?? PLAN_LIMITS.free.topics;
+    const cap = PLAN_LIMITS[plan]?.topics ?? PLAN_LIMITS.free.topics;
     const active = clipLabels(mine, cap);
+    const mineSourcePrefs = (sourcePrefs ?? []).filter((p) => p.user_id === row.user_id);
+    const priorityCap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
+    const activePriority = new Set(
+      clipLabels(
+        mineSourcePrefs
+          .filter((p) => p.pref === "priority")
+          .slice()
+          .sort((a, b) => a.created_at.localeCompare(b.created_at)),
+        priorityCap,
+      ).map((p) => p.source_id),
+    );
+    const effectiveSourcePrefs: [string, SourcePref][] = [];
+    for (const pref of mineSourcePrefs) {
+      if (pref.pref === "muted") effectiveSourcePrefs.push([pref.source_id, "muted"]);
+      else if (pref.pref === "priority" && activePriority.has(pref.source_id)) {
+        effectiveSourcePrefs.push([pref.source_id, "priority"]);
+      }
+    }
 
     return {
       userId: row.user_id,
@@ -506,11 +525,7 @@ export async function loadReaders(
         ];
       }),
       exclusions: (exclusions ?? []).filter((e) => e.user_id === row.user_id).map((e) => e.term),
-      sourcePrefs: new Map(
-        (sourcePrefs ?? [])
-          .filter((p) => p.user_id === row.user_id)
-          .map((p) => [p.source_id, p.pref] as const),
-      ),
+      sourcePrefs: new Map(effectiveSourcePrefs),
     };
   });
 

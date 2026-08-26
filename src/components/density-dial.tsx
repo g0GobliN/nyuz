@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { levelFor } from "@/lib/density";
+import { countFor, levelFor } from "@/lib/density";
+import { usePlan } from "@/lib/plan-state";
 import { cn } from "@/lib/utils";
 
 /**
@@ -19,6 +20,7 @@ export function DensityDial({
   className?: string;
 }) {
   const [internal, setInternal] = useState(35);
+  const { plan } = usePlan();
   const v = value ?? internal;
   const set = (next: number) => {
     if (onChange) onChange(next);
@@ -31,7 +33,7 @@ export function DensityDial({
       <div className="flex items-baseline justify-between">
         <span className="font-serif text-3xl">{level.label}</span>
         <span className="text-[12.5px] tabular-nums text-muted-foreground">
-          {level.count} stories a day
+          {countFor(v, plan)} stories a day
         </span>
       </div>
 

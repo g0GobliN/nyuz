@@ -32,7 +32,7 @@ import { keepCoveredTopics } from "@/lib/coverage";
 import { capFor } from "@/lib/density";
 import { mailGrafs } from "@/lib/article-body";
 import { briefingEmail, breakingEmail } from "@/lib/email/templates";
-import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
+import { PLAN_LIMITS, clipLabels, digestCapabilityFor } from "@/lib/plans";
 import { findRecipient } from "@/lib/server/email/lifecycle";
 import { sendEmail, siteUrl, type EmailEnv } from "@/lib/server/email/send";
 import { sendTelegramMessage, type TelegramEnv } from "@/lib/server/telegram/send";
@@ -44,19 +44,23 @@ import type {
   DeliveryChannel,
   DigestFrequency,
   DigestStatus,
+  PlanTier,
 } from "@/lib/supabase/types";
 import { nextSlot } from "./schedule";
 
 type Db = SupabaseClient<Database>;
 
-/** Digests generated per scheduled invocation. Each one is a model call. */
-const BATCH = 8;
+/** Four readers leave room for their database and delivery subrequests on Workers Free. */
+const BATCH = 4;
 
 /** How long a `generating` claim is honoured before another run may take it. */
 const STALE_MINUTES = 15;
 
 /** Send attempts before a queued delivery is marked failed for good. */
 const MAX_ATTEMPTS = 5;
+
+/** A bounded reply prevents one truncation from losing a 30- or 50-story briefing. */
+export const WHY_CHUNK_SIZE = 10;
 
 const DEFAULT_PROMPT = `You write one short paragraph per story explaining why it matters to this specific reader.
 
@@ -261,7 +265,7 @@ async function scheduleUpcoming(db: Db, now: Date, options: DigestOptions): Prom
   if (error) throw new Error(`reading notification_preferences: ${error.message}`);
 
   const rows = (data ?? []) as PrefRow[];
-  let created = 0;
+  const scheduled: { user_id: string; scheduled_for: string; status: "scheduled" }[] = [];
 
   for (const row of rows) {
     if (row.paused) continue;
@@ -277,24 +281,22 @@ async function scheduleUpcoming(db: Db, now: Date, options: DigestOptions): Prom
           now,
         );
     if (slot === null) continue;
-    if (options.dryRun === true) {
-      created += 1;
-      continue;
-    }
-
-    const { error: writeError } = await db.from("digests").upsert(
-      {
-        user_id: row.user_id,
-        scheduled_for: slot.toISOString(),
-        status: "scheduled",
-      },
-      { onConflict: "user_id,scheduled_for", ignoreDuplicates: true },
-    );
-    if (writeError) throw new Error(`scheduling digest: ${writeError.message}`);
-    created += 1;
+    scheduled.push({
+      user_id: row.user_id,
+      scheduled_for: slot.toISOString(),
+      status: "scheduled",
+    });
   }
 
-  return created;
+  if (options.dryRun !== true && scheduled.length > 0) {
+    const { error: writeError } = await db.from("digests").upsert(scheduled, {
+      onConflict: "user_id,scheduled_for",
+      ignoreDuplicates: true,
+    });
+    if (writeError) throw new Error(`scheduling digest: ${writeError.message}`);
+  }
+
+  return scheduled.length;
 }
 
 type DueRow = {
@@ -369,7 +371,9 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     return { ...base, decision: "held", detail: claimed };
   }
 
-  const cap = capFor(prefs.density);
+  const plan = await planFor(db, due.user_id);
+  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+  const cap = capFor(prefs.density, plan);
   const matches = await loadMatches(db, due.user_id);
   const already = await alreadyBriefed(db, due.user_id);
   const picked = selectItems(matches, already, cap);
@@ -383,23 +387,36 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   }
 
   const briefs = await loadBriefs(db, picked);
-  const topics = await readerTopics(db, due.user_id);
+  const topics = await readerTopics(db, due.user_id, plan);
 
   let tokens = 0;
   let whys: WhyItem[] | null = null;
 
   try {
-    const { data, usage } = await completeRoutedJson<unknown>({
-      capability: "digest",
-      system: `${DEFAULT_PROMPT}\n\n${contract()}`,
-      user: renderReader(briefs, topics, prefs.instructions),
-      ...(options.secrets ? { secrets: options.secrets } : {}),
-    });
-    tokens = usage.promptTokens + usage.completionTokens;
-    whys = readWhys(
-      data,
-      briefs.map((b) => b.eventId),
-    );
+    const completed: WhyItem[] = [];
+    for (let offset = 0; offset < briefs.length; offset += WHY_CHUNK_SIZE) {
+      const chunk = briefs.slice(offset, offset + WHY_CHUNK_SIZE);
+      const { data, usage } = await completeRoutedJson<unknown>({
+        capability: digestCapabilityFor(limits.digestModel),
+        system: `${DEFAULT_PROMPT}\n\n${contract()}`,
+        user: renderReader(chunk, topics, prefs.instructions),
+        maxTokens: 8192,
+        meterUserId: due.user_id,
+        userMonthlyTokenCap: limits.monthlyAiTokenCap,
+        ...(options.secrets ? { secrets: options.secrets } : {}),
+      });
+      tokens += usage.promptTokens + usage.completionTokens;
+      const parsed = readWhys(
+        data,
+        chunk.map((b) => b.eventId),
+      );
+      if (parsed === null) {
+        whys = null;
+        break;
+      }
+      completed.push(...parsed);
+      whys = completed;
+    }
   } catch (error) {
     const floor = error instanceof TruncatedCompletionError ? error.reasoningTokens : 0;
     tokens += floor;
@@ -445,6 +462,15 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     await finish(db, due.digest_id, "failed", 0, tokens);
     return { ...base, tokens, decision: "failed", detail: `writing items: ${error.message}` };
   }
+
+  await db
+    .from("user_events")
+    .update({ briefed_at: new Date().toISOString() })
+    .eq("user_id", due.user_id)
+    .in(
+      "event_id",
+      whys.map((item) => item.eventId),
+    );
 
   await finish(db, due.digest_id, "ready", whys.length, tokens);
   await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
@@ -508,6 +534,7 @@ async function loadMatches(db: Db, userId: string): Promise<MatchRow[]> {
     .from("user_events")
     .select("event_id, relevance, matched_at")
     .eq("user_id", userId)
+    .is("briefed_at", null)
     .order("relevance", { ascending: false });
   if (error) throw new Error(`reading user_events: ${error.message}`);
   return (data ?? []).map((row) => ({
@@ -578,22 +605,28 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   });
 }
 
-async function readerTopics(db: Db, userId: string): Promise<string[]> {
-  const [{ data, error }, { data: sub }] = await Promise.all([
-    db
-      .from("user_topics")
-      .select("created_at, topics ( label ), muted")
-      .eq("user_id", userId)
-      .eq("muted", false)
-      .order("created_at", { ascending: true }),
-    db.from("subscriptions").select("plan").eq("user_id", userId).maybeSingle(),
-  ]);
+async function planFor(db: Db, userId: string): Promise<PlanTier> {
+  const { data } = await db
+    .from("subscriptions")
+    .select("plan")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return data?.plan ?? "free";
+}
+
+async function readerTopics(db: Db, userId: string, plan: PlanTier): Promise<string[]> {
+  const { data, error } = await db
+    .from("user_topics")
+    .select("created_at, topics ( label ), muted")
+    .eq("user_id", userId)
+    .eq("muted", false)
+    .order("created_at", { ascending: true });
   if (error) throw new Error(`reading user_topics: ${error.message}`);
   const labels = (data ?? []).flatMap((row) => {
     const label = (row.topics as { label?: string } | null)?.label;
     return label ? [label] : [];
   });
-  const cap = PLAN_LIMITS[sub?.plan ?? "free"]?.topics ?? PLAN_LIMITS.free.topics;
+  const cap = PLAN_LIMITS[plan]?.topics ?? PLAN_LIMITS.free.topics;
   return clipLabels(keepCoveredTopics(labels), cap);
 }
 

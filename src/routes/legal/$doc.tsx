@@ -75,14 +75,14 @@ const DOCS: Record<string, Doc> = {
         p: [
           "Your account email, the topics and exclusions you configure, your delivery schedule and channels, and the feedback signals you give on individual stories.",
           "We store which briefings were generated and delivered so you can read your history and so we can retry failed deliveries.",
-          "We record the time of your most recent visit. It is used to tell active accounts from dormant ones and for nothing else.",
+          "We record the time of your most recent visit. It distinguishes active from dormant accounts; Free briefings pause after 30 inactive days and resume when you return.",
         ],
       },
       {
         h: "What we never send to a third party",
         p: [
-          "Your interest profile is matched against stories inside our own database. That matching is a database query, not a model call, so your list of topics and exclusions is never sent to an AI provider.",
-          "The one place a model sees anything personal is the short paragraph written for you about a story you were matched to. Nothing about your identity, your email or your other interests goes with it.",
+          "Your interest profile is matched against stories inside our own database. That matching is a database query, not a model call.",
+          "When a personalised paragraph is written, the model receives your followed topic labels, the selected stories and any custom briefing instruction you supplied. It never receives your identity or email.",
         ],
       },
       {
@@ -163,6 +163,7 @@ const DOCS: Record<string, Doc> = {
           "nyuz collects publicly available reporting, groups articles describing the same event, and delivers a personalised summary on the schedule you choose.",
           "Availability targets are best-effort. A missed or delayed briefing is not grounds for compensation beyond a pro-rata refund of paid time.",
           "A quiet day is a working day. If nothing clears your threshold, you get a short briefing or none — that is the product behaving correctly, not an outage.",
+          "Free briefings pause after 30 days without a visit so unused accounts do not keep generating work. We warn you first, preserve your settings, and resume automatically when you return.",
         ],
       },
       {
@@ -196,7 +197,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Billing",
         p: [
-          "Paid plans renew until cancelled. Cancelling stops the next renewal and keeps access until the end of the current period. Topic limits and history retention follow your active plan.",
+          "Paid plans renew until cancelled. Cancelling stops the next renewal and keeps access until the end of the current period. Topic, briefing, source-priority, alert, Ask AI and history limits follow your active plan.",
           "Prices can change. If yours does, we will tell you before the renewal it applies to, and you can cancel before being charged the new amount.",
           "Refunds are covered on the Refunds page.",
         ],
@@ -355,8 +356,8 @@ const DOCS: Record<string, Doc> = {
       {
         h: "What the model provider does not receive",
         p: [
-          "Matching your interests to stories happens in our database. Your topic list, your exclusions, your email and your history are never sent to the model provider.",
-          "The per-person paragraph is generated from the story and the interest it matched — not from your profile, and not from anything that identifies you.",
+          "Matching happens in our database. For personalised writing, the model provider receives your followed topic labels and any custom briefing instruction, but not your email, identity, exclusions or history.",
+          "The per-person paragraph is generated from the selected story and those preferences, not from anything that identifies you.",
         ],
       },
       {

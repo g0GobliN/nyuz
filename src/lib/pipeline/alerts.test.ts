@@ -20,7 +20,7 @@ describe("shouldAlert", () => {
 });
 
 describe("remainingImportantSlots", () => {
-  it("caps important alerts at a couple a week", () => {
+  it("caps important alerts at three per rolling week", () => {
     expect(remainingImportantSlots(0)).toBe(3);
     expect(remainingImportantSlots(2)).toBe(1);
     expect(remainingImportantSlots(3)).toBe(0);

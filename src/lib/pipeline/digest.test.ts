@@ -7,6 +7,11 @@ function match(id: string, relevance: number, at = "2026-08-25T06:00:00Z"): Matc
 }
 
 describe("selectItems", () => {
+  it("uses the agreed per-plan density caps", () => {
+    expect(capFor(100, "free")).toBe(18);
+    expect(capFor(100, "personal")).toBe(30);
+    expect(capFor(100, "pro")).toBe(50);
+  });
   it("keeps the most relevant stories up to the density cap", () => {
     const picked = selectItems(
       [match("a", 4), match("b", 9), match("c", 6)],

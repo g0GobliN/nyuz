@@ -94,9 +94,27 @@ Actions on every deploy would put a second copy of every key in a second system 
 nothing.
 
 ```bash
-wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-wrangler secret put DEEPSEEK_API_KEY
+npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --name nyuz
+npx wrangler secret put DEEPSEEK_API_KEY --name nyuz
+npx wrangler secret put RESEND_API_KEY --name nyuz
+npx wrangler secret put STRIPE_SECRET_KEY --name nyuz
+npx wrangler secret put STRIPE_WEBHOOK_SECRET --name nyuz
 ```
+
+Set the four recurring Stripe Price ids and `AI_MONTHLY_TOKEN_BUDGET=10000000` as Worker
+variables. The Price ids must be the $7/$69 Personal and $15/$149 Pro prices; changing
+display copy does not change what Stripe charges.
+
+**`--name` is not optional here.** There is no `wrangler.toml` at the root — the config is
+generated into `.output/server/wrangler.json` at build time, and only `deploy` and `dev`
+follow the `.wrangler/deploy/config.json` redirect that points at it. Every other wrangler
+subcommand fails with "Required Worker name missing" unless told. `--config
+.output/server/wrangler.json` works too and keeps the name in one place, but needs a build
+first.
+
+Setting a secret before the first deploy is fine: wrangler offers to create the Worker,
+and the deploy then ships over it. That is the better order — it closes the window where
+a cron fires against a Worker whose secrets are not there yet.
 
 `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are build-time and public by design — they
 are inlined into the browser bundle, and RLS is what protects the data.
@@ -138,6 +156,7 @@ first and merging second — not the other way round.
       takes three per Worker and drops the rest without failing the deploy
 - [ ] Migrations applied to the target project
 - [ ] Secrets set for every active AI provider and the service role
+- [ ] Resend and Stripe secrets, four Stripe Price ids, and the AI monthly budget set
 - [x] `ENTITY` filled in `src/routes/legal/$doc.tsx` (sole trader, Japan; contact / privacy / security / billing @nyuz.app)
 - [x] Copyright holder and contact filled in `LICENSE`
 - [ ] Subprocessor table regions filled in the legal pages

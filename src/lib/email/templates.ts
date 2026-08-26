@@ -324,7 +324,7 @@ export function dormantEmail({
   const delivery = `${baseUrl}/dashboard/delivery`;
 
   return {
-    subject: `You have not opened nyuz in ${days} days`,
+    subject: `You have not visited nyuz in ${days} days`,
     html: layout({
       preheader: "Worth tuning, or worth turning off. Both are one click.",
       eyebrow: "Your briefing",
@@ -334,7 +334,7 @@ export function dormantEmail({
       body: [
         p(greet(name)),
         p(
-          `Your briefings have been arriving for ${String(days)} days without being opened. That usually means one of two things, and both have a fix.`,
+          `You have not visited nyuz in ${String(days)} days. Free briefings pause automatically after 30 inactive days, so this is a good moment to tune them or keep them running.`,
         ),
         p(
           "<strong>The stories are not right.</strong> Topics too broad, or something you follow dragging in noise you did not want. Exclusions are the sharper tool here — they win over topics, always.",
@@ -351,7 +351,7 @@ export function dormantEmail({
     text: [
       greetText(name),
       "",
-      `Your briefings have been arriving for ${days} days without being opened. That usually means one of two things, and both have a fix.`,
+      `You have not visited nyuz in ${days} days. Free briefings pause automatically after 30 inactive days, so this is a good moment to tune them or keep them running.`,
       "",
       "The stories are not right. Topics too broad, or something you follow dragging in noise you did not want. Exclusions are the sharper tool here - they win over topics, always.",
       "",

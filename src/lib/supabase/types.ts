@@ -54,6 +54,8 @@ export type Profile = {
   welcomed_at: string | null;
   /** Set when the pause confirmation is sent, cleared when briefings resume. */
   paused_notified_at: string | null;
+  /** Set only by the inactivity job; presence resumes this kind of pause. */
+  auto_paused_at: string | null;
 };
 
 export type Subscription = {
@@ -132,7 +134,24 @@ export type Source = {
   created_at: string;
 };
 
-export type UserSourcePref = { user_id: string; source_id: string; pref: SourcePref };
+export type UserSourcePref = {
+  user_id: string;
+  source_id: string;
+  pref: SourcePref;
+  created_at: string;
+};
+
+export type AlertClaim = { user_id: string; event_id: string; created_at: string };
+export type AiUsageLedger = {
+  id: string;
+  user_id: string | null;
+  capability: AiCapability;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  reserved_tokens: number;
+  created_at: string;
+};
 
 export type EventRow = {
   id: string;
@@ -181,6 +200,8 @@ export type UserEvent = {
   read_ms: number;
   reached_end: boolean;
   engaged_at: string | null;
+  /** Durable deduplication marker; digest history may be purged independently. */
+  briefed_at: string | null;
 };
 
 export type Digest = {
@@ -374,6 +395,7 @@ export type Database = {
         | "last_seen_at"
         | "welcomed_at"
         | "paused_notified_at"
+        | "auto_paused_at"
       >;
       subscriptions: Table<
         Subscription,
@@ -405,7 +427,7 @@ export type Database = {
         Source,
         "id" | "homepage" | "kind" | "active" | "last_fetched_at" | "failure_count" | "created_at"
       >;
-      user_source_prefs: Table<UserSourcePref, "pref">;
+      user_source_prefs: Table<UserSourcePref, "pref" | "created_at">;
       events: Table<
         EventRow,
         | "id"
@@ -435,6 +457,7 @@ export type Database = {
         | "read_ms"
         | "reached_end"
         | "engaged_at"
+        | "briefed_at"
       >;
       digests: Table<
         Digest,
@@ -448,6 +471,11 @@ export type Database = {
       feedback: Table<Feedback, "created_at">;
       saved_stories: Table<SavedStory, "saved_at">;
       ask_log: Table<AskLog, "id" | "created_at">;
+      alert_claims: Table<AlertClaim, "created_at">;
+      ai_usage_ledger: Table<
+        AiUsageLedger,
+        "id" | "user_id" | "prompt_tokens" | "completion_tokens" | "reserved_tokens" | "created_at"
+      >;
       telegram_accounts: Table<
         TelegramAccount,
         "chat_id" | "connect_nonce" | "connect_expires_at" | "linked_at"
@@ -505,6 +533,29 @@ export type Database = {
           p_cooldown_ms: number;
         };
         Returns: string;
+      };
+      claim_alert: {
+        Args: { p_user_id: string; p_event_id: string; p_importance: number };
+        Returns: string;
+      };
+      reserve_ai_tokens: {
+        Args: {
+          p_user_id: string | null;
+          p_capability: string;
+          p_model: string;
+          p_reserve: number;
+          p_user_monthly_cap: number;
+          p_global_monthly_cap: number;
+        };
+        Returns: string | null;
+      };
+      settle_ai_tokens: {
+        Args: { p_id: string; p_prompt_tokens: number; p_completion_tokens: number };
+        Returns: undefined;
+      };
+      purge_expired_digests: {
+        Args: { p_limit?: number };
+        Returns: number;
       };
       is_admin: {
         Args: { uid?: string };

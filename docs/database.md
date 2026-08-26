@@ -1,12 +1,13 @@
 # Database
 
-Postgres via Supabase. Three migrations, applied in order.
+Postgres via Supabase. Migrations are applied in numeric order.
 
-| Migration        | Contents                                                       |
-| ---------------- | -------------------------------------------------------------- |
-| `0001_init.sql`  | Core schema — identity, interests, content, delivery, feedback |
-| `0002_rls.sql`   | Row-level security for everything in 0001                      |
-| `0003_admin.sql` | Roles, bans, blog, site settings, AI routing, flags, audit     |
+| Migration                    | Contents                                                                            |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `0001_init.sql`              | Core schema — identity, interests, content, delivery, feedback                      |
+| `0002_rls.sql`               | Row-level security for everything in 0001                                           |
+| `0003_admin.sql`             | Roles, bans, blog, site settings, AI routing, flags, audit                          |
+| `0017_plan_entitlements.sql` | Launch plan caps, inactivity state, alert/source guards, AI ledger, retention purge |
 
 ---
 
@@ -25,13 +26,13 @@ however convenient it looks at the time.
 
 ### Identity
 
-| Table                      | Notes                                                                              |
-| -------------------------- | ---------------------------------------------------------------------------------- |
-| `profiles`                 | Mirrors `auth.users.id`. Holds `display_name`, `timezone`, `email`, `last_seen_at` |
-| `subscriptions`            | One row per user. `plan` is written by billing, never the client                   |
-| `notification_preferences` | Schedule, channels, density, pause                                                 |
-| `user_roles`               | `user` / `admin` / `superadmin`. **No write policy at all**                        |
-| `user_bans`                | Reason and paper trail. _Not_ the enforcement — see below                          |
+| Table                      | Notes                                                            |
+| -------------------------- | ---------------------------------------------------------------- |
+| `profiles`                 | Identity, presence, and automatic inactivity-pause state         |
+| `subscriptions`            | One row per user. `plan` is written by billing, never the client |
+| `notification_preferences` | Schedule, channels, density, pause                               |
+| `user_roles`               | `user` / `admin` / `superadmin`. **No write policy at all**      |
+| `user_bans`                | Reason and paper trail. _Not_ the enforcement — see below        |
 
 ### Interests
 
@@ -40,7 +41,7 @@ however convenient it looks at the time.
 | `topics`            | Global topic vocabulary                                 |
 | `user_topics`       | Per-user importance, frequency, keywords, weight, muted |
 | `user_exclusions`   | Terms that beat topics at match time                    |
-| `user_source_prefs` | Prioritise / normal / mute, per source                  |
+| `user_source_prefs` | Prioritise / normal / mute, with plan caps on priority  |
 
 ### Content — global, pipeline-written
 
@@ -55,17 +56,19 @@ however convenient it looks at the time.
 
 | Table          | Notes                                                              |
 | -------------- | ------------------------------------------------------------------ |
-| `user_events`  | Match results. Written by SQL, never by a model                    |
+| `user_events`  | Match results plus durable `briefed_at` deduplication              |
 | `digests`      | One per user per scheduled slot. `skipped` is a real success state |
 | `digest_items` | `why_it_matters` — the only per-user generated text                |
 | `deliveries`   | Per channel, with attempts and retry                               |
 
 ### Feedback
 
-| Table           | Notes                                |
-| --------------- | ------------------------------------ |
-| `feedback`      | useful / not_useful / not_interested |
-| `saved_stories` | Kept past the retention window       |
+| Table             | Notes                                                              |
+| ----------------- | ------------------------------------------------------------------ |
+| `feedback`        | useful / not_useful / not_interested                               |
+| `saved_stories`   | Kept past the retention window                                     |
+| `alert_claims`    | Atomic rolling alert quotas; browser-inaccessible                  |
+| `ai_usage_ledger` | Monthly token reservations and settled usage; browser-inaccessible |
 
 ### Admin (0003)
 

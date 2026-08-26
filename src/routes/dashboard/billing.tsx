@@ -27,7 +27,7 @@ const PLANS = [
     monthly: 0,
     annual: 0,
     ...PLAN_LIMITS.free,
-    features: ["Daily briefing", "Email delivery"],
+    features: ["Up to 18 stories", "3 priority sources", "Flash briefing", "No alerts or Ask AI"],
   },
   {
     id: "personal",
@@ -35,7 +35,12 @@ const PLANS = [
     monthly: DEFAULT_PLAN_PRICES.personal,
     annual: DEFAULT_ANNUAL_PRICES.personal,
     ...PLAN_LIMITS.personal,
-    features: ["Daily and weekly", "Breaking alerts", "Custom instructions", "AI explanations"],
+    features: [
+      "Up to 30 stories",
+      "15 priority sources",
+      "3 important alerts per week",
+      "10 Flash Ask AI questions per day",
+    ],
   },
   {
     id: "pro",
@@ -43,7 +48,12 @@ const PLANS = [
     monthly: DEFAULT_PLAN_PRICES.pro,
     annual: DEFAULT_ANNUAL_PRICES.pro,
     ...PLAN_LIMITS.pro,
-    features: ["Multiple schedules", "Deeper explanations", "Priority processing"],
+    features: [
+      "Up to 50 stories",
+      "Unlimited priority sources",
+      "10 configurable alerts per day",
+      "15 Pro Ask AI questions per day",
+    ],
   },
 ] as const;
 
@@ -111,7 +121,7 @@ function Billing() {
           </div>
           <div className="text-right">
             <p className="text-[13px] text-muted-foreground">
-              {plan.monthly === 0 ? "No payment method needed" : "Renews 1 September 2026"}
+              {plan.monthly === 0 ? "No payment method needed" : "Managed securely by Stripe"}
             </p>
             <p className="mt-1 text-[13px] tabular-nums">
               {plan.monthly === 0
