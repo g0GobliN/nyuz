@@ -1,11 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, Volume2, VolumeX } from "lucide-react";
+import { useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Loading } from "@/components/loading";
 import { loadWatchedSources, setSourcePref, type WatchedSource } from "@/lib/server/briefing";
 import type { SourcePref } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
+import { usePlan } from "@/lib/plan-state";
+import { PLAN_NAMES, formatTopicLimit } from "@/lib/plans";
 
 export const Route = createFileRoute("/dashboard/sources")({
   component: Sources,
@@ -14,6 +17,8 @@ export const Route = createFileRoute("/dashboard/sources")({
 
 function Sources() {
   const queryClient = useQueryClient();
+  const { plan, prioritySourceLimit } = usePlan();
+  const [limitError, setLimitError] = useState(false);
   const sources = useQuery({
     queryKey: ["briefing", "sources"],
     queryFn: () => loadWatchedSources(),
@@ -22,14 +27,19 @@ function Sources() {
 
   const save = useMutation({
     mutationFn: (input: { sourceId: string; pref: SourcePref }) => setSourcePref({ data: input }),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (!result.ok) {
+        setLimitError(true);
+        return;
+      }
+      setLimitError(false);
       void queryClient.invalidateQueries({ queryKey: ["briefing", "sources"] });
     },
   });
 
   const groups = sources.data ?? [];
   const total = groups.reduce((n, g) => n + g.items.length, 0);
-  const priorities = groups.flatMap((g) => g.items).filter((i) => i.pref === "priority").length;
+  const priorities = groups.flatMap((g) => g.items).filter((item) => item.priorityActive).length;
 
   const toggle = (item: WatchedSource, next: SourcePref) => {
     save.mutate({ sourceId: item.id, pref: item.pref === next ? "normal" : next });
@@ -44,8 +54,14 @@ function Sources() {
       />
 
       <p className="mb-5 text-[12.5px] text-muted-foreground">
-        {priorities} prioritised · unlimited on every plan. Muting is unlimited too.
+        {priorities} of {formatTopicLimit(prioritySourceLimit)} priority sources ·{" "}
+        {PLAN_NAMES[plan]} plan. Muting is unlimited.
       </p>
+      {limitError ? (
+        <p className="mb-5 text-[12.5px] font-medium">
+          This plan has no priority slots left. Remove one or upgrade before adding another.
+        </p>
+      ) : null}
 
       {sources.isLoading ? <Loading label="Reading your feeds" className="justify-center" /> : null}
 
@@ -64,6 +80,7 @@ function Sources() {
                   key={item.id}
                   name={item.name}
                   state={item.pref}
+                  priorityActive={item.priorityActive}
                   onPriority={() => toggle(item, "priority")}
                   onMute={() => toggle(item, "muted")}
                 />
@@ -84,11 +101,13 @@ function Sources() {
 function Row({
   name,
   state,
+  priorityActive,
   onPriority,
   onMute,
 }: {
   name: string;
   state: SourcePref;
+  priorityActive: boolean;
   onPriority: () => void;
   onMute: () => void;
 }) {
@@ -107,7 +126,7 @@ function Row({
 
       {state === "priority" ? (
         <span className="rounded-full bg-signal/15 px-2.5 py-0.5 text-[11px] text-signal">
-          Prioritised
+          {priorityActive ? "Prioritised" : "Saved · inactive"}
         </span>
       ) : null}
 

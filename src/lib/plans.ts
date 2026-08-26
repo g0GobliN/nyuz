@@ -41,6 +41,7 @@ export type AlertAccess = "none" | "important" | "configurable";
 
 export type PlanLimits = {
   topics: number;
+  prioritySources: number;
   retention: string;
   retentionDays: number;
   asksPerDay: number;
@@ -70,6 +71,7 @@ export type PlanLimits = {
 export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   free: {
     topics: 3,
+    prioritySources: 3,
     retention: "7-day history",
     retentionDays: 7,
     asksPerDay: 0,
@@ -84,6 +86,7 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   },
   personal: {
     topics: 15,
+    prioritySources: 15,
     retention: "90-day history",
     retentionDays: 90,
     asksPerDay: 10,
@@ -98,6 +101,7 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   },
   pro: {
     topics: Infinity,
+    prioritySources: Infinity,
     retention: "1-year history",
     retentionDays: 365,
     asksPerDay: 15,
