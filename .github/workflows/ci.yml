@@ -19,6 +19,12 @@ concurrency:
 permissions:
   contents: read
 
+# Every third-party action is pinned to a commit, not a tag. A tag is a mutable
+# pointer the action's owner can move, and `deploy` hands whatever it resolves
+# to a Cloudflare API token that can rewrite the live Worker. Pinning means an
+# upgrade is a reviewed diff in this file rather than something that happens to
+# a repository overnight. The version each SHA belongs to is in the comment.
+
 jobs:
   # Runs first and independently of the build. A commit message cannot be fixed
   # by a follow-up commit — it needs a rebase — so it is better to find out in
@@ -29,11 +35,14 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           # The check compares two commits, so the full history has to be here.
           # The default shallow clone has neither end of the range.
           fetch-depth: 0
+          # Nothing here pushes. Left on, checkout writes the job's token into
+          # .git/config, where any later step or script could read and use it.
+          persist-credentials: false
 
       - name: Reject Co-Authored-By trailers
         env:
@@ -76,6 +85,76 @@ jobs:
 
           echo "No Co-Authored-By trailers found."
 
+  # ---------------------------------------------------------------------------
+  # Supply chain
+  # ---------------------------------------------------------------------------
+  #
+  # Cheap, no build, and a blocker for the deploy. Everything here is a class of
+  # mistake that survives a green test suite: a dependency with a known hole, a
+  # lockfile quietly pointing somewhere other than the registry, or a secret
+  # given a VITE_ name and therefore compiled into the browser bundle.
+  audit:
+    name: Dependencies and secret names
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      # `npm ci` fails if the lockfile disagrees with package.json, but it is
+      # happy to install from anywhere the lockfile names. A `resolved` URL
+      # pointing at a tarball someone controls is how a dependency gets swapped
+      # without the version number moving, and it is invisible in a diff of
+      # package.json alone.
+      - name: Lockfile resolves only to the public registry
+        run: |
+          set -euo pipefail
+          foreign=$(grep -oE '"resolved": *"[^"]+"' package-lock.json \
+            | grep -v 'https://registry.npmjs.org/' || true)
+          if [ -n "$foreign" ]; then
+            echo "::error::package-lock.json resolves outside the public npm registry"
+            echo "$foreign"
+            exit 1
+          fi
+          echo "All lockfile entries resolve to registry.npmjs.org."
+
+      # Scoped to what actually ships. A high-severity advisory in a build tool
+      # that never runs in production should not be able to block a deploy, and
+      # treating those two cases the same is how an audit gate gets switched off.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      # Vite compiles every VITE_-prefixed variable into the bundle every
+      # visitor downloads. Naming a server secret VITE_SOMETHING is therefore
+      # not a leak that happens at runtime — it is one that happens at build
+      # time, silently, and ships. Catch the name before it ever holds a value.
+      - name: No server secrets under a VITE_ name
+        run: |
+          set -euo pipefail
+          pattern='VITE_[A-Z0-9_]*(SECRET|SERVICE_ROLE|PRIVATE_KEY|API_KEY|PASSWORD|TOKEN)'
+          # Two greps, not one. --include filters explicitly named files as well
+          # as recursed ones, so listing .env.example alongside the source globs
+          # silently drops it — and the example file is exactly where a bad name
+          # gets copied from.
+          hits=$( { grep -rInE "$pattern" \
+                      --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.js' \
+                      --exclude-dir=node_modules src scripts
+                    grep -nE "$pattern" .env.example
+                  } 2>/dev/null || true)
+          if [ -n "$hits" ]; then
+            echo "::error::a server secret is named VITE_ and would be compiled into the client bundle"
+            echo "$hits"
+            exit 1
+          fi
+          echo "No VITE_-prefixed secret names."
+
   verify:
     name: Typecheck, lint, test, build
     runs-on: ubuntu-latest
@@ -92,9 +171,11 @@ jobs:
       VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -125,9 +206,9 @@ jobs:
   # Deploy
   # ---------------------------------------------------------------------------
   #
-  # Runs only for a push to main, and only once `commits` and `verify` are both
-  # green — `needs` is what makes a red test unshippable rather than merely
-  # embarrassing. A pull request builds and is checked; it never deploys.
+  # Runs only for a push to main, and only once `commits`, `audit` and `verify`
+  # are all green — `needs` is what makes a red test unshippable rather than
+  # merely embarrassing. A pull request builds and is checked; it never deploys.
   #
   # The build is repeated here rather than carried over from `verify` as an
   # artifact, and that is deliberate. Vite inlines every VITE_-prefixed variable
@@ -138,7 +219,7 @@ jobs:
   # deployable bundle has to be built with the real values, so it is built here.
   deploy:
     name: Deploy to Cloudflare Workers
-    needs: [commits, verify]
+    needs: [commits, audit, verify]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -171,9 +252,11 @@ jobs:
       VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           cache: npm
@@ -213,6 +296,63 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The last check before anything leaves the runner, and the only one that
+      # inspects the artifact rather than the source. `audit` rejects a secret
+      # given a VITE_ name; this rejects a secret that reached the bundle any
+      # other way — pasted into a component, pulled in by a dependency, left in
+      # a fixture. A published bundle cannot be recalled: every visitor who
+      # loaded it has a copy, so the check has to happen before the deploy and
+      # not after it.
+      #
+      # `set -e` is deliberately absent. Both loops are driven by greps that
+      # exit non-zero on the healthy no-match case, which is the outcome this
+      # step wants. The verdict is the `found` flag at the end.
+      - name: Scan the client bundle for secrets
+        run: |
+          set -uo pipefail
+          found=0
+
+          # Distinctive enough that a hit in minified JavaScript is a leak and
+          # not a coincidence: Stripe secret, restricted and webhook-signing
+          # keys, Resend, OpenAI-style keys, and a Telegram bot token.
+          while IFS= read -r hit; do
+            echo "::error::client bundle contains what looks like a secret — ${hit%%:*}"
+            found=1
+          done < <(grep -rIoE \
+            'sk_(live|test)_[A-Za-z0-9]{16,}|rk_(live|test)_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{16,}|re_[A-Za-z0-9_-]{24,}|sk-[A-Za-z0-9_-]{32,}|[0-9]{8,10}:AA[A-Za-z0-9_-]{30,}' \
+            .output/public)
+
+          # Supabase keys are JWTs and both of them look alike, so a prefix
+          # cannot tell them apart — the role is inside the payload. The anon
+          # key belongs in the bundle and RLS constrains it. A service_role key
+          # bypasses RLS entirely, so shipping one hands every visitor
+          # unrestricted access to the database.
+          while IFS= read -r hit; do
+            file="${hit%%:*}"
+            body="${hit#*:}"
+            body="${body#*.}"
+            body="${body%%.*}"
+            pad=$(( ${#body} % 4 ))
+            if [ "$pad" -ne 0 ]; then
+              body="${body}$(printf '=%.0s' $(seq $((4 - pad))))"
+            fi
+            role=$(printf '%s' "$body" | tr '_-' '/+' | base64 -d 2>/dev/null \
+              | grep -oE '"role" *: *"[^"]+"' | head -1 | grep -oE '"[^"]+"$' | tr -d '"')
+            if [ -n "${role:-}" ] && [ "$role" != "anon" ]; then
+              echo "::error::client bundle carries a '$role' JWT — $file"
+              found=1
+            fi
+          done < <(grep -rIoE 'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}' \
+            .output/public)
+
+          if [ "$found" -ne 0 ]; then
+            echo ""
+            echo "Nothing was deployed. Rotate anything printed above before"
+            echo "pushing a fix — it is in the repository's build log now."
+            exit 1
+          fi
+          echo "No secrets found in .output/public."
+
       # wrangler is not a project dependency — the action installs it. Pinned so
       # a deploy is reproducible; bump it deliberately, not by drifting to latest.
       #
@@ -224,12 +364,40 @@ jobs:
       # docs/security.md.
       - name: Deploy
         id: deploy
-        uses: cloudflare/wrangler-action@v4
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4.0.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           wranglerVersion: "4.126.0"
           command: deploy
+
+      # A successful `wrangler deploy` means Cloudflare accepted the upload, not
+      # that the Worker runs. A module-scope throw — the exact failure the
+      # configuration check above guards against — uploads perfectly and then
+      # 500s for every visitor. Ask the deployment the one question that matters
+      # before calling the job green, with retries because propagation is not
+      # instant. This cannot roll back, but a red deploy is a page rather than
+      # something noticed the next morning.
+      - name: Smoke-check the deployment
+        env:
+          TARGET: ${{ steps.deploy.outputs.deployment-url || vars.VITE_SITE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TARGET:-}" ]; then
+            echo "::warning::No deployment URL to check"
+            exit 0
+          fi
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$TARGET" || echo 000)
+            echo "attempt $attempt: $code"
+            if [ "$code" = "200" ]; then
+              echo "$TARGET is serving."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$TARGET did not return 200 after five attempts (last: $code)"
+          exit 1
 
       - name: Summary
         run: |
