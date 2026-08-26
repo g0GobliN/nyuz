@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { type Actor, signedInOnly } from "./guard";
 import { keepCoveredTopics } from "@/lib/coverage";
-import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
+import { PLAN_LIMITS, allowedBreaking, allowedFrequency } from "@/lib/plans";
 import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
 import { notificationRowToPrefs, prefsToNotificationRow, topicSlug } from "@/lib/preferences-map";
 
@@ -84,6 +84,7 @@ export const loadPreferences = createServerFn({ method: "GET" })
       ...DEFAULT_PREFS,
       ...stored,
       breaking: allowedBreaking(plan, stored.breaking ?? DEFAULT_PREFS.breaking),
+      frequency: allowedFrequency(plan, stored.frequency ?? DEFAULT_PREFS.frequency),
       name: profile.data?.display_name ?? "",
       topics: topicLabels,
       exclusions: (exclusions.data ?? []).map((row) => row.term),
@@ -141,10 +142,15 @@ export const savePreferences = createServerFn({ method: "POST" })
       if (data.days !== undefined) patch["days"] = row.days;
       if (data.channels !== undefined) patch["channels"] = row.channels;
       if (data.density !== undefined) patch["density"] = row.density;
-      if (data.frequency !== undefined) patch["frequency"] = row.frequency;
-      if (data.breaking !== undefined) {
+      // One plan read for both, since either clamp needs it.
+      if (data.frequency !== undefined || data.breaking !== undefined) {
         const plan = await planFor(actor);
-        patch["breaking"] = allowedBreaking(plan, row.breaking);
+        if (data.frequency !== undefined) {
+          patch["frequency"] = allowedFrequency(plan, row.frequency);
+        }
+        if (data.breaking !== undefined) {
+          patch["breaking"] = allowedBreaking(plan, row.breaking);
+        }
       }
       if (data.paused !== undefined) patch["paused"] = row.paused;
       patch["updated_at"] = new Date().toISOString();

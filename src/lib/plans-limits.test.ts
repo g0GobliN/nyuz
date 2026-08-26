@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { isCoveredTopic, keepCoveredTopics } from "@/lib/coverage";
 import {
   ASK_COOLDOWN_MS,
+  DEFAULT_ANNUAL_PRICES,
   PLAN_LIMITS,
   allowedBreaking,
+  allowedFrequency,
   askCapabilityFor,
   clipLabels,
   decideAsk,
@@ -78,6 +80,42 @@ describe("plan feature routing", () => {
     expect(allowedBreaking("free", "everything")).toBe("off");
     expect(allowedBreaking("personal", "everything")).toBe("important");
     expect(allowedBreaking("pro", "everything")).toBe("everything");
+  });
+
+  it("holds Free to a weekly roundup and lets paid plans choose", () => {
+    expect(allowedFrequency("free", "daily")).toBe("weekly");
+    expect(allowedFrequency("free", "weekly")).toBe("weekly");
+    expect(allowedFrequency("personal", "daily")).toBe("daily");
+    expect(allowedFrequency("pro", "daily")).toBe("daily");
+  });
+
+  it("still honours a paid reader who prefers the weekly roundup", () => {
+    expect(allowedFrequency("personal", "weekly")).toBe("weekly");
+    expect(allowedFrequency("pro", "weekly")).toBe("weekly");
+  });
+
+  it("treats an unknown plan as Free rather than as unlimited", () => {
+    expect(allowedFrequency("nonsense" as never, "daily")).toBe("weekly");
+  });
+
+  // The ceilings are the only thing standing between a heavy subscriber and a
+  // negative month, so they are asserted rather than left to drift. DeepSeek
+  // bills a pro completion at $3.96/M at peak; a month of a plan spent entirely
+  // on output must still cost less than the annual price divides to.
+  it("keeps a fully-spent month cheaper than the annual price it is sold at", () => {
+    const perMillionOut = 3.96;
+    const monthly = (annual: number) => annual / 12;
+
+    const personal = (PLAN_LIMITS.personal.monthlyAiTokenCap / 1_000_000) * perMillionOut;
+    const pro = (PLAN_LIMITS.pro.monthlyAiTokenCap / 1_000_000) * perMillionOut;
+
+    expect(personal).toBeLessThan(monthly(DEFAULT_ANNUAL_PRICES.personal));
+    expect(pro).toBeLessThan(monthly(DEFAULT_ANNUAL_PRICES.pro));
+  });
+
+  it("gives each tier more priority sources than the one below it", () => {
+    expect(PLAN_LIMITS.free.prioritySources).toBeLessThan(PLAN_LIMITS.personal.prioritySources);
+    expect(PLAN_LIMITS.personal.prioritySources).toBeLessThan(PLAN_LIMITS.pro.prioritySources);
   });
 });
 

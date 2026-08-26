@@ -34,7 +34,7 @@ account that owns the key. A stranger cannot receive mail until
 | Analysis and scoring (events → understood)             | **Built** — 98 of 99 analysed; 181,980 tokens                     |
 | Matching (events → readers)                            | **Built** — 29 rows in `user_events`, free                        |
 | Day-one backfill for a new account                     | **Built** — one query; pays only if empty                         |
-| Digest generation and delivery                         | **Built** — email only; quiet days skip honestly                  |
+| Digest generation and delivery                         | **Built** — weekly on Free, daily on paid; quiet days skip        |
 | Breaking alerts                                        | **Built** — none Free, 3/week Personal, 10/day Pro; atomic claims |
 | Story Ask                                              | **Built** — 10/day Flash Personal, 15/day Pro; atomic claims      |
 | Plan story limits                                      | **Built** — Deep caps 18/30/50; large briefings chunked           |

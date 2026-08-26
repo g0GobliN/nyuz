@@ -32,7 +32,7 @@ import { keepCoveredTopics } from "@/lib/coverage";
 import { capFor } from "@/lib/density";
 import { mailGrafs } from "@/lib/article-body";
 import { briefingEmail, breakingEmail } from "@/lib/email/templates";
-import { PLAN_LIMITS, clipLabels, digestCapabilityFor } from "@/lib/plans";
+import { PLAN_LIMITS, allowedFrequency, clipLabels, digestCapabilityFor } from "@/lib/plans";
 import { findRecipient } from "@/lib/server/email/lifecycle";
 import { sendEmail, siteUrl, type EmailEnv } from "@/lib/server/email/send";
 import { sendTelegramMessage, type TelegramEnv } from "@/lib/server/telegram/send";
@@ -265,10 +265,17 @@ async function scheduleUpcoming(db: Db, now: Date, options: DigestOptions): Prom
   if (error) throw new Error(`reading notification_preferences: ${error.message}`);
 
   const rows = (data ?? []) as PrefRow[];
+  // The stored preference is what the reader asked for; the plan decides what
+  // they are sent. Clamping here rather than only on save means a subscription
+  // that lapses stops paying for daily briefings on the next run, without
+  // anyone having to rewrite the row it lapsed with.
+  const { data: subscriptions } = await db.from("subscriptions").select("user_id, plan");
+  const planOf = new Map((subscriptions ?? []).map((s) => [s.user_id, s.plan]));
   const scheduled: { user_id: string; scheduled_for: string; status: "scheduled" }[] = [];
 
   for (const row of rows) {
     if (row.paused) continue;
+    const frequency = allowedFrequency(planOf.get(row.user_id) ?? "free", row.frequency);
     const slot = options.immediate
       ? now
       : nextSlot(
@@ -276,7 +283,7 @@ async function scheduleUpcoming(db: Db, now: Date, options: DigestOptions): Prom
             sendAt: row.send_at,
             timezone: row.timezone,
             days: row.days,
-            frequency: row.frequency,
+            frequency,
           },
           now,
         );

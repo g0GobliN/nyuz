@@ -17,7 +17,7 @@ import { disablePush, enablePush, pushSupported } from "@/lib/push/client";
 import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 import { usePlan } from "@/lib/plan-state";
-import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
+import { PLAN_LIMITS, allowedBreaking, allowedFrequency } from "@/lib/plans";
 
 export const Route = createFileRoute("/dashboard/delivery")({
   component: Delivery,
@@ -40,6 +40,7 @@ function Delivery() {
   const { plan } = usePlan();
   const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
   const effectiveBreaking = allowedBreaking(plan, prefs.breaking);
+  const effectiveFrequency = allowedFrequency(plan, prefs.frequency);
   // The address on the account, not a stored copy — the account is the only
   // thing that actually receives a briefing.
   const email = useAuth().user?.email ?? "";
@@ -273,12 +274,28 @@ function Delivery() {
 
         <Panel title="Frequency">
           <div className="flex flex-wrap gap-2">
-            {(["daily", "weekly"] as const).map((f) => (
-              <Chip key={f} active={prefs.frequency === f} onClick={() => touch({ frequency: f })}>
-                {f === "daily" ? "Daily briefing" : "Weekly roundup"}
-              </Chip>
-            ))}
+            {(["daily", "weekly"] as const).map((f) => {
+              const locked = f === "daily" && limits.maxFrequency === "weekly";
+              return (
+                <Chip
+                  key={f}
+                  active={effectiveFrequency === f}
+                  onClick={() => {
+                    if (!locked) touch({ frequency: f });
+                  }}
+                >
+                  {f === "daily" ? "Daily briefing" : "Weekly roundup"}
+                  {locked ? " · Paid" : ""}
+                </Chip>
+              );
+            })}
           </div>
+
+          <p className="mt-3 text-[12.5px] leading-relaxed text-muted-foreground">
+            {limits.maxFrequency === "weekly"
+              ? "Free sends one roundup a week. Daily briefings are a paid feature — the setting is kept either way, so it comes back with a subscription."
+              : "A daily briefing skips honestly on a quiet day rather than padding itself out."}
+          </p>
 
           <div className="mt-7">
             <p className="text-[13px] text-muted-foreground">Breaking alerts</p>

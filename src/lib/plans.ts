@@ -1,4 +1,4 @@
-import type { PlanTier } from "@/lib/supabase/types";
+import type { DigestFrequency, PlanTier } from "@/lib/supabase/types";
 
 /**
  * Stripe product catalogue (live, 23 Aug 2026). Display, checkout copy and
@@ -42,6 +42,8 @@ export type AlertAccess = "none" | "important" | "configurable";
 export type PlanLimits = {
   topics: number;
   prioritySources: number;
+  /** The most often a plan may be briefed. Daily is the habit people pay for. */
+  maxFrequency: DigestFrequency;
   retention: string;
   retentionDays: number;
   asksPerDay: number;
@@ -71,7 +73,8 @@ export type PlanLimits = {
 export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   free: {
     topics: 3,
-    prioritySources: 3,
+    prioritySources: 5,
+    maxFrequency: "weekly",
     retention: "7-day history",
     retentionDays: 7,
     asksPerDay: 0,
@@ -86,7 +89,8 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   },
   personal: {
     topics: 15,
-    prioritySources: 15,
+    prioritySources: 30,
+    maxFrequency: "daily",
     retention: "90-day history",
     retentionDays: 90,
     asksPerDay: 10,
@@ -97,11 +101,12 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     alertWeeklyCap: 3,
     alertDailyCap: 0,
     inactivePauseDays: null,
-    monthlyAiTokenCap: 1_500_000,
+    monthlyAiTokenCap: 1_400_000,
   },
   pro: {
     topics: Infinity,
     prioritySources: Infinity,
+    maxFrequency: "daily",
     retention: "1-year history",
     retentionDays: 365,
     asksPerDay: 15,
@@ -112,7 +117,7 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     alertWeeklyCap: 0,
     alertDailyCap: 10,
     inactivePauseDays: null,
-    monthlyAiTokenCap: 4_000_000,
+    monthlyAiTokenCap: 3_000_000,
   },
 };
 
@@ -135,6 +140,21 @@ export function allowedBreaking<T extends "important" | "everything" | "off">(
   if (access === "none") return "off";
   if (access === "important" && requested === "everything") return "important";
   return requested;
+}
+
+/**
+ * Clamp a saved frequency to what the plan may be sent.
+ *
+ * Daily is the single largest per-reader cost in the product — seven briefings
+ * a week instead of one, each one a model call per story — and it is also the
+ * thing a reader notices missing. So it is the boundary between Free and paid,
+ * and like `allowedBreaking` it degrades rather than refuses: a lapsed
+ * subscription keeps the stored preference and quietly sends weekly, so
+ * resubscribing restores the reader's own setting rather than a default.
+ */
+export function allowedFrequency(plan: PlanTier, requested: DigestFrequency): DigestFrequency {
+  const most = PLAN_LIMITS[plan]?.maxFrequency ?? "weekly";
+  return most === "weekly" ? "weekly" : requested;
 }
 
 /** Quiet gap so a loop cannot drain the reason tier. Follow-ups should still feel instant. */
