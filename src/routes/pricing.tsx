@@ -50,7 +50,13 @@ const PLANS: Plan[] = [
     name: "Free",
     priceKey: "free",
     tagline: "See whether a briefing changes your morning.",
-    features: ["3 topics", "Daily briefing", "Email delivery", "7-day history"],
+    features: [
+      "3 topics and 3 priority sources",
+      "Up to 18 stories per briefing",
+      "Daily Flash briefing",
+      "Email delivery",
+      "7-day history",
+    ],
     cta: "Start free",
   },
   {
@@ -58,13 +64,14 @@ const PLANS: Plan[] = [
     priceKey: "personal",
     tagline: "A nyuz shaped around what you actually do.",
     features: [
-      "15 topics",
-      "Daily and weekly briefings",
+      "15 topics and 15 priority sources",
+      "Up to 30 stories per briefing",
+      "Pro-quality daily briefing",
       "Custom delivery time",
-      "Breaking alerts",
+      "3 important alerts per week",
       "Custom instructions",
       "90-day history",
-      "AI explanations",
+      "10 Ask AI questions per day",
     ],
     cta: "Start Personal",
     popular: true,
@@ -74,12 +81,12 @@ const PLANS: Plan[] = [
     priceKey: "pro",
     tagline: "For people whose job is knowing first.",
     features: [
-      "Unlimited topics",
-      "Multiple schedules",
-      "Breaking alerts",
+      "Unlimited topics and priority sources",
+      "Up to 50 stories per briefing",
+      "Pro-quality daily briefing",
+      "Up to 10 configurable alerts per day",
       "1-year history",
-      "Deeper AI explanations",
-      "Priority processing",
+      "15 Pro Ask AI questions per day",
     ],
     cta: "Start Pro",
   },
@@ -123,8 +130,8 @@ function annualCaption(): string | null {
 
 const FAQ = [
   {
-    q: "Why is there no article limit?",
-    a: "A cap on articles rewards volume. This product is trying to do the opposite — some days the honest answer is that four things happened.",
+    q: "Is there an article limit?",
+    a: "There is no monthly article quota. Each briefing has a maximum set by your plan and density: up to 18 on Free, 30 on Personal, or 50 on Pro. A quiet day can still be shorter.",
   },
   {
     q: "What happens on a quiet day?",

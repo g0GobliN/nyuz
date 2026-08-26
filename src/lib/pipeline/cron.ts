@@ -54,10 +54,13 @@ import { describeMatch, match, type MatchReport } from "./match";
 /**
  * Feeds read per scheduled invocation.
  *
- * 24 rather than 64 for the subrequest budget above. Raising it is a decision
+ * 12 rather than 64 for the Free Worker subrequest budget above. A normal
+ * successful feed costs the external fetch, an article write and a source
+ * update; twelve leaves room for the source-list query and failure/audit paths.
+ * Raising it is a decision
  * about the Cloudflare plan, not about the pipeline.
  */
-const SCHEDULED_LIMIT = 24;
+const SCHEDULED_LIMIT = 12;
 
 /**
  * Articles clustered per scheduled invocation.
@@ -140,13 +143,13 @@ export const MATCH_CRON = "25,55 * * * *";
 export const DIGEST_CRON = "*/5 * * * *";
 
 /**
- * Dormancy nudge, once a week.
+ * Inactivity warning, automatic Free pause, and retention purge, once a day.
  *
  * Keys off `profiles.last_seen_at`, which the dashboard writes, not off an email
  * open pixel. Monday noon UTC is arbitrary and quiet: it is not a send_at the
  * reader chose, and it is not every five minutes.
  */
-export const DORMANT_CRON = "0 12 * * 1";
+export const DORMANT_CRON = "0 12 * * *";
 
 /**
  * The one trigger that carries every stage there is no trigger left for.
@@ -171,9 +174,9 @@ export function stageForMinute(scheduledFor: Date): SharedStage | null {
   if (minute === 10 || minute === 40) return "cluster";
   if (minute === 20 || minute === 50) return "analyse";
   if (minute === 25 || minute === 55) return "match";
-  // Monday noon UTC, as DORMANT_CRON said. The other 23 firings of minute 0 in
-  // a day are deliberately nothing at all.
-  if (minute === 0 && scheduledFor.getUTCDay() === 1 && scheduledFor.getUTCHours() === 12) {
+  // Noon UTC daily, as DORMANT_CRON said. The other 23 minute-zero firings are
+  // deliberately nothing at all.
+  if (minute === 0 && scheduledFor.getUTCHours() === 12) {
     return "dormant";
   }
   return null;

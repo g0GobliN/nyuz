@@ -63,6 +63,13 @@ export type AiConfigView = {
   prompts: PromptView[];
   /** How long a change takes to reach every isolate. Surfaced in the UI. */
   cacheSeconds: number;
+  usage: {
+    monthTokens: number;
+    reservedTokens: number;
+    calls: number;
+    budgetTokens: number;
+    byCapability: Record<AiCapability, number>;
+  };
 };
 
 function secretPresent(name: string): boolean {
@@ -75,17 +82,36 @@ export const getAiConfig = createServerFn({ method: "GET" })
   .middleware([adminOnly])
   .handler(async ({ context }): Promise<AiConfigView> => {
     const db = context.actor.db;
-    const [providers, routes, prompts] = await Promise.all([
+    const monthStart = new Date();
+    monthStart.setUTCDate(1);
+    monthStart.setUTCHours(0, 0, 0, 0);
+    const [providers, routes, prompts, usage] = await Promise.all([
       db.from("ai_providers").select("*").order("slug"),
       db.from("ai_model_routes").select("*"),
       db.from("ai_prompts").select("*").order("key"),
+      db
+        .from("ai_usage_ledger")
+        .select("capability, prompt_tokens, completion_tokens, reserved_tokens")
+        .gte("created_at", monthStart.toISOString()),
     ]);
 
     if (providers.error) throw new AdminAuthError(`Providers: ${providers.error.message}`, 500);
     if (routes.error) throw new AdminAuthError(`Routes: ${routes.error.message}`, 500);
     if (prompts.error) throw new AdminAuthError(`Prompts: ${prompts.error.message}`, 500);
+    if (usage.error) throw new AdminAuthError(`AI usage: ${usage.error.message}`, 500);
 
     const slugById = new Map((providers.data ?? []).map((p) => [p.id, p.slug]));
+
+    const byCapability: Record<AiCapability, number> = { cluster: 0, digest: 0, reason: 0 };
+    let monthTokens = 0;
+    let reservedTokens = 0;
+    for (const row of usage.data ?? []) {
+      const tokens = Math.max(row.reserved_tokens, row.prompt_tokens + row.completion_tokens);
+      monthTokens += tokens;
+      reservedTokens += row.reserved_tokens;
+      byCapability[row.capability] += tokens;
+    }
+    const budgetTokens = Number(globalThis.process?.env?.["AI_MONTHLY_TOKEN_BUDGET"] ?? 0);
 
     return {
       providers: (providers.data ?? []).map((p) => ({
@@ -115,6 +141,13 @@ export const getAiConfig = createServerFn({ method: "GET" })
         updatedAt: p.updated_at,
       })),
       cacheSeconds: 60,
+      usage: {
+        monthTokens,
+        reservedTokens,
+        calls: usage.data?.length ?? 0,
+        budgetTokens: Number.isFinite(budgetTokens) ? budgetTokens : 0,
+        byCapability,
+      },
     };
   });
 

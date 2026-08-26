@@ -35,6 +35,26 @@ export function formatUsd(amount: number): string {
 
 export const PLAN_TIERS: PlanTier[] = ["free", "personal", "pro"];
 
+export type DensityBand = "minimal" | "focused" | "broad" | "deep";
+export type PlanModel = "flash" | "pro";
+export type AlertAccess = "none" | "important" | "configurable";
+
+export type PlanLimits = {
+  topics: number;
+  prioritySources: number;
+  retention: string;
+  retentionDays: number;
+  asksPerDay: number;
+  askModel: PlanModel | null;
+  digestModel: PlanModel;
+  storyCaps: Record<DensityBand, number>;
+  alerts: AlertAccess;
+  alertWeeklyCap: number;
+  alertDailyCap: number;
+  inactivePauseDays: number | null;
+  monthlyAiTokenCap: number;
+};
+
 /**
  * What each plan actually allows.
  *
@@ -48,14 +68,74 @@ export const PLAN_TIERS: PlanTier[] = ["free", "personal", "pro"];
  * count without any caller special-casing "unlimited", and it formats to
  * something obviously wrong if one ever forgets to.
  */
-export const PLAN_LIMITS: Record<
-  PlanTier,
-  { topics: number; retention: string; retentionDays: number; asksPerDay: number }
-> = {
-  free: { topics: 3, retention: "7-day history", retentionDays: 7, asksPerDay: 0 },
-  personal: { topics: 15, retention: "90-day history", retentionDays: 90, asksPerDay: 24 },
-  pro: { topics: Infinity, retention: "1-year history", retentionDays: 365, asksPerDay: 48 },
+export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
+  free: {
+    topics: 3,
+    prioritySources: 3,
+    retention: "7-day history",
+    retentionDays: 7,
+    asksPerDay: 0,
+    askModel: null,
+    digestModel: "flash",
+    storyCaps: { minimal: 3, focused: 6, broad: 10, deep: 18 },
+    alerts: "none",
+    alertWeeklyCap: 0,
+    alertDailyCap: 0,
+    inactivePauseDays: 30,
+    monthlyAiTokenCap: 400_000,
+  },
+  personal: {
+    topics: 15,
+    prioritySources: 15,
+    retention: "90-day history",
+    retentionDays: 90,
+    asksPerDay: 10,
+    askModel: "flash",
+    digestModel: "pro",
+    storyCaps: { minimal: 5, focused: 10, broad: 18, deep: 30 },
+    alerts: "important",
+    alertWeeklyCap: 3,
+    alertDailyCap: 0,
+    inactivePauseDays: null,
+    monthlyAiTokenCap: 1_500_000,
+  },
+  pro: {
+    topics: Infinity,
+    prioritySources: Infinity,
+    retention: "1-year history",
+    retentionDays: 365,
+    asksPerDay: 15,
+    askModel: "pro",
+    digestModel: "pro",
+    storyCaps: { minimal: 8, focused: 16, broad: 30, deep: 50 },
+    alerts: "configurable",
+    alertWeeklyCap: 0,
+    alertDailyCap: 10,
+    inactivePauseDays: null,
+    monthlyAiTokenCap: 4_000_000,
+  },
 };
+
+/** The AI route used by a plan. `cluster` is the high-volume Flash route. */
+export function askCapabilityFor(model: PlanModel | null): "cluster" | "reason" | null {
+  if (model === null) return null;
+  return model === "flash" ? "cluster" : "reason";
+}
+
+export function digestCapabilityFor(model: PlanModel): "cluster" | "digest" {
+  return model === "flash" ? "cluster" : "digest";
+}
+
+/** Clamp a saved alert preference to what the current subscription can deliver. */
+export function allowedBreaking<T extends "important" | "everything" | "off">(
+  plan: PlanTier,
+  requested: T,
+): T | "important" | "off" {
+  const access = PLAN_LIMITS[plan]?.alerts ?? "none";
+  if (access === "none") return "off";
+  if (access === "important" && requested === "everything") return "important";
+  return requested;
+}
 
 /** Quiet gap so a loop cannot drain the reason tier. Follow-ups should still feel instant. */
 export const ASK_COOLDOWN_MS = 8_000;

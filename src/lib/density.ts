@@ -47,9 +47,11 @@
  * drag from 20 to 44, so neither should their briefing.
  */
 
-import type { TopicImportance } from "@/lib/supabase/types";
+import { PLAN_LIMITS, type DensityBand } from "@/lib/plans";
+import type { PlanTier, TopicImportance } from "@/lib/supabase/types";
 
 export type DensityLevel = {
+  key: DensityBand;
   /** Exclusive upper bound, so `density < max` picks the band. */
   max: number;
   label: string;
@@ -67,6 +69,7 @@ export type DensityLevel = {
 };
 
 const DEEP: DensityLevel = {
+  key: "deep",
   max: 101,
   label: "Deep",
   detail: "Everything with a plausible claim on your attention.",
@@ -77,6 +80,7 @@ const DEEP: DensityLevel = {
 
 export const LEVELS: DensityLevel[] = [
   {
+    key: "minimal",
     max: 20,
     label: "Minimal",
     detail: "Only the things you would regret missing.",
@@ -85,6 +89,7 @@ export const LEVELS: DensityLevel[] = [
     threshold: 6,
   },
   {
+    key: "focused",
     max: 45,
     label: "Focused",
     detail: "Clear developments in the areas you track.",
@@ -93,6 +98,7 @@ export const LEVELS: DensityLevel[] = [
     threshold: 3,
   },
   {
+    key: "broad",
     max: 70,
     label: "Broad",
     detail: "Adds context and adjacent industry moves.",
@@ -113,8 +119,14 @@ export function thresholdFor(density: number): number {
 }
 
 /** How many stories a briefing at this density is allowed to carry. */
-export function capFor(density: number): number {
-  return levelFor(density).cap;
+export function capFor(density: number, plan: PlanTier = "free"): number {
+  const level = levelFor(density);
+  return PLAN_LIMITS[plan]?.storyCaps[level.key] ?? level.cap;
+}
+
+/** Honest UI copy: availability can make a briefing shorter, never longer. */
+export function countFor(density: number, plan: PlanTier = "free"): string {
+  return `Up to ${capFor(density, plan)}`;
 }
 
 /**

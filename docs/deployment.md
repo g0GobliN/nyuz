@@ -96,7 +96,14 @@ nothing.
 ```bash
 npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --name nyuz
 npx wrangler secret put DEEPSEEK_API_KEY --name nyuz
+npx wrangler secret put RESEND_API_KEY --name nyuz
+npx wrangler secret put STRIPE_SECRET_KEY --name nyuz
+npx wrangler secret put STRIPE_WEBHOOK_SECRET --name nyuz
 ```
+
+Set the four recurring Stripe Price ids and `AI_MONTHLY_TOKEN_BUDGET=10000000` as Worker
+variables. The Price ids must be the $7/$69 Personal and $15/$149 Pro prices; changing
+display copy does not change what Stripe charges.
 
 **`--name` is not optional here.** There is no `wrangler.toml` at the root — the config is
 generated into `.output/server/wrangler.json` at build time, and only `deploy` and `dev`
@@ -149,6 +156,7 @@ first and merging second — not the other way round.
       takes three per Worker and drops the rest without failing the deploy
 - [ ] Migrations applied to the target project
 - [ ] Secrets set for every active AI provider and the service role
+- [ ] Resend and Stripe secrets, four Stripe Price ids, and the AI monthly budget set
 - [x] `ENTITY` filled in `src/routes/legal/$doc.tsx` (sole trader, Japan; contact / privacy / security / billing @nyuz.app)
 - [x] Copyright holder and contact filled in `LICENSE`
 - [ ] Subprocessor table regions filled in the legal pages

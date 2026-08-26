@@ -16,7 +16,7 @@ function declaredCrons(): string[] {
   return [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1] as string);
 }
 
-/** 2026-08-24 is a Monday, so noon UTC on it is the dormant slot. */
+/** Fixed dates keep the dispatcher assertions independent of the local zone. */
 const monday = (hour: number, minute: number) => new Date(Date.UTC(2026, 7, 24, hour, minute));
 const tuesday = (hour: number, minute: number) => new Date(Date.UTC(2026, 7, 25, hour, minute));
 
@@ -33,7 +33,7 @@ describe("triggers.crons", () => {
     const minutes = STAGES_CRON.split(" ")[0]?.split(",").map(Number) ?? [];
     expect(minutes.length).toBeGreaterThan(0);
     for (const minute of minutes) {
-      // Minute 0 is the weekly slot, so it only resolves on a Monday at noon.
+      // Minute 0 is the daily inactivity slot, so noon resolves it.
       expect(stageForMinute(monday(12, minute))).not.toBeNull();
     }
   });
@@ -54,10 +54,10 @@ describe("stageForMinute", () => {
     expect(order).toEqual(["cluster", "analyse", "match"]);
   });
 
-  it("nudges dormant readers only at Monday noon", () => {
+  it("checks inactive Free readers daily at noon", () => {
     expect(stageForMinute(monday(12, 0))).toBe("dormant");
     expect(stageForMinute(monday(13, 0))).toBeNull();
-    expect(stageForMinute(tuesday(12, 0))).toBeNull();
+    expect(stageForMinute(tuesday(12, 0))).toBe("dormant");
   });
 
   it("has nothing to do on a minute no stage claims", () => {

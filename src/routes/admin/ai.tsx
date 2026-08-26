@@ -42,13 +42,12 @@ const CAPABILITIES: { key: AiCapability; label: string; blurb: string }[] = [
     key: "digest",
     label: "Digest",
     blurb:
-      "Writes the summary a reader actually sees. Runs once per story, shared by everyone who receives it — this is the quality-sensitive call.",
+      "Writes why each selected story matters to one reader. Personal and Pro use this quality-sensitive route; Free uses the Flash route.",
   },
   {
     key: "reason",
     label: "Reason",
-    blurb:
-      "Longer analysis: why a story matters, what changed, what to watch. Lowest volume, highest token ceiling.",
+    blurb: "Answers Pro Ask AI questions about one story. Lowest volume, highest token ceiling.",
   },
 ];
 
@@ -93,6 +92,28 @@ function AiPage() {
 
       {data ? (
         <div className="space-y-5">
+          <Panel
+            title="This month's token budget"
+            note={
+              data.usage.budgetTokens > 0
+                ? `${formatNumber(data.usage.monthTokens)} of ${formatNumber(data.usage.budgetTokens)} tokens used or reserved. Calls stop before crossing the configured ceiling.`
+                : "AI_MONTHLY_TOKEN_BUDGET is not configured, so the ledger records calls but does not enforce a global ceiling."
+            }
+          >
+            <div className="grid gap-3 sm:grid-cols-4">
+              <UsageStat label="Calls" value={data.usage.calls} />
+              <UsageStat label="Cluster / Flash" value={data.usage.byCapability.cluster} />
+              <UsageStat label="Digest" value={data.usage.byCapability.digest} />
+              <UsageStat label="Reason / Pro Ask" value={data.usage.byCapability.reason} />
+            </div>
+            {data.usage.budgetTokens > 0 &&
+            data.usage.monthTokens / data.usage.budgetTokens >= 0.8 ? (
+              <p className="mt-4 text-[12.5px] font-semibold">
+                Budget warning: at least 80% of this month's AI allowance is committed.
+              </p>
+            ) : null}
+          </Panel>
+
           <Panel
             title="Routing"
             note={`One provider and model per capability. A change reaches every running isolate within ${data.cacheSeconds} seconds — the resolver memoises for that long so the pipeline is not making a database round trip per article.`}
@@ -172,6 +193,15 @@ function AiPage() {
         <ProviderDialog form={editing} onChange={setEditing} onClose={() => setEditing(null)} />
       ) : null}
     </>
+  );
+}
+
+function UsageStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-hairline bg-surface-2 px-4 py-3">
+      <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+      <p className="mt-2 text-[18px] tabular-nums">{formatNumber(value)}</p>
+    </div>
   );
 }
 

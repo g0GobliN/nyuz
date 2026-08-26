@@ -136,14 +136,14 @@ function StoryDetail() {
             ) : null}
 
             {!planLoading && asksPerDay > 0 ? (
-              <AskPanel eventId={story.id} />
+              <AskPanel eventId={story.id} dailyLimit={asksPerDay} />
             ) : !planLoading ? (
               <section className="rounded-3xl border border-hairline bg-surface-2 p-6">
                 <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   Ask about this
                 </h2>
                 <p className="mt-3 text-[13.5px] leading-relaxed text-muted-foreground">
-                  Ask runs a stronger model. It is included on Personal and Pro.
+                  Ask about a story is included on Personal and Pro.
                 </p>
                 <Link
                   to="/dashboard/billing"
@@ -330,7 +330,7 @@ function ArticleBody({ story, onReachEnd }: { story: Story; onReachEnd: () => vo
   );
 }
 
-function AskPanel({ eventId }: { eventId: string }) {
+function AskPanel({ eventId, dailyLimit }: { eventId: string; dailyLimit: number }) {
   const [q, setQ] = useState("");
   const [asking, setAsking] = useState(false);
   const [answered, setAnswered] = useState<string | null>(null);
@@ -359,7 +359,8 @@ function AskPanel({ eventId }: { eventId: string }) {
         <Sparkles className="h-3.5 w-3.5" /> Ask about this
       </h2>
       <p className="mt-3 text-[13.5px] leading-relaxed text-muted-foreground">
-        Ask anything about this story. Coding help and unrelated questions are refused.
+        Ask anything about this story. Coding help and unrelated questions are refused. Your plan
+        includes up to {dailyLimit} questions per day.
       </p>
 
       <div className="mt-5 flex flex-wrap gap-2">

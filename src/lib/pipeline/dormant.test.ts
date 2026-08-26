@@ -7,7 +7,7 @@ const daysAgo = (n: number) => new Date(now.getTime() - n * 24 * 60 * 60 * 1000)
 const due = (over: Partial<Parameters<typeof dueForNudge>[0]> = {}) =>
   dueForNudge({
     onboardedAt: daysAgo(30),
-    lastSeenAt: daysAgo(14),
+    lastSeenAt: daysAgo(24),
     paused: false,
     hasDigest: true,
     lastNudgedAt: null,

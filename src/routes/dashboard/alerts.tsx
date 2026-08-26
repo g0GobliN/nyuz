@@ -7,6 +7,8 @@ import { Loading } from "@/components/loading";
 import { usePrefs } from "@/lib/prefs-store";
 import { loadRecentAlerts } from "@/lib/server/briefing";
 import { formatStoryTime } from "@/lib/story-time";
+import { usePlan } from "@/lib/plan-state";
+import { PLAN_LIMITS, PLAN_NAMES, allowedBreaking } from "@/lib/plans";
 
 export const Route = createFileRoute("/dashboard/alerts")({
   component: Alerts,
@@ -15,7 +17,10 @@ export const Route = createFileRoute("/dashboard/alerts")({
 
 function Alerts() {
   const { prefs, update } = usePrefs();
-  const off = prefs.breaking === "off";
+  const { plan } = usePlan();
+  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+  const effectiveBreaking = allowedBreaking(plan, prefs.breaking);
+  const off = effectiveBreaking === "off";
   const alertsQ = useQuery({
     queryKey: ["alerts", "recent"],
     queryFn: () => loadRecentAlerts(),
@@ -46,20 +51,38 @@ function Alerts() {
             <p className="mt-1 text-[12.5px] text-muted-foreground">
               {off
                 ? "Everything waits for your next scheduled briefing."
-                : prefs.breaking === "everything"
-                  ? "Every matched event reaches you as it lands."
-                  : "Only events scoring 6 or higher interrupt you, at most a few a week."}
+                : effectiveBreaking === "everything"
+                  ? `Matched events can interrupt you, up to ${limits.alertDailyCap} per day.`
+                  : `Only events scoring 6 or higher interrupt you, up to ${limits.alertWeeklyCap} per week.`}
             </p>
           </div>
         </div>
 
         <div className="mt-6 flex flex-wrap gap-2">
-          {(["important", "everything", "off"] as const).map((b) => (
-            <Chip key={b} active={prefs.breaking === b} onClick={() => update({ breaking: b })}>
-              {b === "important" ? "Only important" : b === "everything" ? "Everything" : "Off"}
-            </Chip>
-          ))}
+          {(["important", "everything", "off"] as const).map((b) => {
+            const locked =
+              (limits.alerts === "none" && b !== "off") ||
+              (limits.alerts === "important" && b === "everything");
+            return (
+              <Chip
+                key={b}
+                active={effectiveBreaking === b}
+                onClick={() => {
+                  if (!locked) void update({ breaking: b });
+                }}
+              >
+                {b === "important" ? "Only important" : b === "everything" ? "Everything" : "Off"}
+                {locked ? ` · ${b === "everything" ? "Pro" : "Paid"}` : ""}
+              </Chip>
+            );
+          })}
         </div>
+        {limits.alerts === "none" ? (
+          <p className="mt-4 text-[12.5px] text-muted-foreground">
+            Alerts are not included on {PLAN_NAMES[plan]}. Your daily briefing still carries every
+            matched story within its limit.
+          </p>
+        ) : null}
       </section>
 
       <section className="mt-10">

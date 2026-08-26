@@ -56,6 +56,28 @@ export const notifyBriefingsPaused = createServerFn({ method: "POST" })
 export const pingPresence = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
   .handler(async ({ context }): Promise<void> => {
+    const { data: profile } = await context.actor.db
+      .from("profiles")
+      .select("auto_paused_at")
+      .eq("id", context.actor.id)
+      .maybeSingle();
+    if (profile?.auto_paused_at) {
+      await Promise.all([
+        context.actor.db
+          .from("notification_preferences")
+          .update({ paused: false, updated_at: new Date().toISOString() })
+          .eq("user_id", context.actor.id),
+        context.actor.db
+          .from("profiles")
+          .update({
+            last_seen_at: new Date().toISOString(),
+            auto_paused_at: null,
+            paused_notified_at: null,
+          })
+          .eq("id", context.actor.id),
+      ]);
+      return;
+    }
     const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     await context.actor.db
       .from("profiles")

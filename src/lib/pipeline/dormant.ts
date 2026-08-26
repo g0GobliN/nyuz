@@ -14,15 +14,17 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { sendDormant } from "@/lib/server/email/lifecycle";
+import { sendBriefingsPaused, sendDormant } from "@/lib/server/email/lifecycle";
 import { siteUrl, type EmailEnv } from "@/lib/server/email/send";
 import type { Database } from "@/lib/supabase/types";
 
 type Db = SupabaseClient<Database>;
 
-export const DORMANT_DAYS = 7;
-export const NUDGE_EVERY_DAYS = 14;
+export const DORMANT_DAYS = 23;
+export const AUTO_PAUSE_DAYS = 30;
+export const NUDGE_EVERY_DAYS = 30;
 export const AUDIT_ACTION = "email.dormant";
+export const PAUSE_AUDIT_ACTION = "briefing.auto_paused";
 
 const BATCH = 20;
 
@@ -33,7 +35,7 @@ export type DormantOptions = {
   email?: EmailEnv | undefined;
 };
 
-export type DormantDecision = "sent" | "skipped" | "failed";
+export type DormantDecision = "sent" | "paused" | "skipped" | "failed";
 
 export type DormantOutcome = {
   userId: string;
@@ -46,8 +48,10 @@ export type DormantReport = {
   finishedAt: string;
   considered: number;
   sent: number;
+  paused: number;
   skipped: number;
   failed: number;
+  purged: number;
   outcomes: DormantOutcome[];
 };
 
@@ -99,14 +103,22 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
   for (const candidate of candidates) {
     outcomes.push(await nudgeOne(db, candidate, options, now));
   }
+  let purged = 0;
+  if (options.dryRun !== true) {
+    const { data, error } = await db.rpc("purge_expired_digests", { p_limit: 500 });
+    if (error) console.error(`purging expired digests: ${error.message}`);
+    else purged = data ?? 0;
+  }
 
   return {
     startedAt,
     finishedAt: new Date().toISOString(),
     considered: candidates.length,
     sent: outcomes.filter((o) => o.decision === "sent").length,
+    paused: outcomes.filter((o) => o.decision === "paused").length,
     skipped: outcomes.filter((o) => o.decision === "skipped").length,
     failed: outcomes.filter((o) => o.decision === "failed").length,
+    purged,
     outcomes,
   };
 }
@@ -137,30 +149,38 @@ async function loadCandidates(db: Db, now: Date, limit: number): Promise<Candida
 
   const ids = rows.map((p) => p.id);
 
-  const [{ data: prefs }, { data: digests }, { data: nudges }] = await Promise.all([
-    db.from("notification_preferences").select("user_id, paused").in("user_id", ids),
-    db
-      .from("digests")
-      .select("user_id")
-      .in("user_id", ids)
-      .in("status", ["ready", "sent", "skipped"]),
-    db
-      .from("admin_audit_log")
-      .select("target_id, created_at")
-      .eq("action", AUDIT_ACTION)
-      .in("target_id", ids)
-      .order("created_at", { ascending: false }),
-  ]);
+  const [{ data: prefs }, { data: digests }, { data: nudges }, { data: subscriptions }] =
+    await Promise.all([
+      db.from("notification_preferences").select("user_id, paused").in("user_id", ids),
+      db
+        .from("digests")
+        .select("user_id")
+        .in("user_id", ids)
+        .in("status", ["ready", "sent", "skipped"]),
+      db
+        .from("admin_audit_log")
+        .select("target_id, created_at")
+        .eq("action", AUDIT_ACTION)
+        .in("target_id", ids)
+        .order("created_at", { ascending: false }),
+      db.from("subscriptions").select("user_id, plan").in("user_id", ids),
+    ]);
 
   const paused = new Map((prefs ?? []).map((p) => [p.user_id, p.paused]));
   const mailed = new Set((digests ?? []).map((d) => d.user_id));
   const lastNudge = new Map<string, string>();
+  const free = new Set(
+    (subscriptions ?? [])
+      .filter((subscription) => subscription.plan === "free")
+      .map((s) => s.user_id),
+  );
   for (const row of nudges ?? []) {
     if (!lastNudge.has(row.target_id)) lastNudge.set(row.target_id, row.created_at);
   }
 
   const due: Candidate[] = [];
   for (const profile of rows) {
+    if (!free.has(profile.id)) continue;
     const candidate: Candidate = {
       userId: profile.id,
       onboardedAt: profile.onboarded_at,
@@ -169,7 +189,14 @@ async function loadCandidates(db: Db, now: Date, limit: number): Promise<Candida
       hasDigest: mailed.has(profile.id),
       lastNudgedAt: lastNudge.get(profile.id) ?? null,
     };
-    if (!dueForNudge({ ...candidate, now })) continue;
+    const lastActive = candidate.lastSeenAt ?? candidate.onboardedAt;
+    const autoPauseCutoff = now.getTime() - AUTO_PAUSE_DAYS * 86_400_000;
+    const autoPauseDue =
+      !candidate.paused &&
+      candidate.hasDigest &&
+      lastActive !== null &&
+      Date.parse(lastActive) <= autoPauseCutoff;
+    if (!autoPauseDue && !dueForNudge({ ...candidate, now })) continue;
     due.push(candidate);
     if (due.length >= limit) break;
   }
@@ -183,16 +210,58 @@ async function nudgeOne(
   now: Date,
 ): Promise<DormantOutcome> {
   const base = { userId: candidate.userId };
+  const lastActive = candidate.lastSeenAt ?? candidate.onboardedAt;
+  const inactiveDays = lastActive
+    ? Math.floor((now.getTime() - Date.parse(lastActive)) / 86_400_000)
+    : 0;
 
   if (options.dryRun === true) {
-    return { ...base, decision: "skipped", detail: "would send dormant nudge" };
+    return {
+      ...base,
+      decision: "skipped",
+      detail:
+        inactiveDays >= AUTO_PAUSE_DAYS
+          ? "would auto-pause inactive Free reader"
+          : "would send inactivity warning",
+    };
+  }
+
+  if (inactiveDays >= AUTO_PAUSE_DAYS) {
+    const { data: changed, error } = await db
+      .from("notification_preferences")
+      .update({ paused: true, updated_at: now.toISOString() })
+      .eq("user_id", candidate.userId)
+      .eq("paused", false)
+      .select("user_id");
+    if (error) return { ...base, decision: "failed", detail: `auto-pause: ${error.message}` };
+    if (!changed || changed.length === 0) {
+      return { ...base, decision: "skipped", detail: "already paused" };
+    }
+
+    await db
+      .from("profiles")
+      .update({ auto_paused_at: now.toISOString() })
+      .eq("id", candidate.userId);
+    const notified = await sendBriefingsPaused(db, candidate.userId, options.email);
+    await db.from("admin_audit_log").insert({
+      actor_email: "pipeline:dormant",
+      action: PAUSE_AUDIT_ACTION,
+      target_type: "user",
+      target_id: candidate.userId,
+      meta: { days: inactiveDays, notified },
+    });
+    return {
+      ...base,
+      decision: "paused",
+      detail: `${inactiveDays} inactive days${notified ? "" : "; notice failed"}`,
+    };
   }
 
   const origin = siteUrl(options.email);
   const sent = await sendDormant(
     db,
     candidate.userId,
-    { days: DORMANT_DAYS, unsubscribeUrl: `${origin}/dashboard/delivery` },
+    { days: inactiveDays, unsubscribeUrl: `${origin}/dashboard/delivery` },
     options.email,
     `dormant:${candidate.userId}:${now.toISOString().slice(0, 10)}`,
   );
@@ -204,10 +273,10 @@ async function nudgeOne(
     action: AUDIT_ACTION,
     target_type: "user",
     target_id: candidate.userId,
-    meta: { days: DORMANT_DAYS },
+    meta: { days: inactiveDays },
   });
 
-  return { ...base, decision: "sent", detail: `no visit in ${DORMANT_DAYS} days` };
+  return { ...base, decision: "sent", detail: `no visit in ${inactiveDays} days` };
 }
 
 export function describeDormant(report: DormantReport): string {
@@ -215,7 +284,7 @@ export function describeDormant(report: DormantReport): string {
     (new Date(report.finishedAt).getTime() - new Date(report.startedAt).getTime()) / 1000,
   );
   return (
-    `dormant: ${report.considered} due, ${report.sent} sent, ` +
-    `${report.skipped} skipped, ${report.failed} failed, ${seconds}s`
+    `dormant: ${report.considered} due, ${report.sent} warned, ${report.paused} paused, ` +
+    `${report.skipped} skipped, ${report.failed} failed, ${report.purged} expired purged, ${seconds}s`
   );
 }

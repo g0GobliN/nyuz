@@ -16,6 +16,7 @@ import type { EmailEnv } from "@/lib/server/email/send";
 import type { TelegramEnv } from "@/lib/server/telegram/send";
 import type { PushEnv } from "@/lib/server/push/send";
 import type { BreakingMode, Database } from "@/lib/supabase/types";
+import { allowedBreaking } from "@/lib/plans";
 import { flushDeliveries, queuedChannels, deliveryTargets } from "./digest";
 
 type Db = SupabaseClient<Database>;
@@ -23,7 +24,7 @@ type Db = SupabaseClient<Database>;
 /** Same floor as Minimal density: "only the things you would regret missing". */
 export const IMPORTANT_FLOOR = 6;
 
-/** Delivery copy says "at most a couple a week" on the important setting. */
+/** Personal's rolling seven-day allowance. The database RPC is authoritative. */
 export const IMPORTANT_WEEKLY_CAP = 3;
 
 export type AlertHit = { eventId: string; importance: number };
@@ -59,13 +60,18 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
   const empty: AlertReport = { considered: options.hits.length, queued: 0, sent: 0, skipped: 0 };
   if (options.hits.length === 0) return empty;
 
-  const { data: prefs, error } = await db
-    .from("notification_preferences")
-    .select("breaking, channels, paused")
-    .eq("user_id", options.userId)
-    .maybeSingle();
+  const [{ data: prefs, error }, { data: subscription }] = await Promise.all([
+    db
+      .from("notification_preferences")
+      .select("breaking, channels, paused")
+      .eq("user_id", options.userId)
+      .maybeSingle(),
+    db.from("subscriptions").select("plan").eq("user_id", options.userId).maybeSingle(),
+  ]);
   if (error) throw new Error(`reading alert prefs: ${error.message}`);
-  if (!prefs || prefs.paused || prefs.breaking === "off") {
+  const plan = subscription?.plan ?? "free";
+  const breaking = prefs ? allowedBreaking(plan, prefs.breaking) : "off";
+  if (!prefs || prefs.paused || breaking === "off") {
     return { ...empty, skipped: options.hits.length };
   }
 
@@ -78,7 +84,10 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
     return { ...empty, skipped: options.hits.length };
   }
 
-  const admitted = options.hits.filter((h) => shouldAlert(prefs.breaking, h.importance));
+  const toQueue = queuedChannels(prefs.channels, await deliveryTargets(db, options.userId));
+  if (toQueue.length === 0) return { ...empty, skipped: options.hits.length };
+
+  const admitted = options.hits.filter((h) => shouldAlert(breaking, h.importance));
   if (admitted.length === 0) return { ...empty, skipped: options.hits.length };
 
   const known = await alreadyAlerted(
@@ -91,14 +100,17 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
     return { ...empty, skipped: options.hits.length };
   }
 
-  let room = fresh.length;
-  if (prefs.breaking === "important") {
-    const used = await alertsThisWeek(db, options.userId, now);
-    room = remainingImportantSlots(used);
-    if (room === 0) return { ...empty, skipped: options.hits.length };
+  const chosen: AlertHit[] = [];
+  for (const hit of fresh) {
+    const { data: claim, error: claimError } = await db.rpc("claim_alert", {
+      p_user_id: options.userId,
+      p_event_id: hit.eventId,
+      p_importance: hit.importance,
+    });
+    if (claimError) throw new Error(`claiming alert: ${claimError.message}`);
+    if (claim === "ok") chosen.push(hit);
   }
-
-  const chosen = fresh.slice(0, room);
+  if (chosen.length === 0) return { ...empty, skipped: options.hits.length };
   const events = await loadEvents(
     db,
     chosen.map((h) => h.eventId),
@@ -141,8 +153,11 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
       continue;
     }
 
-    const toQueue = queuedChannels(prefs.channels, await deliveryTargets(db, options.userId));
-    if (toQueue.length === 0) continue;
+    await db
+      .from("user_events")
+      .update({ briefed_at: now.toISOString() })
+      .eq("user_id", options.userId)
+      .eq("event_id", hit.eventId);
 
     const { error: queueError } = await db.from("deliveries").upsert(
       toQueue.map((channel) => ({
@@ -199,18 +214,6 @@ async function alreadyAlerted(db: Db, userId: string, eventIds: string[]): Promi
   if (itemError) throw new Error(`reading alert items: ${itemError.message}`);
   for (const row of items ?? []) found.add(row.event_id);
   return found;
-}
-
-async function alertsThisWeek(db: Db, userId: string, now: Date): Promise<number> {
-  const since = new Date(now.getTime() - 7 * 86_400_000).toISOString();
-  const { count, error } = await db
-    .from("digests")
-    .select("digest_id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .eq("kind", "alert")
-    .gte("scheduled_for", since);
-  if (error) throw new Error(`counting weekly alerts: ${error.message}`);
-  return count ?? 0;
 }
 
 async function loadEvents(

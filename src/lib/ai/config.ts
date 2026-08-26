@@ -198,6 +198,9 @@ export type RoutedOptions = {
   maxTokens?: number;
   secrets?: SecretBag;
   signal?: AbortSignal;
+  /** Present on per-reader work so the monthly plan budget is enforced atomically. */
+  meterUserId?: string;
+  userMonthlyTokenCap?: number;
 };
 
 export type RoutedResult = CompleteResult & { route: ResolvedRoute };
@@ -209,7 +212,10 @@ export type RoutedResult = CompleteResult & { route: ResolvedRoute };
  */
 export async function completeRouted(opts: RoutedOptions): Promise<RoutedResult> {
   const { route, call } = await prepare(opts);
-  return { ...(await complete(call)), route };
+  const reservation = await reserveUsage(opts, route, call, false);
+  const result = await complete(call);
+  await settleUsage(opts, reservation, result);
+  return { ...result, route };
 }
 
 /**
@@ -225,8 +231,67 @@ export async function completeRoutedJson<T>(
   opts: RoutedOptions,
 ): Promise<{ data: T; usage: CompleteResult; route: ResolvedRoute }> {
   const { route, call } = await prepare(opts);
+  const reservation = await reserveUsage(opts, route, call, true);
   const { data, usage } = await completeJson<T>(call);
+  await settleUsage(opts, reservation, usage);
   return { data, usage, route };
+}
+
+export class AiBudgetExceededError extends Error {
+  constructor() {
+    super("The configured monthly AI token budget has been reached.");
+    this.name = "AiBudgetExceededError";
+  }
+}
+
+async function reserveUsage(
+  opts: RoutedOptions,
+  route: ResolvedRoute,
+  call: CompleteOptions,
+  mayRetry: boolean,
+): Promise<string | null> {
+  const secrets = opts.secrets ?? secretsDefault();
+  const configured = secrets["AI_MONTHLY_TOKEN_BUDGET"];
+  if (!configured) return null;
+  const globalCap = Number(configured);
+  if (!Number.isFinite(globalCap) || globalCap <= 0) {
+    throw new Error("AI_MONTHLY_TOKEN_BUDGET must be a positive token count.");
+  }
+
+  // A reasoning completion can consume its whole ceiling, and JSON gets one
+  // repair retry. Approximate input conservatively at three characters/token.
+  const prompt = Math.ceil(((call.system?.length ?? 0) + call.user.length) / 3);
+  const completion = (call.maxTokens ?? route.maxTokens) * (mayRetry ? 2 : 1);
+  const reserve = prompt + completion;
+  const db = createAdminClient(secrets);
+  const { data, error } = await db.rpc("reserve_ai_tokens", {
+    p_user_id: opts.meterUserId ?? null,
+    p_capability: route.capability,
+    p_model: route.model,
+    p_reserve: reserve,
+    p_user_monthly_cap: opts.userMonthlyTokenCap ?? 0,
+    p_global_monthly_cap: globalCap,
+  });
+  if (error) throw new Error(`reserving AI budget: ${error.message}`);
+  if (!data) throw new AiBudgetExceededError();
+  return data;
+}
+
+async function settleUsage(
+  opts: RoutedOptions,
+  reservation: string | null,
+  usage: CompleteResult,
+): Promise<void> {
+  if (!reservation) return;
+  const db = createAdminClient(opts.secrets ?? secretsDefault());
+  const { error } = await db.rpc("settle_ai_tokens", {
+    p_id: reservation,
+    p_prompt_tokens: usage.promptTokens,
+    p_completion_tokens: usage.completionTokens,
+  });
+  // The provider call already succeeded. Keep the reservation as a conservative
+  // charge and surface the accounting failure without breaking the product.
+  if (error) console.error(`settling AI budget: ${error.message}`);
 }
 
 /**

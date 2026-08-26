@@ -1,6 +1,6 @@
 # Project status
 
-Last reviewed: 25 August 2026.
+Last reviewed: 26 August 2026.
 
 nyuz is **in development and not accepting customers.** This page is the honest,
 itemised version of that sentence.
@@ -17,28 +17,30 @@ account that owns the key. A stranger cannot receive mail until
 
 ## Summary
 
-| Area                                                   | State                                        |
-| ------------------------------------------------------ | -------------------------------------------- |
-| Marketing site (landing, pricing, how-it-works, legal) | **Built**                                    |
-| Editable site content + feature flags                  | **Built**                                    |
-| Accounts, sign-in, OAuth                               | **Built**                                    |
-| Admin console (analytics, users, bans, roles, audit)   | **Built**                                    |
-| Blog (authoring + public pages)                        | **Built**                                    |
-| AI provider routing configuration                      | **Built** — two stages route through it      |
-| Billing (checkout, portal, webhook)                    | **Built** (test mode; unproven against live) |
-| Lifecycle email (account, billing, pause)              | **Built** — dormant nudge fires weekly on `last_seen_at` |
-| Onboarding flow                                        | **Built**, persisted to the account          |
-| Source list (64 live feeds)                            | **Built**                                    |
-| Ingestion pipeline                                     | **Built** — 1040 articles stored             |
-| Clustering (articles → events)                         | **Built** — 112 articles in 98 events        |
-| Analysis and scoring (events → understood)             | **Built** — 98 of 99 analysed; 181,980 tokens |
-| Matching (events → readers)                            | **Built** — 29 rows in `user_events`, free   |
-| Day-one backfill for a new account                     | **Built** — one query; pays only if empty    |
-| Digest generation and delivery                         | **Built** — email only; quiet days skip honestly |
-| Breaking alerts                                        | **Built** — `kind=alert` digest, email send, skip on backfill |
-| Story Ask                                              | **Built** — `reason` tier, gated by `deep_explain` |
-| Staff pipeline page                                    | **Built** — live `getOverview` counts        |
-| Customer dashboard                                     | **Built** — reads `user_events` and `digest_items` |
+| Area                                                   | State                                                             |
+| ------------------------------------------------------ | ----------------------------------------------------------------- |
+| Marketing site (landing, pricing, how-it-works, legal) | **Built**                                                         |
+| Editable site content + feature flags                  | **Built**                                                         |
+| Accounts, sign-in, OAuth                               | **Built**                                                         |
+| Admin console (analytics, users, bans, roles, audit)   | **Built**                                                         |
+| Blog (authoring + public pages)                        | **Built**                                                         |
+| AI provider routing configuration                      | **Built** — two stages route through it                           |
+| Billing (checkout, portal, webhook)                    | **Built** (test mode; unproven against live)                      |
+| Lifecycle email (account, billing, pause)              | **Built** — Free warns at 23 inactive days, pauses at 30          |
+| Onboarding flow                                        | **Built**, persisted to the account                               |
+| Source list (64 live feeds)                            | **Built**                                                         |
+| Ingestion pipeline                                     | **Built** — 1040 articles stored                                  |
+| Clustering (articles → events)                         | **Built** — 112 articles in 98 events                             |
+| Analysis and scoring (events → understood)             | **Built** — 98 of 99 analysed; 181,980 tokens                     |
+| Matching (events → readers)                            | **Built** — 29 rows in `user_events`, free                        |
+| Day-one backfill for a new account                     | **Built** — one query; pays only if empty                         |
+| Digest generation and delivery                         | **Built** — email only; quiet days skip honestly                  |
+| Breaking alerts                                        | **Built** — none Free, 3/week Personal, 10/day Pro; atomic claims |
+| Story Ask                                              | **Built** — 10/day Flash Personal, 15/day Pro; atomic claims      |
+| Plan story limits                                      | **Built** — Deep caps 18/30/50; large briefings chunked           |
+| AI cost ceiling                                        | **Built** — monthly reservation ledger and global token budget    |
+| Staff pipeline page                                    | **Built** — live `getOverview` counts                             |
+| Customer dashboard                                     | **Built** — reads `user_events` and `digest_items`                |
 
 ---
 
