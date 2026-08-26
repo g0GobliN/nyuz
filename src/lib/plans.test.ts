@@ -60,14 +60,14 @@ describe("DEFAULT_PLAN_PRICES", () => {
 
 describe("DEFAULT_ANNUAL_PRICES", () => {
   it("matches the Stripe catalogue", () => {
-    expect(DEFAULT_ANNUAL_PRICES.personal).toBe(70);
-    expect(DEFAULT_ANNUAL_PRICES.pro).toBe(150);
+    expect(DEFAULT_ANNUAL_PRICES.personal).toBe(69);
+    expect(DEFAULT_ANNUAL_PRICES.pro).toBe(149);
   });
 });
 
 describe("formatUsd", () => {
   it("uses the two-decimal form Stripe shows", () => {
     expect(formatUsd(7)).toBe("$7.00");
-    expect(formatUsd(150)).toBe("$150.00");
+    expect(formatUsd(149)).toBe("$149.00");
   });
 });

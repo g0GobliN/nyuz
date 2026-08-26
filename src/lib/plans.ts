@@ -6,9 +6,9 @@ import type { PlanTier } from "@/lib/supabase/types";
  * drift from what Stripe actually charges.
  *
  *   nyuz personal         US$7.00 / month
- *   nyuz personal annual  US$70.00 / year
+ *   nyuz personal annual  US$69.00 / year
  *   nyuz pro              US$15.00 / month
- *   nyuz pro annual       US$150.00 / year
+ *   nyuz pro annual       US$149.00 / year
  */
 export const DEFAULT_PLAN_PRICES: Record<PlanTier, number> = {
   free: 0,
@@ -16,10 +16,16 @@ export const DEFAULT_PLAN_PRICES: Record<PlanTier, number> = {
   pro: 15,
 };
 
-/** Annual totals. Two months free against twelve months of the monthly price. */
+/**
+ * Annual totals. A little over two months free against twelve months of the
+ * monthly price — Personal saves $15 on $84, Pro saves $31 on $180.
+ *
+ * The pricing page derives the saving from these numbers rather than printing a
+ * fixed claim, so changing them here changes the copy with them.
+ */
 export const DEFAULT_ANNUAL_PRICES: Record<Exclude<PlanTier, "free">, number> = {
-  personal: 70,
-  pro: 150,
+  personal: 69,
+  pro: 149,
 };
 
 /** "$7.00" — the same two-decimal form Stripe shows. */
