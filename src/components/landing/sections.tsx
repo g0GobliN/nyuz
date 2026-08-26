@@ -53,6 +53,10 @@ const DIFFS = [
     body: "Not a generic summary. A line about what this changes given what you actually follow, written for you and nobody else.",
   },
   {
+    title: "It gets sharper without being asked",
+    body: "nyuz learns from what you actually read. Open the stories that matter, skip the ones that don't, and in a fortnight your briefing is better aimed than it is today — no survey, no rating prompt, nothing to train. The thumbs are there if you feel like it, and they count for more when you use them. Most people never will, and it works anyway.",
+  },
+  {
     title: "Quiet days stay quiet",
     body: "There is no daily quota to fill. If nothing crossed your threshold, your briefing is short or it doesn't come. A calendar of manufactured urgency is what we're replacing.",
   },

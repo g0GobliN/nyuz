@@ -1,13 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Bookmark, ExternalLink, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard/shell";
 import { LogoLoader, PanelLoading } from "@/components/loading";
 import { formatStoryTime } from "@/lib/story-time";
 import { storyGrafs } from "@/lib/article-body";
 import { Button } from "@/components/kit";
 import { useFeedback } from "@/lib/feedback-store";
+import { useReadTracking } from "@/lib/use-engagement";
 import { usePlan } from "@/lib/plan-state";
 import { loadStory, askStory } from "@/lib/server/briefing";
 import type { Story } from "@/lib/story";
@@ -34,6 +35,13 @@ function StoryDetail() {
     staleTime: 60_000,
   });
   const story = storyQ.data;
+
+  // Whether the reader got to the bottom of the article. A ref rather than
+  // state: nothing on screen changes when it flips, and a re-render on scroll
+  // would be a cost paid on every story for no visible benefit.
+  const reachedEnd = useRef(false);
+  useReadTracking(story?.id, reachedEnd);
+
   const { asksPerDay, loading: planLoading } = usePlan();
   const { state, vote, toggleSaved } = useFeedback();
   const saved = story ? state.saved.includes(story.id) : false;
@@ -96,7 +104,12 @@ function StoryDetail() {
 
         <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_260px]">
           <div className="min-w-0 space-y-9">
-            <ArticleBody story={story} />
+            <ArticleBody
+              story={story}
+              onReachEnd={() => {
+                reachedEnd.current = true;
+              }}
+            />
 
             {story.timeline.length > 0 ? (
               <section>
@@ -255,7 +268,38 @@ function StoryDetail() {
   );
 }
 
-function ArticleBody({ story }: { story: Story }) {
+/**
+ * Marks the bottom of the article as read once it scrolls into view.
+ *
+ * An IntersectionObserver rather than a scroll handler: it fires once, costs
+ * nothing while the page sits still, and does not need throttling. `rootMargin`
+ * pulls the trigger up slightly so finishing the last paragraph counts, without
+ * requiring the reader to scroll past it into whitespace.
+ */
+function EndOfStory({ onReach }: { onReach: () => void }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onReach();
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "0px 0px -25% 0px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [onReach]);
+
+  return <div ref={ref} aria-hidden className="h-px" />;
+}
+
+function ArticleBody({ story, onReachEnd }: { story: Story; onReachEnd: () => void }) {
   const grafs = storyGrafs({
     what: story.what,
     before: story.before,
@@ -281,6 +325,7 @@ function ArticleBody({ story }: { story: Story }) {
           <p className="mt-3 text-[15px] leading-relaxed">{story.why}</p>
         </div>
       ) : null}
+      <EndOfStory onReach={onReachEnd} />
     </section>
   );
 }

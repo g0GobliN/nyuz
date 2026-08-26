@@ -120,3 +120,126 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # Deploy
+  # ---------------------------------------------------------------------------
+  #
+  # Runs only for a push to main, and only once `commits` and `verify` are both
+  # green — `needs` is what makes a red test unshippable rather than merely
+  # embarrassing. A pull request builds and is checked; it never deploys.
+  #
+  # The build is repeated here rather than carried over from `verify` as an
+  # artifact, and that is deliberate. Vite inlines every VITE_-prefixed variable
+  # at build time, and `verify` builds with obvious placeholders so a pull
+  # request needs no real configuration. Shipping that artifact would put
+  # https://ci-placeholder.supabase.co into the bundle every visitor downloads,
+  # and src/lib/supabase/client.ts would throw on the first page load. The
+  # deployable bundle has to be built with the real values, so it is built here.
+  deploy:
+    name: Deploy to Cloudflare Workers
+    needs: [commits, verify]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # A GitHub Environment, so the Cloudflare credentials are scoped to this job
+    # and to main rather than readable by any workflow in the repository. Add a
+    # required reviewer on it if a deploy should ever need a human.
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.deployment-url }}
+
+    # Two pushes in quick succession would otherwise race, and whichever wrangler
+    # finished last would win regardless of which commit was newer. Queued rather
+    # than cancelled: a half-finished deploy is worse than a redundant one.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+
+    env:
+      # Public by design — Vite compiles all four into the browser bundle, so
+      # they are repository *variables*, not secrets. The anon key is meant to be
+      # public; RLS (0002_rls.sql) is what protects the data. Anything genuinely
+      # secret is a Worker secret set with `wrangler secret put` and is not here.
+      VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+      VITE_SITE_URL: ${{ vars.VITE_SITE_URL }}
+      VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      # An unset variable is not a build failure — Vite inlines `undefined` and
+      # the bundle ships. The page then throws for every visitor at module scope,
+      # which is a broken deployment that CI called green. Cheaper to refuse.
+      - name: Require the build-time configuration
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY VITE_SITE_URL; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Repository variable $name is not set"
+              missing=1
+            fi
+          done
+          case "${VITE_SUPABASE_URL:-}" in
+            *ci-placeholder*)
+              echo "::error::VITE_SUPABASE_URL is the CI placeholder, not a real project"
+              missing=1
+              ;;
+          esac
+          if [ "$missing" -ne 0 ]; then
+            echo ""
+            echo "Set them under Settings > Secrets and variables > Actions > Variables."
+            echo "All three are public by design — they are compiled into the browser bundle."
+            exit 1
+          fi
+
+      - name: Install
+        run: npm ci
+
+      # Writes .output/ plus .wrangler/deploy/config.json, which is how wrangler
+      # finds the generated .output/server/wrangler.json without being told. The
+      # worker name and the three cron triggers come from vite.config.ts.
+      - name: Build
+        run: npm run build
+
+      # wrangler is not a project dependency — the action installs it. Pinned so
+      # a deploy is reproducible; bump it deliberately, not by drifting to latest.
+      #
+      # The action's `secrets:` input is deliberately unused. Routing the service
+      # role key and the provider keys through GitHub to set them on every deploy
+      # would put a second copy of every secret in a second system for no gain:
+      # `wrangler deploy` leaves existing Worker secrets untouched, so they are
+      # set once with `wrangler secret put` and live only on Cloudflare. See
+      # docs/security.md.
+      - name: Deploy
+        id: deploy
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.126.0"
+          command: deploy
+
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed"
+            echo ""
+            echo "- Worker: \`nyuz\`"
+            echo "- Commit: \`${GITHUB_SHA:0:8}\`"
+            echo "- URL: ${{ steps.deploy.outputs.deployment-url }}"
+            echo ""
+            echo "Cron Triggers are registered from the deploy. Cloudflare takes"
+            echo "three per Worker — confirm all three are listed in the dashboard."
+          } >> "$GITHUB_STEP_SUMMARY"

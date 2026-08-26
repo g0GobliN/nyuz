@@ -24,6 +24,15 @@ export default defineConfig({
       plugins: ["./src/nitro/scheduled.ts"],
       cloudflare: {
         wrangler: {
+          // Pinned, not inferred. Left unset, nitro derives a name from the git
+          // remote — it produced "g0goblin-nyuz" here — and a worker's name is
+          // its identity on Cloudflare. Anything that changed that inference
+          // (renaming the repo, deploying from a fork, a CI checkout with a
+          // different origin) would not fail: it would quietly create a second
+          // worker, leaving the first one live with the cron triggers and the
+          // secrets still on it. The deploy workflow ships to this name.
+          name: "nyuz",
+
           // Must match INGEST_CRON, DIGEST_CRON and STAGES_CRON in
           // src/lib/pipeline/cron.ts, which dispatches on the schedule string
           // and, for STAGES_CRON, on the minute. A mismatch is a cron that fires

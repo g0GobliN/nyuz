@@ -346,7 +346,7 @@ export type Prices = z.infer<typeof pricesSchema>;
  * Monthly figures come from `plans.ts` so that repricing there moves this default
  * too, rather than leaving the console showing last quarter's numbers as "the
  * bundled copy". Annual figures come from the same file: they are the Stripe
- * catalogue — $70 and $150, two months free against monthly.
+ * catalogue — $69 and $149, a little over two months free against monthly.
  */
 export const PRICES_DEFAULT: Prices = {
   free: 0,
