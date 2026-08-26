@@ -94,9 +94,20 @@ Actions on every deploy would put a second copy of every key in a second system 
 nothing.
 
 ```bash
-wrangler secret put SUPABASE_SERVICE_ROLE_KEY
-wrangler secret put DEEPSEEK_API_KEY
+npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY --name nyuz
+npx wrangler secret put DEEPSEEK_API_KEY --name nyuz
 ```
+
+**`--name` is not optional here.** There is no `wrangler.toml` at the root — the config is
+generated into `.output/server/wrangler.json` at build time, and only `deploy` and `dev`
+follow the `.wrangler/deploy/config.json` redirect that points at it. Every other wrangler
+subcommand fails with "Required Worker name missing" unless told. `--config
+.output/server/wrangler.json` works too and keeps the name in one place, but needs a build
+first.
+
+Setting a secret before the first deploy is fine: wrangler offers to create the Worker,
+and the deploy then ships over it. That is the better order — it closes the window where
+a cron fires against a Worker whose secrets are not there yet.
 
 `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are build-time and public by design — they
 are inlined into the browser bundle, and RLS is what protects the data.
