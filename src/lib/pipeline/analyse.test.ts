@@ -29,6 +29,7 @@ const reply = (over: Record<string, unknown> = {}): Record<string, unknown> => (
   importance: 7,
   novelty: 5,
   topics: ["openai", "ai"],
+  impact: "Labs now have to plan for state-level AI safety rules, not just federal ones.",
   ...over,
 });
 
@@ -42,6 +43,26 @@ describe("readAnalysis", () => {
     expect(analysis?.novelty).toBe(5);
     expect(analysis?.topics).toEqual(["openai", "ai"]);
     expect(analysis?.unknownTopics).toEqual([]);
+    expect(analysis?.impact).toBe(
+      "Labs now have to plan for state-level AI safety rules, not just federal ones.",
+    );
+  });
+
+  describe("impact", () => {
+    it("is optional -- a missing impact still leaves an analysable reply", () => {
+      // Unlike what_happened and the scores, impact has a fallback: digest.ts
+      // backfills it lazily. Refusing the whole analysis over one missing
+      // sentence would throw away real signal to protect a path that already
+      // exists for exactly this case.
+      const analysis = readAnalysis(reply({ impact: undefined }), SLUGS);
+      expect(analysis).not.toBeNull();
+      expect(analysis?.impact).toBeNull();
+    });
+
+    it("treats the model's null-shaped strings as null, same as before_state", () => {
+      expect(readAnalysis(reply({ impact: "unknown" }), SLUGS)?.impact).toBeNull();
+      expect(readAnalysis(reply({ impact: "   " }), SLUGS)?.impact).toBeNull();
+    });
   });
 
   describe("refusing rather than repairing", () => {
