@@ -8,6 +8,23 @@ Postgres via Supabase. Migrations are applied in numeric order.
 | `0002_rls.sql`               | Row-level security for everything in 0001                                           |
 | `0003_admin.sql`             | Roles, bans, blog, site settings, AI routing, flags, audit                          |
 | `0017_plan_entitlements.sql` | Launch plan caps, inactivity state, alert/source guards, AI ledger, retention purge |
+| `0018_source_topic_graph.sql` | `sources.coverage_mode`, global `source_topics` map — schema only, inert until phase 3/4 (docs/track.md) |
+| `0019_source_topics_seed.sql` | First-pass source→topic mapping for the 64 seeded feeds — draft data, editable in the console |
+| `0020_source_demand.sql` | `admin_source_demand()` — read-only, how many eligible readers each source's topics reach |
+| `0021_demand_gate.sql` | `pre_analysis_demand_gate` feature flag (off by default) and `events_with_demand()`, the pre-analysis skip check |
+| `0022_cluster_v2_flag.sql` | `deterministic_cluster_v2` feature flag (off by default) — shadow-only, never changes a clustering decision |
+| `0023_source_topics_seed_2.sql` | `source_topics` mapping for the 19 (of 23) sources added since `0006`/`0019` that are live and working |
+| `0024_reclassify_optional_sources.sql` | 10 sources (arXiv research, sport, entertainment/music) moved from `core` to `demand` — measured to be the biggest low-risk share of the analysis backlog with least current reader interest |
+| `0025_disable_dead_sources.sql` | Disables the 4 confirmed-404/duplicate sources found while auditing `0023`'s targets |
+| `0026_reclassify_remaining_optional.sql` | Remaining 17 general-news and security sources moved to `demand` — `core` is now exactly the original 60 (of 64) technology sources, minus 0025's 4 |
+| `0027_enable_flags.sql` | Turns on `deterministic_cluster_v2` and `pre_analysis_demand_gate` — both live |
+| `0028_event_impacts.sql` | `event_impacts` — one shared "why it matters" per event, replacing the per-reader-per-story model call. **Not yet applied** |
+| `0029_event_translations.sql` | `event_translations` keyed on (event, language, content_version) + `notification_preferences.language`. **Not yet applied** |
+| `0030_custom_sources.sql` | `user_custom_sources` + `claim_custom_source` (atomic per-plan cap); demand functions now count direct followers. **Not yet applied** |
+| `0031_demand_driven_collection.sql` | `sources.last_demand_at`, `refresh_source_demand()`, `sources_to_collect()`, `demand_driven_sources` flag (off). **Not yet applied** |
+| `0032_adaptive_polling.sql` | `sources.last_new_content_at` / `polling_tier`, `polling_tiers` table, `recompute_polling_tiers()`, `adaptive_polling` flag (off). **Not yet applied** |
+| `0033_cluster_shadow_log.sql` | `cluster_shadow_log` + `cluster_shadow_summary()` — persists what the deterministic layer would have decided. **Not yet applied** |
+| `0034_cluster_skip_flag.sql` | `deterministic_cluster_skip` flag (off; do not enable without shadow data). **Not yet applied** |
 
 ---
 
@@ -51,6 +68,10 @@ however convenient it looks at the time.
 | `articles`     | Raw items. `content_hash` is the exact-duplicate guard          |
 | `events`       | The unit of meaning. `importance`, `novelty`, `analysis_tokens` |
 | `event_topics` | Event → topic with confidence                                   |
+| `source_topics` | Source → topic with confidence (0018). Empty until seeded through the admin console — see docs/track.md phase 3 |
+| `event_impacts` | One shared "why it matters" per event (0028), reused by every reader. **Never per-user** — that is Story Ask |
+| `event_translations` | Cached language views (0029), keyed `(event, language, content_version)`. Never per-user |
+| `user_custom_sources` | Which readers asked for which global source (0030). Many followers, one crawler. **No insert policy** — adds go through `claim_custom_source` |
 
 ### Delivery
 

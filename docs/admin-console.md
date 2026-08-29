@@ -99,6 +99,17 @@ cannot plant script into the public site.
 Which provider and model serves each capability tier. See
 [ai-providers.md](ai-providers.md).
 
+### Sources
+
+Add, disable and inspect feeds. Disable, never delete — `articles.source_id` is `on
+delete set null`, so removing a row would orphan every article it ever contributed.
+
+**Topics**, added with `0018_source_topic_graph.sql`: each source can be tagged with
+the topics it covers, editable as a set of toggle chips per source. This is the
+source→topic graph V2 planning (docs/track.md) reads demand from — it does not yet
+change what gets fetched or analysed. Confidence is set to a flat 0.8 on add from the
+console; anything more precise is a database edit for now.
+
 ### Site content
 
 Landing hero, announcement bar, section order and visibility, media slots, SEO, footer,
