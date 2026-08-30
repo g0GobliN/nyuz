@@ -83,6 +83,8 @@ export type Subscription = {
    */
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+  /** True between a cancellation and `current_period_end` (0041). */
+  cancel_at_period_end: boolean;
 };
 
 /**
@@ -569,6 +571,7 @@ export type Database = {
         | "updated_at"
         | "stripe_customer_id"
         | "stripe_subscription_id"
+        | "cancel_at_period_end"
       >;
       stripe_events: Table<StripeEvent, "received_at">;
       notification_preferences: Table<
