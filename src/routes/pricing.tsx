@@ -8,7 +8,7 @@ import { DensityDial } from "@/components/density-dial";
 import { getPublicSiteContent } from "@/lib/server/settings";
 import { useReveal } from "@/lib/use-reveal";
 import { cn } from "@/lib/utils";
-import { DEFAULT_ANNUAL_PRICES, DEFAULT_PLAN_PRICES, formatUsd } from "@/lib/plans";
+import { DEFAULT_ANNUAL_PRICES, DEFAULT_PLAN_PRICES, PLAN_LIMITS, formatUsd } from "@/lib/plans";
 
 export const Route = createFileRoute("/pricing")({
   loader: () => getPublicSiteContent(),
@@ -21,7 +21,7 @@ export const Route = createFileRoute("/pricing")({
         // Left as prose rather than interpolated from the loader: a search
         // snippet is cached for weeks, so a number in it goes stale in a place
         // nobody can see. The page body is where the live figures belong.
-        content: "Start free. Paid plans from $7/month. Relevance, not quantity.",
+        content: "Start free. Paid plans from $19/month. Relevance, not quantity.",
       },
     ],
   }),
@@ -34,6 +34,12 @@ export const Route = createFileRoute("/pricing")({
  * "WhatsApp delivery" as editable text would let someone promise a feature that
  * does not exist. Prices come from Stripe, not the console, so the page cannot
  * disagree with the invoice.
+ *
+ * The custom-source counts are read from `PLAN_LIMITS` for the same reason the
+ * prices are read from the catalogue: that number is enforced by
+ * `claim_custom_source` in Postgres, so a hard-coded one here would be a
+ * promise the database refuses. The other counts stay literal because nothing
+ * rejects a request for disagreeing with them.
  */
 type Plan = {
   name: string;
@@ -68,8 +74,13 @@ const PLANS: Plan[] = [
       "Up to 30 stories per briefing",
       "Pro-quality daily briefing",
       "Custom delivery time",
-      "3 important alerts per week",
-      "Custom instructions",
+      `Important alerts, up to ${PLAN_LIMITS.personal.alertDailyCap} a day`,
+      // "Custom instructions" was here. The stored note has had no consumer
+      // since 0028 removed the per-reader digest prompt that was the only
+      // thing reading it — `notification_preferences.instructions` is still
+      // selected in digest.ts and then never used. Put this back the moment
+      // something applies it again, and not before.
+      `Add ${PLAN_LIMITS.personal.customSources} of your own sources`,
       "90-day history",
       "10 Ask AI questions per day",
     ],
@@ -84,7 +95,8 @@ const PLANS: Plan[] = [
       "Unlimited topics and priority sources",
       "Up to 50 stories per briefing",
       "Pro-quality daily briefing",
-      "Up to 10 configurable alerts per day",
+      `Configurable alerts, up to ${PLAN_LIMITS.pro.alertDailyCap} a day`,
+      `Add ${PLAN_LIMITS.pro.customSources} of your own sources`,
       "1-year history",
       "15 Pro Ask AI questions per day",
     ],
@@ -144,6 +156,18 @@ const FAQ = [
   {
     q: "Can I change plans later?",
     a: "Yes, at any time. Topic limits apply from the next briefing, and history stays for the retention window of the plan you are on.",
+  },
+  {
+    q: "What are “sources of your own”?",
+    a: "Feeds nyuz isn't watching yet that you'd like it to — your local paper, a niche blog, a company's own updates. Personal includes 5 and Pro 25. If another reader has already asked for the same one, you simply share it.",
+  },
+  {
+    q: "What language is my briefing in?",
+    a: "English by default. You can choose Japanese, Hindi, Nepali, Korean or Simplified Chinese in your delivery settings, on any plan. English is the language nyuz reads in, so the others are translations of it, and the original reporting always stays in its own language and is always linked.",
+  },
+  {
+    q: "What does upgrading actually get me?",
+    a: "Reach and precision, not more words. More topics, more of your own sources, a bigger cap on a busy day, alerts outside your usual time, a longer history to look back through, and a daily allowance of questions you can ask about individual stories.",
   },
 ];
 
@@ -292,7 +316,13 @@ function Pricing() {
             {FAQ.map((f, i) => (
               <div
                 key={f.q}
-                className="reveal bg-surface p-7"
+                // An odd count would leave the final cell empty, and an empty
+                // cell in a gap-px grid is a bare block of hairline colour
+                // rather than nothing. Same treatment as `WhyDifferent`.
+                className={cn(
+                  "reveal bg-surface p-7",
+                  i === FAQ.length - 1 && FAQ.length % 2 === 1 && "sm:col-span-2",
+                )}
                 style={{ transitionDelay: `${i * 70}ms` }}
               >
                 <p className="text-[15.5px] font-medium">{f.q}</p>

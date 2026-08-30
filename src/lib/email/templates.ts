@@ -511,3 +511,99 @@ export function breakingEmail({
     ].join("\n"),
   };
 }
+
+/* ---------------------------------------------------------------------- */
+/* 8. Waitlist — joined                                                    */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * Sent when somebody leaves their address because nyuz was full.
+ *
+ * Promises a place in a queue and nothing else. No date, because the operator
+ * does not know one, and a "soon" that turns into three months is worse than
+ * saying plainly that it depends on people leaving.
+ */
+export function waitlistJoinedEmail({ name, baseUrl }: Base): Email {
+  return {
+    subject: "You're on the nyuz waitlist",
+    html: layout({
+      preheader: "We'll write the moment a place opens up.",
+      eyebrow: "Waitlist",
+      heading: "You're on the list.",
+      baseUrl,
+      body: [
+        p(greet(name)),
+        p(
+          "nyuz is full at the moment. We keep the number of accounts deliberately small while the product is still finding its feet — it is easier to make something good for a few hundred people than for everybody at once.",
+        ),
+        p(
+          "You are in the queue in the order you arrived. When a place opens we will email you, and that email will let you create your account.",
+        ),
+        pMuted(
+          "We cannot promise a date, because it depends on people leaving rather than on a schedule. We will not email you about anything else in the meantime.",
+        ),
+      ].join("\n"),
+    }),
+    text: [
+      greetText(name),
+      "",
+      "nyuz is full at the moment. We keep the number of accounts deliberately small while the product is still finding its feet - it is easier to make something good for a few hundred people than for everybody at once.",
+      "",
+      "You are in the queue in the order you arrived. When a place opens we will email you, and that email will let you create your account.",
+      "",
+      "We cannot promise a date, because it depends on people leaving rather than on a schedule. We will not email you about anything else in the meantime.",
+      "",
+      baseUrl,
+    ].join("\n"),
+  };
+}
+
+/* ---------------------------------------------------------------------- */
+/* 9. Waitlist — invited                                                   */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * Sent when an operator opens a seat for this address.
+ *
+ * The link goes to /auth rather than to a magic token: the invitation is a row
+ * in the database keyed on the address, and the signup trigger spends it when
+ * an account is created with that email. Nothing here is a credential, so
+ * forwarding this mail gives nobody else a seat.
+ */
+export function waitlistInvitedEmail({ name, baseUrl }: Base): Email {
+  const href = `${baseUrl}/auth`;
+
+  return {
+    subject: "Your place at nyuz is ready",
+    html: layout({
+      preheader: "A place has opened up. Your account is ready to create.",
+      eyebrow: "Waitlist",
+      heading: "A place has opened up.",
+      baseUrl,
+      body: [
+        p(greet(name)),
+        p(
+          "You asked to be told when nyuz had room. It does, and your place is held against this email address.",
+        ),
+        button("Create my account", href),
+        p(
+          "Sign up with this same address and you will be let straight in. Signing up with a different one will not work, because the place is held against this one.",
+        ),
+        pMuted(
+          "If you have changed your mind, do nothing — the place goes to the next person on the list and you will not hear from us again.",
+        ),
+      ].join("\n"),
+    }),
+    text: [
+      greetText(name),
+      "",
+      "You asked to be told when nyuz had room. It does, and your place is held against this email address.",
+      "",
+      `Create my account: ${href}`,
+      "",
+      "Sign up with this same address and you will be let straight in. Signing up with a different one will not work, because the place is held against this one.",
+      "",
+      "If you have changed your mind, do nothing - the place goes to the next person on the list and you will not hear from us again.",
+    ].join("\n"),
+  };
+}

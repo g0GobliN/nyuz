@@ -7,6 +7,8 @@ import { LogoLoader } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth, type OAuthProvider } from "@/lib/auth";
 import { getPublicSiteContent } from "@/lib/server/settings";
+import { getSignupState } from "@/lib/server/access";
+import { MaintenanceScreen, SignupsClosedNote, WaitlistPanel } from "@/components/access";
 
 function GoogleMark() {
   return (
@@ -20,7 +22,14 @@ function GoogleMark() {
 }
 
 export const Route = createFileRoute("/auth")({
-  loader: () => getPublicSiteContent(),
+  // Both in one loader so the page never renders a "Create an account" button
+  // that the database is about to refuse. `getSignupState` counts seats, which
+  // is why it is not folded into `getPublicSiteContent` — that runs on every
+  // marketing page and must not carry a count query.
+  loader: async () => ({
+    content: await getPublicSiteContent(),
+    signup: await getSignupState(),
+  }),
   component: Auth,
   head: () => ({
     meta: [
@@ -32,10 +41,37 @@ export const Route = createFileRoute("/auth")({
 
 type Mode = "signin" | "signup";
 
+/**
+ * Turns whatever came back from GoTrue into something a person can act on.
+ *
+ * The refusals raised by `enforce_signups_open` reach the browser as the
+ * exception text when GoTrue passes it through, and as a generic "Database
+ * error saving new user" when it does not — which is the case for the OAuth
+ * callback. Both have to land somewhere sensible, because a stranger who has
+ * just clicked "Continue with Google" and been bounced deserves better than a
+ * Postgres string.
+ */
+function signupError(raw: string, fallback: string): string {
+  if (/capacity/i.test(raw)) {
+    return "nyuz is full at the moment. Join the waitlist and we will write when a place opens.";
+  }
+  if (/maintenance/i.test(raw)) {
+    return "nyuz is closed for maintenance right now. Please try again shortly.";
+  }
+  if (/signups are closed/i.test(raw)) return "Registration is closed right now.";
+  // GoTrue swallows the trigger's message on the OAuth path, so the only
+  // honest reading of this one is "the door refused you, and we know why but
+  // cannot see it from here".
+  if (/database error saving new user/i.test(raw)) {
+    return "We could not create the account. nyuz may be full or closed to new signups.";
+  }
+  return raw || fallback;
+}
+
 function Auth() {
   const navigate = useNavigate();
-  const content = Route.useLoaderData();
-  const signupsOpen = content.flags["signups_open"] === true;
+  const { content, signup } = Route.useLoaderData();
+  const signupsOpen = signup.open;
   const { signIn, signUp, signInWithProvider, session, loading } = useAuth();
 
   const [mode, setMode] = useState<Mode>("signin");
@@ -50,6 +86,12 @@ function Auth() {
     if (!loading && session) navigate({ to: "/dashboard" });
   }, [loading, session, navigate]);
 
+  // Maintenance closes sign-in too. Letting somebody in to a dashboard whose
+  // every request is failing is worse than telling them the door is shut.
+  if (signup.reason === "maintenance") {
+    return <MaintenanceScreen access={content.access} />;
+  }
+
   const oauth = async (provider: OAuthProvider) => {
     setError(null);
     setBusy(true);
@@ -58,13 +100,7 @@ function Auth() {
       await signInWithProvider(provider);
     } catch (err) {
       const raw = err instanceof Error ? err.message : "";
-      setError(
-        /signups are closed/i.test(raw)
-          ? "Registration is closed."
-          : err instanceof Error
-            ? err.message
-            : "Could not start sign-in.",
-      );
+      setError(signupError(raw, "Could not start sign-in."));
       setBusy(false);
     }
   };
@@ -86,7 +122,11 @@ function Auth() {
     try {
       if (mode === "signup") {
         if (!signupsOpen) {
-          setError("Registration is closed.");
+          setError(
+            signup.reason === "full"
+              ? "nyuz is full at the moment. Join the waitlist below and we will write when a place opens."
+              : "Registration is closed right now.",
+          );
           setBusy(false);
           return;
         }
@@ -97,13 +137,7 @@ function Auth() {
       // The auth listener flips `session`, and the effect above redirects.
     } catch (err) {
       const raw = err instanceof Error ? err.message : "";
-      setError(
-        /signups are closed/i.test(raw)
-          ? "Registration is closed."
-          : err instanceof Error
-            ? err.message
-            : "Something went wrong. Try again.",
-      );
+      setError(signupError(raw, "Something went wrong. Try again."));
       setBusy(false);
     }
   };
@@ -217,6 +251,22 @@ function Auth() {
             </Button>
           </form>
 
+          {/* Full is not the same as closed. "Full" has somewhere to send
+              somebody — a place in a queue; "closed" is the operator switching
+              registration off, and inviting a waitlist against it would be
+              collecting addresses for a door nobody intends to open. */}
+          {mode === "signin" && signup.reason === "full" ? (
+            <div className="mt-7">
+              <WaitlistPanel waitlistOpen={signup.waitlistOpen} />
+            </div>
+          ) : null}
+
+          {mode === "signin" && signup.reason === "closed" ? (
+            <div className="mt-7">
+              <SignupsClosedNote />
+            </div>
+          ) : null}
+
           <p className="mt-7 text-center text-[13px] text-muted-foreground">
             {mode === "signin" ? (
               signupsOpen ? (
@@ -232,9 +282,7 @@ function Auth() {
                     Create an account
                   </button>
                 </>
-              ) : (
-                "Registration is closed. Sign in if you already have an account."
-              )
+              ) : null
             ) : (
               <>
                 Already have an account?{" "}

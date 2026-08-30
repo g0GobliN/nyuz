@@ -38,7 +38,7 @@ const PLANS = [
     features: [
       "Up to 30 stories",
       "15 priority sources",
-      "3 important alerts per week",
+      `Important alerts, up to ${PLAN_LIMITS.personal.alertDailyCap} a day`,
       "10 Flash Ask AI questions per day",
     ],
   },
@@ -51,7 +51,7 @@ const PLANS = [
     features: [
       "Up to 50 stories",
       "Unlimited priority sources",
-      "10 configurable alerts per day",
+      `Configurable alerts, up to ${PLAN_LIMITS.pro.alertDailyCap} a day`,
       "15 Pro Ask AI questions per day",
     ],
   },

@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { adminOnly, audit, superadminOnly, AdminAuthError } from "@/lib/server/guard";
@@ -7,6 +8,7 @@ import {
   FOOTER_DEFAULT,
   HERO_DEFAULT,
   MEDIA_DEFAULT,
+  ACCESS_DEFAULT,
   PRICES_DEFAULT,
   PUBLIC_CONTENT_FALLBACK,
   SECTIONS_DEFAULT,
@@ -18,6 +20,7 @@ import {
   isSettingKey,
   mediaSchema,
   parseSetting,
+  accessSchema,
   pricesSchema,
   sectionsSchema,
   seoSchema,
@@ -92,6 +95,10 @@ export const getPublicSiteContent = createServerFn({ method: "GET" }).handler(
         byKey.get("billing.prices"),
         PRICES_DEFAULT,
       );
+      // Not folded into `customised`: whether the doors are open is operational
+      // state, not an edit to the marketing copy, and the console reports those
+      // separately.
+      const [access] = parseSetting(accessSchema, byKey.get("site.access"), ACCESS_DEFAULT);
 
       // Anonymous visitors have no stable identifier to bucket on, so a partial
       // rollout resolves to OFF for them rather than being rounded up to ON.
@@ -110,6 +117,7 @@ export const getPublicSiteContent = createServerFn({ method: "GET" }).handler(
         seo,
         footer,
         prices,
+        access,
         flags: resolved,
         customised: heroSet || annSet || secSet || medSet || seoSet || footSet || priceSet,
       };
@@ -233,7 +241,7 @@ export const getAdminSettings = createServerFn({ method: "GET" })
 export const saveSetting = createServerFn({ method: "POST" })
   .middleware([adminOnly])
   .validator((input: unknown) =>
-    z.object({ key: z.string().max(60), value: z.unknown() }).parse(input),
+    parseInput(z.object({ key: z.string().max(60), value: z.unknown() }), input),
   )
   .handler(async ({ context, data }): Promise<{ ok: true }> => {
     const { actor } = context;
@@ -272,7 +280,7 @@ export const saveSetting = createServerFn({ method: "POST" })
  */
 export const resetSetting = createServerFn({ method: "POST" })
   .middleware([adminOnly])
-  .validator((input: unknown) => z.object({ key: z.string().max(60) }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ key: z.string().max(60) }), input))
   .handler(async ({ context, data }): Promise<{ ok: true }> => {
     const { error } = await context.actor.db.from("site_settings").delete().eq("key", data.key);
     if (error) throw new AdminAuthError(`Reset setting: ${error.message}`, 500);

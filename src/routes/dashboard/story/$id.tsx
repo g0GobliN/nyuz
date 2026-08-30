@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { humanError } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Bookmark, ExternalLink, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -347,7 +348,7 @@ function AskPanel({ eventId, dailyLimit }: { eventId: string; dailyLimit: number
       if (result.ok) setAnswered(result.answer);
       else setError(result.detail);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The explanation could not be generated.");
+      setError(humanError(err, "The explanation could not be generated."));
     } finally {
       setAsking(false);
     }

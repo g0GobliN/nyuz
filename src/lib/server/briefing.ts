@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { parseInput } from "@/lib/server/validate";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { completeRouted } from "@/lib/ai/config";
@@ -340,7 +341,7 @@ export const loadHistory = createServerFn({ method: "GET" })
 export const loadDigestStories = createServerFn({ method: "GET" })
   .middleware([signedInOnly])
   .validator((input: unknown) =>
-    z.object({ digestId: z.string().uuid().optional() }).parse(input ?? {}),
+    parseInput(z.object({ digestId: z.string().uuid().optional() }), input ?? {}),
   )
   .handler(async ({ context, data }): Promise<Story[]> => {
     const { actor } = context;
@@ -375,7 +376,7 @@ export const loadSavedStories = createServerFn({ method: "GET" })
 
 export const searchStories = createServerFn({ method: "GET" })
   .middleware([signedInOnly])
-  .validator((input: unknown) => z.object({ q: z.string().max(120) }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ q: z.string().max(120) }), input))
   .handler(async ({ context, data }): Promise<Story[]> => {
     const term = data.q.trim();
     if (term.length < 2) return [];
@@ -392,7 +393,7 @@ export const searchStories = createServerFn({ method: "GET" })
 
 export const loadStory = createServerFn({ method: "GET" })
   .middleware([signedInOnly])
-  .validator((input: unknown) => z.object({ id: z.string().min(1).max(80) }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ id: z.string().min(1).max(80) }), input))
   .handler(async ({ context, data }): Promise<Story | null> => {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.id)) {
       return null;
@@ -645,17 +646,46 @@ const KIND_LABEL: Record<SourceKind, string> = {
   other: "Other",
 };
 
+/**
+ * The reader's source page.
+ *
+ * This used to be `select id, name, kind, homepage from sources where active`
+ * with no limit — every reader pulled the entire global table on every visit.
+ * Two things were wrong with that, and only one of them was performance.
+ *
+ * `sources` became reader-writable in 0030: a feed one person adds is a row in
+ * the same global table everyone reads. So the unbounded select showed every
+ * account every other account's private sources. 0039 adds `listed` and
+ * replaces the `using (true)` policy; this function is the application half of
+ * the same fix, and it matters independently because `actor.db` holds the
+ * service-role key and therefore bypasses RLS entirely.
+ *
+ * What a reader now gets: catalogue sources (`listed`) that cover a subject
+ * they actually follow, through `source_topics`, plus every source they follow
+ * themselves regardless of topic — they asked for those by name, so a topic
+ * filter has no business hiding them. Bounded and paged in SQL, so the page
+ * cost does not grow with the size of the catalogue.
+ */
 export const loadWatchedSources = createServerFn({ method: "GET" })
   .middleware([signedInOnly])
-  .handler(async ({ context }): Promise<SourceGroup[]> => {
+  .validator((input: unknown) =>
+    parseInput(
+      z.object({
+        limit: z.number().int().min(1).max(200).default(100),
+        offset: z.number().int().min(0).default(0),
+      }),
+      input ?? {},
+    ),
+  )
+  .handler(async ({ context, data }): Promise<SourceGroup[]> => {
     const { actor } = context;
-    const [{ data: sources, error }, { data: prefs, error: prefError }, { data: subscription }] =
+    const [{ data: rows, error }, { data: prefs, error: prefError }, { data: subscription }] =
       await Promise.all([
-        actor.db
-          .from("sources")
-          .select("id, name, kind, homepage")
-          .eq("active", true)
-          .order("name"),
+        actor.db.rpc("reader_sources", {
+          p_user_id: actor.id,
+          p_limit: data.limit,
+          p_offset: data.offset,
+        }),
         actor.db
           .from("user_source_prefs")
           .select("source_id, pref, created_at")
@@ -665,35 +695,79 @@ export const loadWatchedSources = createServerFn({ method: "GET" })
     if (error) throw new Error(`reading sources: ${error.message}`);
     if (prefError) throw new Error(`reading source prefs: ${prefError.message}`);
 
-    const prefOf = new Map((prefs ?? []).map((p) => [p.source_id, p.pref] as const));
-    const plan = subscription?.plan ?? "free";
-    const priorityCap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
-    const activePriorities = new Set(
-      clipLabels(
-        (prefs ?? [])
-          .filter((p) => p.pref === "priority")
-          .slice()
-          .sort((a, b) => a.created_at.localeCompare(b.created_at)),
-        priorityCap,
-      ).map((p) => p.source_id),
-    );
-    const grouped = new Map<SourceKind, WatchedSource[]>();
-    for (const row of sources ?? []) {
-      const item: WatchedSource = {
-        id: row.id,
-        name: row.name,
-        kind: row.kind,
-        homepage: row.homepage,
-        pref: prefOf.get(row.id) ?? "normal",
-        priorityActive: activePriorities.has(row.id),
-      };
-      grouped.set(row.kind, [...(grouped.get(row.kind) ?? []), item]);
-    }
-
-    return (Object.keys(KIND_LABEL) as SourceKind[])
-      .map((kind) => ({ group: KIND_LABEL[kind], items: grouped.get(kind) ?? [] }))
-      .filter((g) => g.items.length > 0);
+    return groupForReader(rows ?? [], prefs ?? [], subscription?.plan ?? "free");
   });
+
+/**
+ * Explicit search, for finding a source you do not already have.
+ *
+ * Deliberately wider than the list above: the whole catalogue rather than only
+ * the subjects already followed, because somebody typing a publication's name
+ * is looking for something outside what they have. Never wider than the
+ * catalogue plus their own follows — the bound that matters is unchanged.
+ */
+export const searchSources = createServerFn({ method: "GET" })
+  .middleware([signedInOnly])
+  .validator((input: unknown) => parseInput(z.object({ q: z.string().max(120) }), input ?? {}))
+  .handler(async ({ context, data }): Promise<SourceGroup[]> => {
+    const { actor } = context;
+    const term = data.q.trim();
+    if (term.length < 2) return [];
+
+    const [{ data: rows, error }, { data: prefs }, { data: subscription }] = await Promise.all([
+      actor.db.rpc("search_reader_sources", { p_user_id: actor.id, p_query: term, p_limit: 40 }),
+      actor.db
+        .from("user_source_prefs")
+        .select("source_id, pref, created_at")
+        .eq("user_id", actor.id),
+      actor.db.from("subscriptions").select("plan").eq("user_id", actor.id).maybeSingle(),
+    ]);
+    if (error) throw new Error(`searching sources: ${error.message}`);
+
+    return groupForReader(rows ?? [], prefs ?? [], subscription?.plan ?? "free");
+  });
+
+/**
+ * Shared shaping for both of the above.
+ *
+ * The priority-cap arithmetic is the fiddly part and duplicating it would let
+ * the list and the search disagree about which of a reader's priorities are
+ * live — the same figure the billing page quotes.
+ */
+function groupForReader(
+  rows: { id: string; name: string; kind: SourceKind; homepage: string | null }[],
+  prefs: { source_id: string; pref: SourcePref; created_at: string }[],
+  plan: PlanTier,
+): SourceGroup[] {
+  const prefOf = new Map(prefs.map((p) => [p.source_id, p.pref] as const));
+  const priorityCap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
+  const activePriorities = new Set(
+    clipLabels(
+      prefs
+        .filter((p) => p.pref === "priority")
+        .slice()
+        .sort((a, b) => a.created_at.localeCompare(b.created_at)),
+      priorityCap,
+    ).map((p) => p.source_id),
+  );
+
+  const grouped = new Map<SourceKind, WatchedSource[]>();
+  for (const row of rows) {
+    const item: WatchedSource = {
+      id: row.id,
+      name: row.name,
+      kind: row.kind,
+      homepage: row.homepage,
+      pref: prefOf.get(row.id) ?? "normal",
+      priorityActive: activePriorities.has(row.id),
+    };
+    grouped.set(row.kind, [...(grouped.get(row.kind) ?? []), item]);
+  }
+
+  return (Object.keys(KIND_LABEL) as SourceKind[])
+    .map((kind) => ({ group: KIND_LABEL[kind], items: grouped.get(kind) ?? [] }))
+    .filter((g) => g.items.length > 0);
+}
 
 export const setSourcePref = createServerFn({ method: "POST" })
   .middleware([signedInOnly])

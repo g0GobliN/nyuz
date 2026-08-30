@@ -290,3 +290,145 @@ describe("gates fail in the direction that keeps the product working", () => {
     expect(cluster).toContain("Fails closed");
   });
 });
+
+/**
+ * Capacity, the waitlist and maintenance (0038).
+ *
+ * The waitlist is the most sensitive table added since the audit log: it holds
+ * the address of everybody who ever asked for an account, none of whom have
+ * one. And `invited_at` is effectively a permission — a row carrying it is
+ * what admits an address past a full cap — so a reader able to write this
+ * table could let themselves in.
+ */
+describe("access control (0038)", () => {
+  it("gives the waitlist no policy at all", () => {
+    // Not "no write policy" — no policy. A select policy would expose every
+    // applicant's email to any signed-in account.
+    expect(policiesFor("waitlist")).toHaveLength(0);
+    expect(joined).toMatch(/alter table public\.waitlist enable row level security/i);
+  });
+
+  it("enforces the cap in a trigger on auth.users, not in application code", () => {
+    // The reason this is a trigger: OAuth signup never reaches a server
+    // function we wrote. If this assertion ever fails, the cap is bypassable
+    // by clicking "Continue with Google".
+    const sql = ALL_SQL.find((f) => f.name === "0038_access_control.sql")?.sql ?? "";
+    expect(sql).toMatch(/create trigger enforce_signups_open/i);
+    expect(sql).toMatch(/before insert on auth\.users/i);
+    expect(sql).toMatch(/raise exception 'nyuz is at capacity'/i);
+  });
+
+  it("takes the seat count under a lock", () => {
+    // Without this, two signups racing for one seat both read the old count
+    // and both succeed.
+    const sql = ALL_SQL.find((f) => f.name === "0038_access_control.sql")?.sql ?? "";
+    expect(sql).toMatch(/pg_advisory_xact_lock/i);
+  });
+
+  it("spends an invitation rather than leaving it reusable", () => {
+    // A permanent bypass for one address would be a way past the cap forever.
+    const sql = ALL_SQL.find((f) => f.name === "0038_access_control.sql")?.sql ?? "";
+    expect(sql).toMatch(/update public\.waitlist\s+set signed_up_at = now\(\)/i);
+  });
+
+  it("revokes the access helper from PUBLIC, not only from anon", () => {
+    // 0036's lesson: revoking from `anon, authenticated` leaves the default
+    // PUBLIC grant in place and reads like a lock while doing nothing.
+    const sql = ALL_SQL.find((f) => f.name === "0038_access_control.sql")?.sql ?? "";
+    expect(sql).toMatch(
+      /revoke all on function public\.admin_access_state\(\) from public, anon, authenticated/i,
+    );
+  });
+});
+
+/**
+ * Source visibility (0039).
+ *
+ * The specific thing being protected: `sources` became reader-writable in 0030,
+ * so one account's private feed is a row in the table every account reads. If
+ * these fail, one reader's local paper or employer feed is visible to every
+ * other reader — through the source page, or by querying PostgREST directly
+ * with their own token.
+ */
+describe("source visibility (0039)", () => {
+  const raw = () => ALL_SQL.find((f) => f.name === "0039_source_visibility.sql")?.sql ?? "";
+  // Comments in this migration discuss `created_by_user_id` and `coverage_mode`
+  // at length, precisely to explain why neither is used. Asserting against the
+  // raw text therefore matches the explanation rather than the code.
+  const sql = () => raw().replace(/^\s*--.*$/gm, "");
+
+  it("replaces the blanket read policy on sources", () => {
+    // 0002 granted `using (true)`. That is the leak.
+    expect(sql()).toMatch(/drop policy if exists "sources readable" on public\.sources/i);
+    const policies = policiesFor("sources");
+    const latest = policies[policies.length - 1] ?? "";
+    expect(latest).not.toMatch(/using\s*\(\s*true\s*\)/i);
+  });
+
+  it("limits a reader to the catalogue plus their own follows", () => {
+    const latest = policiesFor("sources").at(-1) ?? "";
+    expect(latest).toMatch(/listed/);
+    expect(latest).toMatch(/user_custom_sources/);
+    expect(latest).toMatch(/auth\.uid\(\)/);
+  });
+
+  it("still gives readers no way to write a source", () => {
+    // Adding one has to stay behind `claim_custom_source`, which holds the cap.
+    expect(writePoliciesFor("sources")).toHaveLength(0);
+  });
+
+  it("defaults new sources to unlisted", () => {
+    // A reader-submitted feed must be private until somebody promotes it. A
+    // default of true would publish every submission the moment it was made.
+    expect(sql()).toMatch(/listed\s+boolean\s+not null\s+default\s+false/i);
+  });
+
+  it("keeps the existing catalogue visible after the migration", () => {
+    // Everything seeded before 0039 is curated, so the backfill must list it.
+    // Without this line the migration silently empties every reader's source
+    // page.
+    expect(sql()).toMatch(/update public\.sources set listed = true, origin = 'curated'/i);
+  });
+
+  it("does not reuse coverage_mode as visibility", () => {
+    // 27 curated sources are `demand`. Filtering the catalogue on coverage
+    // would hide all of them from the readers who asked for those subjects.
+    const listedPredicates = sql().match(/listed\s*=\s*coverage_mode|coverage_mode[^;]*listed/gi);
+    expect(listedPredicates).toBeNull();
+  });
+
+  it("records provenance without naming an owner", () => {
+    // Ownership is many-to-many in `user_custom_sources` — one canonical source,
+    // many followers. A `created_by_user_id` would describe only whoever was
+    // first and would go stale when they left.
+    expect(sql()).toMatch(/create type public\.source_origin as enum \('curated', 'user'\)/i);
+    expect(sql()).not.toMatch(/created_by_user_id/i);
+    // And the explanation for that choice is still in the file.
+    expect(raw()).toMatch(/created_by_user_id/i);
+  });
+
+  it("bounds the reader source list in SQL rather than in the caller", () => {
+    // The bug was an unbounded `select * from sources`. A limit applied in
+    // TypeScript would still transfer the whole table.
+    expect(sql()).toMatch(/create or replace function public\.reader_sources/i);
+    expect(sql()).toMatch(/limit greatest\(0, least\(coalesce\(p_limit/i);
+  });
+
+  it("scopes both reader functions to the caller and revokes them from PUBLIC", () => {
+    expect(sql()).toMatch(
+      /revoke all on function public\.reader_sources\(uuid, integer, integer\)\s*\n?\s*from public, anon, authenticated/i,
+    );
+    expect(sql()).toMatch(
+      /revoke all on function public\.search_reader_sources\(uuid, text, integer\)\s*\n?\s*from public, anon, authenticated/i,
+    );
+  });
+
+  it("keeps search inside the catalogue plus own sources", () => {
+    // Discovery is wider than the topic-filtered list, but not wider than the
+    // visibility rule — otherwise search becomes the way to enumerate every
+    // reader's private feeds.
+    const fn = sql().slice(sql().indexOf("search_reader_sources"));
+    expect(fn).toMatch(/s\.listed/);
+    expect(fn).toMatch(/user_custom_sources/);
+  });
+});

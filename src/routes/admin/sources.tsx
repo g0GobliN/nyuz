@@ -23,6 +23,7 @@ import {
   listSources,
   resetSourceFailures,
   setSourceActive,
+  setSourceListed,
   type SourceSummary,
 } from "@/lib/server/sources";
 import {
@@ -123,8 +124,9 @@ function SourcesPage() {
   // the row being written to — which is honest enough, since the list is about
   // to be refetched anyway.
   const toggle = useConsoleMutation(setSourceActive, INVALIDATE);
+  const relist = useConsoleMutation(setSourceListed, INVALIDATE);
   const reset = useConsoleMutation(resetSourceFailures, INVALIDATE);
-  const busy = toggle.isPending || reset.isPending;
+  const busy = toggle.isPending || reset.isPending || relist.isPending;
 
   const rows = sources.data ?? [];
 
@@ -291,6 +293,9 @@ function SourcesPage() {
                           toggle.mutate({ data: { id: row.id, active: !row.active } })
                         }
                         onReset={() => reset.mutate({ data: { id: row.id } })}
+                        onToggleListed={() =>
+                          relist.mutate({ data: { id: row.id, listed: !row.listed } })
+                        }
                         onEditTopics={() => setEditingTopicsFor(row)}
                       />
                     ))}
@@ -354,6 +359,7 @@ function SourceRow({
   busy,
   onToggle,
   onReset,
+  onToggleListed,
   onEditTopics,
 }: {
   source: SourceSummary;
@@ -363,6 +369,7 @@ function SourceRow({
   busy: boolean;
   onToggle: () => void;
   onReset: () => void;
+  onToggleListed: () => void;
   onEditTopics: () => void;
 }) {
   return (
@@ -371,6 +378,11 @@ function SourceRow({
         <p className="flex flex-wrap items-center gap-2 font-medium">
           {source.name}
           {source.active ? null : <Pill tone="outline">off</Pill>}
+          {/* Listing is a separate axis from active and from coverage: crawled
+              or not, discoverable or not, core or demand. A reader-submitted
+              feed is normally active-and-unlisted, so it is worth showing. */}
+          {source.listed ? null : <Pill tone="outline">unlisted</Pill>}
+          {source.origin === "user" ? <Pill tone="outline">reader</Pill> : null}
           {source.homepage ? (
             <a
               href={source.homepage}
@@ -474,6 +486,9 @@ function SourceRow({
               <RotateCcw className="h-3.5 w-3.5" /> Clear
             </Button>
           ) : null}
+          <Button size="sm" variant="ghost" disabled={busy} onClick={onToggleListed}>
+            {source.listed ? "Unlist" : "List"}
+          </Button>
           <Button size="sm" variant="outline" disabled={busy} onClick={onToggle}>
             {source.active ? "Disable" : "Enable"}
           </Button>

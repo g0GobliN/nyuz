@@ -231,3 +231,51 @@ Adding a table means adding it there too, or the typed client will not see it.
 
 - [security.md](security.md) — how these policies fit the wider trust boundary
 - [admin-console.md](admin-console.md) — what reads and writes the 0003 tables
+
+## Source visibility (0039)
+
+Three independent questions about a source, answered by three columns. Conflating
+any two of them produces a wrong answer somewhere, so they are kept apart:
+
+| Column | Question | Values |
+| ------ | -------- | ------ |
+| `coverage_mode` | **Why** we crawl it | `core` \| `demand` |
+| `listed` | Whether a reader may **discover** it | boolean, default `false` |
+| `origin` | Where it **came from** | `curated` \| `user` |
+
+`coverage_mode` is the tempting shortcut for visibility and it is wrong: 27 of the
+curated catalogue are already `demand`, so hiding non-core sources would hide 27
+real feeds from the readers who asked for those subjects. Coverage answers a
+scheduling question; listing answers a product one.
+
+**The bug 0039 closes.** `0002` granted `for select to authenticated using (true)`
+on `sources`. Since `0030` let readers add their own feeds into that same global
+table, every signed-in account could read every other account's private sources —
+through the reader source page and by querying PostgREST directly with their own
+token. The policy is now `listed OR I follow it`.
+
+**No `created_by_user_id`.** Ownership already exists in `user_custom_sources`,
+and it is many-to-many on purpose: a hundred readers submitting the same feed
+follow one canonical `sources` row and one crawler. A `created_by` column would
+describe only whoever happened to be first and would go stale when they left.
+`origin` records provenance without naming a person.
+
+**Reader queries are bounded in SQL.** `reader_sources()` returns catalogue
+entries matching the reader's topics through `source_topics`, plus their own
+follows regardless of topic, with limit and offset. `search_reader_sources()` is
+deliberately wider — the whole catalogue rather than only followed subjects,
+because somebody searching for a publication is looking for one they do not have
+— but never wider than `listed` plus their own. Both are `security definer`,
+revoked from `PUBLIC`, and take the user id as an argument, so they are only safe
+after `signedInOnly` has verified the token.
+
+## Translation style versioning (0040)
+
+`event_translations.style_version` records which `TRANSLATION_STYLE_VERSION`
+produced a row. It is **not** part of the cache key — `content_version` already
+hashes the style version, so improving a profile makes old rows miss and
+regenerate. That gives correctness.
+
+This column gives traceability, which a hash cannot: which profile wrote this
+row, how much of the cache is still on an older style, and which rows to warm
+deliberately after a profile change.

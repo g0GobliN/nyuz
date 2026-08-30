@@ -13,7 +13,10 @@ const STEPS = [
   {
     n: "02",
     title: "It watches",
-    body: "Hundreds of sources on a schedule. Newsrooms, sports desks, music sites, wires, company blogs.",
+    // Not "hundreds of sources" — that was a scale claim the source list has
+    // never matched, and the same invented-number problem the onboarding
+    // sequence was fixed for. What is true is the cadence and the mix.
+    body: "Newsrooms, sports desks, music sites, wires and company blogs, each fetched on its own schedule — plus the ones readers ask us to add.",
     kind: "sources",
   },
   {

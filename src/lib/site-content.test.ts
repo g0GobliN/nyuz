@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACCESS_DEFAULT,
+  accessSchema,
   HERO_DEFAULT,
   MEDIA_DEFAULT,
   SECTIONS_DEFAULT,
@@ -153,5 +155,52 @@ describe("announcementSchema", () => {
     expect(
       announcementSchema.parse({ text: "Hi", href: "/blog/hello", linkLabel: "Read" }).href,
     ).toBe("/blog/hello");
+  });
+});
+
+/**
+ * The access row is read by two things that cannot see each other: the console
+ * form validated here, and the `enforce_signups_open` trigger in
+ * `0038_access_control.sql` reading the same jsonb with `->>` casts. A value
+ * this schema accepts but that SQL cannot read is a signup page that refuses
+ * everybody, so the shapes are asserted rather than assumed.
+ */
+describe("accessSchema", () => {
+  it("accepts the shipped default", () => {
+    expect(accessSchema.safeParse(ACCESS_DEFAULT).success).toBe(true);
+  });
+
+  it("treats zero as no limit rather than as a closed door", () => {
+    // The trigger returns early on `userLimit <= 0`. A schema that rejected 0
+    // would leave "unlimited" inexpressible from the console.
+    expect(accessSchema.safeParse({ ...ACCESS_DEFAULT, userLimit: 0 }).success).toBe(true);
+  });
+
+  it("refuses a negative or fractional cap", () => {
+    // `(value ->> 'userLimit')::integer` would throw on "1.5", and the raise
+    // would surface as a failed signup for everybody.
+    expect(accessSchema.safeParse({ ...ACCESS_DEFAULT, userLimit: -1 }).success).toBe(false);
+    expect(accessSchema.safeParse({ ...ACCESS_DEFAULT, userLimit: 1.5 }).success).toBe(false);
+  });
+
+  it("refuses a non-boolean maintenance switch", () => {
+    // `::boolean` on "yes" throws. The switch has to be a real boolean.
+    expect(accessSchema.safeParse({ ...ACCESS_DEFAULT, maintenance: "yes" }).success).toBe(false);
+  });
+
+  it("falls back rather than throwing on a malformed row", () => {
+    // Same contract as every other setting: one bad row costs the default, not
+    // the front door. Here that matters more than usual — the fallback has to
+    // be a state the site can actually run in.
+    const [value, used] = parseSetting(accessSchema, { userLimit: "lots" }, ACCESS_DEFAULT);
+    expect(used).toBe(false);
+    expect(value).toEqual(ACCESS_DEFAULT);
+    expect(value.maintenance).toBe(false);
+  });
+
+  it("ships with the doors open", () => {
+    // A default that closed the site would take it down on any database where
+    // the row is missing.
+    expect(ACCESS_DEFAULT.maintenance).toBe(false);
   });
 });

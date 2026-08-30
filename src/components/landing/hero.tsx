@@ -5,22 +5,34 @@ import { LinkButton, Chip } from "@/components/kit";
 import { BriefingPreview } from "@/components/briefing-preview";
 import { STORIES } from "@/lib/sample-data";
 
+/**
+ * Sources that are actually in the list and actually active.
+ *
+ * The previous set named Reuters, Politico, The Athletic, Billboard, AP News,
+ * Al Jazeera and Variety — none of which nyuz has ever fetched — and Anthropic,
+ * whose feed `0025_disable_dead_sources.sql` switched off after it returned 404.
+ * It is a decorative marquee, but it names real publications to a stranger, and
+ * implying coverage we do not have is the same lie as an invented source count.
+ *
+ * Every name below appears in the seed migrations and is not one of the four
+ * `0025` disabled. Add a source here only after adding it there.
+ */
 const FEED = [
   "BBC World",
   "ESPN",
   "Pitchfork",
-  "Reuters",
-  "The Guardian",
-  "Politico",
-  "The Athletic",
-  "NPR",
-  "Billboard",
-  "AP News",
-  "Al Jazeera",
-  "Variety",
+  "The Guardian World",
+  "The Verge",
+  "NPR News",
+  "BBC Sport",
+  "TechCrunch",
+  "Ars Technica",
+  "The Guardian Politics",
+  "Polygon",
+  "Wired",
   "OpenAI",
-  "Anthropic",
-  "Cursor",
+  "Hacker News",
+  "Eurogamer",
 ];
 
 /** Cinematic hero: sources → AI → one event → your briefing. */

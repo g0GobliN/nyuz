@@ -10,24 +10,43 @@ import {
 import { type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
+import { humanError } from "../lib/errors";
 import { AuthProvider } from "../lib/auth";
 import { THEME_COLORS, THEME_INIT_SCRIPT } from "../lib/theme";
 
+/**
+ * The 404 and the error page.
+ *
+ * Both used to be built from `bg-primary`, `rounded-md` and `text-7xl` — the
+ * shadcn defaults, which appear nowhere else in this product. So the two pages
+ * a reader is most likely to hit when something has already gone wrong were
+ * also the two that looked least like nyuz, at exactly the moment they are
+ * deciding whether the thing is trustworthy. They now use the same display
+ * face, hairline borders and single accent as every other page.
+ */
 function NotFoundComponent() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
+    <div className="flex min-h-screen items-center justify-center bg-background px-5 py-16">
+      <div className="w-full max-w-md text-center">
+        <p className="font-serif text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
+          404
         </p>
-        <div className="mt-6">
+        <h1 className="display mt-4 text-[clamp(2.2rem,6vw,3.25rem)]">Nothing here.</h1>
+        <p className="mt-5 text-[14.5px] leading-relaxed text-muted-foreground">
+          This address does not point at anything. It may have moved, or it may never have existed.
+        </p>
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Link
             to="/"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="inline-flex h-10 items-center justify-center rounded-full bg-foreground px-5 text-[13.5px] font-medium text-background transition-opacity hover:opacity-90"
           >
-            Go home
+            Back to nyuz
+          </Link>
+          <Link
+            to="/dashboard"
+            className="inline-flex h-10 items-center justify-center rounded-full border border-border px-5 text-[13.5px] transition-colors hover:bg-muted"
+          >
+            My briefing
           </Link>
         </div>
       </div>
@@ -38,31 +57,49 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
+  // Empty string when there is nothing readable, which is what hides the box.
+  const generic = "Something went wrong. Please try again.";
+  const message = humanError(error, generic);
+  const detail = message === generic ? "" : message;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+    <div className="flex min-h-screen items-center justify-center bg-background px-5 py-16">
+      <div className="w-full max-w-md text-center">
+        <p className="font-serif text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
+          Error
         </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
+        <h1 className="display mt-4 text-[clamp(2.2rem,6vw,3.25rem)]">That didn&apos;t load.</h1>
+        <p className="mt-5 text-[14.5px] leading-relaxed text-muted-foreground">
+          Something failed on our side rather than yours. Nothing you have saved is affected — your
+          topics, briefings and history are untouched.
+        </p>
+
+        {/* The message, when there is a readable one. `humanError` returns the
+            fallback for anything that is a stack frame or a JSON blob, so this
+            never prints machinery at somebody; and the block is skipped
+            entirely when the fallback is all we have, because repeating the
+            paragraph above in a box helps nobody. */}
+        {detail ? (
+          <p className="mt-5 rounded-2xl border border-hairline bg-surface px-4 py-3 text-[13px] leading-relaxed text-muted-foreground">
+            {detail}
+          </p>
+        ) : null}
+
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
           <button
             onClick={() => {
               router.invalidate();
               reset();
             }}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            className="inline-flex h-10 items-center justify-center rounded-full bg-foreground px-5 text-[13.5px] font-medium text-background transition-opacity hover:opacity-90"
           >
             Try again
           </button>
           <a
             href="/"
-            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            className="inline-flex h-10 items-center justify-center rounded-full border border-border px-5 text-[13.5px] transition-colors hover:bg-muted"
           >
-            Go home
+            Back to nyuz
           </a>
         </div>
       </div>

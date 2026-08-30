@@ -18,8 +18,15 @@ import { Eyebrow } from "@/components/kit";
  *
  * Every stage below describes something that exists in supabase/migrations —
  * `content_hash`, the trigram index on article titles, `importance`, `novelty`,
- * `analysis_tokens`, `why_it_matters`. If a stage changes, this copy is wrong
- * and needs changing with it.
+ * `analysis_tokens`, `events_with_demand()`, `event_impacts`,
+ * `event_translations`. If a stage changes, this copy is wrong and needs
+ * changing with it.
+ *
+ * Stage 07 is the one to watch. It used to say a paragraph was generated per
+ * person per story, which was true until `0028` moved that explanation into the
+ * analysis call and made it shared. Only describe per-reader generation here if
+ * `digest.ts` actually does it — today the only model call made for one reader
+ * alone is Story Ask, which they have to press.
  */
 
 type Stage = {
@@ -42,57 +49,65 @@ const STAGES: Stage[] = [
     title: "Collect",
     input: "A list of feeds — newsrooms, sports desks, music sites, wires, company blogs.",
     operation:
-      "Each source is fetched on its own schedule. A source that fails is counted, backed off, and retired if it keeps failing, so one dead feed cannot stall the run.",
-    output: "Raw articles, timestamped and attributed to the source they came from.",
-    cost: "No model. Network and parsing only.",
+      "Each source is checked on its own schedule, plus any you have added yourself. A source that stops responding is backed off and eventually dropped, so one dead feed never holds up anybody's morning.",
+    output: "Articles, timestamped and credited to the publication they came from.",
+    cost: "No AI. Fetching and reading, nothing more.",
   },
   {
     n: "02",
-    title: "Normalise",
-    input: "Raw articles, many of which are the same page reached by different URLs.",
+    title: "Tidy up",
+    input: "Raw articles, many of which are the same page reached by a different link.",
     operation:
-      "URLs are canonicalised — tracking parameters, session ids and AMP variants stripped — then hashed together with the title. An exact hash collision is a republish, not a new article.",
-    output: "One row per genuinely distinct article.",
-    cost: "No model. A hash comparison.",
+      "The same article often arrives at several addresses at once — a tracking link, a mobile version, a syndicated copy. Those are recognised as one article rather than several, and a headline quietly rewritten hours later is spotted as the same piece.",
+    output: "One entry per genuinely different article.",
+    cost: "No AI. Straightforward matching.",
   },
   {
     n: "03",
-    title: "Cluster",
-    input: "Distinct articles that may still describe one real-world event.",
+    title: "Group",
+    input: "Different articles that may still be describing one real event.",
     operation:
-      "Trigram similarity on headlines shortlists the plausible matches first, in the database. Only that shortlist goes to a model, and only to answer one question: are these the same event?",
-    output: "An event, with every article that reported it attached to it.",
-    cost: "First model call. Runs on a shortlist, not on everything.",
+      "Headlines that look like they are covering the same thing are pulled into a shortlist first. Only that shortlist is looked at closely, and only to settle one question: is this the same story?",
+    output: "One story, with every article that reported it kept alongside it.",
+    cost: "The first place AI is used, and only on a shortlist rather than on everything.",
     model: true,
   },
   {
     n: "04",
-    title: "Understand",
-    input: "One event and its cluster of articles.",
+    title: "Check it is wanted",
+    input: "Stories waiting to be read, and the subjects people actually follow.",
     operation:
-      "A single analysis pass extracts what happened, what the situation was before, what it is now, and scores the event for importance and novelty from 0 to 10. The tokens this costs are recorded against the event.",
-    output: "A structured event: summary, before, after, importance, novelty, topics.",
-    cost: "Second model call — and the last one that is shared. Charged once per event, no matter how many people it eventually reaches.",
-    model: true,
+      "Before anything slow happens, we check whether this is something anybody follows. If nobody does, it waits. The moment somebody starts following that subject, it is read — so nothing is thrown away, it simply is not read in advance for an audience of nobody.",
+    output: "A shorter queue: the stories somebody is genuinely waiting for.",
+    cost: "No AI. This is what keeps the next step affordable.",
   },
   {
     n: "05",
-    title: "Match",
-    input: "Structured events, and every subscriber's interest profile.",
+    title: "Understand",
+    input: "One story and the articles covering it.",
     operation:
-      "A database query, not a model: topics, keywords, source preferences and the density threshold decide who sees what. Exclusions are applied last and beat everything — a term you have excluded cannot be reintroduced by a topic you follow.",
-    output: "Per-person relevance scores against events that already exist.",
-    cost: "No model. This is the stage that would otherwise scale with users, and it is deliberately arithmetic.",
+      "One careful read: what happened, how things stood before, where they stand now, and how much of a departure it really is. The same read produces the line about what it changes.",
+    output: "A story worth putting in front of somebody, and the reason it is worth it.",
+    cost: "The second and last time AI is used without being asked. Once per story, however many people it eventually reaches.",
+    model: true,
   },
   {
     n: "06",
-    title: "Write and deliver",
-    input: "The handful of events that cleared your threshold today.",
+    title: "Match",
+    input: "Stories that have been read, and what each subscriber follows.",
     operation:
-      "One short paragraph is generated per person per story — why this matters to you specifically, given what you follow. Everything else in the briefing was already written once, upstream.",
-    output: "A briefing, sent at your time, in your timezone, on your channel.",
-    cost: "A small generation per person. The only per-user model spend in the system.",
-    model: true,
+      "Your topics, your keywords, your preferred sources and your density setting decide what reaches you — worked out on our side, not handed to anyone. Exclusions are applied last and win outright: something you have excluded cannot be let back in by a topic you follow.",
+    output: "The handful of stories that belong in your morning specifically.",
+    cost: "No AI. This is the step that would otherwise grow with every new subscriber, and deliberately does not.",
+  },
+  {
+    n: "07",
+    title: "Put together and sent",
+    input: "The few stories that cleared your threshold today.",
+    operation:
+      "Your briefing is built from what has already been read — the summary and the line about what changed — in your order, at your density, within your plan's limits. If you read in another language, the translated version is reused rather than remade for you.",
+    output: "A briefing, at your time, in your timezone, on your channel.",
+    cost: "No AI writing happens here. This step is assembly.",
   },
 ];
 
@@ -101,11 +116,12 @@ export function PipelineStages() {
     <div>
       <Eyebrow>The pipeline, stage by stage</Eyebrow>
       <h2 className="display mt-3 max-w-2xl text-4xl sm:text-5xl">
-        Six stages. Two of them cost anything.
+        Seven steps. Two of them use AI.
       </h2>
       <p className="mt-6 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-        The order matters more than any individual step. Cheap, deterministic work runs first and
-        throws away as much as it can, so that the expensive work only ever sees what survived.
+        The order matters more than any single step. The quick, obvious work happens first and
+        throws away as much as it can, so the slow work only ever sees what is left — and the last
+        step, the one that happens for every reader, is quick again.
       </p>
 
       <ol className="mt-12 space-y-3">
@@ -125,7 +141,7 @@ export function PipelineStages() {
                       : "border-border text-muted-foreground")
                   }
                 >
-                  {s.model ? "model call" : "no model"}
+                  {s.model ? "uses AI" : "no AI"}
                 </span>
               </div>
 
@@ -171,8 +187,9 @@ export function SharedAnalysis() {
   const funnel = [
     { label: "Articles collected", value: "8,412", width: 100 },
     { label: "After normalisation", value: "8,120", width: 96 },
-    { label: "After clustering", value: "312 events", width: 34 },
-    { label: "Analysed by a model", value: "312 times", width: 34, signal: true },
+    { label: "Once grouped", value: "312 stories", width: 34 },
+    { label: "Somebody follows it", value: "224 stories", width: 25 },
+    { label: "Read properly", value: "224 times", width: 25, signal: true },
     { label: "Above your threshold", value: "6 stories", width: 8, signal: true },
   ];
 
@@ -183,19 +200,22 @@ export function SharedAnalysis() {
         <h2 className="display mt-3 text-4xl sm:text-5xl">
           Understand a story once.
           <br />
-          Personalise it many times.
+          Everyone it matters to reads it.
         </h2>
         <div className="mt-7 space-y-4 text-[14.5px] leading-relaxed text-muted-foreground">
           <p>
-            Thirty outlets covering one announcement is one event, and it is read by a model a
-            single time. The hundredth subscriber to care about it does not trigger a hundredth
-            analysis — they are matched against an event that already exists.
+            Thirty outlets covering one announcement is one story, and it gets read once. The
+            hundredth person to care about it does not set off a hundredth reading — they are
+            matched to something that already exists.
           </p>
           <p>
-            That is why the expensive part of this system grows with{" "}
+            That is why the expensive part of nyuz grows with{" "}
             <span className="text-foreground">how much happened today</span>, not with how many
-            people subscribed. The part that does grow per person is one short paragraph, which is
-            the cheapest thing a model can be asked for.
+            people subscribed. Nothing is written separately for each reader.
+          </p>
+          <p>
+            The one thing written just for you is the thing you ask for — what a particular story
+            means in your world. You press a button, and it does not happen otherwise.
           </p>
         </div>
       </div>
@@ -234,7 +254,13 @@ export function SharedAnalysis() {
 
 /* ---------------------------------------------------------------------- */
 
-type Beat = { time: string; what: string; detail: string };
+/**
+ * `yours` marks the beats that are about the reader rather than about the
+ * event, and drives the accent dot. It was an index comparison (`i >= 4`)
+ * until the demand beat was inserted in the middle and quietly recoloured the
+ * beat after it — same failure as the pipeline list in `sections.tsx`.
+ */
+type Beat = { time: string; what: string; detail: string; yours?: boolean };
 
 const BEATS: Beat[] = [
   {
@@ -246,31 +272,39 @@ const BEATS: Beat[] = [
     time: "14:09",
     what: "Six more arrive",
     detail:
-      "Different headlines, same announcement. Trigram similarity flags them as candidates; a model confirms they describe one event.",
+      "Different headlines, same announcement. They look like candidates for the same story, and a quick check confirms it.",
+  },
+  {
+    time: "14:10",
+    what: "Somebody is waiting for it",
+    detail:
+      "Before anything slow runs, we check this is a subject people actually follow. It is, so it goes ahead. Had nobody followed it, it would have waited until somebody did.",
   },
   {
     time: "14:11",
-    what: "The event is analysed",
+    what: "The story is read",
     detail:
-      "What happened, what it changes, importance 8.4, novelty 7.1, topics assigned. This is the only time the story is read at length.",
+      "What happened, what it changes, how much of a departure it is, what it is about — all in one read. This is the only time it is read at length.",
   },
   {
     time: "14:11",
     what: "Thirty-one more pile in",
     detail:
-      "Aggregators and follow-ups. They attach to the existing event as further sources. No new analysis, no new cost.",
+      "Aggregators and follow-ups. They join the story already there as further sources. Nothing is read twice.",
   },
   {
     time: "14:12",
     what: "Matched against you",
     detail:
       "Importance 8.4 clears your density threshold, the topic is one you follow, and none of your excluded terms appear. It is queued for your briefing.",
+    yours: true,
   },
   {
     time: "07:30",
     what: "You read one paragraph",
     detail:
-      "Written for you, saying why this matters given what you follow — with all thirty-eight sources one tap away.",
+      "What happened and what it changes, in your briefing, with all thirty-eight sources one tap away. Want it in your own terms? Asking is one tap away too.",
+    yours: true,
   },
 ];
 
@@ -296,7 +330,7 @@ export function WorkedExample() {
           >
             <span
               className="absolute -left-8 top-[18px] h-[9px] w-[9px] rounded-full ring-4 ring-[var(--background)]"
-              style={{ background: i >= 4 ? "var(--signal)" : "var(--border)" }}
+              style={{ background: b.yours ? "var(--signal)" : "var(--border)" }}
             />
             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
               <span className="w-14 shrink-0 font-serif text-[15px] tabular-nums text-muted-foreground">
@@ -345,6 +379,22 @@ const MECHANICS_FAQ: { q: string; a: string }[] = [
   {
     q: "Does following more topics mean a longer briefing?",
     a: "Not directly. Topics decide what is eligible; the density setting decides how high the bar is. Following twenty topics at a high threshold gives you a shorter briefing than following three at a low one.",
+  },
+  {
+    q: "If the summary is the same for everyone, is my briefing still personal?",
+    a: "The choosing is yours; the writing is shared. Which stories reach you, in what order, at what threshold, with your exclusions applied — that part is yours and nobody else's. What a story changed is a fact about the story rather than about you, so it is written once and read by everyone it reaches. When you want the version that is about you, ask for it and you will get it.",
+  },
+  {
+    q: "What happens to a story nobody follows?",
+    a: "It waits. We do not read it in advance for an audience of nobody. If you start following that subject next week, it is read then and appears in your briefing like anything else — it is not thrown away in the meantime.",
+  },
+  {
+    q: "Can I add a source you don't already watch?",
+    a: "On a paid plan, yes — a local paper, a niche blog, a company's own updates. Personal includes five and Pro twenty-five. If another reader has already asked for the same feed, you simply share it. We check an address before we start using it, and we will tell you if it is not something we can read.",
+  },
+  {
+    q: "Can I read in a language other than English?",
+    a: "You can choose your reading language in settings. English is the language nyuz reads in, so the others are translations of it — and the original reporting always stays in its own language, and is always linked.",
   },
 ];
 

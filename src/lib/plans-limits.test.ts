@@ -58,8 +58,24 @@ describe("PLAN_LIMITS.asksPerDay", () => {
     expect(PLAN_LIMITS.personal.storyCaps.deep).toBe(30);
     expect(PLAN_LIMITS.pro.storyCaps.deep).toBe(50);
     expect(PLAN_LIMITS.free.alerts).toBe("none");
-    expect(PLAN_LIMITS.personal.alertWeeklyCap).toBe(3);
-    expect(PLAN_LIMITS.pro.alertDailyCap).toBe(10);
+  });
+
+  it("caps alerts per day, generously, on one window for every plan", () => {
+    // Ceilings, not targets. Alerts reuse the shared event analysis and cost no
+    // AI, so these exist to bound a bad day rather than to protect a budget —
+    // what keeps Personal quiet is its importance floor, not this number.
+    expect(PLAN_LIMITS.free.alertDailyCap).toBe(0);
+    expect(PLAN_LIMITS.personal.alertDailyCap).toBe(10);
+    expect(PLAN_LIMITS.pro.alertDailyCap).toBe(25);
+  });
+
+  it("differentiates Pro by sensitivity rather than by starving Personal", () => {
+    // Personal is generous on volume and limited to what it would be a problem
+    // to miss. Pro's extra is the ability to widen that, not merely a bigger
+    // number — so a paid reader is never made to feel rationed.
+    expect(PLAN_LIMITS.personal.alerts).toBe("important");
+    expect(PLAN_LIMITS.pro.alerts).toBe("configurable");
+    expect(PLAN_LIMITS.pro.alertDailyCap).toBeGreaterThan(PLAN_LIMITS.personal.alertDailyCap);
   });
 });
 

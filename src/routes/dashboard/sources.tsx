@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { humanError } from "@/lib/errors";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, Plus, Trash2, Volume2, VolumeX } from "lucide-react";
 import { useState } from "react";
@@ -150,7 +151,7 @@ function CustomSources() {
       );
       invalidate();
     },
-    onError: (e: unknown) => setError(e instanceof Error ? e.message : "Could not add that feed."),
+    onError: (e: unknown) => setError(humanError(e, "Could not add that feed.")),
   });
 
   const drop = useMutation({

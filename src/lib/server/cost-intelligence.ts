@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { adminOnly } from "@/lib/server/guard";
 
@@ -63,7 +64,9 @@ export type CostIntelligence = {
 
 export const getCostIntelligence = createServerFn({ method: "GET" })
   .middleware([adminOnly])
-  .validator((input: unknown) => z.object({ days: z.number().int().min(1).max(365) }).parse(input))
+  .validator((input: unknown) =>
+    parseInput(z.object({ days: z.number().int().min(1).max(365) }), input),
+  )
   .handler(async ({ context, data }): Promise<CostIntelligence | null> => {
     const { data: row, error } = await context.actor.db.rpc("admin_cost_intelligence", {
       p_days: data.days,

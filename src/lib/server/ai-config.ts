@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { adminOnly, audit, superadminOnly, AdminAuthError } from "@/lib/server/guard";
 import { invalidateRouteCache } from "@/lib/ai/config";
@@ -300,7 +301,7 @@ function providerError(error: { code?: string; message: string }, what: string):
 
 export const deleteProvider = createServerFn({ method: "POST" })
   .middleware([superadminOnly])
-  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ id: z.string().uuid() }), input))
   .handler(async ({ context, data }): Promise<{ ok: true }> => {
     const { error } = await context.actor.db.from("ai_providers").delete().eq("id", data.id);
     // The schema uses `on delete restrict` on ai_model_routes.provider_id, so

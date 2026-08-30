@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { adminOnly, audit, AdminAuthError } from "@/lib/server/guard";
@@ -128,7 +129,7 @@ export type PublicPost = PublicPostCard & {
 };
 
 export const getPublicPost = createServerFn({ method: "GET" })
-  .validator((input: unknown) => z.object({ slug: z.string().max(90) }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ slug: z.string().max(90) }), input))
   .handler(async ({ data }): Promise<PublicPost | null> => {
     const db = createAdminClient();
     const { data: row, error } = await db
@@ -215,7 +216,7 @@ export const adminListPosts = createServerFn({ method: "GET" })
 
 export const getPostForEdit = createServerFn({ method: "GET" })
   .middleware([adminOnly])
-  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ id: z.string().uuid() }), input))
   .handler(async ({ context, data }): Promise<BlogPost> => {
     const { data: row, error } = await context.actor.db
       .from("blog_posts")
@@ -317,7 +318,7 @@ function slugError(error: { code?: string; message: string }, what: string): Adm
 
 export const deletePost = createServerFn({ method: "POST" })
   .middleware([adminOnly])
-  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ id: z.string().uuid() }), input))
   .handler(async ({ context, data }): Promise<{ ok: true }> => {
     const { error } = await context.actor.db.from("blog_posts").delete().eq("id", data.id);
     if (error) throw new AdminAuthError(`Delete post: ${error.message}`, 500);

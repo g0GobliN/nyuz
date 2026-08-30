@@ -56,13 +56,43 @@ type Doc = {
 
 const UPDATED = "25 August 2026";
 
+/**
+ * The V2 revision date, carried only by the documents V2 actually changed.
+ *
+ * Sharing one constant across all nine would re-date the refunds policy and the
+ * cookie policy because the privacy policy changed, and "last updated" on a
+ * legal document is a claim about that document. A reader comparing against a
+ * copy they saved should find a new date only where the text is new.
+ *
+ * Changed on 30 August 2026: privacy, subprocessors, terms, acceptable use and
+ * security, all for the same underlying change — the per-reader paragraph that
+ * used to be generated for every story is gone, so less is sent to the model
+ * provider than these documents previously described, and readers can now
+ * submit sources of their own for us to fetch.
+ *
+ * Two rules for the customer-visible text below, learned the hard way.
+ *
+ * Do not narrate what these documents used to say. A privacy policy states what
+ * happens now; a paragraph explaining that an earlier version disclosed more is
+ * an invitation to argue about the earlier version, and it helps nobody reading
+ * to decide whether to sign up.
+ *
+ * Do not publish the mechanism behind a security control. Saying submitted
+ * addresses are checked is a commitment we can keep. Listing which address
+ * ranges are refused and at which point in a redirect chain is both a map for
+ * somebody probing it and a specific promise to be held to the day an edge case
+ * turns out to behave differently. Describe the protection, not the
+ * implementation.
+ */
+const UPDATED_V2 = "30 August 2026";
+
 const DOCS: Record<string, Doc> = {
   privacy: {
     title: "Privacy",
-    updated: UPDATED,
+    updated: UPDATED_V2,
     group: "Trust",
     intro:
-      "We hold as little as the product needs, and we never send your interest list to a model.",
+      "We hold as little as the product needs, and making your briefing does not involve sending your interests or your identity to an AI provider.",
     sections: [
       {
         h: "Who we are",
@@ -73,16 +103,18 @@ const DOCS: Record<string, Doc> = {
       {
         h: "What we store",
         p: [
-          "Your account email, the topics and exclusions you configure, your delivery schedule and channels, and the feedback signals you give on individual stories.",
+          "Your account email, the topics and exclusions you configure, your delivery schedule, channels and reading language, and the feedback signals you give on individual stories.",
           "We store which briefings were generated and delivered so you can read your history and so we can retry failed deliveries.",
           "We record the time of your most recent visit. It distinguishes active from dormant accounts; Free briefings pause after 30 inactive days and resume when you return.",
+          "If you add a source of your own, we store the address of the feed and the fact that you follow it. Feeds are shared: if another reader adds the same one, you both follow the same feed. We do not publish who follows what.",
         ],
       },
       {
         h: "What we never send to a third party",
         p: [
-          "Your interest profile is matched against stories inside our own database. That matching is a database query, not a model call.",
-          "When a personalised paragraph is written, the model receives your followed topic labels, the selected stories and any custom briefing instruction you supplied. It never receives your identity or email.",
+          "Deciding which stories belong in your briefing happens on our own systems, using what you have told us you care about. Your interests are not sent anywhere in order to do it.",
+          "The stories themselves are read and summarised once, from the published reporting, before anyone is matched to them. Nothing about you goes into that, and your briefing is put together from those summaries on our side. Translations work the same way and are shared between readers of the same language.",
+          "The exception is when you ask a question about a story. To answer it, our AI provider receives that story and the question you typed. It does not receive your name, your email address, your topic list, your exclusions or your history.",
         ],
       },
       {
@@ -146,7 +178,7 @@ const DOCS: Record<string, Doc> = {
 
   terms: {
     title: "Terms",
-    updated: UPDATED,
+    updated: UPDATED_V2,
     group: "Policies",
     intro:
       "We watch public sources and send you a summary of what changed. These terms are the agreement for that, under Japanese law.",
@@ -160,7 +192,10 @@ const DOCS: Record<string, Doc> = {
       {
         h: "The service",
         p: [
-          "nyuz collects publicly available reporting, groups articles describing the same event, and delivers a personalised summary on the schedule you choose.",
+          "nyuz collects publicly available reporting, groups articles describing the same event, and sends you a briefing on the schedule you choose, selected for you from what it has covered.",
+          "Story summaries are written once and shared by everyone who receives that story. What is personal to you is the selection: which stories reach you, in what order, and at what threshold.",
+          "On a paid plan you can ask us to watch sources of your own, up to the number your plan includes. Feeds are shared between readers who follow the same one. We may decline a source, or stop using it, if it cannot be reached, does not work as a feed, or should not be fetched.",
+          "You can choose a reading language other than English. English is the language nyuz works in, and other languages are translations of it, which may be delayed or unavailable.",
           "Availability targets are best-effort. A missed or delayed briefing is not grounds for compensation beyond a pro-rata refund of paid time.",
           "A quiet day is a working day. If nothing clears your threshold, you get a short briefing or none — that is the product behaving correctly, not an outage.",
           "Free briefings pause after 30 days without a visit so unused accounts do not keep generating work. We warn you first, preserve your settings, and resume automatically when you return.",
@@ -197,7 +232,8 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Billing",
         p: [
-          "Paid plans renew until cancelled. Cancelling stops the next renewal and keeps access until the end of the current period. Topic, briefing, source-priority, alert, Ask AI and history limits follow your active plan.",
+          "Paid plans renew until cancelled. Cancelling stops the next renewal and keeps access until the end of the current period. Topic, briefing, source-priority, custom-source, alert, Ask AI and history limits follow your active plan.",
+          "The limit on sources of your own is checked when you add one. Moving to a plan with a lower limit does not remove sources you already follow, but you will not be able to add another until you are inside the new limit.",
           "Prices can change. If yours does, we will tell you before the renewal it applies to, and you can cancel before being charged the new amount.",
           "Refunds are covered on the Refunds page.",
         ],
@@ -227,7 +263,7 @@ const DOCS: Record<string, Doc> = {
 
   "acceptable-use": {
     title: "Acceptable use",
-    updated: UPDATED,
+    updated: UPDATED_V2,
     group: "Policies",
     intro:
       "A short list, because a long one is a list nobody reads. These are the things that will get an account suspended.",
@@ -242,6 +278,15 @@ const DOCS: Record<string, Doc> = {
           "Use delivery channels to send anything to anyone other than yourself.",
           "Configure topics or instructions designed to make the service generate harassment, or content targeting a private individual.",
           "Circumvent plan limits, whether by automation or by holding multiple free accounts.",
+          "Submit a source in order to make us fetch something you could not or should not fetch yourself, such as an address on a private or internal network.",
+          "Submit a source to point us at somebody else's service as a way of putting load on it, or at material you have no right to have collected.",
+        ],
+      },
+      {
+        h: "About sources you add",
+        p: [
+          "A feed you add is fetched by us, on a schedule. We check an address before we start using it, and we may refuse one or stop using it at any time.",
+          "Please do not use that feature to probe what we will and will not fetch. If you want to test our security, do it the way described below and you are welcome to.",
         ],
       },
       {
@@ -303,7 +348,7 @@ const DOCS: Record<string, Doc> = {
 
   subprocessors: {
     title: "Subprocessors",
-    updated: UPDATED,
+    updated: UPDATED_V2,
     group: "Trust",
     intro:
       "Every third party that touches your data, what it does, and where. This list is short by design, and changing it is a change we tell you about.",
@@ -328,8 +373,8 @@ const DOCS: Record<string, Doc> = {
             ],
             [
               "DeepSeek",
-              "Language model for clustering, scoring and the personal paragraph",
-              "Article text, and the story a paragraph is being written about. No account identifiers.",
+              "AI for grouping and summarising stories, translation, and answering questions you ask",
+              "Published article text. When you ask a question: that story and your question. No name, email or account details.",
               "[Region]",
             ],
             [
@@ -356,8 +401,8 @@ const DOCS: Record<string, Doc> = {
       {
         h: "What the model provider does not receive",
         p: [
-          "Matching happens in our database. For personalised writing, the model provider receives your followed topic labels and any custom briefing instruction, but not your email, identity, exclusions or history.",
-          "The per-person paragraph is generated from the selected story and those preferences, not from anything that identifies you.",
+          "Choosing what belongs in your briefing, and putting it together, both happen on our own systems. Making a briefing does not involve sending anything about you to our AI provider.",
+          "The only time anything of yours reaches it is a question you type about a specific story. It receives that story and the question, and not your email, name, topic list, exclusions or history.",
         ],
       },
       {
@@ -371,7 +416,7 @@ const DOCS: Record<string, Doc> = {
 
   security: {
     title: "Security",
-    updated: UPDATED,
+    updated: UPDATED_V2,
     group: "Trust",
     intro:
       "How the service is built so one account cannot read another, and how to tell us when that is no longer true.",
@@ -380,7 +425,20 @@ const DOCS: Record<string, Doc> = {
         h: "How access is controlled",
         p: [
           "Every table holding customer data enforces row-level security in the database itself, so a query can only ever return the rows belonging to the account that asked. This is enforced below the application, not by it — an application bug cannot hand you somebody else's briefing.",
+          "Content that everyone sees — stories, their summaries, the source list — is read-only to customer accounts. Changing what other people are shown is not something an account is able to do.",
           "Administrative access is role-based, held by named individuals, and every action taken in the operator console is written to an append-only audit log.",
+        ],
+      },
+      {
+        h: "Plan limits",
+        p: [
+          "Limits that cost us something — how many sources you can add, how many questions you can ask in a day — are enforced in the database rather than only in the app, so that sending several requests at once does not get around them.",
+        ],
+      },
+      {
+        h: "Addresses you submit",
+        p: [
+          "A feed you submit gets particular attention, because it is the one place where something a customer types becomes a request our own systems make. We check the address before using it, check again if it redirects elsewhere, and limit how much we will download from it. Addresses pointing into private or internal networks are refused.",
         ],
       },
       {

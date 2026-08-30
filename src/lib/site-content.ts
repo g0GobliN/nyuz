@@ -357,6 +357,43 @@ export const PRICES_DEFAULT: Prices = {
 };
 
 /* ---------------------------------------------------------------------- */
+/* Access — capacity, waitlist and maintenance                            */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * The three levers that decide whether a stranger can get in today.
+ *
+ * These are validated here and enforced in Postgres by the signup trigger in
+ * `0038_access_control.sql`, which reads this same row. The schema is the
+ * contract between the two: a value the console can save is a value that
+ * trigger can read, and the `catch`-free defaults below are what it falls back
+ * to when the row is missing.
+ *
+ * `userLimit` is a count of accounts, not of paying customers — 0 means no
+ * limit, which is the state the product was in before this existed.
+ */
+export const accessSchema = z.object({
+  userLimit: z.number().int().min(0).max(10_000_000),
+  maintenance: z.boolean(),
+  maintenanceMessage: z.string().max(300),
+  /**
+   * Whether a turned-away visitor is offered a waitlist form. Off means they
+   * are told to write in instead — which is the honest option when nobody is
+   * going to work through a list.
+   */
+  waitlistOpen: z.boolean(),
+});
+
+export type Access = z.infer<typeof accessSchema>;
+
+export const ACCESS_DEFAULT: Access = {
+  userLimit: 400,
+  maintenance: false,
+  maintenanceMessage: "nyuz is down for a short while. We will be back shortly.",
+  waitlistOpen: true,
+};
+
+/* ---------------------------------------------------------------------- */
 /* The resolved bundle the public site renders                             */
 /* ---------------------------------------------------------------------- */
 
@@ -382,6 +419,11 @@ export type PublicSiteContent = {
   seo: Seo;
   footer: Footer;
   prices: Prices;
+  /**
+   * Capacity and maintenance. Carried on every public page so the maintenance
+   * screen costs no extra query -- every marketing route already loads this.
+   */
+  access: Access;
   /** Resolved on/off per flag key for this visitor. Absent key means off. */
   flags: Record<string, boolean>;
   /** True when at least one value came from the database rather than the bundle. */
@@ -403,6 +445,7 @@ export const PUBLIC_CONTENT_FALLBACK: PublicSiteContent = {
   seo: SEO_DEFAULT,
   footer: FOOTER_DEFAULT,
   prices: PRICES_DEFAULT,
+  access: ACCESS_DEFAULT,
   flags: {},
   customised: false,
 };
@@ -424,6 +467,7 @@ export const SETTING_KEYS = [
   "site.seo",
   "site.footer",
   "billing.prices",
+  "site.access",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -441,6 +485,7 @@ export const SETTING_SCHEMAS = {
   "site.seo": seoSchema,
   "site.footer": footerSchema,
   "billing.prices": pricesSchema,
+  "site.access": accessSchema,
 } as const;
 
 export const SETTING_LABELS: Record<SettingKey, string> = {
@@ -451,6 +496,7 @@ export const SETTING_LABELS: Record<SettingKey, string> = {
   "site.seo": "SEO and social preview",
   "site.footer": "Footer copy",
   "billing.prices": "Plan prices",
+  "site.access": "Access, capacity and maintenance",
 };
 
 /**

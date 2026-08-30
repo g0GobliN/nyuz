@@ -310,8 +310,8 @@ function Delivery() {
               {limits.alerts === "none"
                 ? "Alerts are a paid feature. Free stories wait for the next scheduled briefing."
                 : limits.alerts === "important"
-                  ? `Important alerts arrive outside your schedule, up to ${limits.alertWeeklyCap} per week.`
-                  : `Choose important or everything, with a hard cap of ${limits.alertDailyCap} alerts per day.`}
+                  ? `Only what you would regret missing arrives outside your schedule. Most days that is nothing at all, and never more than ${limits.alertDailyCap} in a day.`
+                  : `Choose important or everything, with a ceiling of ${limits.alertDailyCap} alerts a day.`}
             </p>
           </div>
         </Panel>

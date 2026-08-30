@@ -5,6 +5,7 @@ import {
   BarChart3,
   Coins,
   Cpu,
+  DoorClosed,
   FileText,
   LayoutTemplate,
   Rss,
@@ -18,6 +19,7 @@ import { PageLoading } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 import { isAdmin, useViewer } from "@/lib/viewer";
+import { humanError } from "@/lib/errors";
 
 /**
  * The console shell.
@@ -56,6 +58,10 @@ const NAV: NavEntry[] = [
   // and what that thinking costs.
   { to: "/admin/cost", label: "Cost", icon: Coins },
   { to: "/admin/content", label: "Site content", icon: LayoutTemplate },
+  // Next to site content because both are "what the outside world gets", and
+  // ahead of the audit log because it is the one an operator reaches for in a
+  // hurry — closing the doors is the emergency lever on this console.
+  { to: "/admin/access", label: "Access", icon: DoorClosed },
   { to: "/admin/audit", label: "Audit log", icon: ScrollText },
 ];
 
@@ -147,6 +153,11 @@ export function AdminLayout() {
             <div className="lg:hidden">
               <Logo />
             </div>
+            {/* The way back out, too. "Leave console" lives in the sidebar,
+                which is `hidden lg:flex`, so on a phone the only exit was the
+                logo — which goes to the marketing home page, not to the
+                dashboard the operator came from. It sits at the end rather than
+                the start so it cannot be hit while reaching for Overview. */}
             <nav className="flex gap-1 overflow-x-auto lg:hidden">
               {NAV.map((n) => (
                 <Link
@@ -157,6 +168,12 @@ export function AdminLayout() {
                   {n.label}
                 </Link>
               ))}
+              <Link
+                to="/dashboard"
+                className="whitespace-nowrap rounded-full px-3 py-1.5 text-[12.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                Leave
+              </Link>
             </nav>
             <div className="ml-auto">
               <ThemeToggle />
@@ -330,12 +347,10 @@ export function Pill({
  */
 export function ErrorNote({ error }: { error: unknown }) {
   if (!error) return null;
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : "Something failed.";
+  // Operational messages stay verbatim — that is the point of this component —
+  // but a failed validator still arrives as a JSON issue array, and a wall of
+  // punctuation is no more useful to an operator than to a customer.
+  const message = humanError(error, "Something failed.");
   return (
     <p className="mt-4 flex items-start gap-2 rounded-xl border border-border bg-surface-2 px-4 py-3 text-[13px] leading-relaxed">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
