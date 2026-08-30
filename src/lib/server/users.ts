@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { adminOnly, audit, superadminOnly, AdminAuthError, type Actor } from "@/lib/server/guard";
@@ -156,7 +157,7 @@ export type UserDetail = {
 
 export const getUserDetail = createServerFn({ method: "GET" })
   .middleware([adminOnly])
-  .validator((input: unknown) => z.object({ userId: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ userId: z.string().uuid() }), input))
   .handler(async ({ context, data }): Promise<UserDetail> => {
     const db = context.actor.db;
     const { userId } = data;
@@ -297,7 +298,7 @@ export const banUser = createServerFn({ method: "POST" })
 
 export const unbanUser = createServerFn({ method: "POST" })
   .middleware([adminOnly])
-  .validator((input: unknown) => z.object({ userId: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ userId: z.string().uuid() }), input))
   .handler(async ({ context, data }): Promise<{ ok: true }> => {
     const { actor } = context;
 
