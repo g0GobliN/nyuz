@@ -19,6 +19,7 @@
     "verify:live": "node --env-file=.env scripts/tsrun.mjs scripts/verify-live.ts",
     "db:seed": "node --env-file=.env scripts/tsrun.mjs scripts/apply-seed.ts",
     "check:feeds": "node --env-file=.env scripts/tsrun.mjs scripts/check-feeds.ts",
+    "email:preview": "node scripts/tsrun.mjs scripts/email-preview.ts",
     "pipeline": "node --env-file=.env scripts/tsrun.mjs scripts/pipeline.ts",
     "cron:test": "node --env-file=.env scripts/test-scheduled.mjs",
     "telegram:webhook": "node --env-file=.env scripts/tsrun.mjs scripts/telegram-webhook.ts",

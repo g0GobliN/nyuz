@@ -129,16 +129,16 @@ export function storyBrief(input: {
   const kicker = escapeHtml(input.kicker ?? n);
   const grafs = input.grafs.map(
     (g, i) =>
-      `<p style="margin:${i === 0 ? "0" : "15px"} 0 0;font-family:${FONT};font-size:16px;line-height:1.75;color:${PALETTE.ink};">${escapeHtml(g)}</p>`,
+      `<p style="margin:${i === 0 ? "0" : "10px"} 0 0;font-family:${FONT};font-size:14px;line-height:1.6;color:${PALETTE.ink};">${escapeHtml(g)}</p>`,
   );
   const why = input.why.trim()
     ? `
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:22px 0 0;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:16px 0 0;">
         <tr>
           <td style="width:3px;background:${PALETTE.signal};font-size:0;line-height:0;">&nbsp;</td>
-          <td style="padding:2px 0 2px 14px;">
-            <p style="margin:0 0 6px;font-family:${FONT};font-size:11px;font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:${PALETTE.signal};">Why it matters to you</p>
-            <p style="margin:0;font-family:${SERIF};font-size:17px;line-height:1.55;color:${PALETTE.ink};">${escapeHtml(input.why)}</p>
+          <td style="padding:2px 0 2px 12px;">
+            <p style="margin:0 0 4px;font-family:${FONT};font-size:10px;font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:${PALETTE.signal};">Why it matters to you</p>
+            <p style="margin:0;font-family:${SERIF};font-size:14.5px;line-height:1.5;color:${PALETTE.ink};">${escapeHtml(input.why)}</p>
           </td>
         </tr>
       </table>`
@@ -148,16 +148,14 @@ export function storyBrief(input: {
   return `
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;">
     <tr>
-      <td valign="top" width="44" style="width:44px;padding:4px 12px 32px 0;border-bottom:${rule};">
-        <p style="margin:0;font-family:${SERIF};font-size:22px;line-height:1;font-weight:500;color:${PALETTE.signal};">${kicker}</p>
-      </td>
-      <td valign="top" style="padding:0 0 32px;border-bottom:${rule};">
-        <h2 style="margin:0 0 14px;font-family:${SERIF};font-size:24px;line-height:1.28;font-weight:500;letter-spacing:-0.02em;color:${PALETTE.ink};">
+      <td style="padding:0 0 24px;border-bottom:${rule};">
+        <p style="margin:0 0 5px;font-family:${FONT};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${PALETTE.signal};">Story ${kicker}</p>
+        <h2 style="margin:0 0 7px;font-family:${SERIF};font-size:17px;line-height:1.3;font-weight:600;letter-spacing:-0.01em;color:${PALETTE.ink};">
           ${escapeHtml(input.title)}
         </h2>
         ${grafs.join("")}
         ${why}
-        <p style="margin:22px 0 0;font-family:${FONT};font-size:14px;font-weight:600;">
+        <p style="margin:16px 0 0;font-family:${FONT};font-size:13px;font-weight:600;">
           <a href="${escapeHtml(input.href)}" style="color:${PALETTE.signal};text-decoration:none;border-bottom:1px solid ${PALETTE.signal};">Read the full story on nyuz</a>
         </p>
       </td>
