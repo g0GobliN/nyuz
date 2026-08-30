@@ -1,31 +1,56 @@
 import type { PlanTier } from "@/lib/supabase/types";
 
 /**
- * Stripe product catalogue (live, 23 Aug 2026). Display, checkout copy and
- * revenue arithmetic all read these — not the admin override, which can only
- * drift from what Stripe actually charges.
+ * Stripe product catalogue. Display, checkout copy and revenue arithmetic all
+ * read these — not the admin override, which can only drift from what Stripe
+ * actually charges.
  *
- *   nyuz personal         US$7.00 / month
- *   nyuz personal annual  US$69.00 / year
- *   nyuz pro              US$15.00 / month
- *   nyuz pro annual       US$149.00 / year
+ *   nyuz personal         US$19.00 / month
+ *   nyuz personal annual  US$190.00 / year
+ *   nyuz pro              US$29.00 / month
+ *   nyuz pro annual       US$290.00 / year
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * THESE NUMBERS ARE DISPLAY ONLY. THE CHARGE IS THE STRIPE PRICE OBJECT.
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ * Raising the figures here raises what the pricing page *says*. What a customer
+ * is actually billed is the Price object identified by `STRIPE_PRICE_*` in
+ * src/lib/server/stripe/prices.ts, and Stripe prices are immutable — a
+ * repricing is new Price objects, never an edit to the existing ones.
+ *
+ * So this table is only true once, in the Stripe account:
+ *
+ *   1. New prices exist at $19/$190 and $29/$290.
+ *   2. `STRIPE_PRICE_PERSONAL_MONTHLY` and its three siblings point at them.
+ *   3. The previous ids ($7/$69, $15/$149) have been moved to the matching
+ *      `*_LEGACY` variables, so existing subscribers keep billing against the
+ *      price they signed up on and nobody is repriced without agreeing to it.
+ *
+ * Miss step 3 and every current subscriber's next webhook resolves to no plan
+ * and silently loses their entitlements. Miss step 2 and the page advertises
+ * $19 while checkout charges $7 — the disagreement between the page and the
+ * invoice that this whole module exists to prevent.
+ *
+ * Targets come from docs/plan2.md §55–56. §57's $39 Intelligence tier is
+ * deliberately not here: that section says not to expose it at launch.
  */
 export const DEFAULT_PLAN_PRICES: Record<PlanTier, number> = {
   free: 0,
-  personal: 7,
-  pro: 15,
+  personal: 19,
+  pro: 29,
 };
 
 /**
- * Annual totals. A little over two months free against twelve months of the
- * monthly price — Personal saves $15 on $84, Pro saves $31 on $180.
+ * Annual totals. Exactly two months free against twelve months of the monthly
+ * price — Personal saves $38 on $228, Pro saves $58 on $348.
  *
  * The pricing page derives the saving from these numbers rather than printing a
  * fixed claim, so changing them here changes the copy with them.
  */
 export const DEFAULT_ANNUAL_PRICES: Record<Exclude<PlanTier, "free">, number> = {
-  personal: 69,
-  pro: 149,
+  personal: 190,
+  pro: 290,
 };
 
 /** "$7.00" — the same two-decimal form Stripe shows. */
@@ -55,7 +80,18 @@ export type PlanLimits = {
   digestModel: PlanModel;
   storyCaps: Record<DensityBand, number>;
   alerts: AlertAccess;
-  alertWeeklyCap: number;
+  /**
+   * The most alerts a plan may receive in a rolling 24 hours. A **ceiling, not
+   * a target** — what actually governs the volume is `alerts`: Personal only
+   * ever alerts on events scoring 6 or higher, so an ordinary day sends zero
+   * or one and the cap is never approached.
+   *
+   * There used to be an `alertWeeklyCap` beside this, and Personal used it for
+   * a ration of 3 per rolling 7 days. Two fields meant every caller had to
+   * know which one applied to which plan, and the weekly one meant a busy
+   * Tuesday silenced a paying reader until the following Tuesday. Both are
+   * gone: one field, one window, enforced by `claim_alert` in 0037.
+   */
   alertDailyCap: number;
   inactivePauseDays: number | null;
   monthlyAiTokenCap: number;
@@ -89,7 +125,6 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     digestModel: "flash",
     storyCaps: { minimal: 3, focused: 6, broad: 10, deep: 18 },
     alerts: "none",
-    alertWeeklyCap: 0,
     alertDailyCap: 0,
     inactivePauseDays: 30,
     monthlyAiTokenCap: 400_000,
@@ -105,8 +140,7 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     digestModel: "pro",
     storyCaps: { minimal: 5, focused: 10, broad: 18, deep: 30 },
     alerts: "important",
-    alertWeeklyCap: 3,
-    alertDailyCap: 0,
+    alertDailyCap: 10,
     inactivePauseDays: null,
     monthlyAiTokenCap: 1_500_000,
   },
@@ -124,8 +158,7 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     digestModel: "pro",
     storyCaps: { minimal: 8, focused: 16, broad: 30, deep: 50 },
     alerts: "configurable",
-    alertWeeklyCap: 0,
-    alertDailyCap: 10,
+    alertDailyCap: 25,
     inactivePauseDays: null,
     monthlyAiTokenCap: 4_000_000,
   },

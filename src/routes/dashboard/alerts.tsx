@@ -52,8 +52,8 @@ function Alerts() {
               {off
                 ? "Everything waits for your next scheduled briefing."
                 : effectiveBreaking === "everything"
-                  ? `Matched events can interrupt you, up to ${limits.alertDailyCap} per day.`
-                  : `Only events scoring 6 or higher interrupt you, up to ${limits.alertWeeklyCap} per week.`}
+                  ? `Matched events can interrupt you, up to ${limits.alertDailyCap} a day.`
+                  : `Only events scoring 6 or higher interrupt you. Most days that is none — never more than ${limits.alertDailyCap} in a day.`}
             </p>
           </div>
         </div>

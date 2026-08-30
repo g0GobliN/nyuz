@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { remainingImportantSlots, shouldAlert } from "./alerts";
+import { IMPORTANT_DAILY_CAP, remainingImportantSlots, shouldAlert } from "./alerts";
+import { PLAN_LIMITS } from "@/lib/plans";
 
 describe("shouldAlert", () => {
   it("sends nothing when alerts are off", () => {
@@ -20,10 +21,25 @@ describe("shouldAlert", () => {
 });
 
 describe("remainingImportantSlots", () => {
-  it("caps important alerts at three per rolling week", () => {
-    expect(remainingImportantSlots(0)).toBe(3);
-    expect(remainingImportantSlots(2)).toBe(1);
-    expect(remainingImportantSlots(3)).toBe(0);
-    expect(remainingImportantSlots(9)).toBe(0);
+  it("caps important alerts at ten per rolling day", () => {
+    expect(remainingImportantSlots(0)).toBe(10);
+    expect(remainingImportantSlots(9)).toBe(1);
+    expect(remainingImportantSlots(10)).toBe(0);
+    expect(remainingImportantSlots(30)).toBe(0);
+  });
+
+  it("mirrors the entitlement table, which mirrors the database", () => {
+    // Three copies of this number exist: `claim_alert` in 0037 (the only one
+    // that enforces anything), PLAN_LIMITS (what the UI advertises) and
+    // IMPORTANT_DAILY_CAP (what the pipeline reports as remaining). A drift
+    // between them shows a reader a number the database will not honour.
+    expect(IMPORTANT_DAILY_CAP).toBe(PLAN_LIMITS.personal.alertDailyCap);
+  });
+
+  it("does not ration a busy day into the next one", () => {
+    // The old rule was 3 per rolling 7 days: a third alert on Tuesday meant
+    // silence until the following Tuesday. Seven genuinely important events in
+    // one day must all be sendable.
+    expect(remainingImportantSlots(3)).toBeGreaterThanOrEqual(4);
   });
 });

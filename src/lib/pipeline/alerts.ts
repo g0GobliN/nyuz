@@ -24,8 +24,20 @@ type Db = SupabaseClient<Database>;
 /** Same floor as Minimal density: "only the things you would regret missing". */
 export const IMPORTANT_FLOOR = 6;
 
-/** Personal's rolling seven-day allowance. The database RPC is authoritative. */
-export const IMPORTANT_WEEKLY_CAP = 3;
+/**
+ * Personal's rolling 24-hour ceiling. `claim_alert` (0037) is authoritative;
+ * this mirrors it so the UI can say how much room is left without a round trip.
+ *
+ * A ceiling rather than a ration. `IMPORTANT_FLOOR` is what keeps the number
+ * near zero on an ordinary day — this only stops an extraordinary one, or a
+ * scoring bug, from emptying itself into somebody's phone.
+ *
+ * It was 3 per rolling *seven days*, which meant three alerts on a busy Tuesday
+ * bought silence until the following Tuesday, with nothing in the product
+ * saying so. Quiet should mean nothing important happened, never that a quota
+ * ran out days ago.
+ */
+export const IMPORTANT_DAILY_CAP = 10;
 
 export type AlertHit = { eventId: string; importance: number };
 
@@ -51,8 +63,8 @@ export function shouldAlert(breaking: BreakingMode, importance: number): boolean
   return importance >= IMPORTANT_FLOOR;
 }
 
-export function remainingImportantSlots(alreadyThisWeek: number): number {
-  return Math.max(0, IMPORTANT_WEEKLY_CAP - alreadyThisWeek);
+export function remainingImportantSlots(alreadyToday: number): number {
+  return Math.max(0, IMPORTANT_DAILY_CAP - alreadyToday);
 }
 
 export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertReport> {
