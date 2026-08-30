@@ -43,7 +43,6 @@ function Topics() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [configs, setConfigs] = useState<Record<string, TopicConfig>>({});
-  const [note, setNote] = useState("Only tell me about React when something significant happens.");
   const [limitPrompt, setLimitPrompt] = useState(false);
 
   // The server clips on save and match. Anything already stored past the cap
@@ -266,21 +265,6 @@ function Topics() {
             );
           })}
         </div>
-      </section>
-
-      <section className="mt-12">
-        <h2 className="text-[17px] font-medium tracking-tight">
-          Tell us anything else you want us to know
-        </h2>
-        <p className="mt-2 text-[13.5px] text-muted-foreground">
-          Plain language. This is applied when your briefing is written.
-        </p>
-        <textarea
-          rows={3}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          className="mt-4 w-full resize-none rounded-2xl border border-input bg-surface px-4 py-3 text-[14.5px] outline-none focus:border-signal"
-        />
       </section>
 
       {/* Shown once, on the add that crosses the line. The list itself carries

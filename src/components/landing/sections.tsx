@@ -49,8 +49,8 @@ const DIFFS = [
     body: "When thirty outlets cover one announcement, you get one story with all thirty sources attached — not thirty entries to mentally deduplicate at 7am.",
   },
   {
-    title: "It explains why you care",
-    body: "Not a generic summary. A line about what this changes given what you actually follow, written for you and nobody else.",
+    title: "It tells you what changed",
+    body: "Not just what was announced — how things stood before, where they stand now, and why that's worth thirty seconds of your morning. Want to go deeper on one of them? Ask, and you'll get a straight answer about that story.",
   },
   {
     title: "It gets sharper without being asked",
@@ -67,6 +67,10 @@ const DIFFS = [
   {
     title: "You control the volume, precisely",
     body: "A density dial from “only if it's genuinely major” to “tell me everything”. Exclusions that actually hold: a term you've excluded cannot be smuggled back in by a topic you follow.",
+  },
+  {
+    title: "Add the sources you'd hate to miss",
+    body: "Your local paper. A niche blog nobody else reads. The team page that posts before anyone reports it. On a paid plan, hand nyuz a feed it isn't watching yet and it joins the rest of your morning.",
   },
 ];
 
@@ -99,15 +103,26 @@ export function WhyDifferent() {
   );
 }
 
-const PIPE = [
-  "Sources",
-  "Collection",
-  "Deduplication",
-  "Event detection",
-  "AI classification",
-  "Importance scoring",
-  "Interest matching",
-  "Personalised briefing",
+/**
+ * The stages, in order, with the ones that are about *you* marked.
+ *
+ * `yours` was an index comparison (`i > 5`) until a stage landed in the middle
+ * of the list and silently moved the boundary. A flag per row says what the
+ * colour means, so inserting a stage cannot recolour its neighbours.
+ *
+ * Labels are the reader's words, not ours — "duplicates merged", not
+ * "deduplication". The internal names of these stages live in
+ * `pipeline-explainer.tsx`, on the page written for somebody who asked.
+ */
+const PIPE: { label: string; yours?: boolean }[] = [
+  { label: "Sources" },
+  { label: "Collected through the day" },
+  { label: "Duplicates merged" },
+  { label: "One story, not thirty articles" },
+  { label: "Read and understood, once" },
+  { label: "Weighed for importance" },
+  { label: "Matched to what you follow", yours: true },
+  { label: "Your briefing", yours: true },
 ];
 
 export function AiTrust() {
@@ -122,25 +137,31 @@ export function AiTrust() {
         </h2>
         <div className="mt-7 space-y-3 text-[14.5px] leading-relaxed text-muted-foreground">
           <p>
-            We don&apos;t ask a model to read the internet again for every person. News is collected
-            once, duplicates are grouped, and each event is analysed a single time.
+            We don&apos;t ask AI to read the internet again for every person. The news is gathered
+            once, the duplicates are folded together, and each story is read properly a single time
+            — including the part about what it actually changes.
           </p>
           <p>
-            What&apos;s stored is structured: entities, topics, importance, timing. Matching your
-            interests against that is a database query, not a model call.
+            Working out which of those stories belong in your morning happens quietly on our side,
+            using what you told us you care about. Your interests aren&apos;t handed to anyone to do
+            it.
+          </p>
+          <p>
+            Nothing is written separately for each subscriber. That&apos;s what keeps your briefing
+            quick, and it&apos;s a good part of why nyuz costs what it does.
           </p>
         </div>
       </div>
       <ol className="relative space-y-2 pl-6">
         <span className="absolute bottom-3 left-[7px] top-3 w-px bg-border" />
         {PIPE.map((p, i) => (
-          <li key={p} className="reveal relative" style={{ transitionDelay: `${i * 70}ms` }}>
+          <li key={p.label} className="reveal relative" style={{ transitionDelay: `${i * 70}ms` }}>
             <span
               className="absolute -left-6 top-3 h-[7px] w-[7px] rounded-full"
-              style={{ background: i > 5 ? "var(--signal)" : "var(--border)" }}
+              style={{ background: p.yours ? "var(--signal)" : "var(--border)" }}
             />
             <div className="rounded-xl border border-hairline bg-surface px-4 py-2.5 text-[14px]">
-              {p}
+              {p.label}
             </div>
           </li>
         ))}
@@ -150,14 +171,18 @@ export function AiTrust() {
 }
 
 export function Infrastructure() {
+  // No count on the left-hand column. "327 monitored feeds" sat here long after
+  // onboarding's identical claim was removed for being a number nobody counted;
+  // the real figure moves every week and a stale one is worse than none. What
+  // each stage *does* is stable, and that is what this table is for.
   const rows = [
-    ["News sources", "327 monitored feeds"],
-    ["Ingestion", "Normalised, timestamped"],
-    ["Deduplicate", "Near-identical articles grouped"],
-    ["AI analysis", "One pass per event"],
-    ["Event database", "Structured metadata"],
-    ["User interests", "Deterministic matching"],
-    ["Personalisation", "Short, per-person generation"],
+    ["News sources", "Curated feeds, plus the ones you add"],
+    ["Collection", "Gathered and timestamped"],
+    ["Duplicates", "Near-identical articles folded together"],
+    ["Understanding", "Each story read once, properly"],
+    ["Story record", "Kept, searchable, always attributed"],
+    ["Your interests", "Matched on our side"],
+    ["Your briefing", "Built from what has already been read"],
   ];
   return (
     <div>
@@ -191,28 +216,28 @@ export function Infrastructure() {
         <div className="flex flex-col justify-between gap-5">
           <div className="rounded-3xl border border-hairline bg-surface-2 p-7">
             <p className="font-serif text-3xl leading-snug">
-              Understand a story once. Personalise it many times.
+              Understand a story once. Deliver it to everyone it matters to.
             </p>
           </div>
           <div className="rounded-3xl border border-hairline bg-surface p-7">
             <p className="text-[12px] uppercase tracking-[0.16em] text-muted-foreground">
-              One event. Thousands of people. One analysis.
+              One story. Thousands of people. Read once.
             </p>
             <div className="mt-6 space-y-4">
               <ArchRow
-                label="Per-user AI on every article"
+                label="Re-reading everything, for every person"
                 tone="bad"
-                note="Cost grows with users × articles"
+                note="Costs climb with every new subscriber"
               />
               <ArchRow
-                label="Shared event intelligence"
+                label="Read once, shared by everyone"
                 tone="good"
-                note="Analysis once, matching by query"
+                note="Costs follow the news, not the audience"
               />
             </div>
             <p className="mt-6 text-[13px] leading-relaxed text-muted-foreground">
-              Deterministic filtering runs before any model call. Deeper explanations run only when
-              you ask for them.
+              The quick, obvious work happens first, so the slow work only ever sees what&apos;s
+              left. Anything deeper happens when you ask for it.
             </p>
           </div>
         </div>
