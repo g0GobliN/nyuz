@@ -25,8 +25,19 @@ export type PlanState = {
   asksPerDay: number;
   retention: string;
   retentionDays: number;
+  /**
+   * Set when Stripe's `cancel_at_period_end` is true — the plan is still the
+   * paid one until this date, then the webhook drops it to free (0041).
+   */
+  cancelsOn: Date | null;
   /** True while the row is still loading — treat limits as unknown, not exceeded. */
   loading: boolean;
+};
+
+type SubscriptionRow = {
+  plan: PlanTier;
+  cancel_at_period_end: boolean;
+  current_period_end: string | null;
 };
 
 export function usePlan(): PlanState {
@@ -39,22 +50,27 @@ export function usePlan(): PlanState {
     // return an RLS-empty result that is indistinguishable from "free".
     enabled: Boolean(userId),
     staleTime: 60_000,
-    queryFn: async (): Promise<PlanTier> => {
+    queryFn: async (): Promise<SubscriptionRow> => {
       const { data, error } = await getSupabaseBrowserClient()
         .from("subscriptions")
-        .select("plan")
+        .select("plan, cancel_at_period_end, current_period_end")
         .maybeSingle();
 
       // Falling back to the most restrictive plan on error is the safe
       // direction: it warns somebody who did not need warning, rather than
       // silently letting a Free reader build a briefing that will be truncated.
-      if (error || !data) return "free";
-      return data.plan;
+      if (error || !data)
+        return { plan: "free", cancel_at_period_end: false, current_period_end: null };
+      return data;
     },
   });
 
-  const plan: PlanTier = data ?? "free";
+  const plan: PlanTier = data?.plan ?? "free";
   const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+  const cancelsOn =
+    data?.cancel_at_period_end && data.current_period_end
+      ? new Date(data.current_period_end)
+      : null;
 
   return {
     plan,
@@ -63,6 +79,7 @@ export function usePlan(): PlanState {
     asksPerDay: limits.asksPerDay,
     retention: limits.retention,
     retentionDays: limits.retentionDays,
+    cancelsOn,
     loading: authLoading || isLoading,
   };
 }

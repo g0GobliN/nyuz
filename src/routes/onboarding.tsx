@@ -270,7 +270,7 @@ function StepTopics({
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search topics — music, sports, politics, games…"
-          className="h-12 w-full bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
+          className="h-12 w-full bg-transparent text-[16px] outline-none placeholder:text-muted-foreground md:text-[15px]"
         />
       </div>
 
@@ -332,7 +332,7 @@ function StepIgnore({ draft, patch }: StepProps) {
         <textarea
           rows={3}
           placeholder="Only tell me about React when something significant happens."
-          className="mt-2 w-full resize-none rounded-2xl border border-input bg-surface px-4 py-3 text-[14.5px] outline-none placeholder:text-muted-foreground focus:border-signal"
+          className="mt-2 w-full resize-none rounded-2xl border border-input bg-surface px-4 py-3 text-[16px] outline-none placeholder:text-muted-foreground focus:border-signal md:text-[14.5px]"
         />
       </div>
     </div>
@@ -368,7 +368,7 @@ function StepSchedule({ draft, patch }: StepProps) {
             id="tz"
             value={draft.timezone}
             onChange={(e) => patch({ timezone: e.target.value })}
-            className="mt-2 h-12 w-full rounded-2xl border border-input bg-surface px-4 text-[14.5px] outline-none focus:border-signal"
+            className="mt-2 h-12 w-full rounded-2xl border border-input bg-surface px-4 text-[16px] outline-none focus:border-signal md:text-[14.5px]"
           >
             {ZONES.map((z) => (
               <option key={z} value={z}>

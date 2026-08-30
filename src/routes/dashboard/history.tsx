@@ -51,7 +51,7 @@ function HistoryPage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Show me everything about OpenAI"
-            className="h-12 w-full bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
+            className="h-12 w-full bg-transparent text-[16px] outline-none placeholder:text-muted-foreground md:text-[15px]"
           />
         </div>
 

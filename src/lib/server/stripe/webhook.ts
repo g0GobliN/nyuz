@@ -186,6 +186,7 @@ async function onSubscriptionChanged(
       status,
       current_period_end: periodEnd?.toISOString() ?? null,
       stripe_subscription_id: str(object["id"]),
+      cancel_at_period_end: cancelling,
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", userId);
@@ -226,6 +227,7 @@ async function onSubscriptionDeleted(db: Db, object: Record<string, unknown>): P
       status: "canceled",
       current_period_end: null,
       stripe_subscription_id: null,
+      cancel_at_period_end: false,
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", userId);

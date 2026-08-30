@@ -10,12 +10,14 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AboutRouteImport } from './routes/about'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as HowItWorksRouteImport } from './routes/how-it-works'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as PricingRouteImport } from './routes/pricing'
+import { Route as SupportRouteImport } from './routes/support'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminAccessRouteImport } from './routes/admin/access'
 import { Route as AdminAiRouteImport } from './routes/admin/ai'
@@ -43,6 +45,11 @@ import { Route as DashboardStoryIdRouteImport } from './routes/dashboard/story/$
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AboutRoute = AboutRouteImport.update({
+  id: '/about',
+  path: '/about',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -73,6 +80,11 @@ const OnboardingRoute = OnboardingRouteImport.update({
 const PricingRoute = PricingRouteImport.update({
   id: '/pricing',
   path: '/pricing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupportRoute = SupportRouteImport.update({
+  id: '/support',
+  path: '/support',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
@@ -193,12 +205,14 @@ const DashboardStoryIdRoute = DashboardStoryIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/how-it-works': typeof HowItWorksRoute
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
+  '/support': typeof SupportRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/ai': typeof AdminAiRoute
   '/admin/audit': typeof AdminAuditRoute
@@ -225,10 +239,12 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/auth': typeof AuthRoute
   '/how-it-works': typeof HowItWorksRoute
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
+  '/support': typeof SupportRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/ai': typeof AdminAiRoute
   '/admin/audit': typeof AdminAuditRoute
@@ -256,12 +272,14 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/about': typeof AboutRoute
   '/admin': typeof AdminRouteWithChildren
   '/auth': typeof AuthRoute
   '/dashboard': typeof DashboardRouteWithChildren
   '/how-it-works': typeof HowItWorksRoute
   '/onboarding': typeof OnboardingRoute
   '/pricing': typeof PricingRoute
+  '/support': typeof SupportRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/ai': typeof AdminAiRoute
   '/admin/audit': typeof AdminAuditRoute
@@ -290,12 +308,14 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/about'
     | '/admin'
     | '/auth'
     | '/dashboard'
     | '/how-it-works'
     | '/onboarding'
     | '/pricing'
+    | '/support'
     | '/admin/access'
     | '/admin/ai'
     | '/admin/audit'
@@ -322,10 +342,12 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/about'
     | '/auth'
     | '/how-it-works'
     | '/onboarding'
     | '/pricing'
+    | '/support'
     | '/admin/access'
     | '/admin/ai'
     | '/admin/audit'
@@ -352,12 +374,14 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/about'
     | '/admin'
     | '/auth'
     | '/dashboard'
     | '/how-it-works'
     | '/onboarding'
     | '/pricing'
+    | '/support'
     | '/admin/access'
     | '/admin/ai'
     | '/admin/audit'
@@ -385,12 +409,14 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AboutRoute: typeof AboutRoute
   AdminRoute: typeof AdminRouteWithChildren
   AuthRoute: typeof AuthRoute
   DashboardRoute: typeof DashboardRouteWithChildren
   HowItWorksRoute: typeof HowItWorksRoute
   OnboardingRoute: typeof OnboardingRoute
   PricingRoute: typeof PricingRoute
+  SupportRoute: typeof SupportRoute
   BlogSlugRoute: typeof BlogSlugRoute
   LegalDocRoute: typeof LegalDocRoute
   BlogIndexRoute: typeof BlogIndexRoute
@@ -403,6 +429,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/about': {
+      id: '/about'
+      path: '/about'
+      fullPath: '/about'
+      preLoaderRoute: typeof AboutRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -445,6 +478,13 @@ declare module '@tanstack/react-router' {
       path: '/pricing'
       fullPath: '/pricing'
       preLoaderRoute: typeof PricingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support': {
+      id: '/support'
+      path: '/support'
+      fullPath: '/support'
+      preLoaderRoute: typeof SupportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/': {
@@ -671,12 +711,14 @@ const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AboutRoute: AboutRoute,
   AdminRoute: AdminRouteWithChildren,
   AuthRoute: AuthRoute,
   DashboardRoute: DashboardRouteWithChildren,
   HowItWorksRoute: HowItWorksRoute,
   OnboardingRoute: OnboardingRoute,
   PricingRoute: PricingRoute,
+  SupportRoute: SupportRoute,
   BlogSlugRoute: BlogSlugRoute,
   LegalDocRoute: LegalDocRoute,
   BlogIndexRoute: BlogIndexRoute,

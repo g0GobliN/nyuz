@@ -382,7 +382,7 @@ function AskPanel({ eventId, dailyLimit }: { eventId: string; dailyLimit: number
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void ask(q)}
           placeholder="A question about this story"
-          className="h-11 flex-1 rounded-full border border-input bg-surface px-4 text-[14px] outline-none placeholder:text-muted-foreground focus:border-signal"
+          className="h-11 flex-1 rounded-full border border-input bg-surface px-4 text-[16px] outline-none placeholder:text-muted-foreground focus:border-signal md:text-[14px]"
         />
         <Button size="sm" onClick={() => void ask(q)} disabled={asking || !q.trim()}>
           {asking ? <LogoLoader className="h-4 w-4" tone="current" label="Asking" /> : "Ask"}

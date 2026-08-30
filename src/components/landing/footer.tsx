@@ -47,6 +47,9 @@ export function SiteFooter({
             <Link to="/pricing" className={footerLink}>
               Pricing
             </Link>
+            <Link to="/support" className={footerLink}>
+              Support
+            </Link>
             {blogOn ? (
               <Link to="/blog" className={footerLink}>
                 Blog
@@ -90,11 +93,8 @@ export function SiteFooter({
           </FooterColumn>
 
           <FooterColumn title="Company">
-            <Link to="/legal/$doc" params={{ doc: "contact" }} className={footerLink}>
-              Contact
-            </Link>
-            <Link to="/legal/$doc" params={{ doc: "tokushoho" }} className={footerLink}>
-              Commercial disclosure
+            <Link to="/about" className={footerLink}>
+              About
             </Link>
             <Link to="/auth" className={footerLink}>
               Sign in

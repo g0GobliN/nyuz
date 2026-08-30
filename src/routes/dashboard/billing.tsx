@@ -61,7 +61,7 @@ function Billing() {
   const { prefs } = usePrefs();
   // The plan comes from the subscription row now, not from local state that
   // reset to "free" on every visit regardless of what the reader was paying.
-  const { plan: current } = usePlan();
+  const { plan: current, cancelsOn } = usePlan();
   const [annual, setAnnual] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -157,6 +157,28 @@ function Billing() {
           <p className="mt-4 text-[12.5px] text-destructive">
             You have more topics than this plan allows. The lowest-weighted ones are paused until
             you upgrade or remove some.
+          </p>
+        ) : null}
+
+        {cancelsOn ? (
+          <p className="mt-4 rounded-xl border border-hairline bg-surface-2 px-4 py-3 text-[12.5px] text-muted-foreground">
+            Cancelled — you keep {plan.name} until{" "}
+            <span className="text-foreground">
+              {cancelsOn.toLocaleDateString(undefined, {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            </span>
+            , then the account moves to Free. Changed your mind?{" "}
+            <button
+              onClick={() => void manage()}
+              disabled={busy !== null}
+              className="text-foreground underline underline-offset-4 disabled:opacity-50"
+            >
+              Resume in Stripe
+            </button>
+            .
           </p>
         ) : null}
       </section>

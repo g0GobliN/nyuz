@@ -211,7 +211,7 @@ function CustomSources() {
             autoComplete="off"
             spellCheck={false}
             disabled={atLimit}
-            className="h-11 min-w-[260px] flex-1 rounded-2xl border border-input bg-background px-4 font-mono text-[13px] outline-none focus:border-signal disabled:opacity-50"
+            className="h-11 min-w-[260px] flex-1 rounded-2xl border border-input bg-background px-4 font-mono text-[16px] outline-none focus:border-signal disabled:opacity-50 md:text-[13px]"
           />
           <Button
             type="submit"

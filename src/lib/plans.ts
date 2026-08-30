@@ -127,7 +127,8 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     alerts: "none",
     alertDailyCap: 0,
     inactivePauseDays: 30,
-    monthlyAiTokenCap: 400_000,
+    // Reduced to 50K tokens for student budget. 400K per free user could become expensive.
+    monthlyAiTokenCap: 50_000,
   },
   personal: {
     topics: 15,
@@ -142,7 +143,8 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     alerts: "important",
     alertDailyCap: 10,
     inactivePauseDays: null,
-    monthlyAiTokenCap: 1_500_000,
+    // Reduced for student budget. Increase after covering costs with paid users.
+    monthlyAiTokenCap: 200_000,
   },
   pro: {
     topics: Infinity,
@@ -160,7 +162,8 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     alerts: "configurable",
     alertDailyCap: 25,
     inactivePauseDays: null,
-    monthlyAiTokenCap: 4_000_000,
+    // Reduced for student budget. Increase after covering costs with paid users.
+    monthlyAiTokenCap: 500_000,
   },
 };
 

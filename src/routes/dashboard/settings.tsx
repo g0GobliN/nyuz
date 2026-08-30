@@ -59,7 +59,7 @@ function Settings() {
                 value={prefs.name}
                 onChange={(e) => update({ name: e.target.value })}
                 onBlur={save}
-                className="mt-2 h-11 w-full rounded-2xl border border-input bg-background px-4 text-[14.5px] outline-none focus:border-signal"
+                className="mt-2 h-11 w-full rounded-2xl border border-input bg-background px-4 text-[16px] outline-none focus:border-signal md:text-[14.5px]"
               />
               <p className="mt-2 text-[12px] text-muted-foreground">
                 Used in the greeting at the top of every briefing.
@@ -75,7 +75,7 @@ function Settings() {
                 key={email}
                 defaultValue={email}
                 onBlur={save}
-                className="mt-2 h-11 w-full rounded-2xl border border-input bg-background px-4 text-[14.5px] outline-none focus:border-signal"
+                className="mt-2 h-11 w-full rounded-2xl border border-input bg-background px-4 text-[16px] outline-none focus:border-signal md:text-[14.5px]"
               />
               <p className="mt-2 text-[12px] text-muted-foreground">
                 Changing this sends a confirmation link to the new address.

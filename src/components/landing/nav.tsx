@@ -67,6 +67,8 @@ type NavLink = { to: string; label: string };
 const BASE_LINKS: NavLink[] = [
   { to: "/how-it-works", label: "How it works" },
   { to: "/pricing", label: "Pricing" },
+  { to: "/about", label: "About" },
+  { to: "/support", label: "Support" },
 ];
 
 function safeAnnouncementHref(href: string): boolean {

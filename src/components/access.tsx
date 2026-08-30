@@ -135,7 +135,7 @@ export function WaitlistPanel({ waitlistOpen }: { waitlistOpen: boolean }) {
           onChange={(e) => setName(e.target.value)}
           placeholder="Your name (optional)"
           autoComplete="name"
-          className="h-11 w-full rounded-xl border border-input bg-background px-3.5 text-[14px] outline-none transition-colors focus:border-signal"
+          className="h-11 w-full rounded-xl border border-input bg-background px-3.5 text-[16px] outline-none transition-colors focus:border-signal md:text-[14px]"
         />
         <input
           type="email"
@@ -144,7 +144,7 @@ export function WaitlistPanel({ waitlistOpen }: { waitlistOpen: boolean }) {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@work.com"
           autoComplete="email"
-          className="mt-2.5 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-[14px] outline-none transition-colors focus:border-signal"
+          className="mt-2.5 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-[16px] outline-none transition-colors focus:border-signal md:text-[14px]"
         />
         <Button type="submit" className="mt-3 w-full" disabled={busy || email.trim() === ""}>
           {busy ? (
