@@ -1,6 +1,23 @@
 # Project status
 
-Last reviewed: 26 August 2026.
+Last reviewed: 26 August 2026. **Counts and the V2 rows refreshed 30 August 2026**,
+verified against the live database (`npm run db:status`, `npm run verify:live` — 52
+checks, 0 failures). The narrative below each item is still the 26 August review and
+has not been re-walked claim by claim; only the counts and the V2 entries are current.
+
+Real growth happened in the gap: the source list and topic vocabulary both expanded
+well past technology into general news. One `subscriptions` row shows
+`plan = 'pro', status = 'active'` with **no Stripe customer or subscription id** —
+checked directly, not assumed — so it did not come through checkout. Not a paying
+customer; "zero paying customers" below still holds.
+
+**A security fix landed on 30 August.** Ten `security definer` functions were
+executable by an unauthenticated caller, one of which could write to another user's
+account. Found by live probing, not by any static check; closed by `0036` and
+re-verified. Full account in [`track.md`](track.md).
+
+See [`v2-report.md`](v2-report.md) for the V2 architecture status against all 40
+acceptance criteria.
 
 nyuz is **in development and not accepting customers.** This page is the honest,
 itemised version of that sentence.
@@ -28,11 +45,18 @@ account that owns the key. A stranger cannot receive mail until
 | Billing (checkout, portal, webhook)                    | **Built** (test mode; unproven against live)                      |
 | Lifecycle email (account, billing, pause)              | **Built** — Free warns at 23 inactive days, pauses at 30          |
 | Onboarding flow                                        | **Built**, persisted to the account                               |
-| Source list (64 live feeds)                            | **Built**                                                         |
-| Ingestion pipeline                                     | **Built** — 1040 articles stored                                  |
-| Clustering (articles → events)                         | **Built** — 112 articles in 98 events                             |
-| Analysis and scoring (events → understood)             | **Built** — 98 of 99 analysed; 181,980 tokens                     |
-| Matching (events → readers)                            | **Built** — 29 rows in `user_events`, free                        |
+| Source list (87 feeds, 83 active)                      | **Built** — expanded past technology into general news; see `track.md` |
+| Ingestion pipeline                                     | **Built** — 7,035 articles stored                                 |
+| Clustering (articles → events)                         | **Built** — 2,007 articles across 1,803 events                    |
+| Analysis and scoring (events → understood)             | **Built** — 549 analysed; 718,351 tokens; 1,254 backlog growing faster than `ANALYSE_LIMIT` drains it — see `track.md` |
+| Matching (events → readers)                            | **Built** — 157 rows in `user_events`, free                       |
+| **V2: shared event impacts**                           | **Live** — one shared explanation per event, written inside the analysis call at zero extra token cost. The per-reader-per-story model call is gone |
+| **V2: pre-analysis demand gate**                       | **Live** — skipped 6/6 events in a real batch, 0 model calls      |
+| **V2: cached translation**                             | **Live schema, no rows** — six languages, keyed (event, language, content version). Nothing generated: no reader has chosen a non-English language |
+| **V2: custom sources**                                 | **Live** — Free 0 / Personal 5 / Pro 25, enforced in Postgres under an advisory lock |
+| **V2: demand-driven collection, adaptive polling**     | **Live, flags off** — tiers and eligibility computed and visible; behaviour unchanged until enabled |
+| **V2: cluster v2 skip**                                | **Built, off** — no shadow measurements exist yet                 |
+| **V2: cost intelligence**                              | **Live** — `/admin/cost`, counted from rows only                  |
 | Day-one backfill for a new account                     | **Built** — one query; pays only if empty                         |
 | Digest generation and delivery                         | **Built** — email only; quiet days skip honestly                  |
 | Breaking alerts                                        | **Built** — none Free, 3/week Personal, 10/day Pro; atomic claims |

@@ -132,6 +132,7 @@ describe("notification row", () => {
     density: 62,
     frequency: "weekly",
     breaking: "everything",
+    language: "ja",
     paused: true,
   };
 
@@ -151,7 +152,34 @@ describe("notification row", () => {
       density: prefs.density,
       frequency: prefs.frequency,
       breaking: prefs.breaking,
+      language: prefs.language,
       paused: prefs.paused,
+    });
+  });
+
+  describe("language", () => {
+    it("falls back to English rather than throwing on a tag this build does not know", () => {
+      // A rolled-back deploy, a hand-edited row, or a tag removed from
+      // LANGUAGES. Costs one briefing in English; must not fail the load.
+      const row = {
+        ...prefsToNotificationRow(prefs),
+        user_id: "u1",
+        instructions: "",
+        updated_at: "",
+        language: "xx-Fake",
+      } as NotificationPreferences;
+
+      expect(notificationRowToPrefs(row).language).toBe("en");
+    });
+
+    it("clamps on write too, so a stale blob cannot fail the whole save", () => {
+      // The column carries a format check — one bad field would reject every
+      // other preference in the same statement.
+      const written = prefsToNotificationRow({
+        ...prefs,
+        language: "not a tag" as Prefs["language"],
+      });
+      expect(written.language).toBe("en");
     });
   });
 

@@ -42,6 +42,12 @@ export type AlertAccess = "none" | "important" | "configurable";
 export type PlanLimits = {
   topics: number;
   prioritySources: number;
+  /**
+   * Sources this plan may ask nyuz to monitor on its behalf (plan2 §62).
+   * Enforced in the database by `claim_custom_source`, not here — a number
+   * in a bundle a browser can read is a display value, never a guard.
+   */
+  customSources: number;
   retention: string;
   retentionDays: number;
   asksPerDay: number;
@@ -72,6 +78,10 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   free: {
     topics: 3,
     prioritySources: 3,
+    // Zero on purpose (plan2 §63): a free reader consumes the already-active
+    // shared network. Adding a source creates a new crawler, which is the one
+    // thing free growth must not be able to do.
+    customSources: 0,
     retention: "7-day history",
     retentionDays: 7,
     asksPerDay: 0,
@@ -87,6 +97,7 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   personal: {
     topics: 15,
     prioritySources: 15,
+    customSources: 5,
     retention: "90-day history",
     retentionDays: 90,
     asksPerDay: 10,
@@ -102,6 +113,10 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   pro: {
     topics: Infinity,
     prioritySources: Infinity,
+    // Finite where topics are not: each one is a real crawler on a schedule,
+    // so "unlimited" here would be an unbounded infrastructure commitment
+    // rather than a generous row limit (plan2 §18 — all tiers stay bounded).
+    customSources: 25,
     retention: "1-year history",
     retentionDays: 365,
     asksPerDay: 15,

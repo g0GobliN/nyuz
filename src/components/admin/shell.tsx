@@ -3,6 +3,7 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
   AlertTriangle,
   BarChart3,
+  Coins,
   Cpu,
   FileText,
   LayoutTemplate,
@@ -51,6 +52,9 @@ const NAV: NavEntry[] = [
   // pipeline reads, and what it thinks with.
   { to: "/admin/sources", label: "Sources", icon: Rss },
   { to: "/admin/ai", label: "AI providers", icon: Cpu },
+  // Next to AI providers for the same reason: what the pipeline thinks with,
+  // and what that thinking costs.
+  { to: "/admin/cost", label: "Cost", icon: Coins },
   { to: "/admin/content", label: "Site content", icon: LayoutTemplate },
   { to: "/admin/audit", label: "Audit log", icon: ScrollText },
 ];

@@ -15,6 +15,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
     "ci": "npm run typecheck && npm run lint && npm run test && npm run build",
     "db:status": "node --env-file=.env scripts/tsrun.mjs scripts/db-status.ts",
+    "verify:v2": "node --env-file=.env scripts/tsrun.mjs scripts/verify-v2.ts",
+    "verify:live": "node --env-file=.env scripts/tsrun.mjs scripts/verify-live.ts",
     "db:seed": "node --env-file=.env scripts/tsrun.mjs scripts/apply-seed.ts",
     "check:feeds": "node --env-file=.env scripts/tsrun.mjs scripts/check-feeds.ts",
     "pipeline": "node --env-file=.env scripts/tsrun.mjs scripts/pipeline.ts",

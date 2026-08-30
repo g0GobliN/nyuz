@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { ExternalLink, Plus, RotateCcw, Search } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { ExternalLink, Plus, RotateCcw, Search, Tag } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   ConsoleHeader,
   ErrorNote,
@@ -25,7 +25,15 @@ import {
   setSourceActive,
   type SourceSummary,
 } from "@/lib/server/sources";
-import type { SourceKind } from "@/lib/supabase/types";
+import {
+  listSourceDemand,
+  listSourceTopics,
+  listTopicsForAdmin,
+  removeSourceTopic,
+  setSourceTopic,
+  type SourceDemand,
+} from "@/lib/server/source-topics";
+import type { SourceKind, Topic } from "@/lib/supabase/types";
 
 export const Route = createFileRoute("/admin/sources")({ component: SourcesPage });
 
@@ -60,12 +68,54 @@ function SourcesPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [adding, setAdding] = useState(false);
+  const [editingTopicsFor, setEditingTopicsFor] = useState<SourceSummary | null>(null);
 
   const sources = useQuery({
     queryKey: ["admin", "sources"],
     queryFn: () => listSources(),
     staleTime: 30_000,
   });
+
+  // Two small, whole-table reads rather than a join per source — the same
+  // shape as listSources itself, and cheap at this row count.
+  const topics = useQuery({
+    queryKey: ["admin", "topics"],
+    queryFn: () => listTopicsForAdmin(),
+    staleTime: 60_000,
+  });
+  const sourceTopics = useQuery({
+    queryKey: ["admin", "source_topics"],
+    queryFn: () => listSourceTopics(),
+    staleTime: 15_000,
+  });
+  const demand = useQuery({
+    queryKey: ["admin", "source_demand"],
+    queryFn: () => listSourceDemand(),
+    staleTime: 15_000,
+  });
+  const demandBySource = useMemo(
+    () => new Map((demand.data ?? []).map((row) => [row.source_id, row])),
+    [demand.data],
+  );
+  // null (not an empty array) means 0020 has not been applied yet — same
+  // "missing function" distinction listSources already makes for 0007.
+  const demandMissing = demand.data === null;
+
+  const topicById = useMemo(
+    () => new Map((topics.data ?? []).map((t) => [t.id, t])),
+    [topics.data],
+  );
+  const topicsBySource = useMemo(() => {
+    const map = new Map<string, Topic[]>();
+    for (const row of sourceTopics.data ?? []) {
+      const topic = topicById.get(row.topic_id);
+      if (!topic) continue;
+      const list = map.get(row.source_id) ?? [];
+      list.push(topic);
+      map.set(row.source_id, list);
+    }
+    return map;
+  }, [sourceTopics.data, topicById]);
 
   // Mutations live here rather than in the row so there is one pair of them for
   // the whole table instead of two per feed, and one place for a failure to be
@@ -183,6 +233,20 @@ function SourcesPage() {
             </p>
           ) : null}
 
+          {demandMissing ? (
+            <p className="mt-3 text-[11.5px] leading-relaxed text-signal">
+              Demand is unavailable: <code className="font-mono">admin_source_demand()</code> is not
+              in this database. Apply migration 0020 to see how many currently-eligible readers each
+              source's topics reach.
+            </p>
+          ) : (
+            <p className="mt-3 text-[11.5px] leading-relaxed text-muted-foreground">
+              Demand counts readers whose interests match this source's topics — not currently
+              paused, banned or auto-paused for inactivity. Nothing is fetched or analysed
+              differently based on this number yet; it exists to be checked against reality first.
+            </p>
+          )}
+
           <ErrorNote error={toggle.error} />
           <ErrorNote error={reset.error} />
 
@@ -198,11 +262,13 @@ function SourcesPage() {
           ) : (
             <>
               <div className="-mx-6 mt-5 overflow-x-auto sm:-mx-7">
-                <table className="w-full min-w-[860px] text-left text-[13.5px]">
+                <table className="w-full min-w-[1080px] text-left text-[13.5px]">
                   <thead>
                     <tr className="border-y border-hairline text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
                       <Th className="pl-6 sm:pl-7">Source</Th>
                       <Th>Kind</Th>
+                      <Th>Topics</Th>
+                      <Th className="text-right">Demand</Th>
                       <Th className="text-right">Articles</Th>
                       <Th>Latest</Th>
                       <Th>Last fetched</Th>
@@ -217,11 +283,15 @@ function SourcesPage() {
                       <SourceRow
                         key={row.id}
                         source={row}
+                        topics={topicsBySource.get(row.id) ?? []}
+                        demand={demandBySource.get(row.id) ?? null}
+                        demandMissing={demandMissing}
                         busy={busy}
                         onToggle={() =>
                           toggle.mutate({ data: { id: row.id, active: !row.active } })
                         }
                         onReset={() => reset.mutate({ data: { id: row.id } })}
+                        onEditTopics={() => setEditingTopicsFor(row)}
                       />
                     ))}
                   </tbody>
@@ -239,6 +309,15 @@ function SourcesPage() {
       </div>
 
       {adding ? <AddDialog onClose={() => setAdding(false)} /> : null}
+
+      {editingTopicsFor ? (
+        <TopicsDialog
+          source={editingTopicsFor}
+          allTopics={topics.data ?? []}
+          current={topicsBySource.get(editingTopicsFor.id) ?? []}
+          onClose={() => setEditingTopicsFor(null)}
+        />
+      ) : null}
     </>
   );
 }
@@ -269,14 +348,22 @@ function Th({ children, className }: { children: ReactNode; className?: string |
 
 function SourceRow({
   source,
+  topics,
+  demand,
+  demandMissing,
   busy,
   onToggle,
   onReset,
+  onEditTopics,
 }: {
   source: SourceSummary;
+  topics: Topic[];
+  demand: SourceDemand | null;
+  demandMissing: boolean;
   busy: boolean;
   onToggle: () => void;
   onReset: () => void;
+  onEditTopics: () => void;
 }) {
   return (
     <tr className="border-b border-hairline">
@@ -309,6 +396,46 @@ function SourceRow({
       </td>
 
       <td className="py-3 pr-4 text-muted-foreground">{source.kind}</td>
+
+      <td className="max-w-[200px] py-3 pr-4">
+        <button
+          onClick={onEditTopics}
+          className="flex flex-wrap items-center gap-1 text-left transition-opacity hover:opacity-70"
+          aria-label={`Edit topics for ${source.name}`}
+        >
+          {topics.length === 0 ? (
+            <span className="inline-flex items-center gap-1 text-[11.5px] text-muted-foreground">
+              <Tag className="h-3 w-3" /> none
+            </span>
+          ) : (
+            <>
+              {topics.slice(0, 3).map((t) => (
+                <Pill key={t.id} tone="outline">
+                  {t.label}
+                </Pill>
+              ))}
+              {topics.length > 3 ? (
+                <span className="text-[11px] text-muted-foreground">+{topics.length - 3}</span>
+              ) : null}
+            </>
+          )}
+        </button>
+      </td>
+
+      <td className="py-3 pr-4 text-right tabular-nums">
+        {demandMissing || demand === null ? (
+          <span
+            className="text-muted-foreground"
+            title={demandMissing ? "Apply migration 0020 to compute this" : "No topics mapped yet"}
+          >
+            —
+          </span>
+        ) : (
+          <span title={`${formatNumber(demand.paid_interested_users)} on a paid plan`}>
+            {formatNumber(demand.interested_users)}
+          </span>
+        )}
+      </td>
 
       <td className="py-3 pr-4 text-right tabular-nums">
         {source.article_count === null ? (
@@ -463,6 +590,89 @@ function AddDialog({ onClose }: { onClose: () => void }) {
             }
           >
             {save.isPending ? "Adding…" : "Add source"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Topics                                                                 */
+/* ---------------------------------------------------------------------- */
+
+const TOPICS_INVALIDATE = [["admin", "source_topics"]];
+
+/**
+ * Toggle which topics a source covers. Every topic in the pool is a chip;
+ * membership is the whole interaction — confidence is set to a flat 0.8 on
+ * add, editable later by SQL or a future refinement, not by this dialog. A
+ * first pass at "does this source cover this topic at all" is worth more
+ * right now than a confidence slider nobody has data to calibrate yet.
+ */
+function TopicsDialog({
+  source,
+  allTopics,
+  current,
+  onClose,
+}: {
+  source: SourceSummary;
+  allTopics: Topic[];
+  current: Topic[];
+  onClose: () => void;
+}) {
+  const currentIds = new Set(current.map((t) => t.id));
+  const add = useConsoleMutation(setSourceTopic, TOPICS_INVALIDATE);
+  const remove = useConsoleMutation(removeSourceTopic, TOPICS_INVALIDATE);
+  const busy = add.isPending || remove.isPending;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8">
+      <button
+        aria-label="Close"
+        onClick={onClose}
+        className="fixed inset-0 bg-foreground/20 backdrop-blur-[2px]"
+      />
+
+      <div className="relative w-full max-w-lg rounded-3xl border border-hairline bg-background p-6 shadow-[var(--shadow-soft)] sm:p-8">
+        <h2 className="display text-2xl">{source.name}</h2>
+        <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">
+          Which topics this source covers. This is the map demand visibility reads from — it does
+          not change what gets fetched or analysed yet.
+        </p>
+
+        <ErrorNote error={add.error} />
+        <ErrorNote error={remove.error} />
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          {allTopics.length === 0 ? (
+            <p className="text-[13px] text-muted-foreground">No topics in the pool yet.</p>
+          ) : (
+            allTopics.map((topic) => {
+              const active = currentIds.has(topic.id);
+              return (
+                <Chip
+                  key={topic.id}
+                  active={active}
+                  disabled={busy}
+                  onClick={() =>
+                    active
+                      ? remove.mutate({ data: { sourceId: source.id, topicId: topic.id } })
+                      : add.mutate({
+                          data: { sourceId: source.id, topicId: topic.id, confidence: 0.8 },
+                        })
+                  }
+                >
+                  {topic.label}
+                </Chip>
+              );
+            })
+          )}
+        </div>
+
+        <div className="mt-6 flex justify-end">
+          <Button variant="ghost" onClick={onClose}>
+            Done
           </Button>
         </div>
       </div>

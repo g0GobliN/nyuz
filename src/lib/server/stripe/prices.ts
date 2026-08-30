@@ -19,6 +19,14 @@ export type PriceEnv = {
   STRIPE_PRICE_PERSONAL_ANNUAL?: string;
   STRIPE_PRICE_PRO_MONTHLY?: string;
   STRIPE_PRICE_PRO_ANNUAL?: string;
+  /**
+   * Prices an existing subscriber is still billed against after a repricing.
+   * Unset until one happens. See the `legacy` note on CATALOGUE.
+   */
+  STRIPE_PRICE_PERSONAL_MONTHLY_LEGACY?: string;
+  STRIPE_PRICE_PERSONAL_ANNUAL_LEGACY?: string;
+  STRIPE_PRICE_PRO_MONTHLY_LEGACY?: string;
+  STRIPE_PRICE_PRO_ANNUAL_LEGACY?: string;
 };
 
 export type Interval = "month" | "year";
@@ -34,11 +42,35 @@ const CATALOGUE: {
   key: keyof PriceEnv;
   plan: ResolvedPrice["plan"];
   interval: Interval;
+  /**
+   * A price that still grants its plan but is no longer offered at checkout
+   * (plan2 §61). Repricing means creating new Stripe prices, not editing old
+   * ones — an existing subscription keeps billing against the price object it
+   * was created with, and that object must keep resolving to a plan or every
+   * existing subscriber silently loses their entitlements at the next webhook.
+   *
+   * So: add the new price ids, mark the old ones legacy, and nobody is
+   * repriced or cut off. `priceIdFor` refuses to sell a legacy price;
+   * `resolvePrice` keeps honouring one.
+   */
+  legacy?: true;
 }[] = [
   { key: "STRIPE_PRICE_PERSONAL_MONTHLY", plan: "personal", interval: "month" },
   { key: "STRIPE_PRICE_PERSONAL_ANNUAL", plan: "personal", interval: "year" },
   { key: "STRIPE_PRICE_PRO_MONTHLY", plan: "pro", interval: "month" },
   { key: "STRIPE_PRICE_PRO_ANNUAL", plan: "pro", interval: "year" },
+  // Populated when a repricing actually happens. Empty today, and the
+  // machinery is here so that the day it happens is a configuration change
+  // and a one-line addition rather than a redesign under time pressure.
+  {
+    key: "STRIPE_PRICE_PERSONAL_MONTHLY_LEGACY",
+    plan: "personal",
+    interval: "month",
+    legacy: true,
+  },
+  { key: "STRIPE_PRICE_PERSONAL_ANNUAL_LEGACY", plan: "personal", interval: "year", legacy: true },
+  { key: "STRIPE_PRICE_PRO_MONTHLY_LEGACY", plan: "pro", interval: "month", legacy: true },
+  { key: "STRIPE_PRICE_PRO_ANNUAL_LEGACY", plan: "pro", interval: "year", legacy: true },
 ];
 
 function read(env: PriceEnv | undefined, key: keyof PriceEnv): string | undefined {
@@ -99,17 +131,27 @@ export function formatPriceLabel(
  * for", this one answers "what should we ask Stripe to charge". Both read the
  * same table, so a price that checkout can start is always a price the webhook
  * will recognise coming back.
+ *
+ * **Legacy prices are excluded here and honoured there**, and the asymmetry is
+ * the whole grandfathering mechanism (plan2 §61): an existing subscriber keeps
+ * their old price forever, and nobody new can be sold it.
  */
 export function priceIdFor(
   plan: ResolvedPrice["plan"],
   interval: Interval,
   env?: PriceEnv,
 ): string | null {
-  const entry = CATALOGUE.find((c) => c.plan === plan && c.interval === interval);
+  const entry = CATALOGUE.find((c) => c.plan === plan && c.interval === interval && !c.legacy);
   return entry ? (read(env, entry.key) ?? null) : null;
 }
 
-/** True when at least one price id is configured — used to warn on boot. */
+/**
+ * True when at least one price a customer could actually buy is configured.
+ *
+ * Legacy prices do not count: a catalogue containing only grandfathered ids
+ * cannot start a checkout, and reporting it as configured would turn a
+ * misconfiguration into a silent one.
+ */
 export function priceCatalogueConfigured(env?: PriceEnv): boolean {
-  return CATALOGUE.some((entry) => read(env, entry.key) !== undefined);
+  return CATALOGUE.some((entry) => !entry.legacy && read(env, entry.key) !== undefined);
 }

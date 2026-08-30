@@ -96,6 +96,21 @@ const MAX_AGE_DAYS = 30;
 const CONCURRENCY = 8;
 
 /**
+ * How long a source keeps being collected after its last reader stops wanting
+ * it (docs/plan2.md §10).
+ *
+ * Three days, because the failure this prevents is thrash, not waste. A reader
+ * muting a topic on Friday and unmuting it on Monday must not produce a
+ * weekend-shaped hole in that source's coverage — and re-collecting a paused
+ * source cannot recover what it published while nobody was reading, because a
+ * feed only serves its current window.
+ *
+ * Erring long is cheap (a few fetches of something nobody reads); erring short
+ * is a coverage gap that looks exactly like a bug.
+ */
+const DEMAND_GRACE_HOURS = 72;
+
+/**
  * A database call failed, as opposed to a feed failing.
  *
  * The distinction is not academic. `sources.failure_count` is a claim about a
@@ -153,6 +168,8 @@ export type IngestOptions = {
   limit?: number | undefined;
   concurrency?: number | undefined;
   maxAgeDays?: number | undefined;
+  /** How long a source keeps being collected after its last reader leaves. */
+  graceHours?: number | undefined;
   /** Injected so tests and reports agree on one instant. */
   now?: Date | undefined;
 };
@@ -165,6 +182,7 @@ export type SourceOutcome = {
     | "ingested" // fetched, parsed, and something was new
     | "unchanged" // fetched and parsed, nothing new
     | "waiting" // not fetched: backoff or minimum interval
+    | "no_demand" // gate on, nobody has wanted this for the grace period
     | "failed" // could not fetch or could not parse
     | "quiet"; // valid feed, no entries, and it said today would be like that
   detail: string;
@@ -189,6 +207,8 @@ export type IngestReport = {
   retitled: number;
   failed: number;
   disabled: number;
+  /** Sources skipped because nobody currently wants them. Zero when the gate is off. */
+  skippedNoDemand: number;
   outcomes: SourceOutcome[];
 };
 
@@ -196,17 +216,24 @@ export async function ingest(db: Db, options: IngestOptions = {}): Promise<Inges
   const now = options.now ?? new Date();
   const startedAt = now.toISOString();
 
-  const sources = await selectSources(db, options);
-  const due = options.force === true ? sources : sources.filter((s) => isDue(s, now));
+  const all = await selectSources(db, options);
+  const { wanted, reasons } = await applyDemandGate(db, all, options);
+  const cadence = await loadCadence(db, options);
+
+  const due =
+    options.force === true
+      ? wanted
+      : wanted.filter((s) => isDue(s, now, cadence.get(s.polling_tier)));
   const window = due.slice(0, options.limit ?? due.length);
   const attempted = new Set(window);
   const backedOff = new Set(due);
+  const skipped = all.filter((source) => !wanted.includes(source));
 
   const outcomes = await mapLimit(window, options.concurrency ?? CONCURRENCY, (source) =>
     runOne(db, source, now, options),
   );
 
-  const waiting: SourceOutcome[] = sources
+  const waiting: SourceOutcome[] = wanted
     .filter((source) => !attempted.has(source))
     .map((source) => ({
       sourceId: source.id,
@@ -222,19 +249,136 @@ export async function ingest(db: Db, options: IngestOptions = {}): Promise<Inges
       disabled: false,
     }));
 
-  const all = [...outcomes, ...waiting];
+  const unwanted: SourceOutcome[] = skipped.map((source) => ({
+    sourceId: source.id,
+    name: source.name,
+    feedUrl: source.feed_url,
+    state: "no_demand",
+    // The reason comes from SQL rather than being reconstructed here, so what
+    // the report says is what the query actually decided (plan2 §20:
+    // selection must be observable, not just deterministic).
+    detail: reasons.get(source.id) ?? "no demand",
+    seen: 0,
+    dropped: 0,
+    inserted: 0,
+    retitled: 0,
+    failureCount: source.failure_count,
+    disabled: false,
+  }));
+
+  const reported = [...outcomes, ...waiting, ...unwanted];
 
   return {
     startedAt,
     finishedAt: new Date().toISOString(),
-    considered: sources.length,
+    considered: all.length,
     attempted: outcomes.length,
-    inserted: sum(all, (o) => o.inserted),
-    retitled: sum(all, (o) => o.retitled),
-    failed: all.filter((o) => o.state === "failed").length,
-    disabled: all.filter((o) => o.disabled).length,
-    outcomes: all,
+    inserted: sum(reported, (o) => o.inserted),
+    retitled: sum(reported, (o) => o.retitled),
+    failed: reported.filter((o) => o.state === "failed").length,
+    disabled: reported.filter((o) => o.disabled).length,
+    skippedNoDemand: unwanted.length,
+    outcomes: reported,
   };
+}
+
+/**
+ * Narrows a run to sources somebody currently wants.
+ *
+ * Two things happen here, in this order, and the order matters. The demand
+ * timestamps are refreshed FIRST, so the gate reads current interest rather
+ * than whatever the last run left behind — a reader who added a topic an hour
+ * ago should not wait a cycle for their source to become eligible.
+ *
+ * The refresh runs even when the gate is off: `last_demand_at` fills either
+ * way, so the numbers can be inspected in the console before any behaviour
+ * depends on them. That is the same sequencing phases 4 and 8 used, and it is
+ * what makes turning the flag on a decision rather than a gamble.
+ *
+ * Fails open. If the RPCs are missing (0031 not applied) or error, the run
+ * collects everything, exactly as it did before this existed. A collection
+ * pipeline that silently stops collecting is a far worse failure than one
+ * that ignores an optimisation.
+ */
+/**
+ * Per-tier fetch intervals, in minutes, or an empty map.
+ *
+ * Empty means "one interval for everything", which is what `isDue` falls back
+ * to and what this pipeline did before phase 6. So a missing flag, a missing
+ * 0032, or a failed read all degrade to the previous uniform behaviour rather
+ * than to no collection.
+ *
+ * The tiers are recomputed first, for the same reason demand is: a source that
+ * published an hour ago should be read on its new cadence now, not next run.
+ */
+async function loadCadence(db: Db, options: IngestOptions): Promise<Map<string, number>> {
+  const uniform = new Map<string, number>();
+  if (options.force === true) return uniform;
+
+  const { error: recomputeError } = await db.rpc("recompute_polling_tiers");
+  if (recomputeError) {
+    console.warn(`recomputing polling tiers: ${recomputeError.message} — uniform cadence`);
+    return uniform;
+  }
+
+  const { data: flag } = await db
+    .from("feature_flags")
+    .select("enabled")
+    .eq("key", "adaptive_polling")
+    .maybeSingle();
+  if (flag?.enabled !== true) return uniform;
+
+  const { data, error } = await db.from("polling_tiers").select("tier, interval_minutes");
+  if (error) {
+    console.warn(`reading polling tiers: ${error.message} — uniform cadence`);
+    return uniform;
+  }
+
+  return new Map((data ?? []).map((row) => [row.tier, row.interval_minutes]));
+}
+
+async function applyDemandGate(
+  db: Db,
+  sources: Source[],
+  options: IngestOptions,
+): Promise<{ wanted: Source[]; reasons: Map<string, string> }> {
+  const open = { wanted: sources, reasons: new Map<string, string>() };
+
+  // `--source` names specific feeds; an operator asking for one by name has
+  // supplied the demand themselves. Same reasoning as `--event` bypassing
+  // the analysis claim gate.
+  if (options.sourceIds && options.sourceIds.length > 0) return open;
+  if (options.force === true) return open;
+
+  const { error: refreshError } = await db.rpc("refresh_source_demand");
+  if (refreshError) {
+    console.warn(`refreshing source demand: ${refreshError.message} — collecting everything`);
+    return open;
+  }
+
+  const { data: flag } = await db
+    .from("feature_flags")
+    .select("enabled")
+    .eq("key", "demand_driven_sources")
+    .maybeSingle();
+  if (flag?.enabled !== true) return open;
+
+  const { data, error } = await db.rpc("sources_to_collect", {
+    p_grace_hours: options.graceHours ?? DEMAND_GRACE_HOURS,
+  });
+  if (error) {
+    console.warn(`selecting sources by demand: ${error.message} — collecting everything`);
+    return open;
+  }
+
+  const eligible = new Set<string>();
+  const reasons = new Map<string, string>();
+  for (const row of data ?? []) {
+    reasons.set(row.source_id, row.reason);
+    if (row.eligible) eligible.add(row.source_id);
+  }
+
+  return { wanted: sources.filter((s) => eligible.has(s.id)), reasons };
 }
 
 function sum<T>(items: T[], of: (item: T) => number): number {
@@ -264,15 +408,22 @@ async function selectSources(db: Db, options: IngestOptions): Promise<Source[]> 
  *
  * A source that has never been fetched is always due, which is what makes the
  * first run fetch everything.
+ *
+ * `cadence` is the per-source interval when adaptive polling is on (phase 6),
+ * and absent when it is off — in which case every source shares
+ * `MIN_INTERVAL_MINUTES`, exactly as before. Backoff always wins: a failing
+ * feed waits its backoff even if its tier says `hot`, because the tier is a
+ * statement about how often the source *publishes* and the backoff is a
+ * statement about whether it currently *answers*.
  */
-function isDue(source: Source, now: Date): boolean {
+export function isDue(source: Source, now: Date, cadence?: number | undefined): boolean {
   if (source.last_fetched_at === null) return true;
 
   const last = Date.parse(source.last_fetched_at);
   if (Number.isNaN(last)) return true;
 
   const index = Math.min(source.failure_count, BACKOFF.length - 1);
-  const wait = Math.max(BACKOFF[index] ?? 0, MIN_INTERVAL_MINUTES);
+  const wait = Math.max(BACKOFF[index] ?? 0, cadence ?? MIN_INTERVAL_MINUTES);
   return now.getTime() - last >= wait * 60_000;
 }
 
@@ -365,7 +516,11 @@ async function runOne(
     }
 
     const written = await store(db, rows);
-    const note = await recordSuccess(db, source, now, options);
+    // Only a genuinely new article counts as new content. A re-read that
+    // inserts nothing means the source has not published since last time,
+    // which is exactly the signal the cadence decay in
+    // `recompute_polling_tiers` reads.
+    const note = await recordSuccess(db, source, now, options, written.inserted > 0);
 
     return {
       ...base,
@@ -628,13 +783,22 @@ async function recordSuccess(
   source: Source,
   now: Date,
   options: IngestOptions,
+  foundNewContent = false,
 ): Promise<string | null> {
   if (options.dryRun === true) return null;
 
   try {
     const { error } = await db
       .from("sources")
-      .update({ last_fetched_at: now.toISOString(), failure_count: 0 })
+      .update({
+        last_fetched_at: now.toISOString(),
+        failure_count: 0,
+        // Left alone when nothing new arrived, deliberately: this column is
+        // "when did this source last publish", not "when did we last look".
+        // Stamping it on every successful fetch would make every source look
+        // permanently fresh and the cadence would never decay.
+        ...(foundNewContent ? { last_new_content_at: now.toISOString() } : {}),
+      })
       .eq("id", source.id);
 
     // Returned rather than thrown. The articles are already stored; treating a

@@ -336,10 +336,12 @@ export function describe(result: ScheduledResult): string {
   const seconds = Math.round((Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000);
   const failures = report.outcomes.filter((o) => o.state === "failed");
 
+  const unwanted = report.skippedNoDemand > 0 ? `, ${report.skippedNoDemand} no demand` : "";
+
   const summary =
     `ingest: ${report.attempted}/${report.considered} sources, ` +
     `${report.inserted} new, ${report.retitled} retitled, ` +
-    `${report.failed} failed, ${report.disabled} switched off, ${seconds}s`;
+    `${report.failed} failed, ${report.disabled} switched off${unwanted}, ${seconds}s`;
 
   if (failures.length === 0) return summary;
   return `${summary}\n${failures.map((f) => `  ${f.name}: ${f.detail}`).join("\n")}`;

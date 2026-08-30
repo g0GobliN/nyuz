@@ -1,17 +1,18 @@
 {
-  // The operator scripts, typechecked separately from the app.
+  // The operator scripts, which the main tsconfig deliberately excludes: they
+  // run on Node against the live project, not in the browser bundle, so they
+  // are not part of the app's compilation.
   //
-  // They are not in the root tsconfig's `include` on purpose. That config sets
-  // `types: ["vite/client"]` and nothing else, which is what stops application
-  // code from quietly reaching for `process`, `Buffer` or `node:fs` — none of
-  // which exist in the Cloudflare Workers runtime the server ships to.
+  // They were not typechecked at all until 2026-08-30, and that turned out to
+  // matter. `scripts/pipeline.ts` holds `Record<EventOutcome["decision"],
+  // string>` label maps, so adding a new outcome to the pipeline should be a
+  // compile error until the CLI knows how to print it. It was not — the new
+  // `no_demand` decision printed as the literal string "undefined" in a real
+  // run, in the tool this project uses to make every one of its "verified"
+  // claims.
   //
-  // scripts/ runs on a laptop under Node, so it needs the opposite. Giving it its
-  // own config buys both: the scripts get Node's globals, and the app keeps a
-  // type system that refuses them.
+  // `src` is included as well, not to check it twice, but because the scripts
+  // import from it and the compiler needs the graph.
   "extends": "./tsconfig.json",
-  "include": ["scripts/**/*.ts"],
-  "compilerOptions": {
-    "types": ["node"]
-  }
+  "include": ["scripts/**/*.ts", "src/**/*.ts"]
 }

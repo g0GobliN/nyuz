@@ -127,8 +127,14 @@ function contract(slugs: string[]): string {
   "after_state": "what is true now that was not before, or null",
   "importance": 0,
   "novelty": 0,
-  "topics": ["slug"]
+  "topics": ["slug"],
+  "impact": "1-2 sentences on why this matters to someone who tracks this space"
 }
+
+impact is shared: it is shown to every reader this event is briefed to, not written
+for any one person. Say what changes for someone in the field generally -- a
+constraint that shifted, a decision this forces, a thing that no longer works the
+old way -- not "this matters if you use X" and not a restatement of what_happened.
 
 what_happened is about the event, not about the coverage of it. Name who did what:
 "OpenAI wrote to the governor opposing SB 1047", never "an article reported that
@@ -181,6 +187,7 @@ export type EventOutcome = {
     | "claimed" // another worker got there first
     | "empty" // an event with no articles: nothing to read, no call made
     | "ignored" // a single-article CI ref: marked failed, no model call
+    | "no_demand" // gate on, no source reaches an eligible reader: left pending
     | "failed";
   articles: number;
   importance: number | null;
@@ -202,6 +209,7 @@ export type AnalysisReport = {
   skipped: number;
   claimed: number;
   ignored: number;
+  noDemand: number;
   /** Events that reached the model. The rest cost nothing. */
   modelCalls: number;
   promptTokens: number;
@@ -220,13 +228,14 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
   const slugs = [...topics.keys()];
 
   const system = await promptFor(options.secrets);
+  const hasDemand = await loadDemand(db, events, options);
   const outcomes: EventOutcome[] = [];
 
   // Sequential, unlike stage 3 where it is a correctness requirement. Here it is a
   // spending decision: one call at a time is one call's worth of money committed at
   // a time, and an operator watching the output can stop it.
   for (const event of events) {
-    outcomes.push(await runOne(db, event, { options, topics, outlets, slugs, system }));
+    outcomes.push(await runOne(db, event, { options, topics, outlets, slugs, system, hasDemand }));
   }
 
   return {
@@ -238,11 +247,51 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
     skipped: outcomes.filter((o) => o.decision === "skipped").length,
     claimed: outcomes.filter((o) => o.decision === "claimed").length,
     ignored: outcomes.filter((o) => o.decision === "ignored").length,
+    noDemand: outcomes.filter((o) => o.decision === "no_demand").length,
     modelCalls: outcomes.filter((o) => o.promptTokens > 0 || o.completionTokens > 0).length,
     promptTokens: outcomes.reduce((total, o) => total + o.promptTokens, 0),
     completionTokens: outcomes.reduce((total, o) => total + o.completionTokens, 0),
     outcomes,
   };
+}
+
+/**
+ * Which of this batch's events have a source that is core coverage or
+ * currently reaches an eligible reader — see 0021_demand_gate.sql for what
+ * "reaches" means. `null` means the gate does not apply this run, either
+ * because the flag is off (its default; see docs/track.md phase 8) or
+ * because `--event` named specific events, which bypasses it on purpose —
+ * the same reasoning `claimEvent` already applies to the claim gate.
+ *
+ * Fails open, deliberately. If the flag were somehow turned on ahead of
+ * 0021 being applied, or the RPC errors for any other reason, the correct
+ * response is "run analysis as if the gate did not exist," not "silently
+ * analyse nothing." An AI-provider-shaped outage must not take the
+ * deterministic system down with it, and neither should this.
+ */
+async function loadDemand(
+  db: Db,
+  events: Pending[],
+  options: AnalyseOptions,
+): Promise<Set<string> | null> {
+  if ((options.eventIds?.length ?? 0) > 0 || events.length === 0) return null;
+
+  const { data: flag } = await db
+    .from("feature_flags")
+    .select("enabled")
+    .eq("key", "pre_analysis_demand_gate")
+    .maybeSingle();
+  if (flag?.enabled !== true) return null;
+
+  const { data, error } = await db.rpc("events_with_demand", {
+    p_event_ids: events.map((e) => e.id),
+  });
+  if (error) {
+    console.warn(`pre-analysis demand gate: ${error.message} — running without it this pass`);
+    return null;
+  }
+
+  return new Set((data ?? []).filter((row) => row.has_demand).map((row) => row.event_id));
 }
 
 type Pending = {
@@ -317,6 +366,8 @@ type Context = {
   outlets: Map<string, string>;
   slugs: string[];
   system: string;
+  /** null = gate inactive this run. See loadDemand. */
+  hasDemand: Set<string> | null;
 };
 
 type Coverage = {
@@ -338,6 +389,13 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
     promptTokens: 0,
     completionTokens: 0,
   };
+
+  if (ctx.hasDemand !== null && !ctx.hasDemand.has(event.id)) {
+    // Left exactly as selected: no write, no claim, no coverage read. Still
+    // `pending`, still analysed_at null — eligible for the very next run,
+    // gate or no gate, the moment a source covering it gains a reader.
+    return { ...base, decision: "no_demand", detail: "no source reaches an eligible reader" };
+  }
 
   const { articles, total, error: readFailed } = await readCoverage(db, event.id, ctx.options);
   if (readFailed) return { ...base, decision: "failed", detail: readFailed };
@@ -526,6 +584,15 @@ export type Analysis = {
   novelty: number;
   topics: string[];
   unknownTopics: string[];
+  /**
+   * The shared "why it matters" line -- see docs/track.md phase 2. Optional,
+   * unlike what_happened and the scores: a missing or unusable impact still
+   * leaves an analysed, matchable event. digest.ts backfills it lazily on
+   * first need for exactly this case, so refusing the whole analysis over
+   * a missing sentence would throw away real signal to protect a fallback
+   * path that already exists.
+   */
+  impact: string | null;
 };
 
 /**
@@ -587,6 +654,7 @@ export function readAnalysis(reply: unknown, allowed: string[]): Analysis | null
     novelty,
     topics: topics.slice(0, MAX_TOPICS),
     unknownTopics,
+    impact: text(raw["impact"]),
   };
 }
 
@@ -706,6 +774,27 @@ async function writeAnalysis(
     .eq("id", event.id);
 
   if (error) return `writing analysis: ${error.message}`;
+
+  // Best-effort: a shared impact this stage failed to write is exactly what
+  // digest.ts's lazy backfill exists for. Not folded into the write above --
+  // failing the event write over a table this stage did not need to touch
+  // would be a strictly worse failure than leaving one impact row absent.
+  if (analysis.impact !== null) {
+    const { error: impactError } = await db.from("event_impacts").upsert(
+      {
+        event_id: event.id,
+        status: "complete",
+        text: analysis.impact,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+      },
+      { onConflict: "event_id" },
+    );
+    if (impactError) {
+      console.warn(`writing shared impact for ${event.id}: ${impactError.message}`);
+    }
+  }
+
   return null;
 }
 
@@ -750,9 +839,11 @@ export function describeAnalysis(report: AnalysisReport): string {
     (new Date(report.finishedAt).getTime() - new Date(report.startedAt).getTime()) / 1000,
   );
 
+  const demand = report.noDemand > 0 ? `, ${report.noDemand} no demand` : "";
+
   return (
     `analyse: ${report.considered} events, ${report.analysed} analysed, ` +
-    `${report.ignored} ignored, ${report.failed} failed, ${report.claimed} held elsewhere, ` +
+    `${report.ignored} ignored, ${report.failed} failed, ${report.claimed} held elsewhere${demand}, ` +
     `${report.modelCalls} model calls, ` +
     `${report.promptTokens + report.completionTokens} tokens, ${seconds}s`
   );

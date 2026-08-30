@@ -5,6 +5,7 @@ import { useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
 import { DensityDial } from "@/components/density-dial";
+import { LANGUAGES } from "@/lib/languages";
 import { useAuth } from "@/lib/auth";
 import { notifyBriefingsPaused } from "@/lib/server/account";
 import {
@@ -313,6 +314,24 @@ function Delivery() {
                   : `Choose important or everything, with a hard cap of ${limits.alertDailyCap} alerts per day.`}
             </p>
           </div>
+        </Panel>
+
+        <Panel title="Language">
+          <div className="flex flex-wrap gap-2">
+            {LANGUAGES.map((language) => (
+              <Chip
+                key={language.tag}
+                active={prefs.language === language.tag}
+                onClick={() => touch({ language: language.tag })}
+              >
+                {language.endonym}
+              </Chip>
+            ))}
+          </div>
+          <p className="mt-3 text-[12.5px] leading-relaxed text-muted-foreground">
+            The language your stories are written in. Sources stay in their own language and every
+            story links to the original. This does not change the language of the app itself.
+          </p>
         </Panel>
 
         <Panel title="Density">

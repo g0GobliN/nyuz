@@ -1,3 +1,4 @@
+import { toLanguageTag } from "@/lib/languages";
 import type { Prefs } from "@/lib/prefs";
 import type { DeliveryChannel, NotificationPreferences } from "@/lib/supabase/types";
 
@@ -107,6 +108,10 @@ export function prefsToNotificationRow(
     // The column is constrained to 0..100; a slider cannot leave that range but
     // a stale stored blob can.
     density: Math.min(100, Math.max(0, Math.round(prefs.density))),
+    // Clamped on write as well as read: the column has a format check, so a
+    // stale blob carrying a language this build no longer knows would fail
+    // the whole save rather than one field.
+    language: toLanguageTag(prefs.language),
     paused: prefs.paused,
   };
 }
@@ -116,7 +121,15 @@ export function notificationRowToPrefs(
   row: NotificationPreferences,
 ): Pick<
   Prefs,
-  "time" | "timezone" | "days" | "channels" | "frequency" | "breaking" | "density" | "paused"
+  | "time"
+  | "timezone"
+  | "days"
+  | "channels"
+  | "frequency"
+  | "breaking"
+  | "density"
+  | "language"
+  | "paused"
 > {
   return {
     time: timeFromDb(row.send_at),
@@ -126,6 +139,10 @@ export function notificationRowToPrefs(
     frequency: row.frequency,
     breaking: row.breaking,
     density: row.density,
+    // Falls back to English rather than throwing: a row naming a language
+    // this build does not know costs one briefing in English, not a failed
+    // load. See toLanguageTag.
+    language: toLanguageTag(row.language),
     paused: row.paused,
   };
 }

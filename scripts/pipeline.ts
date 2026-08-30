@@ -255,6 +255,10 @@ const VERDICT: Record<EventOutcome["decision"], string> = {
   claimed: "held  ",
   empty: "empty ",
   ignored: "skip  ",
+  // The pre-analysis demand gate declined to pay for this one. Stored and
+  // still pending, not failed — it becomes eligible the moment a reader's
+  // interests reach it.
+  no_demand: "waits ",
   failed: "FAIL  ",
 };
 
@@ -285,6 +289,7 @@ function printAnalysis(report: AnalysisReport, dryRun: boolean): void {
   say(row(dryRun ? "would be analysed" : "analysed", report.analysed + report.skipped));
   say(row("failed", report.failed));
   say(row("ignored (CI refs)", report.ignored));
+  say(row("no demand (still pending)", report.noDemand));
   say(row("held by another run", report.claimed));
   say(row("model calls", report.modelCalls));
   say(row("prompt tokens", report.promptTokens));
@@ -480,6 +485,9 @@ const MARK: Record<SourceOutcome["state"], string> = {
   unchanged: "same  ",
   quiet: "quiet ",
   waiting: "wait  ",
+  // Skipped by the demand gate: nobody has wanted this source for the grace
+  // period. Not a failure and not backoff.
+  no_demand: "unwant",
   failed: "FAIL  ",
 };
 
@@ -501,7 +509,8 @@ function print(report: IngestReport, dryRun: boolean): void {
   heading(dryRun ? "Summary (nothing was written)" : "Summary");
   say(row("active sources", report.considered));
   say(row("fetched", report.attempted));
-  say(row("waiting", report.considered - report.attempted));
+  say(row("waiting", report.considered - report.attempted - report.skippedNoDemand));
+  say(row("skipped (no demand)", report.skippedNoDemand));
   say(row(dryRun ? "articles storable" : "articles inserted", report.inserted));
   say(row("headlines updated", report.retitled));
   say(row("failed", report.failed));

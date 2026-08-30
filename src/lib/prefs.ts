@@ -6,6 +6,8 @@
  * `import.meta.env` — pulling the store into that graph is a type error.
  */
 
+import { CANONICAL_LANGUAGE, type LanguageTag } from "@/lib/languages";
+
 export type Prefs = {
   name: string;
   topics: string[];
@@ -17,6 +19,12 @@ export type Prefs = {
   density: number; // 0 minimal .. 100 deep
   frequency: "daily" | "weekly";
   breaking: "important" | "everything" | "off";
+  /**
+   * Reading language for story content. BCP-47, one of `LANGUAGES` in
+   * src/lib/languages.ts. Not the interface language — that is static i18n
+   * and a separate concern (plan2 §44).
+   */
+  language: LanguageTag;
   /** Briefings stop entirely. Mirrors notification_preferences.paused. */
   paused: boolean;
   onboarded: boolean;
@@ -48,6 +56,9 @@ export const DEFAULT_PREFS: Prefs = {
   density: 35,
   frequency: "daily",
   breaking: "important",
+  // English is canonical, so this default costs no translation and matches
+  // what every pre-0029 row was backfilled to.
+  language: CANONICAL_LANGUAGE,
   paused: false,
   onboarded: false,
 };
