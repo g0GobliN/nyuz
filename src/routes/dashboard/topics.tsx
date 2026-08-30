@@ -124,7 +124,7 @@ function Topics() {
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && canAdd && add(custom)}
           placeholder="Search the topics we cover"
-          className="h-12 w-full bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
+          className="h-12 w-full bg-transparent text-[16px] outline-none placeholder:text-muted-foreground md:text-[15px]"
         />
         {canAdd ? (
           <Button size="sm" onClick={() => add(custom)} className="my-1.5 shrink-0">
@@ -358,7 +358,7 @@ function Field({
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-2 h-10 w-full rounded-xl border border-input bg-surface px-3.5 text-[13.5px] outline-none placeholder:text-muted-foreground focus:border-signal"
+        className="mt-2 h-10 w-full rounded-xl border border-input bg-surface px-3.5 text-[16px] outline-none placeholder:text-muted-foreground focus:border-signal md:text-[13.5px]"
       />
     </div>
   );

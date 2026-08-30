@@ -359,7 +359,7 @@ function Field({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="h-11 w-full bg-transparent text-[14.5px] outline-none placeholder:text-muted-foreground"
+          className="h-11 w-full bg-transparent text-[16px] outline-none placeholder:text-muted-foreground md:text-[14.5px]"
         />
       </div>
     </div>

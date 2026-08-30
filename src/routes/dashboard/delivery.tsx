@@ -195,7 +195,7 @@ function Delivery() {
                 id="tz"
                 value={prefs.timezone}
                 onChange={(e) => touch({ timezone: e.target.value })}
-                className="mt-2 h-12 w-full rounded-2xl border border-input bg-background px-4 text-[14.5px] outline-none focus:border-signal"
+                className="mt-2 h-12 w-full rounded-2xl border border-input bg-background px-4 text-[16px] outline-none focus:border-signal md:text-[14.5px]"
               >
                 {ZONES.map((z) => (
                   <option key={z} value={z}>
