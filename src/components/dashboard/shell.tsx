@@ -77,6 +77,9 @@ const MOBILE = [
   { to: "/dashboard", label: "Home", icon: Home, exact: true },
   { to: "/dashboard/briefing", label: "Briefing", icon: BookOpen },
   { to: "/dashboard/topics", label: "Topics", icon: Tag },
+  { to: "/dashboard/sources", label: "Sources", icon: Radio },
+  { to: "/dashboard/alerts", label: "Alerts", icon: Bell },
+  { to: "/dashboard/delivery", label: "Delivery", icon: Send },
   { to: "/dashboard/history", label: "History", icon: History },
   { to: "/dashboard/settings", label: "Settings", icon: Settings },
 ] as const;
@@ -228,7 +231,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
       </div>
 
       <nav className="glass fixed inset-x-0 bottom-0 z-40 border-t border-hairline lg:hidden">
-        <div className="flex items-stretch justify-around px-2 pb-[env(safe-area-inset-bottom)]">
+        <div className="flex items-stretch overflow-x-auto px-2 pb-[env(safe-area-inset-bottom)] scrollbar-hide">
           {MOBILE.map((m) => (
             <MobileItem key={m.to} {...m} />
           ))}
@@ -397,7 +400,7 @@ function MobileItem({
     <Link
       to={to}
       className={cn(
-        "flex flex-1 flex-col items-center gap-1 py-2.5 text-[10.5px] transition-colors",
+        "flex flex-col items-center gap-1 px-4 py-2.5 text-[10.5px] transition-colors shrink-0",
         active ? "text-foreground" : "text-muted-foreground",
       )}
     >
