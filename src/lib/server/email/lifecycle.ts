@@ -7,6 +7,8 @@ import {
   paymentFailedEmail,
   subscriptionCancelledEmail,
   subscriptionStartedEmail,
+  waitlistInvitedEmail,
+  waitlistJoinedEmail,
   welcomeEmail,
   type PlanLabel,
 } from "@/lib/email/templates";
@@ -237,5 +239,36 @@ export async function sendDormant(
       unsubscribeUrl: details.unsubscribeUrl,
       ...(idempotencyKey ? { idempotencyKey } : {}),
     },
+  );
+}
+
+/* ---------------------------------------------------------------------- */
+/* Waitlist                                                                */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * These two take an address directly rather than a user id, because the person
+ * they are about does not have an account — that is the entire reason they are
+ * being written to. `findRecipient` has nothing to look up.
+ *
+ * Both follow the file's rule and never throw: a failed waitlist mail must not
+ * roll back the row that records somebody's place in the queue.
+ */
+export async function sendWaitlistJoined(person: Recipient, env?: EmailEnv): Promise<boolean> {
+  return deliver(
+    person.email,
+    waitlistJoinedEmail({ name: person.name, baseUrl: siteUrl(env) }),
+    env,
+    // Keyed on the address so a double submission cannot send twice.
+    { idempotencyKey: `waitlist-joined:${person.email}` },
+  );
+}
+
+export async function sendWaitlistInvited(person: Recipient, env?: EmailEnv): Promise<boolean> {
+  return deliver(
+    person.email,
+    waitlistInvitedEmail({ name: person.name, baseUrl: siteUrl(env) }),
+    env,
+    { idempotencyKey: `waitlist-invited:${person.email}` },
   );
 }

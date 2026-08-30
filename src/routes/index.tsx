@@ -11,6 +11,7 @@ import { HowItWorksRail, Comparison } from "@/components/landing/how-it-works";
 import { ProfileDemo, WhyDifferent, AiTrust, Infrastructure } from "@/components/landing/sections";
 import { SourceTransparency, FinalCta } from "@/components/landing/closing";
 import { getPublicSiteContent } from "@/lib/server/settings";
+import { MaintenanceScreen } from "@/components/access";
 import type { MediaItem, SectionKey } from "@/lib/site-content";
 import { useReveal } from "@/lib/use-reveal";
 import { cn } from "@/lib/utils";
@@ -124,6 +125,13 @@ function Index() {
   const content = Route.useLoaderData();
   const { hero, sections, media } = content;
   const ref = useReveal<HTMLDivElement>();
+
+  // The front door is the one page where maintenance has to be unmissable.
+  // `access` rides along on the content every public route already loads, so
+  // this costs no extra query.
+  if (content.access.maintenance) {
+    return <MaintenanceScreen access={content.access} />;
+  }
 
   const visible = sections.filter((s) => s.enabled);
   // The mid-page band goes after the third visible section, or last if the page

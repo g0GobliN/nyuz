@@ -30,6 +30,8 @@ import { cn } from "@/lib/utils";
 // would pull the entire admin console into this bundle for the sake of one
 // boolean.
 import { isAdmin, useViewer } from "@/lib/viewer";
+import { getSignupState } from "@/lib/server/access";
+import { MaintenanceScreen } from "@/components/access";
 import { useAuth, useDisplayName } from "@/lib/auth";
 import {
   DropdownMenu,
@@ -122,6 +124,18 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
   const who = useDisplayName() || prefs.name;
   const initial = who.trim().slice(0, 1).toUpperCase() || "·";
 
+  // Maintenance closes the dashboard for readers and not for staff — the whole
+  // point of the switch is that somebody can still get in and fix whatever
+  // caused it. Reuses `getSignupState`, which already reports maintenance, so
+  // this adds no new endpoint. A failed read reports open: locking everybody
+  // out because one query wobbled is the worse failure.
+  const access = useQuery({
+    queryKey: ["access", "state"],
+    queryFn: () => getSignupState(),
+    staleTime: 60_000,
+  });
+  const closed = access.data?.reason === "maintenance" && !staff;
+
   useEffect(() => {
     void pingPresence().catch(() => {
       // A missed ping must not take the dashboard down. The next load retries.
@@ -136,6 +150,8 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
       // A stale subscription is retried the next time they open Delivery.
     });
   }, [prefs.channels.push]);
+
+  if (closed) return <MaintenanceScreen />;
 
   return (
     <div className="min-h-screen bg-background">
@@ -201,7 +217,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
                 <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-signal" />
               </Link>
               <ThemeToggle />
-              <AccountMenu initial={initial} />
+              <AccountMenu initial={initial} staff={staff} />
             </div>
           </div>
         </header>
@@ -231,8 +247,16 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
  * sign out at all — `signOut` existed on the auth context and nothing in the
  * product ever called it. The avatar is where people look for that, so it opens
  * a menu instead, with Settings still one click away.
+ *
+ * It also carries the staff destinations, because it is the only navigation an
+ * admin has on a phone. `NAV_STAFF` lives in the sidebar, and the sidebar is
+ * `hidden lg:flex` — so below 1024px there was no link to the console anywhere
+ * in the product, and the only way in was typing the URL. They are rendered at
+ * every width rather than behind `lg:hidden`: a menu whose contents change
+ * depending on how wide the window is is worse than one extra row on a desktop
+ * that also has a sidebar.
  */
-function AccountMenu({ initial }: { initial: string }) {
+function AccountMenu({ initial, staff }: { initial: string; staff: boolean }) {
   const { user, signOut } = useAuth();
   const name = useDisplayName();
   const navigate = useNavigate();
@@ -288,6 +312,19 @@ function AccountMenu({ initial }: { initial: string }) {
             <CreditCard /> Billing
           </Link>
         </DropdownMenuItem>
+
+        {staff ? (
+          <>
+            <DropdownMenuSeparator />
+            {NAV_STAFF.map(({ to, label, icon: Icon }) => (
+              <DropdownMenuItem key={to} asChild>
+                <Link to={to}>
+                  <Icon /> {label}
+                </Link>
+              </DropdownMenuItem>
+            ))}
+          </>
+        ) : null}
 
         <DropdownMenuSeparator />
 
