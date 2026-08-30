@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { parseInput } from "@/lib/server/validate";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { signedInOnly, AdminAuthError } from "@/lib/server/guard";
@@ -147,7 +148,7 @@ export type FollowResult =
 
 export const followCustomSource = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
-  .validator((input: unknown) => z.object({ feedUrl }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ feedUrl }), input))
   .handler(async ({ context, data }): Promise<FollowResult> => {
     const { actor } = context;
 
@@ -212,7 +213,7 @@ export const followCustomSource = createServerFn({ method: "POST" })
 
 export const unfollowCustomSource = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
-  .validator((input: unknown) => z.object({ sourceId: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ sourceId: z.string().uuid() }), input))
   .handler(async ({ context, data }): Promise<{ ok: true }> => {
     const { actor } = context;
 
@@ -312,6 +313,17 @@ async function createSource(
       // Reader-requested, so it is demand coverage by definition — it exists
       // because somebody asked, which is exactly what `demand` means (0018).
       coverage_mode: "demand",
+      // Three separate questions, answered separately (0039). This row is
+      // private to the readers who follow it: `listed` stays false so it never
+      // appears in another reader's catalogue, and `origin` records where it
+      // came from without naming a person — ownership is the follow rows in
+      // `user_custom_sources`, which is a many-to-many because one canonical
+      // source serves every reader who asked for it.
+      //
+      // Both are written explicitly rather than left to the column defaults so
+      // that reading this function tells you what a submitted source is.
+      listed: false,
+      origin: "user",
     })
     .select("id, name")
     .maybeSingle();

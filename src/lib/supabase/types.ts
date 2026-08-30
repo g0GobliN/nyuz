@@ -16,6 +16,13 @@ export type SourceKind =
 export type SourcePref = "normal" | "priority" | "muted";
 /** Added in 0018. 'core' = editorially selected, monitored regardless of demand. */
 export type SourceCoverageMode = "core" | "demand";
+
+/**
+ * Where a source came from (0039). Provenance only — never ownership, which
+ * lives in `user_custom_sources` because one canonical source has many
+ * followers.
+ */
+export type SourceOrigin = "curated" | "user";
 export type TopicImportance = "everything" | "notable" | "only_major";
 export type TopicFrequency = "daily" | "weekly" | "breaking_only";
 export type EventStatus = "pending" | "analysing" | "complete" | "failed";
@@ -142,6 +149,17 @@ export type Source = {
   /** Added in 0018. Every pre-0018 row was backfilled to 'core'. */
   coverage_mode: SourceCoverageMode;
   /**
+   * Whether readers may discover this source in the catalogue (0039).
+   *
+   * Deliberately NOT the same question as `coverage_mode`: 27 curated sources
+   * are `demand`, so coverage cannot stand in for visibility without hiding
+   * real catalogue entries. Defaults false, so a reader-submitted feed is
+   * private until somebody promotes it.
+   */
+  listed: boolean;
+  /** Added in 0039. See `SourceOrigin`. */
+  origin: SourceOrigin;
+  /**
    * When a reader last wanted this source (0031). Drives the grace period
    * before zero-demand collection stops. Null means "not yet measured",
    * which is treated as eligible — see `sources_to_collect`.
@@ -204,6 +222,24 @@ export type UserCustomSource = {
   updated_at: string;
 };
 
+/**
+ * Somebody turned away by the capacity gate who left an address (0038).
+ *
+ * `invited_at` is the closest thing in this schema to a permission: a row
+ * carrying one, and no `signed_up_at`, is what lets an address past a full
+ * cap. The signup trigger spends it, which is why the row is kept after
+ * signup rather than deleted -- it is the record of who was admitted, when.
+ */
+export type WaitlistEntry = {
+  id: string;
+  email: string;
+  name: string;
+  note: string;
+  created_at: string;
+  invited_at: string | null;
+  signed_up_at: string | null;
+};
+
 export type AlertClaim = { user_id: string; event_id: string; created_at: string };
 export type AiUsageLedger = {
   id: string;
@@ -244,8 +280,18 @@ export type EventTranslation = {
   event_id: string;
   /** BCP-47. `zh-Hans`, not bare `zh`. */
   language: string;
-  /** Short hash of the English source text this was translated from. */
+  /**
+   * Short hash of the English source text this was translated from — and of
+   * the editorial profile, so improving a profile invalidates the cache.
+   */
   content_version: string;
+  /**
+   * Which `TRANSLATION_STYLE_VERSION` wrote this row (0040). Not part of the
+   * cache key; `content_version` already covers correctness. This is for
+   * traceability — asking how much of the cache is still on an older style,
+   * which a hash cannot answer.
+   */
+  style_version: string;
   status: TranslationStatus;
   title: string | null;
   what_happened: string | null;
@@ -543,6 +589,8 @@ export type Database = {
       user_exclusions: Table<UserExclusion>;
       sources: Table<
         Source,
+        | "listed"
+        | "origin"
         | "id"
         | "homepage"
         | "kind"
@@ -559,6 +607,10 @@ export type Database = {
       cluster_shadow_log: Table<ClusterShadowLog, "id" | "agreed" | "created_at">;
       user_source_prefs: Table<UserSourcePref, "pref" | "created_at">;
       user_custom_sources: Table<UserCustomSource, "active" | "created_at" | "updated_at">;
+      waitlist: Table<
+        WaitlistEntry,
+        "id" | "name" | "note" | "created_at" | "invited_at" | "signed_up_at"
+      >;
       source_topics: Table<SourceTopic, "confidence" | "created_at" | "updated_at">;
       events: Table<
         EventRow,
@@ -591,6 +643,7 @@ export type Database = {
       >;
       event_translations: Table<
         EventTranslation,
+        | "style_version"
         | "status"
         | "title"
         | "what_happened"
@@ -695,6 +748,44 @@ export type Database = {
         Args: { p_user_id: string; p_source_id: string };
         Returns: string;
       };
+      /**
+       * Added in 0039. The reader source list: catalogue entries matching the
+       * reader's topics, plus their own follows, bounded and paged.
+       */
+      reader_sources: {
+        Args: { p_user_id: string; p_limit?: number; p_offset?: number };
+        Returns: {
+          id: string;
+          name: string;
+          kind: SourceKind;
+          homepage: string | null;
+          is_own: boolean;
+        }[];
+      };
+      /** Added in 0039. Discovery across the whole catalogue plus own sources. */
+      search_reader_sources: {
+        Args: { p_user_id: string; p_query: string; p_limit?: number };
+        Returns: {
+          id: string;
+          name: string;
+          kind: SourceKind;
+          homepage: string | null;
+          is_own: boolean;
+        }[];
+      };
+      /**
+       * Added in 0038. One round trip for the access console: seats taken,
+       * plus the three waitlist states.
+       */
+      admin_access_state: {
+        Args: Record<string, never>;
+        Returns: {
+          seats_used: number;
+          waiting: number;
+          invited_pending: number;
+          admitted: number;
+        }[];
+      };
       /** Added in 0031. Stamps `sources.last_demand_at`; returns rows touched. */
       refresh_source_demand: {
         Args: Record<string, never>;
@@ -791,6 +882,7 @@ export type Database = {
       source_kind: SourceKind;
       source_pref: SourcePref;
       source_coverage_mode: SourceCoverageMode;
+      source_origin: SourceOrigin;
       impact_status: ImpactStatus;
       translation_status: TranslationStatus;
       topic_importance: TopicImportance;

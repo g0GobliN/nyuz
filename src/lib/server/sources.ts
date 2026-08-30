@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { adminOnly, audit, AdminAuthError } from "@/lib/server/guard";
 import { isPublicHttpUrl } from "@/lib/net/public-url";
@@ -179,7 +180,7 @@ export const createSource = createServerFn({ method: "POST" })
 export const setSourceActive = createServerFn({ method: "POST" })
   .middleware([adminOnly])
   .validator((input: unknown) =>
-    z.object({ id: z.string().uuid(), active: z.boolean() }).parse(input),
+    parseInput(z.object({ id: z.string().uuid(), active: z.boolean() }), input),
   )
   .handler(async ({ context, data }): Promise<{ ok: true }> => {
     const { actor } = context;
@@ -202,7 +203,7 @@ export const setSourceActive = createServerFn({ method: "POST" })
 /** Clears backoff state without touching `active`, for a feed that has recovered. */
 export const resetSourceFailures = createServerFn({ method: "POST" })
   .middleware([adminOnly])
-  .validator((input: unknown) => z.object({ id: z.string().uuid() }).parse(input))
+  .validator((input: unknown) => parseInput(z.object({ id: z.string().uuid() }), input))
   .handler(async ({ context, data }): Promise<{ ok: true }> => {
     const { actor } = context;
 
@@ -210,5 +211,42 @@ export const resetSourceFailures = createServerFn({ method: "POST" })
 
     if (error) throw new AdminAuthError(`Reset failures: ${error.message}`, 500);
     await audit(actor, "source.reset_failures", { type: "source", id: data.id });
+    return { ok: true };
+  });
+
+/**
+ * Promotes a source into the reader catalogue, or withdraws it (0039).
+ *
+ * Separate from `setSourceActive` because the two answer different questions
+ * and an operator needs both independently: `active` decides whether nyuz
+ * *crawls* it, `listed` decides whether readers can *find* it. A
+ * reader-submitted feed is normally active and unlisted — crawled for the
+ * people who asked, invisible to everybody else — and promoting a good one is
+ * how the catalogue grows.
+ *
+ * Audited, because listing a source publishes one reader's private feed to
+ * every other reader. That is not reversible in the sense that matters: it can
+ * be unlisted, but not un-seen.
+ */
+export const setSourceListed = createServerFn({ method: "POST" })
+  .middleware([adminOnly])
+  .validator((input: unknown) =>
+    parseInput(z.object({ id: z.string().uuid(), listed: z.boolean() }), input),
+  )
+  .handler(async ({ context, data }): Promise<{ ok: true }> => {
+    const { actor } = context;
+
+    const { error } = await actor.db
+      .from("sources")
+      .update({ listed: data.listed })
+      .eq("id", data.id);
+
+    if (error) throw new AdminAuthError(`Update listing: ${error.message}`, 500);
+
+    await audit(actor, data.listed ? "source.list" : "source.unlist", {
+      type: "source",
+      id: data.id,
+    });
+
     return { ok: true };
   });

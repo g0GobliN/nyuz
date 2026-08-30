@@ -27,6 +27,8 @@ const source = (over: Partial<Source> = {}): Source => ({
   failure_count: 0,
   created_at: NOW.toISOString(),
   coverage_mode: "core",
+  listed: true,
+  origin: "curated",
   last_demand_at: NOW.toISOString(),
   last_new_content_at: NOW.toISOString(),
   polling_tier: "normal",
