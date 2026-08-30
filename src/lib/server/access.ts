@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { adminOnly, audit, AdminAuthError } from "@/lib/server/guard";
+import { signupRateLimit } from "@/lib/server/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ACCESS_DEFAULT, accessSchema, parseSetting, type Access } from "@/lib/site-content";
 import { sendWaitlistInvited, sendWaitlistJoined } from "@/lib/server/email/lifecycle";
@@ -108,6 +109,7 @@ const joinInput = z.object({
  * never be spent.
  */
 export const joinWaitlist = createServerFn({ method: "POST" })
+  .middleware([signupRateLimit])
   .validator(joinInput)
   .handler(async ({ data }): Promise<{ ok: true }> => {
     const email = data.email.toLowerCase();

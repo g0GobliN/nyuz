@@ -17,6 +17,7 @@ import {
 } from "@/lib/plans";
 import { judgeStoryQuestion } from "@/lib/ask-scope";
 import { asPercent, clockOf, importanceBand, type Story } from "@/lib/story";
+import { aiRateLimit } from "./rate-limit";
 import type {
   Database,
   DigestStatus,
@@ -488,7 +489,7 @@ and nothing else.
 Keep the answer to 2–4 short paragraphs, separated by blank lines. No code unless the coverage itself names an API or command and the question asks what changed.`;
 
 export const askStory = createServerFn({ method: "POST" })
-  .middleware([signedInOnly])
+  .middleware([aiRateLimit])
   .validator((input: unknown) =>
     z
       .object({
