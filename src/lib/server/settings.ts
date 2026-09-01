@@ -106,7 +106,9 @@ export const getPublicSiteContent = createServerFn({ method: "GET" }).handler(
       // to half of logged-out traffic at random is worse than not shipping it.
       const resolved: Record<string, boolean> = {};
       for (const flag of flags.data ?? []) {
-        resolved[flag.key] = flag.enabled && flag.rollout_percent >= 100;
+        if (flag.key === "blog") {
+          resolved[flag.key] = flag.enabled && flag.rollout_percent >= 100;
+        }
       }
 
       return {

@@ -4,6 +4,9 @@ import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { handleStripeWebhook, type WebhookEnv } from "./lib/server/stripe/webhook";
 import { handleTelegramWebhook, type TelegramWebhookEnv } from "./lib/server/telegram/webhook";
+import { verifyUnsubscribeToken, type UnsubscribeEnv } from "./lib/server/email/unsubscribe";
+import { createAdminClient, type ServerEnv } from "./lib/supabase/admin";
+import type { DeliveryChannel } from "./lib/supabase/types";
 
 /**
  * Stripe posts here.
@@ -18,6 +21,130 @@ import { handleTelegramWebhook, type TelegramWebhookEnv } from "./lib/server/tel
  */
 const STRIPE_WEBHOOK_PATH = "/api/stripe/webhook";
 const TELEGRAM_WEBHOOK_PATH = "/api/telegram/webhook";
+const UNSUBSCRIBE_PATH = "/api/unsubscribe";
+const HEALTH_PATH = "/api/health";
+
+type UnsubscribeServerEnv = ServerEnv & UnsubscribeEnv;
+type HealthEnv = ServerEnv & { HEALTHCHECK_TOKEN?: string };
+
+function unsubscribePage(message: string, status = 200): Response {
+  const safe = message.replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[char] ?? char,
+  );
+  return new Response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Email preferences — nyuz</title></head><body><main><h1>${safe}</h1><p>You can change all notification channels from Delivery settings after signing in.</p></main></body></html>`,
+    {
+      status,
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+    },
+  );
+}
+
+async function handleUnsubscribe(request: Request, env?: UnsubscribeServerEnv): Promise<Response> {
+  if (request.method !== "GET" && request.method !== "POST") {
+    return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, POST" } });
+  }
+  const token = new URL(request.url).searchParams.get("token") ?? "";
+  const userId = await verifyUnsubscribeToken(token, env);
+  if (!userId) return unsubscribePage("This unsubscribe link is invalid or expired.", 400);
+
+  const db = createAdminClient(env);
+  const { data, error } = await db
+    .from("notification_preferences")
+    .select("channels")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(`reading unsubscribe preferences: ${error.message}`);
+  if (!data) return unsubscribePage("Email briefings are already unsubscribed.");
+
+  const channels = (data.channels as DeliveryChannel[]).filter((channel) => channel !== "email");
+  const { error: updateError } = await db
+    .from("notification_preferences")
+    .update({ channels })
+    .eq("user_id", userId);
+  if (updateError) throw new Error(`saving unsubscribe preferences: ${updateError.message}`);
+  return unsubscribePage("You have been unsubscribed from email briefings.");
+}
+
+async function handleHealth(request: Request, env?: HealthEnv): Promise<Response> {
+  const expected = env?.HEALTHCHECK_TOKEN ?? globalThis.process?.env?.["HEALTHCHECK_TOKEN"];
+  const supplied =
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
+    new URL(request.url).searchParams.get("token");
+  if (!expected || supplied !== expected) return new Response("Not found", { status: 404 });
+
+  const db = createAdminClient(env);
+  const [{ data, error }, { count: failedDeliveries, error: deliveryError }] = await Promise.all([
+    db
+      .from("ops_status")
+      .select("key, status, detail, updated_at")
+      .order("updated_at", { ascending: false }),
+    db.from("deliveries").select("id", { count: "exact", head: true }).eq("status", "failed"),
+  ]);
+  if (error) return Response.json({ ok: false, error: error.message }, { status: 503 });
+  if (deliveryError)
+    return Response.json({ ok: false, error: deliveryError.message }, { status: 503 });
+  const heartbeat = data?.find((row) => row.key === "cron:heartbeat");
+  const stale = !heartbeat || Date.parse(heartbeat.updated_at) < Date.now() - 45 * 60_000;
+  const unhealthy = (data ?? []).some(
+    (row) => row.status !== "healthy" && row.key !== "delivery:failure",
+  );
+  const ok = !stale && !unhealthy && (failedDeliveries ?? 0) === 0;
+  return Response.json(
+    { ok, heartbeat_stale: stale, failed_deliveries: failedDeliveries ?? 0, statuses: data ?? [] },
+    { status: ok ? 200 : 503, headers: { "cache-control": "no-store" } },
+  );
+}
+
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' https: data:",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+  "worker-src 'self'",
+  "upgrade-insecure-requests",
+].join("; ");
+
+function secureResponse(request: Request, response: Response): Response {
+  const secured = new Response(response.body, response);
+  secured.headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+  secured.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  secured.headers.set("X-Content-Type-Options", "nosniff");
+  secured.headers.set("X-Frame-Options", "DENY");
+  secured.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  secured.headers.set(
+    "Permissions-Policy",
+    "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+  );
+  secured.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+
+  const path = new URL(request.url).pathname;
+  if (
+    path.startsWith("/_serverFn/") ||
+    path.startsWith("/dashboard") ||
+    path.startsWith("/admin") ||
+    path === "/auth" ||
+    path === "/onboarding"
+  ) {
+    secured.headers.set("Cache-Control", "no-store");
+  }
+
+  return secured;
+}
 
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
@@ -65,21 +192,38 @@ export default {
     try {
       const path = new URL(request.url).pathname;
       if (path === STRIPE_WEBHOOK_PATH) {
-        return await handleStripeWebhook(request, env as WebhookEnv | undefined);
+        const response = await handleStripeWebhook(request, env as WebhookEnv | undefined);
+        return secureResponse(request, response);
       }
       if (path === TELEGRAM_WEBHOOK_PATH) {
-        return await handleTelegramWebhook(request, env as TelegramWebhookEnv | undefined);
+        const response = await handleTelegramWebhook(
+          request,
+          env as TelegramWebhookEnv | undefined,
+        );
+        return secureResponse(request, response);
+      }
+      if (path === UNSUBSCRIBE_PATH) {
+        return secureResponse(
+          request,
+          await handleUnsubscribe(request, env as UnsubscribeServerEnv | undefined),
+        );
+      }
+      if (path === HEALTH_PATH) {
+        return secureResponse(request, await handleHealth(request, env as HealthEnv | undefined));
       }
 
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      return secureResponse(request, await normalizeCatastrophicSsrResponse(response));
     } catch (error) {
       console.error(error);
-      return new Response(renderErrorPage(), {
-        status: 500,
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
+      return secureResponse(
+        request,
+        new Response(renderErrorPage(), {
+          status: 500,
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      );
     }
   },
 };

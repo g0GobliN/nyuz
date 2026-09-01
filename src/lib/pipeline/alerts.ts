@@ -112,77 +112,31 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
     return { ...empty, skipped: options.hits.length };
   }
 
-  const chosen: AlertHit[] = [];
-  for (const hit of fresh) {
-    const { data: claim, error: claimError } = await db.rpc("claim_alert", {
-      p_user_id: options.userId,
-      p_event_id: hit.eventId,
-      p_importance: hit.importance,
-    });
-    if (claimError) throw new Error(`claiming alert: ${claimError.message}`);
-    if (claim === "ok") chosen.push(hit);
-  }
-  if (chosen.length === 0) return { ...empty, skipped: options.hits.length };
   const events = await loadEvents(
     db,
-    chosen.map((h) => h.eventId),
+    fresh.map((h) => h.eventId),
   );
 
   let queued = 0;
-  for (let i = 0; i < chosen.length; i += 1) {
-    const hit = chosen[i];
+  let created = 0;
+  for (let i = 0; i < fresh.length; i += 1) {
+    const hit = fresh[i];
     if (!hit) continue;
     const event = events.get(hit.eventId);
     if (!event) continue;
 
     const scheduledFor = new Date(now.getTime() + i).toISOString();
-    const { data: digest, error: writeError } = await db
-      .from("digests")
-      .insert({
-        user_id: options.userId,
-        scheduled_for: scheduledFor,
-        generated_at: now.toISOString(),
-        status: "ready",
-        item_count: 1,
-        generation_tokens: 0,
-        kind: "alert",
-      })
-      .select("digest_id")
-      .maybeSingle();
-    if (writeError || !digest) {
-      console.error(`alert digest for ${options.userId}: ${writeError?.message ?? "no row"}`);
-      continue;
-    }
-
-    const { error: itemError } = await db.from("digest_items").insert({
-      digest_id: digest.digest_id,
-      event_id: hit.eventId,
-      position: 0,
-      why_it_matters: event.whatHappened || event.title,
+    const { data: result, error: createError } = await db.rpc("create_alert_delivery", {
+      p_user_id: options.userId,
+      p_event_id: hit.eventId,
+      p_importance: hit.importance,
+      p_scheduled_for: scheduledFor,
+      p_why: event.whatHappened || event.title,
+      p_channels: toQueue,
     });
-    if (itemError) {
-      console.error(`alert item for ${digest.digest_id}: ${itemError.message}`);
-      continue;
-    }
-
-    await db
-      .from("user_events")
-      .update({ briefed_at: now.toISOString() })
-      .eq("user_id", options.userId)
-      .eq("event_id", hit.eventId);
-
-    const { error: queueError } = await db.from("deliveries").upsert(
-      toQueue.map((channel) => ({
-        digest_id: digest.digest_id,
-        channel,
-        status: "queued" as const,
-      })),
-      { onConflict: "digest_id,channel", ignoreDuplicates: true },
-    );
-    if (queueError) {
-      console.error(`alert queue for ${digest.digest_id}: ${queueError.message}`);
-      continue;
-    }
+    if (createError) throw new Error(`creating alert: ${createError.message}`);
+    if (!result?.startsWith("ok:")) continue;
+    created += 1;
     queued += toQueue.length;
   }
 
@@ -201,7 +155,7 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
     considered: options.hits.length,
     queued,
     sent,
-    skipped: options.hits.length - chosen.length,
+    skipped: options.hits.length - created,
   };
 }
 

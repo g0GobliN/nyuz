@@ -98,6 +98,140 @@ async function post<T>(
   return { ok: true, data: json };
 }
 
+async function get<T>(path: string, env?: StripeApiEnv): Promise<StripeApiResult<T>> {
+  let key: string;
+  try {
+    key = readKey(env);
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`https://api.stripe.com/v1/${path}`, {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+  } catch (error) {
+    return { ok: false, error: `Network error: ${(error as Error).message}` };
+  }
+
+  const json = (await response.json().catch(() => null)) as
+    (T & { error?: { message?: string } }) | null;
+  if (!response.ok || !json) {
+    return {
+      ok: false,
+      error: json?.error?.message ?? `Stripe returned ${response.status}`,
+    };
+  }
+  return { ok: true, data: json };
+}
+
+export type StripePrice = {
+  active: boolean;
+  currency: string;
+  livemode: boolean;
+  type: string;
+  unit_amount: number | null;
+  recurring: { interval: string; interval_count: number } | null;
+};
+
+export type StripeBalanceTransaction = {
+  currency: string;
+  fee: number;
+  net: number;
+};
+
+export type StripeSubscription = {
+  id: string;
+  customer: string;
+  status: string;
+  livemode: boolean;
+  items: { data: { id: string; price?: { id?: string } }[] };
+};
+
+export function retrieveStripeCharge(
+  chargeId: string,
+  env?: StripeApiEnv,
+): Promise<StripeApiResult<Record<string, unknown>>> {
+  return get<Record<string, unknown>>(`charges/${encodeURIComponent(chargeId)}`, env);
+}
+
+export function retrieveStripePaymentIntent(
+  paymentIntentId: string,
+  env?: StripeApiEnv,
+): Promise<StripeApiResult<Record<string, unknown>>> {
+  return get<Record<string, unknown>>(
+    `payment_intents/${encodeURIComponent(paymentIntentId)}`,
+    env,
+  );
+}
+
+export function retrieveStripeInvoice(
+  invoiceId: string,
+  env?: StripeApiEnv,
+): Promise<StripeApiResult<Record<string, unknown>>> {
+  return get<Record<string, unknown>>(`invoices/${encodeURIComponent(invoiceId)}`, env);
+}
+
+export function retrieveStripeBalanceTransaction(
+  transactionId: string,
+  env?: StripeApiEnv,
+): Promise<StripeApiResult<StripeBalanceTransaction>> {
+  return get<StripeBalanceTransaction>(
+    `balance_transactions/${encodeURIComponent(transactionId)}`,
+    env,
+  );
+}
+
+/** Reads the immutable Price object before checkout so display and charge cannot drift. */
+export function retrieveStripePrice(
+  priceId: string,
+  env?: StripeApiEnv,
+): Promise<StripeApiResult<StripePrice>> {
+  return get<StripePrice>(`prices/${encodeURIComponent(priceId)}`, env);
+}
+
+export function retrieveStripeSubscription(
+  subscriptionId: string,
+  env?: StripeApiEnv,
+): Promise<StripeApiResult<StripeSubscription>> {
+  return get<StripeSubscription>(`subscriptions/${encodeURIComponent(subscriptionId)}`, env);
+}
+
+export function changeStripeSubscriptionPrice(input: {
+  subscriptionId: string;
+  itemId: string;
+  priceId: string;
+  userId: string;
+  env?: StripeApiEnv;
+}): Promise<StripeApiResult<StripeSubscription>> {
+  return post<StripeSubscription>(
+    `subscriptions/${encodeURIComponent(input.subscriptionId)}`,
+    {
+      items: [{ id: input.itemId, price: input.priceId }],
+      proration_behavior: "create_prorations",
+      payment_behavior: "pending_if_incomplete",
+      metadata: { user_id: input.userId },
+    },
+    input.env,
+  );
+}
+
+export function stripePriceMatches(
+  price: StripePrice,
+  expected: { cents: number; interval: "month" | "year"; requireLive: boolean },
+): boolean {
+  return (
+    price.active &&
+    price.currency === "usd" &&
+    price.type === "recurring" &&
+    price.unit_amount === expected.cents &&
+    price.recurring?.interval === expected.interval &&
+    price.recurring.interval_count === 1 &&
+    (!expected.requireLive || price.livemode)
+  );
+}
+
 /* ---------------------------------------------------------------------- */
 /* Checkout                                                                */
 /* ---------------------------------------------------------------------- */

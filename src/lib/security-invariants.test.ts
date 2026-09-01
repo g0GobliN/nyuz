@@ -111,7 +111,16 @@ describe("global pipeline tables are read-only to the browser", () => {
 
 describe("operational tables are unreachable from a browser entirely", () => {
   // Not even readable: no policy of any kind, so RLS denies everything.
-  const invisible = ["ai_providers", "ai_model_routes", "ai_prompts", "cluster_shadow_log"];
+  const invisible = [
+    "ai_providers",
+    "ai_model_routes",
+    "ai_prompts",
+    "ai_usage_ledger",
+    "billing_ledger",
+    "operating_cost_settings",
+    "cluster_shadow_log",
+    "source_probe_log",
+  ];
 
   for (const table of invisible) {
     it(`${table} has no policy at all`, () => {
@@ -227,6 +236,15 @@ describe("expensive functions are not callable from a browser", () => {
     "refresh_source_demand",
     "recompute_polling_tiers",
     "claim_custom_source",
+    "claim_source_probe",
+    "purge_expired_corpus",
+    "pending_events_with_demand",
+    "release_ai_reservation",
+    "claim_subscription_checkout",
+    "release_subscription_checkout",
+    "claim_delivery",
+    "create_alert_delivery",
+    "record_ops_status",
   ];
 
   for (const fn of mustBeRevoked) {
@@ -267,6 +285,115 @@ describe("failure is bounded, not retried forever", () => {
       const src = readFileSync(file, "utf8");
       expect(src).toContain("status.eq.pending,and(status.eq.generating,updated_at.lt.");
     }
+  });
+});
+
+describe("launch repair concurrency and recovery", () => {
+  const repair = readFileSync("supabase/migrations/0045_launch_blocker_repair.sql", "utf8");
+
+  it("selects demanded pending events before applying the batch limit", () => {
+    const start = repair.indexOf("pending_events_with_demand");
+    const fn = repair.slice(start, repair.indexOf("$fn$;", start));
+    expect(start).toBeGreaterThan(-1);
+    expect(fn.indexOf("exists (")).toBeGreaterThan(-1);
+    expect(fn.indexOf("exists (")).toBeLessThan(fn.indexOf("limit greatest"));
+
+    const analysis = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
+    expect(analysis).toContain('db.rpc("pending_events_with_demand"');
+    expect(analysis).not.toMatch(/pending_events_with_demand[\s\S]{0,500}events_with_demand/);
+  });
+
+  it("persists capacity deferrals and makes them due automatically", () => {
+    expect(repair).toMatch(
+      /analysis_deferred_until is null or e\.analysis_deferred_until <= now\(\)/,
+    );
+    const analysis = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
+    expect(analysis).toContain('status: "pending"');
+    expect(analysis).toContain("analysis_deferred_until: retryAt.toISOString()");
+    expect(analysis).toContain("analysis_deferred_until.lte");
+  });
+
+  it("uses recoverable delivery leases and transactional alert creation", () => {
+    expect(repair).toMatch(/create or replace function public\.claim_delivery/);
+    expect(repair).toMatch(/processing_started_at < now\(\) - make_interval/);
+    expect(repair).toMatch(/create or replace function public\.create_alert_delivery/);
+    expect(repair).toMatch(/admission := public\.claim_alert/);
+    expect(repair).toMatch(/insert into public\.digest_items/);
+    expect(repair).toMatch(/insert into public\.deliveries/);
+  });
+
+  it("releases only an unused AI reservation", () => {
+    expect(repair).toMatch(/create or replace function public\.release_ai_reservation/);
+    expect(repair).toMatch(/cost_microusd is null/);
+    expect(repair).toMatch(/prompt_tokens = 0/);
+    expect(repair).toMatch(/completion_tokens = 0/);
+  });
+});
+
+describe("launch cost and privacy boundaries", () => {
+  it("keeps a finite AI budget when the deployment binding is forgotten", () => {
+    const budget = readFileSync("src/lib/ai/budget.ts", "utf8");
+    expect(budget).toContain("DEFAULT_AI_MONTHLY_TOKEN_BUDGET = 500_000");
+    expect(budget).toContain("DEFAULT_AI_MONTHLY_COST_USD = 10");
+
+    const config = readFileSync("src/lib/ai/config.ts", "utf8");
+    expect(config).toMatch(/configured \? Number\(configured\) : DEFAULT_AI_MONTHLY_TOKEN_BUDGET/);
+    expect(config).toMatch(
+      /configuredCost \? Number\(configuredCost\) : DEFAULT_AI_MONTHLY_COST_USD/,
+    );
+    expect(config).not.toContain("if (!configured) return null");
+  });
+
+  it("caps spend in money as well as tokens, and refuses on either ceiling", () => {
+    // A token ceiling cannot bound an invoice: the same token count costs
+    // thirtyfold more on one route than another. Both ceilings must reach the
+    // reservation, and the reservation is the only place that can refuse — once
+    // the provider has been called the money is already gone.
+    const config = readFileSync("src/lib/ai/config.ts", "utf8");
+    expect(config).toContain("p_global_monthly_cost_microusd");
+    expect(config).toContain("p_estimated_cost_microusd");
+    expect(config).toContain("throw new AiBudgetExceededError()");
+
+    const migration = readFileSync("supabase/migrations/0044_ai_cost_ceiling.sql", "utf8");
+    // The pre-ceiling overload must not survive beside the new one, or
+    // PostgREST could resolve to an uncapped path.
+    expect(migration).toContain(
+      "drop function if exists public.reserve_ai_tokens(uuid, text, text, integer, integer, integer)",
+    );
+    expect(migration).toMatch(/revoke all on function public\.reserve_ai_tokens\(/);
+    expect(migration).toMatch(/revoke all on function public\.ai_spend_this_month\(\)/);
+  });
+
+  it("does not send the reader-specific match reason to Ask AI", () => {
+    const briefing = readFileSync("src/lib/server/briefing.ts", "utf8");
+    const askHandler = briefing.slice(briefing.indexOf("export const askStory"));
+    expect(askHandler).not.toContain("story.why");
+  });
+
+  it("ships browser hardening headers from the outer response boundary", () => {
+    const server = readFileSync("src/server.ts", "utf8");
+    for (const header of [
+      "Content-Security-Policy",
+      "Strict-Transport-Security",
+      "X-Content-Type-Options",
+      "X-Frame-Options",
+      "Permissions-Policy",
+    ]) {
+      expect(server).toContain(header);
+    }
+  });
+
+  it("does not mistake a claimed Stripe event for a completed one", () => {
+    const webhook = readFileSync("src/lib/server/stripe/webhook.ts", "utf8");
+    expect(webhook).toContain("processing_started_at");
+    expect(webhook).toContain("processed_at");
+    expect(webhook).toContain("completeEvent");
+  });
+
+  it("does not expose operational settings and flags through anonymous PostgREST", () => {
+    const launch = ALL_SQL.find((f) => f.name === "0042_launch_capacity.sql")?.sql ?? "";
+    expect(launch).toContain('drop policy if exists "site settings readable"');
+    expect(launch).toContain('drop policy if exists "flags readable"');
   });
 });
 

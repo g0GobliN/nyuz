@@ -21,7 +21,7 @@ export const Route = createFileRoute("/pricing")({
         // Left as prose rather than interpolated from the loader: a search
         // snippet is cached for weeks, so a number in it goes stale in a place
         // nobody can see. The page body is where the live figures belong.
-        content: "Start free. Paid plans from $19/month. Relevance, not quantity.",
+        content: "Start free. Paid plans from $14.99/month. Relevance, not quantity.",
       },
     ],
   }),
@@ -255,7 +255,7 @@ function Pricing() {
                     {yearly !== null ? (
                       <p className="mt-2 text-[13px] tabular-nums text-muted-foreground">
                         {annual
-                          ? `${formatUsd(monthly)} per month`
+                          ? `${formatUsd(yearly / 12)} per month equivalent, billed annually`
                           : `${formatUsd(yearly)} per year`}
                       </p>
                     ) : null}

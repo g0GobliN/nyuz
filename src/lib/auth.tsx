@@ -7,9 +7,14 @@ type AuthState = {
   user: User | null;
   /** True until the first session check resolves. Guards must wait on this. */
   loading: boolean;
+  recovery: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  updatePassword: (password: string) => Promise<void>;
+  clearRecovery: () => void;
   signInWithProvider: (provider: OAuthProvider) => Promise<void>;
+  updateEmail: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -20,6 +25,7 @@ const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recovery, setRecovery] = useState(false);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -32,8 +38,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     // Fires on sign-in, sign-out, and token refresh — including in other tabs.
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
       setSession(next);
+      if (event === "PASSWORD_RECOVERY") setRecovery(true);
+      if (event === "SIGNED_OUT") setRecovery(false);
       setLoading(false);
     });
 
@@ -48,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       user: session?.user ?? null,
       loading,
+      recovery,
 
       async signIn(email, password) {
         const { error } = await getSupabaseBrowserClient().auth.signInWithPassword({
@@ -68,6 +77,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (error) throw error;
       },
 
+      async requestPasswordReset(email) {
+        const { error } = await getSupabaseBrowserClient().auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/auth?recovery=1`,
+        });
+        if (error) throw error;
+      },
+
+      async updatePassword(password) {
+        const { error } = await getSupabaseBrowserClient().auth.updateUser({ password });
+        if (error) throw error;
+        setRecovery(false);
+      },
+
+      clearRecovery() {
+        setRecovery(false);
+      },
+
       async signInWithProvider(provider) {
         const { error } = await getSupabaseBrowserClient().auth.signInWithOAuth({
           provider,
@@ -85,12 +111,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       },
 
+      async updateEmail(email) {
+        const { error } = await getSupabaseBrowserClient().auth.updateUser({ email });
+        if (error) throw error;
+      },
+
       async signOut() {
         const { error } = await getSupabaseBrowserClient().auth.signOut();
         if (error) throw error;
       },
     }),
-    [session, loading],
+    [session, loading, recovery],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

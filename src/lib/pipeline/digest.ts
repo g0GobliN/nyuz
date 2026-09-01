@@ -41,7 +41,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { completeRoutedJson, type SecretBag } from "@/lib/ai/config";
+import { aiCapacityRetryAt, completeRoutedJson, type SecretBag } from "@/lib/ai/config";
 import { TruncatedCompletionError } from "@/lib/ai/deepseek";
 import { capFor } from "@/lib/density";
 import { needsTranslation, toLanguageTag, type LanguageTag } from "@/lib/languages";
@@ -50,6 +50,8 @@ import { mailGrafs } from "@/lib/article-body";
 import { briefingEmail, breakingEmail } from "@/lib/email/templates";
 import { findRecipient } from "@/lib/server/email/lifecycle";
 import { sendEmail, siteUrl, type EmailEnv } from "@/lib/server/email/send";
+import { unsubscribeUrl } from "@/lib/server/email/unsubscribe";
+import { recordOps } from "@/lib/server/ops";
 import { sendTelegramMessage, type TelegramEnv } from "@/lib/server/telegram/send";
 import { sendStoryPushes, type PushEnv } from "@/lib/server/push/send";
 import { formatTelegramAlert, formatTelegramBriefing } from "@/lib/telegram/format";
@@ -123,7 +125,7 @@ export type DigestOptions = {
   immediate?: boolean | undefined;
 };
 
-export type DigestDecision = "generated" | "skipped" | "failed" | "paused" | "held";
+export type DigestDecision = "generated" | "skipped" | "failed" | "paused" | "held" | "deferred";
 
 export type DigestOutcome = {
   userId: string;
@@ -144,6 +146,7 @@ export type DigestReport = {
   skipped: number;
   failed: number;
   paused: number;
+  deferred: number;
   sent: number;
   retried: number;
   tokens: number;
@@ -224,6 +227,7 @@ export async function digest(db: Db, options: DigestOptions = {}): Promise<Diges
   let skipped = 0;
   let failed = 0;
   let paused = 0;
+  let deferred = 0;
   let tokens = 0;
 
   for (const row of due) {
@@ -234,6 +238,7 @@ export async function digest(db: Db, options: DigestOptions = {}): Promise<Diges
     else if (outcome.decision === "skipped") skipped += 1;
     else if (outcome.decision === "failed") failed += 1;
     else if (outcome.decision === "paused") paused += 1;
+    else if (outcome.decision === "deferred") deferred += 1;
   }
 
   let sent = 0;
@@ -256,6 +261,7 @@ export async function digest(db: Db, options: DigestOptions = {}): Promise<Diges
     skipped,
     failed,
     paused,
+    deferred,
     sent,
     retried,
     tokens,
@@ -326,15 +332,17 @@ type DueRow = {
   user_id: string;
   scheduled_for: string;
   status: DigestStatus;
+  generation_deferred_until: string | null;
 };
 
 async function loadDue(db: Db, now: Date, options: DigestOptions): Promise<DueRow[]> {
   const stale = new Date(now.getTime() - STALE_MINUTES * 60_000).toISOString();
   let query = db
     .from("digests")
-    .select("digest_id, user_id, scheduled_for, status")
+    .select("digest_id, user_id, scheduled_for, status, generation_deferred_until")
     .lte("scheduled_for", now.toISOString())
     .or(`status.eq.scheduled,and(status.eq.generating,generated_at.is.null)`)
+    .or(`generation_deferred_until.is.null,generation_deferred_until.lte.${now.toISOString()}`)
     .order("scheduled_for", { ascending: true })
     .limit(options.limit ?? BATCH);
 
@@ -425,14 +433,19 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     tokens = resolved.tokens;
   } catch (error) {
     const floor = error instanceof TruncatedCompletionError ? error.reasoningTokens : 0;
+    const retryAt = aiCapacityRetryAt(error, options.now ?? new Date());
     if (options.dryRun !== true) {
-      await finish(db, due.digest_id, "failed", 0, floor);
+      if (retryAt !== null) await deferDigest(db, due.digest_id, retryAt);
+      else await finish(db, due.digest_id, "failed", 0, floor);
     }
     return {
       ...base,
       tokens: floor,
-      decision: "failed",
-      detail: `model: ${error instanceof Error ? error.message : String(error)}`,
+      decision: retryAt === null ? "failed" : "deferred",
+      detail:
+        retryAt === null
+          ? `model: ${error instanceof Error ? error.message : String(error)}`
+          : `temporary AI capacity; retry after ${retryAt.toISOString()}`,
     };
   }
 
@@ -552,6 +565,7 @@ type ImpactRow = {
   status: ImpactStatus;
   text: string | null;
   updated_at: string;
+  deferred_until: string | null;
 };
 
 /**
@@ -581,7 +595,11 @@ async function resolveImpacts(
     const row = existing.get(brief.eventId);
     if (row?.status === "complete" && row.text) {
       ready.push({ eventId: brief.eventId, text: row.text });
-    } else if (row === undefined || row.status === "pending" || isStale(row.updated_at, now)) {
+    } else if (
+      row === undefined ||
+      (row.status === "pending" && isDue(row.deferred_until, now)) ||
+      isStale(row.updated_at, now)
+    ) {
       needsBackfill.push(brief);
     }
     // Fresh 'generating' (held elsewhere) or 'failed': left out this round.
@@ -597,13 +615,21 @@ async function resolveImpacts(
     const claimed = await claimImpacts(db, chunk, now);
     if (claimed.length === 0) continue;
 
-    const { data, usage } = await completeRoutedJson<unknown>({
-      capability: "digest",
-      system: `${IMPACT_PROMPT}\n\n${impactContract()}`,
-      user: renderImpactBrief(claimed),
-      maxTokens: 8192,
-      ...(options.secrets ? { secrets: options.secrets } : {}),
-    });
+    let result;
+    try {
+      result = await completeRoutedJson<unknown>({
+        capability: "digest",
+        system: `${IMPACT_PROMPT}\n\n${impactContract()}`,
+        user: renderImpactBrief(claimed),
+        maxTokens: 8192,
+        ...(options.secrets ? { secrets: options.secrets } : {}),
+      });
+    } catch (error) {
+      const retryAt = aiCapacityRetryAt(error, now);
+      if (retryAt !== null) await deferImpacts(db, claimed, retryAt);
+      throw error;
+    }
+    const { data, usage } = result;
     tokens += usage.promptTokens + usage.completionTokens;
 
     const parsed = readWhys(
@@ -625,7 +651,7 @@ async function loadImpacts(db: Db, eventIds: string[]): Promise<Map<string, Impa
   if (eventIds.length === 0) return new Map();
   const { data, error } = await db
     .from("event_impacts")
-    .select("event_id, status, text, updated_at")
+    .select("event_id, status, text, updated_at, deferred_until")
     .in("event_id", eventIds);
   if (error) throw new Error(`reading event_impacts: ${error.message}`);
   return new Map((data ?? []).map((row) => [row.event_id, row]));
@@ -633,6 +659,10 @@ async function loadImpacts(db: Db, eventIds: string[]): Promise<Map<string, Impa
 
 function isStale(updatedAt: string, now: Date): boolean {
   return new Date(updatedAt).getTime() < now.getTime() - STALE_MINUTES * 60_000;
+}
+
+function isDue(deferredUntil: string | null, now: Date): boolean {
+  return deferredUntil === null || Date.parse(deferredUntil) <= now.getTime();
 }
 
 /**
@@ -654,7 +684,7 @@ async function claimImpacts(db: Db, briefs: EventBrief[], now: Date): Promise<Ev
   const stale = new Date(now.getTime() - STALE_MINUTES * 60_000).toISOString();
   const { data, error } = await db
     .from("event_impacts")
-    .update({ status: "generating", updated_at: now.toISOString() })
+    .update({ status: "generating", deferred_until: null, updated_at: now.toISOString() })
     .in("event_id", ids)
     .or(`status.eq.pending,and(status.eq.generating,updated_at.lt.${stale})`)
     .select("event_id");
@@ -673,6 +703,7 @@ async function completeImpacts(
   const rows = items.map((item) => ({
     event_id: item.eventId,
     status: "complete" as const,
+    deferred_until: null,
     text: item.why,
     prompt_tokens: Math.round(usage.promptTokens / each),
     completion_tokens: Math.round(usage.completionTokens / each),
@@ -695,11 +726,27 @@ async function failImpacts(db: Db, briefs: EventBrief[], completionTokens: numbe
   const rows = briefs.map((b) => ({
     event_id: b.eventId,
     status: "failed" as const,
+    deferred_until: null,
     completion_tokens: Math.round(completionTokens / each),
     updated_at: new Date().toISOString(),
   }));
   const { error } = await db.from("event_impacts").upsert(rows, { onConflict: "event_id" });
   if (error) throw new Error(`marking event_impacts failed: ${error.message}`);
+}
+
+async function deferImpacts(db: Db, briefs: EventBrief[], retryAt: Date): Promise<void> {
+  const { error } = await db
+    .from("event_impacts")
+    .update({
+      status: "pending",
+      deferred_until: retryAt.toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .in(
+      "event_id",
+      briefs.map((brief) => brief.eventId),
+    );
+  if (error) throw new Error(`deferring event_impacts: ${error.message}`);
 }
 
 function renderImpactBrief(briefs: EventBrief[]): string {
@@ -744,11 +791,24 @@ async function finish(
       status,
       item_count: itemCount,
       generation_tokens: tokens,
+      generation_deferred_until: null,
       generated_at: new Date().toISOString(),
     })
     .eq("digest_id", digestId);
 
   if (error) throw new Error(`finishing digest: ${error.message}`);
+}
+
+async function deferDigest(db: Db, digestId: string, retryAt: Date): Promise<void> {
+  const { error } = await db
+    .from("digests")
+    .update({
+      status: "scheduled",
+      generation_deferred_until: retryAt.toISOString(),
+      generated_at: null,
+    })
+    .eq("digest_id", digestId);
+  if (error) throw new Error(`deferring digest: ${error.message}`);
 }
 
 async function loadPref(db: Db, userId: string): Promise<PrefRow | null> {
@@ -926,6 +986,13 @@ async function deliverDue(db: Db, options: DigestOptions): Promise<DeliveryRepor
       if (!digestRow || !options.userIds.includes(digestRow.user_id)) continue;
     }
 
+    const { data: claimed, error: claimError } = await db.rpc("claim_delivery", {
+      p_id: row.id,
+      p_lease_minutes: STALE_MINUTES,
+    });
+    if (claimError) throw new Error(`claiming delivery: ${claimError.message}`);
+    if (claimed !== true) continue;
+
     const result = await sendOne(db, row, options);
     if (result === "sent") {
       sent += 1;
@@ -966,14 +1033,13 @@ async function sendOne(
   const items = await loadMailItems(db, row.digest_id, toLanguageTag(langRow?.language));
   const origin = siteUrl(options.email);
   const first = items[0];
-  const unsubscribeUrl = `${origin}/dashboard/delivery`;
 
   const result =
     row.channel === "telegram"
       ? await sendTelegramDelivery(db, digestRow, items, first, origin, options)
       : row.channel === "push"
         ? await sendPushDelivery(db, digestRow, items, origin, options)
-        : await sendEmailDelivery(db, digestRow, items, first, origin, unsubscribeUrl, options);
+        : await sendEmailDelivery(db, digestRow, items, first, origin, options);
 
   const attempts = row.attempts + 1;
   if (result.ok) {
@@ -1006,11 +1072,16 @@ async function sendEmailDelivery(
   items: MailItem[],
   first: MailItem | undefined,
   origin: string,
-  unsubscribeUrl: string,
   options: DigestOptions,
 ) {
   const recipient = await findRecipient(db, digestRow.user_id);
   if (!recipient) return { ok: false as const, error: "no email on profile", retryable: false };
+  let unsubscribe: string;
+  try {
+    unsubscribe = await unsubscribeUrl(digestRow.user_id, origin, options.email);
+  } catch (error) {
+    return { ok: false as const, error: (error as Error).message, retryable: false };
+  }
 
   const message =
     digestRow.kind === "alert" && first
@@ -1021,7 +1092,7 @@ async function sendEmailDelivery(
           why: first.why,
           grafs: first.grafs,
           href: `${origin}/dashboard/story/${first.eventId}`,
-          unsubscribeUrl,
+          unsubscribeUrl: unsubscribe,
         })
       : briefingEmail({
           name: recipient.name,
@@ -1033,13 +1104,13 @@ async function sendEmailDelivery(
             grafs: item.grafs,
             href: `${origin}/dashboard/story/${item.eventId}`,
           })),
-          unsubscribeUrl,
+          unsubscribeUrl: unsubscribe,
         });
 
   return sendEmail({
     to: recipient.email,
     message,
-    unsubscribeUrl,
+    unsubscribeUrl: unsubscribe,
     idempotencyKey: `digest:${digestRow.digest_id}:email`,
     env: options.email,
   });
@@ -1136,10 +1207,18 @@ async function markDelivery(
       attempts,
       status,
       last_error: lastError,
+      processing_started_at: null,
       delivered_at: status === "sent" ? new Date().toISOString() : null,
     })
     .eq("id", id);
   if (error) throw new Error(`updating delivery: ${error.message}`);
+  if (status === "failed") {
+    await recordOps(db, "delivery:failure", "error", {
+      delivery_id: id,
+      attempts,
+      error: lastError,
+    });
+  }
 }
 
 type MailEvent = {
@@ -1268,7 +1347,7 @@ export function describeDigest(report: DigestReport): string {
   const seconds = Math.round((Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000);
   return (
     `digest: ${report.generated} generated, ${report.skipped} skipped, ` +
-    `${report.failed} failed, ${report.paused} paused, ` +
+    `${report.failed} failed, ${report.paused} paused, ${report.deferred} capacity-deferred, ` +
     `${report.sent} sent, ${report.retried} retrying, ` +
     `${report.tokens} tokens, ${seconds}s`
   );

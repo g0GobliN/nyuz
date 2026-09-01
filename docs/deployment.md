@@ -111,11 +111,20 @@ npx wrangler secret put DEEPSEEK_API_KEY --name nyuz
 npx wrangler secret put RESEND_API_KEY --name nyuz
 npx wrangler secret put STRIPE_SECRET_KEY --name nyuz
 npx wrangler secret put STRIPE_WEBHOOK_SECRET --name nyuz
+npx wrangler secret put EMAIL_UNSUBSCRIBE_SECRET --name nyuz
+npx wrangler secret put HEALTHCHECK_TOKEN --name nyuz
 ```
 
-Set the four recurring Stripe Price ids and `AI_MONTHLY_TOKEN_BUDGET=10000000` as Worker
-variables. The Price ids must be the $7/$69 Personal and $15/$149 Pro prices; changing
+Set the four recurring Stripe Price ids, `AI_MONTHLY_TOKEN_BUDGET=500000` and
+`AI_MONTHLY_COST_USD=10` as Worker variables. The second is the ceiling that actually
+bounds the invoice — the token budget bounds a runaway loop, not a bill. The Price ids must be the $14.99/$149.90 Personal and $29.99/$299.90 Pro prices; changing
 display copy does not change what Stripe charges.
+
+The Stripe endpoint must send `checkout.session.completed`,
+`customer.subscription.created`, `customer.subscription.updated`,
+`customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed`,
+`charge.succeeded`, and `charge.refunded`. The succeeded/refunded events populate the private
+unit-economics ledger; omitting them keeps gross margin deliberately unavailable in `/admin/cost`.
 
 **`--name` is not optional here.** There is no `wrangler.toml` at the root — the config is
 generated into `.output/server/wrangler.json` at build time, and only `deploy` and `dev`
@@ -158,20 +167,69 @@ Automatic deployment sharpens that. There is no longer a gap between merging and
 in which to remember, so a change that needs a migration means pushing the migration
 first and merging second — not the other way round.
 
+Production is known to have a partially applied `0042_launch_capacity.sql` followed by
+0043 and 0044. Do **not** replay 0042 there. Apply
+`0045_launch_blocker_repair.sql` as one transaction in the Supabase SQL editor, then run
+the schema/RLS verifier. The repair reasserts every intended 0042 object idempotently and
+is also safe in a fresh database after the normal 0001–0044 sequence.
+
+Under Supabase **Authentication → URL Configuration**, set the Site URL to
+`https://nyuz.app` and allow at least `https://nyuz.app/auth?recovery=1` and
+`https://nyuz.app/dashboard` as redirect URLs. Configure the same production URLs in the
+Google/GitHub provider consoles when those providers are enabled. Password recovery will
+open a session only when Supabase is allowed to return to the recovery URL.
+
+Point an external uptime monitor at `https://nyuz.app/api/health` with
+`Authorization: Bearer <HEALTHCHECK_TOKEN>` (a query `token` is also accepted for monitors
+that cannot set headers). It returns 503 when the cron heartbeat is stale, a recorded
+webhook/AI budget state is unhealthy, or failed deliveries exist. Alert on one failed
+check and on recovery; never put the token in a public status page.
+
+Before enabling payments, reconcile the pre-fix pipeline backlog once:
+
+- Compare current-month zero-usage AI reservations with the AI provider's usage/billing log.
+  Call `release_ai_reservation(id)` only for calls the provider confirms were refused before
+  generation. Ambiguous calls stay reserved; the new runtime settles measured failed calls and
+  releases only definitely unbilled failures automatically.
+- Two production digests from 30–31 August 2026 are `failed` with zero items and zero tokens.
+  After the new Worker is deployed, inspect that they have no `digest_items` or `deliveries`, then
+  set those rows back to `scheduled` once. Do not add failed digests to the ordinary cron selector;
+  that would turn a real repeatable failure into an infinite retry loop.
+- Run `scripts/backlog-audit.ts`. Process only its `pending with current demand` population through
+  the normal bounded analysis worker. Leave the no-demand population pending. Do not bulk-analyse
+  the event table merely to reduce the count.
+
 ---
 
 ## Release checklist
 
 - [ ] `npm run ci` green locally — CI green on `main` is what actually deploys
+- [ ] Domain registered; `VITE_SITE_URL`, DNS and HTTPS point to the production Worker
+- [ ] The four `@nyuz.app` mailboxes receive mail; Resend domain SPF/DKIM and DMARC verified
 - [ ] `CLOUDFLARE_API_TOKEN` and the five variables set on the repository
-- [ ] Cron Triggers tab shows every schedule in `triggers.crons` registered — Cloudflare
-      takes three per Worker and drops the rest without failing the deploy
+- [ ] Cron Triggers tab shows every schedule in `triggers.crons` registered
+- [ ] Workers Paid enabled, or production traces prove SSR and every cron stay within Free CPU limits
 - [ ] Migrations applied to the target project
 - [ ] Secrets set for every active AI provider and the service role
-- [ ] Resend and Stripe secrets, four Stripe Price ids, and the AI monthly budget set
+- [ ] Resend and Stripe secrets, four Stripe Price ids, and both AI ceilings set
+      (`AI_MONTHLY_TOKEN_BUDGET`, `AI_MONTHLY_COST_USD`)
+- [ ] `EMAIL_UNSUBSCRIBE_SECRET` and `HEALTHCHECK_TOKEN` set as Worker secrets;
+      external `/api/health` monitor returns 200 after cron runs
+- [ ] Supabase Site URL, recovery redirect, OAuth callbacks, SMTP and auth rate/CAPTCHA
+      controls configured for `https://nyuz.app`
+- [ ] `/admin/cost` checked after the first 48 hours: the projected month-end figure must sit
+      under `AI_MONTHLY_COST_USD`, or the pipeline will stop partway through the month.
+      Reduce active sources or raise the ceiling — do not leave a projection that overruns
+- [ ] Stripe uses live mode; four active recurring USD prices are exactly $14.99/$149.90 and $29.99/$299.90;
+      all documented webhook events enabled; webhook endpoint, refund sync and customer portal tested end to end
+- [ ] `/admin/cost` has actual monthly Cloudflare, Supabase, Resend, domain and other costs saved;
+      a live test payment appears with its Stripe fee before relying on the displayed margin
+- [ ] A current database export is stored outside Supabase (Free has no automatic backups)
 - [x] `ENTITY` filled in `src/routes/legal/$doc.tsx` (sole trader, Japan; contact / privacy / security / billing @nyuz.app)
+- [ ] The operator can provide a real business address and reachable telephone before purchase;
+      Japan tax/invoice obligations reviewed with a qualified adviser
 - [x] Copyright holder and contact filled in `LICENSE`
-- [ ] Subprocessor table regions filled in the legal pages
+- [ ] Supabase's selected project region confirmed in the service-provider disclosure
 - [ ] At least one superadmin granted on the target project
 - [ ] Sample-data notice removed **only if** the pipeline is actually live
 

@@ -3,7 +3,7 @@ import { Check } from "lucide-react";
 import { useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button } from "@/components/kit";
-import { openBillingPortal, startCheckout } from "@/lib/server/billing";
+import { changePlan, openBillingPortal, startCheckout } from "@/lib/server/billing";
 import { usePlan } from "@/lib/plan-state";
 import {
   DEFAULT_ANNUAL_PRICES,
@@ -97,8 +97,32 @@ function Billing() {
     }
   };
 
-  const upgrade = (id: "personal" | "pro") =>
-    goTo(id, () => startCheckout({ data: { plan: id, interval: annual ? "year" : "month" } }));
+  const upgrade = async (id: "personal" | "pro") => {
+    if (current === "free") {
+      await goTo(id, () =>
+        startCheckout({ data: { plan: id, interval: annual ? "year" : "month" } }),
+      );
+      return;
+    }
+
+    setBusy(id);
+    setError(null);
+    try {
+      const result = await changePlan({
+        data: { plan: id, interval: annual ? "year" : "month" },
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      window.location.reload();
+    } catch (cause) {
+      console.error(cause);
+      setError("Could not change plan.");
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const manage = () => goTo("manage", () => openBillingPortal());
   const overTopics = prefs.topics.length > plan.topics;
@@ -237,7 +261,7 @@ function Billing() {
                 {p.monthly > 0 ? (
                   <span className="mt-1 block text-[12.5px] tabular-nums text-muted-foreground">
                     {annual
-                      ? `${formatUsd(p.monthly)} per month`
+                      ? `${formatUsd(p.annual / 12)} per month equivalent, billed annually`
                       : `${formatUsd(p.annual)} per year`}
                   </span>
                 ) : null}

@@ -5,7 +5,7 @@
 -- The number was chosen as if alerts were expensive. They are not: an alert
 -- reuses the shared event analysis and writes `generation_tokens = 0` (see
 -- src/lib/pipeline/alerts.ts). Nothing in the AI budget needed protecting, so
--- the cap was doing no work except making a $19 plan feel mean.
+-- the cap was doing no work except making the paid plan feel mean.
 --
 -- The window was worse than the number. A ROLLING seven days means three
 -- alerts on a busy Tuesday buys silence until the FOLLOWING Tuesday — and

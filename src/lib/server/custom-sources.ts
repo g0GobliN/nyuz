@@ -144,7 +144,7 @@ const feedUrl = z
 
 export type FollowResult =
   | { ok: true; sourceId: string; name: string; shared: boolean }
-  | { ok: false; reason: "limit" | "unreachable" | "not-a-feed"; detail: string };
+  | { ok: false; reason: "limit" | "rate" | "unreachable" | "not-a-feed"; detail: string };
 
 export const followCustomSource = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
@@ -170,6 +170,24 @@ export const followCustomSource = createServerFn({ method: "POST" })
     const shared = existing !== null;
 
     if (sourceId === null) {
+      const { data: probeClaim, error: probeClaimError } = await actor.db.rpc(
+        "claim_source_probe",
+        { p_user_id: actor.id },
+      );
+      if (probeClaimError) {
+        throw new AdminAuthError(`Authorising source probe: ${probeClaimError.message}`, 500);
+      }
+      if (probeClaim !== "ok") {
+        const reason = probeClaim === "rate" ? "rate" : "limit";
+        const detail =
+          probeClaim === "rate"
+            ? "You have checked several new feeds recently. Try again in an hour."
+            : probeClaim === "plan"
+              ? "Adding your own sources is included on Personal and Pro."
+              : "You are already at the source limit for your plan.";
+        return { ok: false, reason, detail };
+      }
+
       const probe = await probeFeed(canonical);
       if (!probe.ok) return probe.error;
 

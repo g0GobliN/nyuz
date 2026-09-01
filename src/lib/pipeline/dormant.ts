@@ -16,6 +16,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { sendBriefingsPaused, sendDormant } from "@/lib/server/email/lifecycle";
 import { siteUrl, type EmailEnv } from "@/lib/server/email/send";
+import { unsubscribeUrl } from "@/lib/server/email/unsubscribe";
 import type { Database } from "@/lib/supabase/types";
 
 type Db = SupabaseClient<Database>;
@@ -108,6 +109,12 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
     const { data, error } = await db.rpc("purge_expired_digests", { p_limit: 500 });
     if (error) console.error(`purging expired digests: ${error.message}`);
     else purged = data ?? 0;
+
+    const { data: corpus, error: corpusError } = await db.rpc("purge_expired_corpus", {
+      p_limit: 500,
+    });
+    if (corpusError) console.error(`purging expired corpus: ${corpusError.message}`);
+    else purged += corpus ?? 0;
   }
 
   return {
@@ -258,10 +265,16 @@ async function nudgeOne(
   }
 
   const origin = siteUrl(options.email);
+  let unsubscribe: string;
+  try {
+    unsubscribe = await unsubscribeUrl(candidate.userId, origin, options.email, now);
+  } catch (error) {
+    return { ...base, decision: "failed", detail: (error as Error).message };
+  }
   const sent = await sendDormant(
     db,
     candidate.userId,
-    { days: inactiveDays, unsubscribeUrl: `${origin}/dashboard/delivery` },
+    { days: inactiveDays, unsubscribeUrl: unsubscribe },
     options.email,
     `dormant:${candidate.userId}:${now.toISOString().slice(0, 10)}`,
   );
@@ -285,6 +298,6 @@ export function describeDormant(report: DormantReport): string {
   );
   return (
     `dormant: ${report.considered} due, ${report.sent} warned, ${report.paused} paused, ` +
-    `${report.skipped} skipped, ${report.failed} failed, ${report.purged} expired purged, ${seconds}s`
+    `${report.skipped} skipped, ${report.failed} failed, ${report.purged} expired rows purged, ${seconds}s`
   );
 }

@@ -1,12 +1,21 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { recordOps } from "@/lib/server/ops";
 import {
   complete,
   completeJson,
+  CompletionUsageError,
+  TruncatedCompletionError,
   type AiEnv,
   type CompleteOptions,
   type CompleteResult,
   type ModelTier,
 } from "@/lib/ai/deepseek";
+import { aiCostCeilingMicrousd, aiCostMicrousd } from "@/lib/ai/cost";
+import {
+  DEFAULT_AI_MONTHLY_COST_USD,
+  DEFAULT_AI_MONTHLY_TOKEN_BUDGET,
+  MICROUSD_PER_USD,
+} from "@/lib/ai/budget";
 
 /**
  * Runtime AI routing.
@@ -213,9 +222,16 @@ export type RoutedResult = CompleteResult & { route: ResolvedRoute };
 export async function completeRouted(opts: RoutedOptions): Promise<RoutedResult> {
   const { route, call } = await prepare(opts);
   const reservation = await reserveUsage(opts, route, call, false);
-  const result = await complete(call);
-  await settleUsage(opts, reservation, result);
-  return { ...result, route };
+  try {
+    const result = await complete(call);
+    await settleUsage(opts, reservation, result, route);
+    return { ...result, route };
+  } catch (error) {
+    const usage = completionUsageFromError(error);
+    if (usage) await settleUsage(opts, reservation, usage, route);
+    else await releaseUnusedReservation(opts, reservation, error);
+    throw error;
+  }
 }
 
 /**
@@ -232,15 +248,115 @@ export async function completeRoutedJson<T>(
 ): Promise<{ data: T; usage: CompleteResult; route: ResolvedRoute }> {
   const { route, call } = await prepare(opts);
   const reservation = await reserveUsage(opts, route, call, true);
-  const { data, usage } = await completeJson<T>(call);
-  await settleUsage(opts, reservation, usage);
-  return { data, usage, route };
+  try {
+    const { data, usage } = await completeJson<T>(call);
+    await settleUsage(opts, reservation, usage, route);
+    return { data, usage, route };
+  } catch (error) {
+    const usage = completionUsageFromError(error);
+    if (usage) await settleUsage(opts, reservation, usage, route);
+    else await releaseUnusedReservation(opts, reservation, error);
+    throw error;
+  }
+}
+
+export function completionUsageFromError(error: unknown): CompleteResult | null {
+  if (error instanceof CompletionUsageError) return error.usage;
+  if (error instanceof TruncatedCompletionError) {
+    return {
+      content: "",
+      model: error.model,
+      promptTokens: error.promptTokens,
+      completionTokens: error.completionTokens,
+      reasoningTokens: error.reasoningTokens,
+      cachedTokens: error.cachedTokens,
+    };
+  }
+  return null;
 }
 
 export class AiBudgetExceededError extends Error {
   constructor() {
-    super("The configured monthly AI token budget has been reached.");
+    super("The configured monthly AI budget has been reached.");
     this.name = "AiBudgetExceededError";
+  }
+}
+
+let lastBudgetStatusAt = 0;
+
+export function aiCapacityRetryAt(error: unknown, now = new Date()): Date | null {
+  if (error instanceof AiBudgetExceededError) {
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 5));
+  }
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? Number((error as { status?: unknown }).status)
+      : Number.NaN;
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    [429, 500, 502, 503, 504, 529].includes(status) ||
+    /network|fetch failed|timed? ?out|temporarily unavailable/i.test(message) ||
+    (error instanceof DOMException && error.name === "AbortError")
+  ) {
+    return new Date(now.getTime() + 15 * 60_000);
+  }
+  return null;
+}
+
+export function isDefinitelyUnbilledAiError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/Missing .*API_KEY|invalid api key|authentication|unauthorized/i.test(message)) return true;
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? Number((error as { status?: unknown }).status)
+      : Number.NaN;
+  return [400, 401, 403, 404, 422, 429].includes(status);
+}
+
+// Re-exported so existing callers keep one import site for AI budgeting even
+// though the values themselves must stay importable without this module.
+export { DEFAULT_AI_MONTHLY_TOKEN_BUDGET, DEFAULT_AI_MONTHLY_COST_USD } from "@/lib/ai/budget";
+
+/**
+ * The spend this reservation authorizes, priced at the worst reasonable rate.
+ *
+ * Null when the rate card cannot price the route. That is not "free" and must
+ * never be coerced to zero — see `AiUnpricedRouteError`.
+ */
+function estimatedCostMicrousd(
+  route: ResolvedRoute,
+  promptTokens: number,
+  completionTokens: number,
+): number | null {
+  return aiCostCeilingMicrousd({
+    provider: route.providerSlug,
+    model: route.model,
+    promptTokens,
+    completionTokens,
+  });
+}
+
+/**
+ * Raised when a route resolves to a model `src/lib/ai/cost.ts` has no rate for.
+ *
+ * Fail-closed on purpose. A spending ceiling can only bound what it can price,
+ * so an unpriceable call is not a call worth a small risk — it is a call of
+ * unknown size against a limit that exists precisely to make size known. The
+ * console can route a capability at OpenAI, Groq, OpenRouter or Together, none
+ * of which have rates here, and treating those as costing nothing would let the
+ * one provider swap nobody costed run without a ceiling at all.
+ *
+ * So adding a provider is three steps, not two: insert the row, set the secret,
+ * add its rates. The first two already fail loudly when skipped; this makes the
+ * third do the same instead of failing quietly on an invoice.
+ */
+export class AiUnpricedRouteError extends Error {
+  constructor(provider: string, model: string) {
+    super(
+      `No rate card entry for ${provider}/${model}, so its spend cannot be ` +
+        `bounded. Add it to src/lib/ai/cost.ts before routing traffic there.`,
+    );
+    this.name = "AiUnpricedRouteError";
   }
 }
 
@@ -252,17 +368,33 @@ async function reserveUsage(
 ): Promise<string | null> {
   const secrets = opts.secrets ?? secretsDefault();
   const configured = secrets["AI_MONTHLY_TOKEN_BUDGET"];
-  if (!configured) return null;
-  const globalCap = Number(configured);
+  const globalCap = configured ? Number(configured) : DEFAULT_AI_MONTHLY_TOKEN_BUDGET;
   if (!Number.isFinite(globalCap) || globalCap <= 0) {
     throw new Error("AI_MONTHLY_TOKEN_BUDGET must be a positive token count.");
   }
 
   // A reasoning completion can consume its whole ceiling, and JSON gets one
-  // repair retry. Approximate input conservatively at three characters/token.
-  const prompt = Math.ceil(((call.system?.length ?? 0) + call.user.length) / 3);
+  // repair retry. Input is approximated at 2.5 characters/token: English runs
+  // nearer four, but Ask takes a free-text question and `translate.ts` handles
+  // CJK, where a character can be most of a token. Erring low here would shrink
+  // the very number the ceiling is computed from.
+  const prompt = Math.ceil(((call.system?.length ?? 0) + call.user.length) / 2.5);
   const completion = (call.maxTokens ?? route.maxTokens) * (mayRetry ? 2 : 1);
   const reserve = prompt + completion;
+
+  const configuredCost = secrets["AI_MONTHLY_COST_USD"];
+  const costCapUsd = configuredCost ? Number(configuredCost) : DEFAULT_AI_MONTHLY_COST_USD;
+  if (!Number.isFinite(costCapUsd) || costCapUsd <= 0) {
+    throw new Error("AI_MONTHLY_COST_USD must be a positive dollar amount.");
+  }
+
+  // Priced before anything is spent, and refused outright when it cannot be
+  // priced. `p_estimated_cost_microusd` is nullable in SQL for older callers,
+  // and a null there would add zero to month spend — so a route with no rate
+  // card would slip past the ceiling on every single call.
+  const estimated = estimatedCostMicrousd(route, prompt, completion);
+  if (estimated === null) throw new AiUnpricedRouteError(route.providerSlug, route.model);
+
   const db = createAdminClient(secrets);
   const { data, error } = await db.rpc("reserve_ai_tokens", {
     p_user_id: opts.meterUserId ?? null,
@@ -271,9 +403,31 @@ async function reserveUsage(
     p_reserve: reserve,
     p_user_monthly_cap: opts.userMonthlyTokenCap ?? 0,
     p_global_monthly_cap: globalCap,
+    p_estimated_cost_microusd: estimated,
+    p_global_monthly_cost_microusd: Math.round(costCapUsd * MICROUSD_PER_USD),
   });
   if (error) throw new Error(`reserving AI budget: ${error.message}`);
-  if (!data) throw new AiBudgetExceededError();
+  if (!data) {
+    await recordOps(db, "ai:budget", "error", {
+      state: "exhausted",
+      capability: route.capability,
+      model: route.model,
+    });
+    throw new AiBudgetExceededError();
+  }
+  if (Date.now() - lastBudgetStatusAt >= 5 * 60_000) {
+    lastBudgetStatusAt = Date.now();
+    const { data: spend } = await db.rpc("ai_spend_this_month");
+    const used = spend?.[0]?.spent_microusd ?? 0;
+    const cap = Math.round(costCapUsd * MICROUSD_PER_USD);
+    const ratio = cap > 0 ? used / cap : 1;
+    await recordOps(db, "ai:budget", ratio >= 0.8 ? "warning" : "healthy", {
+      state: ratio >= 0.8 ? "nearing" : "available",
+      spent_microusd: used,
+      cap_microusd: cap,
+      fraction: ratio,
+    });
+  }
   return data;
 }
 
@@ -281,17 +435,37 @@ async function settleUsage(
   opts: RoutedOptions,
   reservation: string | null,
   usage: CompleteResult,
+  route: ResolvedRoute,
 ): Promise<void> {
   if (!reservation) return;
   const db = createAdminClient(opts.secrets ?? secretsDefault());
   const { error } = await db.rpc("settle_ai_tokens", {
     p_id: reservation,
     p_prompt_tokens: usage.promptTokens,
+    p_cached_prompt_tokens: usage.cachedTokens,
     p_completion_tokens: usage.completionTokens,
+    p_cost_microusd: aiCostMicrousd({
+      provider: route.providerSlug,
+      model: usage.model,
+      promptTokens: usage.promptTokens,
+      cachedPromptTokens: usage.cachedTokens,
+      completionTokens: usage.completionTokens,
+    }),
   });
   // The provider call already succeeded. Keep the reservation as a conservative
   // charge and surface the accounting failure without breaking the product.
   if (error) console.error(`settling AI budget: ${error.message}`);
+}
+
+async function releaseUnusedReservation(
+  opts: RoutedOptions,
+  reservation: string | null,
+  error: unknown,
+): Promise<void> {
+  if (!reservation || !isDefinitelyUnbilledAiError(error)) return;
+  const db = createAdminClient(opts.secrets ?? secretsDefault());
+  const { error: releaseError } = await db.rpc("release_ai_reservation", { p_id: reservation });
+  if (releaseError) console.error(`releasing unused AI reservation: ${releaseError.message}`);
 }
 
 /**

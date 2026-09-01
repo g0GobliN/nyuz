@@ -754,7 +754,7 @@ function PricesForm({ row }: { row: SettingRow | undefined }) {
 
   // `free` is absent from the editable keys because the schema pins it to 0.
   const set = (k: Exclude<keyof Prices, "free">, raw: string) => {
-    const n = Math.trunc(Number(raw));
+    const n = Math.round(Number(raw) * 100) / 100;
     setPrices({ ...prices, [k]: Number.isFinite(n) && n >= 0 ? n : 0 });
   };
 
@@ -764,7 +764,7 @@ function PricesForm({ row }: { row: SettingRow | undefined }) {
     <SettingForm
       settingKey="billing.prices"
       row={row}
-      note="Must match the Stripe catalogue: nyuz personal $19.00/mo and $190.00/yr, nyuz pro $29.00/mo and $290.00/yr. Checkout charges Stripe, not this form."
+      note="Must match the Stripe catalogue: nyuz personal $14.99/mo and $149.90/yr, nyuz pro $29.99/mo and $299.90/yr. Checkout charges Stripe, not this form."
       value={prices}
       defaults={PRICES_DEFAULT}
       onReset={() => {
@@ -777,6 +777,7 @@ function PricesForm({ row }: { row: SettingRow | undefined }) {
         <Field label="Personal, monthly">
           <input
             type="number"
+            step="0.01"
             min={0}
             max={999}
             value={prices.personal}
@@ -790,6 +791,7 @@ function PricesForm({ row }: { row: SettingRow | undefined }) {
         >
           <input
             type="number"
+            step="0.01"
             min={0}
             max={9999}
             value={prices.personalAnnual}
@@ -800,6 +802,7 @@ function PricesForm({ row }: { row: SettingRow | undefined }) {
         <Field label="Pro, monthly">
           <input
             type="number"
+            step="0.01"
             min={0}
             max={999}
             value={prices.pro}
@@ -810,6 +813,7 @@ function PricesForm({ row }: { row: SettingRow | undefined }) {
         <Field label="Pro, annual total" hint={annualHint(prices.pro, prices.proAnnual)}>
           <input
             type="number"
+            step="0.01"
             min={0}
             max={9999}
             value={prices.proAnnual}

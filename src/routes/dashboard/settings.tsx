@@ -1,11 +1,12 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Check, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { Check, Download, Sparkles } from "lucide-react";
+import { useEffect, useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button } from "@/components/kit";
 import { useFeedback } from "@/lib/feedback-store";
 import { useAuth } from "@/lib/auth";
-import { DEFAULT_PREFS, usePrefs } from "@/lib/prefs-store";
+import { usePrefs } from "@/lib/prefs-store";
+import { exportAccountData } from "@/lib/server/account";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/settings")({
@@ -14,24 +15,67 @@ export const Route = createFileRoute("/dashboard/settings")({
 });
 
 function Settings() {
-  const navigate = useNavigate();
   const { prefs, update } = usePrefs();
   // The address on the account, not a stored copy — the account is the only
   // thing that actually receives a briefing.
-  const email = useAuth().user?.email ?? "";
+  const auth = useAuth();
+  const email = auth.user?.email ?? "";
+  const [nextEmail, setNextEmail] = useState(email);
   const { state, signals, reset } = useFeedback();
   const [saved, setSaved] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState<"email" | "export" | "pause" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => setNextEmail(email), [email]);
 
   const save = () => {
     setSaved(true);
     setTimeout(() => setSaved(false), 1600);
   };
 
-  const wipe = () => {
-    reset();
-    update({ ...DEFAULT_PREFS, onboarded: false });
-    navigate({ to: "/" });
+  const changeEmail = async () => {
+    const value = nextEmail.trim();
+    if (!value || value === email || busy) return;
+    setBusy("email");
+    setError(null);
+    try {
+      await auth.updateEmail(value);
+      save();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not update the email address.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const downloadExport = async () => {
+    if (busy) return;
+    setBusy("export");
+    setError(null);
+    try {
+      const data = await exportAccountData();
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+      );
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `nyuz-account-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not export your data.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const pause = async () => {
+    if (busy || prefs.paused) return;
+    setBusy("pause");
+    setError(null);
+    await update({ paused: true });
+    save();
+    setBusy(null);
   };
 
   return (
@@ -72,16 +116,25 @@ function Settings() {
               <input
                 id="email"
                 type="email"
-                key={email}
-                defaultValue={email}
-                onBlur={save}
+                value={nextEmail}
+                onChange={(event) => setNextEmail(event.target.value)}
                 className="mt-2 h-11 w-full rounded-2xl border border-input bg-background px-4 text-[16px] outline-none focus:border-signal md:text-[14.5px]"
               />
               <p className="mt-2 text-[12px] text-muted-foreground">
                 Changing this sends a confirmation link to the new address.
               </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                onClick={() => void changeEmail()}
+                disabled={busy !== null || !nextEmail.trim() || nextEmail.trim() === email}
+              >
+                {busy === "email" ? "Sending…" : "Change email"}
+              </Button>
             </div>
           </div>
+          {error ? <p className="mt-4 text-[12.5px] text-destructive">{error}</p> : null}
         </Panel>
 
         <Panel title="Personalisation">
@@ -112,8 +165,14 @@ function Settings() {
               title="Export your data"
               body="Topics, schedule, feedback signals and delivery history as JSON."
               action={
-                <Button variant="outline" size="sm" onClick={save}>
-                  Export
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void downloadExport()}
+                  disabled={busy !== null}
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  {busy === "export" ? "Preparing…" : "Export"}
                 </Button>
               }
             />
@@ -121,8 +180,13 @@ function Settings() {
               title="Pause briefings"
               body="Stops delivery without losing your configuration or archive."
               action={
-                <Button variant="outline" size="sm" onClick={save}>
-                  Pause
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void pause()}
+                  disabled={busy !== null || prefs.paused}
+                >
+                  {prefs.paused ? "Paused" : busy === "pause" ? "Pausing…" : "Pause"}
                 </Button>
               }
             />
@@ -141,23 +205,12 @@ function Settings() {
                 undone.
               </p>
             </div>
-            {confirmDelete ? (
-              <div className="flex gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
-                  Cancel
-                </Button>
-                <button
-                  onClick={wipe}
-                  className="inline-flex h-9 items-center rounded-full bg-destructive px-4 text-[13px] font-medium text-destructive-foreground transition-opacity hover:opacity-90"
-                >
-                  Yes, delete everything
-                </button>
-              </div>
-            ) : (
-              <Button variant="outline" size="sm" onClick={() => setConfirmDelete(true)}>
-                Delete account
-              </Button>
-            )}
+            <a
+              href="mailto:privacy@nyuz.app?subject=Delete%20my%20nyuz%20account"
+              className="inline-flex h-9 items-center rounded-full border border-border px-4 text-[13px] font-medium transition-colors hover:bg-muted"
+            >
+              Request deletion
+            </a>
           </div>
         </section>
       </div>

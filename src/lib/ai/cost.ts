@@ -1,0 +1,93 @@
+/**
+ * DeepSeek V4 rate card effective 31 August 2026.
+ *
+ * The result is snapshotted beside measured tokens, so a later price change
+ * does not rewrite historical cost. Unknown providers/models return null and
+ * make unit economics incomplete instead of silently pretending to cost zero.
+ */
+
+type UsageCostInput = {
+  provider: string;
+  model: string;
+  promptTokens: number;
+  cachedPromptTokens: number;
+  completionTokens: number;
+  at?: Date;
+};
+
+type Rates = { cachedInput: number; uncachedInput: number; output: number };
+
+const PEAK_RATES: Record<string, Rates> = {
+  "deepseek-v4-flash": { cachedInput: 0.014, uncachedInput: 0.44, output: 1.32 },
+  "deepseek-v4-pro": { cachedInput: 0.044, uncachedInput: 1.32, output: 3.96 },
+};
+
+function rateFor(model: string): Rates | null {
+  const key = Object.keys(PEAK_RATES).find((candidate) => model.startsWith(candidate));
+  return key ? (PEAK_RATES[key] ?? null) : null;
+}
+
+/** DeepSeek defines peak as weekdays 01:00–04:00 and 06:00–10:00 UTC. */
+export function isDeepSeekPeak(at: Date): boolean {
+  const day = at.getUTCDay();
+  if (day === 0 || day === 6) return false;
+  const hour = at.getUTCHours();
+  return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10);
+}
+
+/**
+ * The most this call could reasonably be billed at — the number a spending
+ * ceiling must authorize against.
+ *
+ * Separate from `aiCostMicrousd` because the two answer different questions at
+ * different times, and conflating them is how a ceiling silently becomes a
+ * suggestion. Settlement asks "what did this cost", knows the real token counts,
+ * the real cache hits and the real clock, and should answer precisely.
+ * Reservation asks "how much am I about to authorize" and knows none of that:
+ *
+ *   - **Peak, always.** Off-peak is half price, so pricing a reservation by the
+ *     current clock assumes a discount that a call starting at 00:59 and
+ *     billing at 01:05 does not get. Assuming peak is wrong by at most 2x in
+ *     the safe direction; assuming off-peak is wrong by 2x in the direction
+ *     that overspends.
+ *   - **No cache hits.** A cache hit is ~30x cheaper than a miss. Whether one
+ *     occurs is the provider's decision, made after we have committed, so
+ *     counting on it would be authorizing against a discount we cannot compel.
+ *
+ * The gap between this and the settled figure is not waste: `settle_ai_tokens`
+ * overwrites the estimate with measured cost, so over-reservation only ever
+ * constrains calls that are in flight at the same moment.
+ */
+export function aiCostCeilingMicrousd(input: {
+  provider: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+}): number | null {
+  if (input.provider !== "deepseek") return null;
+  const peak = rateFor(input.model);
+  if (!peak) return null;
+
+  return Math.round(
+    Math.max(0, input.promptTokens) * peak.uncachedInput +
+      Math.max(0, input.completionTokens) * peak.output,
+  );
+}
+
+export function aiCostMicrousd(input: UsageCostInput): number | null {
+  if (input.provider !== "deepseek") return null;
+  const peak = rateFor(input.model);
+  if (!peak) return null;
+
+  const multiplier = isDeepSeekPeak(input.at ?? new Date()) ? 1 : 0.5;
+  const prompt = Math.max(0, input.promptTokens);
+  const cached = Math.min(prompt, Math.max(0, input.cachedPromptTokens));
+  const uncached = prompt - cached;
+  const completion = Math.max(0, input.completionTokens);
+
+  // USD per million tokens numerically equals micro-USD per token.
+  return Math.round(
+    multiplier *
+      (cached * peak.cachedInput + uncached * peak.uncachedInput + completion * peak.output),
+  );
+}

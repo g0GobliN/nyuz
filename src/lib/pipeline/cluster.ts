@@ -34,7 +34,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { completeRoutedJson, type SecretBag } from "@/lib/ai/config";
+import { aiCapacityRetryAt, completeRoutedJson, type SecretBag } from "@/lib/ai/config";
 import type { Database, EventStatus } from "@/lib/supabase/types";
 import { verdictFor, type ConfidenceVerdict } from "./confidence";
 import { isVcsRef, shortlist, type Candidate } from "./shortlist";
@@ -99,6 +99,7 @@ export type ArticleOutcome = {
     | "alone" // no shortlist or no match: its own event
     | "ignored" // a CI ref: stored, attached to a failed event, never analysed
     | "skipped" // dry run
+    | "deferred" // temporary AI capacity; retry time is persisted
     | "failed";
   eventId: string | null;
   detail: string;
@@ -132,6 +133,7 @@ export type ClusterReport = {
   alone: number;
   ignored: number;
   failed: number;
+  deferred: number;
   /** Articles that reached the model. The rest were decided for free. */
   modelCalls: number;
   promptTokens: number;
@@ -176,6 +178,7 @@ export async function cluster(db: Db, options: ClusterOptions = {}): Promise<Clu
     alone: outcomes.filter((o) => o.decision === "alone").length,
     ignored: outcomes.filter((o) => o.decision === "ignored").length,
     failed: outcomes.filter((o) => o.decision === "failed").length,
+    deferred: outcomes.filter((o) => o.decision === "deferred").length,
     // Having a shortlist used to imply a model call. Since phase 7 it does
     // not: a confidently-decided article has candidates and spends nothing.
     // Counting spend rather than candidates keeps this honest.
@@ -254,6 +257,9 @@ async function selectArticles(db: Db, options: ClusterOptions): Promise<Uncluste
     .from("articles")
     .select("id, title, published_at")
     .is("event_id", null)
+    .or(
+      `clustering_deferred_until.is.null,clustering_deferred_until.lte.${(options.now ?? new Date()).toISOString()}`,
+    )
     .order("published_at", { ascending: false })
     .limit(options.limit ?? BATCH);
 
@@ -336,6 +342,22 @@ async function runOne(
       matched = decided.matched;
       usage = decided.usage;
     } catch (error) {
+      const retryAt = aiCapacityRetryAt(error, options.now ?? new Date());
+      if (retryAt !== null) {
+        if (options.dryRun !== true) {
+          const { error: deferError } = await db
+            .from("articles")
+            .update({ clustering_deferred_until: retryAt.toISOString() })
+            .eq("id", article.id);
+          if (deferError) throw new Error(`deferring clustering: ${deferError.message}`);
+        }
+        return {
+          ...base,
+          candidates: candidates.length,
+          decision: "deferred",
+          detail: `temporary AI capacity; retry after ${retryAt.toISOString()}`,
+        };
+      }
       return {
         ...base,
         candidates: candidates.length,
@@ -626,11 +648,12 @@ export function describeCluster(report: ClusterReport): string {
       ? `, shadow ${report.shadowAgreed}/${report.shadowDecidable} agreed`
       : "";
   const skipped = report.aiSkipped > 0 ? `, ${report.aiSkipped} decided without AI` : "";
+  const deferred = report.deferred > 0 ? `, ${report.deferred} capacity-deferred` : "";
 
   return (
     `cluster: ${report.considered} articles, ${report.attached} attached, ` +
     `${report.created} new events, ${report.alone} alone, ${report.ignored} ignored, ` +
-    `${report.failed} failed, ` +
+    `${report.failed} failed${deferred}, ` +
     `${report.modelCalls} model calls, ` +
     `${report.promptTokens + report.completionTokens} tokens, ${seconds}s${shadow}${skipped}`
   );

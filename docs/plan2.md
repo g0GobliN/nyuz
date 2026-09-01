@@ -1799,7 +1799,7 @@ A free user joining an already-popular topic should cost almost nothing.
 
 ---
 
-# 55. PERSONAL — TARGET $19/MONTH
+# 55. PERSONAL — TARGET $14.99/MONTH
 
 Personal is for an ordinary reader who wants Nyuz actively monitoring their interests.
 
@@ -1823,14 +1823,15 @@ Suggested entitlement direction:
 Potential annual price:
 
 ```text
-approximately $190/year
+approximately $149.90/year
 ```
 
-Do not hardcode until Stripe/product configuration is inspected.
+The code catalogue is fixed to this amount. Create a matching immutable live
+Stripe Price before enabling checkout.
 
 ---
 
-# 56. PRO — TARGET $29/MONTH
+# 56. PRO — TARGET $29.99/MONTH
 
 Pro is the main power-user tier.
 
@@ -1854,10 +1855,10 @@ Suggested direction:
 Potential annual price:
 
 ```text
-approximately $290/year
+approximately $299.90/year
 ```
 
-Again, do not blindly create production Stripe products.
+Create the matching immutable live Stripe Price and test checkout before launch.
 
 ---
 
@@ -1970,8 +1971,8 @@ Pro $15
 Prepare for:
 
 ```text
-Personal ~$19
-Pro ~$29
+Personal ~$14.99
+Pro ~$29.99
 ```
 
 Do NOT blindly alter existing live Stripe prices.
@@ -3227,8 +3228,8 @@ prepare:
 
 ```text
 Free
-Personal ~$19
-Pro ~$29
+Personal ~$14.99
+Pro ~$29.99
 Future Intelligence ~$39
 ```
 
@@ -3771,8 +3772,8 @@ Confirm actual implemented pricing/configuration:
 
 ```text
 Free
-Personal target ~$19
-Pro target ~$29
+Personal target ~$14.99
+Pro target ~$29.99
 Future Intelligence architecture ~$39
 ```
 

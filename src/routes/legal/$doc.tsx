@@ -84,7 +84,7 @@ const UPDATED = "25 August 2026";
  * turns out to behave differently. Describe the protection, not the
  * implementation.
  */
-const UPDATED_V2 = "30 August 2026";
+const UPDATED_V2 = "31 August 2026";
 
 const DOCS: Record<string, Doc> = {
   privacy: {
@@ -107,14 +107,15 @@ const DOCS: Record<string, Doc> = {
           "We store which briefings were generated and delivered so you can read your history and so we can retry failed deliveries.",
           "We record the time of your most recent visit. It distinguishes active from dormant accounts; Free briefings pause after 30 inactive days and resume when you return.",
           "If you add a source of your own, we store the address of the feed and the fact that you follow it. Feeds are shared: if another reader adds the same one, you both follow the same feed. We do not publish who follows what.",
+          "If you enable Telegram or browser push, we store the delivery identifier needed to reach that account or browser. For paid plans, Stripe gives us billing identifiers and subscription status; nyuz does not receive your full card number.",
         ],
       },
       {
-        h: "What we never send to a third party",
+        h: "What the AI provider receives",
         p: [
           "Deciding which stories belong in your briefing happens on our own systems, using what you have told us you care about. Your interests are not sent anywhere in order to do it.",
           "The stories themselves are read and summarised once, from the published reporting, before anyone is matched to them. Nothing about you goes into that, and your briefing is put together from those summaries on our side. Translations work the same way and are shared between readers of the same language.",
-          "The exception is when you ask a question about a story. To answer it, our AI provider receives that story and the question you typed. It does not receive your name, your email address, your topic list, your exclusions or your history.",
+          "The exception is when you ask a question about a story. To answer it, DeepSeek receives that story and the question you typed. It does not receive your name, your email address, your topic list, your exclusions, your history or the reason that story matched you. DeepSeek processes this material in China, so do not put personal or confidential information in a question.",
         ],
       },
       {
@@ -130,13 +131,13 @@ const DOCS: Record<string, Doc> = {
         p: [
           "Briefing history follows your plan's retention window — 7 days on Free, 90 days on Personal, one year on Pro. Older items are deleted, not archived.",
           "Feedback signals are kept while your account is open, because they are what stops us sending you the same irrelevant story twice. You can clear them at any time from Settings, which resets personalisation to your stated topics alone.",
-          "Delivery logs are kept for 30 days so that a bounce can be diagnosed and retried, then deleted.",
+          "Our delivery records expire with the briefing history for your plan. Email providers may keep separate delivery, bounce and complaint metadata under their own retention policies.",
         ],
       },
       {
         h: "Your rights",
         p: [
-          `You can ask us for a copy of your data, ask us to correct it, ask us to delete it, or ask us to stop processing it. Most of these you can do yourself from Settings; for the rest, write to ${ENTITY.mail.privacy} and we will respond within 30 days.`,
+          `You can ask us for a copy of your data, ask us to correct it, ask us to delete it, or ask us to stop processing it. Settings lets you export your account data and clear feedback. For anything else, write to ${ENTITY.mail.privacy}; we will verify the request and respond within 30 days.`,
         ],
         list: [
           "Access — a copy of everything we hold about you.",
@@ -150,15 +151,15 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Deletion",
         p: [
-          "Deleting your account removes your profile, topics, feedback signals and delivery history. Aggregated, non-identifying counts about pipeline volume remain, because they contain nothing that could identify you.",
-          "Deletion is immediate in the application and completes in backups within 30 days.",
+          "An account-deletion request removes your profile, topics, feedback signals and delivery history after we verify the request and deal with any active subscription or legal retention duty. Aggregated, non-identifying counts about pipeline volume remain because they cannot identify you.",
+          "We complete verified deletion requests within 30 days. Copies may remain temporarily in provider backups until those backups rotate, and are not restored except for disaster recovery.",
         ],
       },
       {
         h: "Where your data goes",
         p: [
           "We use a small number of processors to run the service. Each one, what it does and where it holds data, is listed on the Subprocessors page.",
-          "Some of them operate outside your country. Where that happens, transfers rely on the standard contractual clauses in our agreements with them.",
+          "Some providers process data outside your country, including in the United States and China. The locations and the data involved are listed on the Service providers page. We use contractual and other transfer safeguards where applicable law requires them; do not use Ask AI for personal or confidential information.",
         ],
       },
       {
@@ -196,7 +197,7 @@ const DOCS: Record<string, Doc> = {
           "Story summaries are written once and shared by everyone who receives that story. What is personal to you is the selection: which stories reach you, in what order, and at what threshold.",
           "On a paid plan you can ask us to watch sources of your own, up to the number your plan includes. Feeds are shared between readers who follow the same one. We may decline a source, or stop using it, if it cannot be reached, does not work as a feed, or should not be fetched.",
           "You can choose a reading language other than English. English is the language nyuz works in, and other languages are translations of it, which may be delayed or unavailable.",
-          "Availability targets are best-effort. A missed or delayed briefing is not grounds for compensation beyond a pro-rata refund of paid time.",
+          "Availability targets are best-effort. Refunds for a missed or delayed briefing follow the Refunds policy.",
           "A quiet day is a working day. If nothing clears your threshold, you get a short briefing or none — that is the product behaving correctly, not an outage.",
           "Free briefings pause after 30 days without a visit so unused accounts do not keep generating work. We warn you first, preserve your settings, and resume automatically when you return.",
         ],
@@ -242,7 +243,7 @@ const DOCS: Record<string, Doc> = {
         h: "Suspension and termination",
         p: [
           "We may suspend an account that breaks the acceptable use policy, threatens the service, or is being used to send abuse. Where it is safe and lawful to do so, we will tell you why and give you a chance to fix it.",
-          "You can close your account at any time from Settings. We will refund unused paid time on a pro-rata basis.",
+          "You can request account closure at any time from Settings. We will cancel any active subscription and apply the Refunds policy before deleting the account.",
         ],
       },
       {
@@ -347,14 +348,14 @@ const DOCS: Record<string, Doc> = {
   },
 
   subprocessors: {
-    title: "Subprocessors",
+    title: "Service providers",
     updated: UPDATED_V2,
     group: "Trust",
     intro:
-      "Every third party that touches your data, what it does, and where. This list is short by design, and changing it is a change we tell you about.",
+      "The third parties that operate nyuz, what they receive, and where they process it. Optional services apply only when you choose them.",
     sections: [
       {
-        h: "Current subprocessors",
+        h: "Current providers",
         p: [],
         table: {
           head: ["Provider", "What it does", "Data it sees", "Region"],
@@ -363,25 +364,43 @@ const DOCS: Record<string, Doc> = {
               "Supabase",
               "Database, authentication and storage",
               "Account email, topics, schedule, briefing history",
-              "[Region]",
+              "The Supabase project region selected by nyuz; provider support may be global",
             ],
             [
               "Cloudflare",
               "Application hosting and the ingestion pipeline",
-              "Requests in transit; no stored account data",
+              "Requests, IP address and operational metadata",
               "Global edge",
             ],
             [
               "DeepSeek",
               "AI for grouping and summarising stories, translation, and answering questions you ask",
               "Published article text. When you ask a question: that story and your question. No name, email or account details.",
-              "[Region]",
+              "People's Republic of China",
             ],
             [
-              "[Email provider]",
+              "Resend",
               "Briefing delivery",
               "Your email address and the briefing being sent",
-              "[Region]",
+              "United States",
+            ],
+            [
+              "Stripe",
+              "Payments and subscription management",
+              "Account email, plan, billing identifiers and payment details you give Stripe",
+              "Global; primarily United States",
+            ],
+            [
+              "Google or GitHub",
+              "Optional account sign-in",
+              "The identity and email address you authorize that provider to share",
+              "Global",
+            ],
+            [
+              "Google Fonts",
+              "Website typefaces",
+              "IP address, browser and request metadata when a page loads",
+              "Global",
             ],
             [
               "Telegram",
@@ -408,7 +427,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Changing this list",
         p: [
-          "We will publish a change here and email account holders at least 30 days before a new subprocessor starts handling personal data, so that anyone who objects has time to close their account first.",
+          "We will publish changes here before a new provider starts handling account data. Where a material change affects how your personal data is used, we will also email you in advance.",
         ],
       },
     ],
@@ -424,7 +443,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "How access is controlled",
         p: [
-          "Every table holding customer data enforces row-level security in the database itself, so a query can only ever return the rows belonging to the account that asked. This is enforced below the application, not by it — an application bug cannot hand you somebody else's briefing.",
+          "Every table holding customer data enforces row-level security against direct browser access. Server functions separately verify the signed-in session and scope each query to that account before using privileged database access.",
           "Content that everyone sees — stories, their summaries, the source list — is read-only to customer accounts. Changing what other people are shown is not something an account is able to do.",
           "Administrative access is role-based, held by named individuals, and every action taken in the operator console is written to an append-only audit log.",
         ],
@@ -450,7 +469,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "In transit and at rest",
         p: [
-          "All traffic is TLS. Data at rest is encrypted by our database and hosting providers. Backups are encrypted and access to them is logged.",
+          "Production traffic uses TLS. Our database and hosting providers encrypt stored customer data, and privileged access is restricted.",
         ],
       },
       {
@@ -463,7 +482,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "If something goes wrong",
         p: [
-          "If a breach affects your data, we will tell you what happened, what was exposed and what we have done about it — within 72 hours of establishing it, and without waiting for the investigation to finish.",
+          "If a breach affects your data, we will investigate, contain it, notify Japan's Personal Information Protection Commission and affected people when applicable law requires it, and provide updates as reliable information becomes available.",
         ],
       },
     ],
@@ -471,33 +490,34 @@ const DOCS: Record<string, Doc> = {
 
   cookies: {
     title: "Cookie policy",
-    updated: UPDATED,
+    updated: UPDATED_V2,
     group: "Policies",
-    intro: "A session cookie to stay signed in. Nothing that follows you off this site.",
+    intro:
+      "No advertising cookies and no cross-site tracking. Essential account state stays in your browser.",
     sections: [
       {
-        h: "Essential",
+        h: "Authentication",
         p: [
-          "A session cookie keeps you signed in. Without it, the dashboard cannot tell who you are. It expires when your session does.",
+          "Supabase stores your signed-in session in browser local storage. The browser sends that token only when nyuz asks Supabase or a nyuz server function for your account data. Signing out removes the local session.",
         ],
       },
       {
         h: "Preferences",
         p: [
-          "Local storage holds your colour theme and your unsaved onboarding progress so a refresh does not lose your work. This never leaves your browser and is not readable by us.",
+          "Local storage also holds your colour theme and a cached copy of your preferences so a refresh is immediate. Signed-in preference changes are also saved to your account; the local copy is not sent to advertising or analytics services.",
         ],
       },
       {
         h: "What we skip",
         p: [
-          "No advertising cookies, no cross-site trackers, no analytics that follow you off this site, and no third-party pixels in your briefing emails beyond the delivery receipt needed to retry failures.",
-          "Because we set nothing that is not essential or set by you, there is no consent banner. That is the point.",
+          "We do not add advertising cookies, cross-site trackers or advertising pixels. Our delivery provider processes delivery, bounce and complaint metadata needed to operate email.",
+          "Because nyuz does not set non-essential cookies, it does not show a cookie-consent banner. If that changes, this policy and the interface must change first.",
         ],
       },
       {
         h: "Controlling them",
         p: [
-          "Your browser can clear or block all of these. Blocking the session cookie will sign you out and keep you out; everything else degrades to a default.",
+          "You can clear site data in your browser at any time. Clearing authentication storage signs you out; clearing preferences restores local defaults until the account copy loads again.",
         ],
       },
     ],
@@ -505,7 +525,7 @@ const DOCS: Record<string, Doc> = {
 
   tokushoho: {
     title: "Commercial disclosure",
-    updated: UPDATED,
+    updated: UPDATED_V2,
     group: "Company",
     intro:
       "The disclosure Japanese law requires from anyone selling online. Who is charging you, what for, and how to stop.",
@@ -534,7 +554,7 @@ const DOCS: Record<string, Doc> = {
             ["メールアドレス — Email", ENTITY.mail.contact],
             [
               "販売価格 — Price",
-              "Free: US$0. Personal: US$7.00 per month or US$69.00 per year. Pro: US$15.00 per month or US$149.00 per year. Current prices are always on the Pricing page.",
+              "Free: US$0. Personal: US$14.99 per month or US$149.90 per year. Pro: US$29.99 per month or US$299.90 per year. Current prices are always on the Pricing page.",
             ],
             [
               "商品代金以外の必要料金 — Additional charges",
@@ -588,7 +608,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Support",
         p: [
-          "For anything about your account, delivery or billing, reach us from the Settings page in your dashboard so we can see your configuration alongside your message.",
+          `For anything about your account or delivery, write to ${ENTITY.mail.contact}. For billing, write to ${ENTITY.mail.billing}.`,
           `If you cannot sign in, write to ${ENTITY.mail.contact} from the address on the account.`,
         ],
       },
@@ -601,7 +621,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Privacy requests",
         p: [
-          `Access, correction, deletion and portability requests go to ${ENTITY.mail.privacy} and are answered within 30 days. Most of them you can complete yourself in Settings, faster.`,
+          `Access, correction, deletion and portability requests go to ${ENTITY.mail.privacy} and are answered within 30 days. Settings can export your account data and clear feedback immediately.`,
         ],
       },
       {

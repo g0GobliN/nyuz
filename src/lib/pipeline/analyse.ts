@@ -36,7 +36,12 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { completeRoutedJson, resolvePrompt, type SecretBag } from "@/lib/ai/config";
+import {
+  aiCapacityRetryAt,
+  completeRoutedJson,
+  resolvePrompt,
+  type SecretBag,
+} from "@/lib/ai/config";
 import { TruncatedCompletionError } from "@/lib/ai/deepseek";
 import type { Database, EventStatus } from "@/lib/supabase/types";
 import { isVcsRef } from "./shortlist";
@@ -188,6 +193,7 @@ export type EventOutcome = {
     | "empty" // an event with no articles: nothing to read, no call made
     | "ignored" // a single-article CI ref: marked failed, no model call
     | "no_demand" // gate on, no source reaches an eligible reader: left pending
+    | "deferred" // temporary AI capacity; retry time is persisted
     | "failed";
   articles: number;
   importance: number | null;
@@ -210,6 +216,7 @@ export type AnalysisReport = {
   claimed: number;
   ignored: number;
   noDemand: number;
+  deferred: number;
   /** Events that reached the model. The rest cost nothing. */
   modelCalls: number;
   promptTokens: number;
@@ -248,6 +255,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
     claimed: outcomes.filter((o) => o.decision === "claimed").length,
     ignored: outcomes.filter((o) => o.decision === "ignored").length,
     noDemand: outcomes.filter((o) => o.decision === "no_demand").length,
+    deferred: outcomes.filter((o) => o.decision === "deferred").length,
     modelCalls: outcomes.filter((o) => o.promptTokens > 0 || o.completionTokens > 0).length,
     promptTokens: outcomes.reduce((total, o) => total + o.promptTokens, 0),
     completionTokens: outcomes.reduce((total, o) => total + o.completionTokens, 0),
@@ -324,14 +332,32 @@ async function selectEvents(db: Db, options: AnalyseOptions): Promise<Pending[]>
     return data ?? [];
   }
 
+  if (options.retryFailed !== true) {
+    const { data: flag } = await db
+      .from("feature_flags")
+      .select("enabled")
+      .eq("key", "pre_analysis_demand_gate")
+      .maybeSingle();
+
+    if (flag?.enabled === true) {
+      const { data, error } = await db.rpc("pending_events_with_demand", {
+        p_limit: options.limit ?? BATCH,
+      });
+      if (!error) return data ?? [];
+      console.warn(`demand-aware event selection: ${error.message} — using legacy selector`);
+    }
+  }
+
   const stale = new Date(Date.now() - STALE_MINUTES * 60_000).toISOString();
   const states = options.retryFailed === true ? "pending,failed" : "pending";
+  const now = (options.now ?? new Date()).toISOString();
 
   const { data, error } = await db
     .from("events")
     .select(columns)
     .is("analysed_at", null)
     .or(`status.in.(${states}),and(status.eq.analysing,last_updated_at.lt.${stale})`)
+    .or(`analysis_deferred_until.is.null,analysis_deferred_until.lte.${now}`)
     .order("first_seen_at", { ascending: false })
     .limit(options.limit ?? BATCH);
 
@@ -444,6 +470,17 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
     // number the provider returned, and the prompt tokens of a failed call are not
     // available on this path.
     const floor = error instanceof TruncatedCompletionError ? error.reasoningTokens : 0;
+    const retryAt = aiCapacityRetryAt(error, ctx.options.now ?? new Date());
+    if (retryAt !== null) {
+      await deferAnalysis(db, event, retryAt, ctx.options);
+      return {
+        ...base,
+        articles: total,
+        decision: "deferred",
+        completionTokens: floor,
+        detail: `temporary AI capacity; retry after ${retryAt.toISOString()}`,
+      };
+    }
     await recordFailure(db, event, floor, ctx.options);
     return {
       ...base,
@@ -767,6 +804,7 @@ async function writeAnalysis(
       importance: analysis.importance,
       novelty: analysis.novelty,
       status: "complete",
+      analysis_deferred_until: null,
       analysed_at: now,
       last_updated_at: now,
       analysis_tokens: event.analysis_tokens + spent.promptTokens + spent.completionTokens,
@@ -817,10 +855,30 @@ async function recordFailure(
     .from("events")
     .update({
       status: "failed",
+      analysis_deferred_until: null,
       analysis_tokens: event.analysis_tokens + spent,
       last_updated_at: new Date().toISOString(),
     })
     .eq("id", event.id);
+}
+
+async function deferAnalysis(
+  db: Db,
+  event: Pending,
+  retryAt: Date,
+  options: AnalyseOptions,
+): Promise<void> {
+  if (options.dryRun === true) return;
+
+  const { error } = await db
+    .from("events")
+    .update({
+      status: "pending",
+      analysis_deferred_until: retryAt.toISOString(),
+      last_updated_at: new Date().toISOString(),
+    })
+    .eq("id", event.id);
+  if (error) throw new Error(`deferring analysis: ${error.message}`);
 }
 
 function summarise(analysis: Analysis): string {
@@ -840,10 +898,11 @@ export function describeAnalysis(report: AnalysisReport): string {
   );
 
   const demand = report.noDemand > 0 ? `, ${report.noDemand} no demand` : "";
+  const deferred = report.deferred > 0 ? `, ${report.deferred} capacity-deferred` : "";
 
   return (
     `analyse: ${report.considered} events, ${report.analysed} analysed, ` +
-    `${report.ignored} ignored, ${report.failed} failed, ${report.claimed} held elsewhere${demand}, ` +
+    `${report.ignored} ignored, ${report.failed} failed, ${report.claimed} held elsewhere${demand}${deferred}, ` +
     `${report.modelCalls} model calls, ` +
     `${report.promptTokens + report.completionTokens} tokens, ${seconds}s`
   );

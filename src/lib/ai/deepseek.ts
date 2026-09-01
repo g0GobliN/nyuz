@@ -61,6 +61,9 @@ export class TruncatedCompletionError extends Error {
     readonly model: string,
     readonly reasoningTokens: number,
     readonly maxTokens: number,
+    readonly promptTokens = 0,
+    readonly completionTokens = reasoningTokens,
+    readonly cachedTokens = 0,
   ) {
     super(
       `${model} hit the token ceiling during reasoning (${reasoningTokens} reasoning tokens of ${maxTokens}) and returned no content. Raise maxTokens.`,
@@ -88,6 +91,16 @@ export type CompleteResult = {
   reasoningTokens: number;
   cachedTokens: number;
 };
+
+export class CompletionUsageError extends Error {
+  constructor(
+    message: string,
+    readonly usage: CompleteResult,
+  ) {
+    super(message);
+    this.name = "CompletionUsageError";
+  }
+}
 
 /**
  * One completion, with the empty-content trap turned into a thrown error.
@@ -118,7 +131,14 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
       ?.reasoning_tokens ?? 0;
 
   if (choice?.finish_reason === "length" && content.trim() === "") {
-    throw new TruncatedCompletionError(model, reasoningTokens, maxTokens);
+    throw new TruncatedCompletionError(
+      model,
+      reasoningTokens,
+      maxTokens,
+      usage?.prompt_tokens ?? 0,
+      usage?.completion_tokens ?? reasoningTokens,
+      (usage?.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens ?? 0,
+    );
   }
 
   return {
@@ -204,8 +224,9 @@ export async function completeJson<T>(
       return { data: JSON.parse(unwrapJson(second.content)) as T, usage };
     } catch {
       const text = second.content.trim();
-      throw new Error(
+      throw new CompletionUsageError(
         `${usage.model} returned unparseable JSON twice (${text.length} chars): ${text.slice(0, 200)}`,
+        usage,
       );
     }
   }

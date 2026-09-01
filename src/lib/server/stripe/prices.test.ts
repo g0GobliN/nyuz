@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { priceCatalogueConfigured, priceIdFor, resolvePrice, type PriceEnv } from "./prices";
+import { stripePriceMatches, type StripePrice } from "./api";
 
 /**
  * Grandfathering (docs/plan2.md §61).
@@ -41,7 +42,7 @@ describe("grandfathered prices", () => {
     // The receipt says what was billed. A subscriber on the old price being
     // shown the new one would be a lie about their own invoice.
     expect(resolvePrice("price_old_personal_m", 700, env)?.label).toBe("$7 / month");
-    expect(resolvePrice("price_new_personal_m", 1900, env)?.label).toBe("$19 / month");
+    expect(resolvePrice("price_new_personal_m", 1499, env)?.label).toBe("$14.99 / month");
   });
 
   it("does not report a legacy-only catalogue as configured", () => {
@@ -62,5 +63,42 @@ describe("grandfathered prices", () => {
     // Annual is not set in this env. Refusing is correct; falling back to the
     // monthly id would charge the wrong amount.
     expect(priceIdFor("personal", "year", env)).toBeNull();
+  });
+});
+
+describe("checkout price validation", () => {
+  const price: StripePrice = {
+    active: true,
+    currency: "usd",
+    livemode: true,
+    type: "recurring",
+    unit_amount: 1499,
+    recurring: { interval: "month", interval_count: 1 },
+  };
+
+  it("accepts only the exact active catalogue price", () => {
+    expect(stripePriceMatches(price, { cents: 1499, interval: "month", requireLive: true })).toBe(
+      true,
+    );
+    for (const changed of [
+      { ...price, active: false },
+      { ...price, currency: "jpy" },
+      { ...price, unit_amount: 700 },
+      { ...price, recurring: { interval: "year", interval_count: 1 } },
+    ]) {
+      expect(
+        stripePriceMatches(changed, { cents: 1499, interval: "month", requireLive: true }),
+      ).toBe(false);
+    }
+  });
+
+  it("refuses test-mode prices on a public deployment", () => {
+    const testPrice = { ...price, livemode: false };
+    expect(
+      stripePriceMatches(testPrice, { cents: 1499, interval: "month", requireLive: true }),
+    ).toBe(false);
+    expect(
+      stripePriceMatches(testPrice, { cents: 1499, interval: "month", requireLive: false }),
+    ).toBe(true);
   });
 });

@@ -47,27 +47,27 @@ describe("resolvePlanPrices", () => {
 
   it("does not mutate the shared default table", () => {
     resolvePlanPrices({ personal: 99 });
-    expect(DEFAULT_PLAN_PRICES.personal).toBe(19);
+    expect(DEFAULT_PLAN_PRICES.personal).toBe(14.99);
   });
 });
 
 describe("DEFAULT_PLAN_PRICES", () => {
   it("matches the Stripe catalogue", () => {
-    expect(DEFAULT_PLAN_PRICES.personal).toBe(19);
-    expect(DEFAULT_PLAN_PRICES.pro).toBe(29);
+    expect(DEFAULT_PLAN_PRICES.personal).toBe(14.99);
+    expect(DEFAULT_PLAN_PRICES.pro).toBe(29.99);
   });
 });
 
 describe("DEFAULT_ANNUAL_PRICES", () => {
   it("matches the Stripe catalogue", () => {
-    expect(DEFAULT_ANNUAL_PRICES.personal).toBe(190);
-    expect(DEFAULT_ANNUAL_PRICES.pro).toBe(290);
+    expect(DEFAULT_ANNUAL_PRICES.personal).toBe(149.9);
+    expect(DEFAULT_ANNUAL_PRICES.pro).toBe(299.9);
   });
 });
 
 describe("formatUsd", () => {
   it("uses the two-decimal form Stripe shows", () => {
     expect(formatUsd(7)).toBe("$7.00");
-    expect(formatUsd(149)).toBe("$149.00");
+    expect(formatUsd(149.9)).toBe("$149.90");
   });
 });

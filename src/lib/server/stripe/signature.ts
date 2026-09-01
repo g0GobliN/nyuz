@@ -17,6 +17,7 @@ export type VerifyResult = { ok: true; event: StripeEvent } | { ok: false; reaso
 export type StripeEvent = {
   id: string;
   type: string;
+  created?: number;
   data: { object: Record<string, unknown> };
 };
 

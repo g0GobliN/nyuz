@@ -363,6 +363,10 @@ function AskPanel({ eventId, dailyLimit }: { eventId: string; dailyLimit: number
         Ask anything about this story. Coding help and unrelated questions are refused. Your plan
         includes up to {dailyLimit} questions per day.
       </p>
+      <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+        Your question and this story are sent to our AI provider. Do not include personal or
+        confidential information.
+      </p>
 
       <div className="mt-5 flex flex-wrap gap-2">
         {PROMPTS.map((p) => (

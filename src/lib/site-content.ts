@@ -325,17 +325,17 @@ export const FOOTER_DEFAULT: Footer = {
  * override them. `plans.ts` owns the shipped defaults and the revenue
  * arithmetic; this schema only describes what a valid override looks like.
  *
- * Whole dollars, and capped: the ceiling is not a business rule, it is a
+ * Whole cents, and capped: the ceiling is not a business rule, it is a
  * fat-finger guard. A stray keystroke turning $7 into $7000 on a public pricing
  * page is the kind of mistake worth making impossible.
  */
 export const pricesSchema = z.object({
   free: z.literal(0),
-  personal: z.number().int().min(0).max(999),
-  pro: z.number().int().min(0).max(999),
+  personal: z.number().min(0).max(999).multipleOf(0.01),
+  pro: z.number().min(0).max(999).multipleOf(0.01),
   /** Annual totals. Zero means "no annual option shown". */
-  personalAnnual: z.number().int().min(0).max(9999),
-  proAnnual: z.number().int().min(0).max(9999),
+  personalAnnual: z.number().min(0).max(9999).multipleOf(0.01),
+  proAnnual: z.number().min(0).max(9999).multipleOf(0.01),
 });
 
 export type Prices = z.infer<typeof pricesSchema>;
@@ -346,7 +346,7 @@ export type Prices = z.infer<typeof pricesSchema>;
  * Monthly figures come from `plans.ts` so that repricing there moves this default
  * too, rather than leaving the console showing last quarter's numbers as "the
  * bundled copy". Annual figures come from the same file: they are the Stripe
- * catalogue — $69 and $149, a little over two months free against monthly.
+ * catalogue — $149.90 and $299.90, two months free against paying monthly.
  */
 export const PRICES_DEFAULT: Prices = {
   free: 0,
@@ -387,7 +387,7 @@ export const accessSchema = z.object({
 export type Access = z.infer<typeof accessSchema>;
 
 export const ACCESS_DEFAULT: Access = {
-  userLimit: 400,
+  userLimit: 90,
   maintenance: false,
   maintenanceMessage: "nyuz is down for a short while. We will be back shortly.",
   waitlistOpen: true,

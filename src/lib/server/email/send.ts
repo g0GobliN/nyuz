@@ -16,6 +16,7 @@ export type EmailEnv = {
   RESEND_API_KEY?: string;
   RESEND_FROM_EMAIL?: string;
   VITE_SITE_URL?: string;
+  EMAIL_UNSUBSCRIBE_SECRET?: string;
 };
 
 /**
@@ -54,10 +55,8 @@ export type SendInput = {
   to: string;
   message: Email;
   /**
-   * One-click unsubscribe. Set it on anything that is not strictly
-   * transactional — Gmail and Yahoo require a List-Unsubscribe header on bulk
-   * mail, and a missing one is a deliverability problem long before it is a
-   * complaint.
+   * Unsubscribe destination for anything that is not strictly transactional.
+   * Signed public endpoint used both by the message link and RFC 8058 clients.
    */
   unsubscribeUrl?: string | undefined;
   /**

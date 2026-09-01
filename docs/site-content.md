@@ -116,8 +116,8 @@ Live in two places on purpose:
 override was applied, so the overview can distinguish "operator set this" from "we fell
 back".
 
-The annual defaults match the Stripe catalogue: Personal $69/year, Pro $149/year
-(two months free against monthly $7 and $15). `plans.ts` owns both the monthly and
+The annual defaults match the Stripe catalogue: Personal $149.90/year, Pro $299.90/year
+(two months free against monthly $14.99 and $29.99). `plans.ts` owns both the monthly and
 annual numbers; `billing.prices` is the console override.
 
 ---

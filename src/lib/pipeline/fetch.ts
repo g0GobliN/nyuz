@@ -19,7 +19,7 @@ import { isPublicHttpUrl } from "@/lib/net/public-url";
  * publishers — several of the feeds in the 0006 seed sit behind exactly that. A
  * named agent gets served.
  */
-export const USER_AGENT = "nyuz/1.0 (automated feed reader)";
+export const USER_AGENT = "nyuz/1.0 (+https://nyuz.app/legal/contact; automated feed reader)";
 
 /**
  * Content negotiation matters more than it looks. Ask only for the wildcard type

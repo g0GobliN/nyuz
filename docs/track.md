@@ -29,7 +29,7 @@ against the live database, not when it compiles.
 | Story Ask                | `src/lib/server/briefing.ts` (`askStory`), `src/lib/ask-scope.ts` | `ai_usage_ledger`                                                | On demand, `claim_ask` RPC            | Built | **This is already plan2 §36's on-demand personal explanation** |
 | AI provider routing      | `src/lib/ai/deepseek.ts`, admin `ai.tsx`                        | `ai_providers`, `ai_model_routes`, `ai_prompts`                   | Resolved per call, 60s cache          | Built | Keep — already the central router plan2 §65 asks for |
 | Plan entitlements        | `src/lib/plans.ts`                                              | `subscriptions`, `0017_plan_entitlements.sql`                     | Read everywhere plan-gated            | Built | **Already the single canonical table plan2 §58 asks for** |
-| Billing                  | `src/lib/server/stripe/`, `src/lib/server/billing.ts`           | `subscriptions`                                                   | Checkout, portal, webhook             | Built, test mode | Do not touch pricing without explicit instruction |
+| Billing                  | `src/lib/server/stripe/`, `src/lib/server/billing.ts`           | `subscriptions`                                                   | Checkout, same-subscription plan change, portal, webhook | Built; live setup pending | Pricing locked |
 | Admin console            | `src/routes/admin/*`                                            | `0003_admin.sql`                                                  | `/admin`, `adminOnly`/`superadminOnly` | Built | Extend, don't replace (plan2 §23, §77 already say this) |
 | Feature flags            | `src/lib/site-content.ts`, admin `content.tsx`                  | `feature_flags`                                                   | —                                      | Built | Reuse for any V2 flag |
 | Source model             | `src/lib/server/sources.ts`, admin `sources.tsx`                | `sources` (`source_kind` enum)                                   | —                                      | Built, single global table, no per-user copies | Already satisfies plan2 §12's "one crawler, many subscribers" — there just aren't custom sources yet |
@@ -728,8 +728,8 @@ These are not oversights. Each needs evidence that does not exist yet.
   but no hostile URL has been submitted through the new path.
 - **Concurrent translation.** The claim is identical to the analysis claim, which *is*
   proven live under real concurrency. Translation has not yet run twice at once.
-- **Pricing v2 ($19/$29/$39).** Grandfathering is built and tested; no live price was
-  touched. This is a revenue decision, not an engineering one.
+- **Pricing v2 ($14.99/$29.99/$39).** The code catalogue and grandfathering are built and
+  tested; no live Stripe price was touched.
 - **Performance at 1K/10K/100K readers** (§98). Needs a seeded database this
   environment cannot create.
 

@@ -62,7 +62,7 @@ main(async () => {
   const write = process.argv.includes("--write");
 
   /* ------------------------------------------------------------------ */
-  heading("1. Migration state (0028-0035)");
+  heading("1. Migration state (0028-0045)");
   /* ------------------------------------------------------------------ */
 
   const tables = [
@@ -71,6 +71,7 @@ main(async () => {
     ["user_custom_sources", "0030"],
     ["polling_tiers", "0032"],
     ["cluster_shadow_log", "0033"],
+    ["ops_status", "0045"],
   ] as const;
 
   for (const [table, migration] of tables) {
@@ -83,6 +84,15 @@ main(async () => {
     ["sources", "last_new_content_at", "0032"],
     ["sources", "polling_tier", "0032"],
     ["notification_preferences", "language", "0029"],
+    ["stripe_events", "processing_started_at", "0042/0045"],
+    ["stripe_events", "processed_at", "0042/0045"],
+    ["subscriptions", "stripe_event_created_at", "0045"],
+    ["subscriptions", "retired_stripe_subscription_id", "0045"],
+    ["subscriptions", "checkout_started_at", "0045"],
+    ["articles", "clustering_deferred_until", "0045"],
+    ["events", "analysis_deferred_until", "0045"],
+    ["digests", "generation_deferred_until", "0045"],
+    ["deliveries", "processing_started_at", "0045"],
   ];
   for (const [table, column, migration] of columns) {
     const { error } = await db()
@@ -99,6 +109,10 @@ main(async () => {
     ["recompute_polling_tiers", {}, "0032"],
     ["cluster_shadow_summary", { p_days: 30 }, "0033"],
     ["admin_cost_intelligence", { p_days: 30 }, "0035"],
+    ["pending_events_with_demand", { p_limit: 1 }, "0045"],
+    ["release_ai_reservation", { p_id: NIL_UUID }, "0045"],
+    ["claim_subscription_checkout", { p_user_id: NIL_UUID }, "0045"],
+    ["claim_delivery", { p_id: NIL_UUID, p_lease_minutes: 10 }, "0045"],
   ];
   for (const [fn, args, migration] of rpcs) {
     const { error } = await db().rpc(fn as "refresh_source_demand", args as never);
@@ -195,6 +209,15 @@ main(async () => {
       `${shadowLeak?.length ?? 0} rows leaked`,
     );
 
+    for (const table of ["site_settings", "feature_flags", "ops_status"] as const) {
+      const { data } = await anon.from(table).select("*").limit(5);
+      check(
+        `anon SELECT on ${table} returns nothing`,
+        (data?.length ?? 0) === 0,
+        `${data?.length ?? 0} rows leaked`,
+      );
+    }
+
     // Function EXECUTE. This is where the real hole was: `revoke ... from
     // anon, authenticated` leaves the default PUBLIC grant in place, so the
     // line reads like a lock and does nothing. Only an actual call can tell.
@@ -209,6 +232,24 @@ main(async () => {
       ["refresh_source_demand", {}],
       ["recompute_polling_tiers", {}],
       ["claim_custom_source", { p_user_id: NIL_UUID, p_source_id: NIL_UUID }],
+      ["purge_expired_corpus", { p_limit: 0 }],
+      ["claim_alert", { p_user_id: NIL_UUID, p_event_id: NIL_UUID, p_importance: 10 }],
+      ["pending_events_with_demand", { p_limit: 1 }],
+      ["release_ai_reservation", { p_id: NIL_UUID }],
+      ["claim_subscription_checkout", { p_user_id: NIL_UUID }],
+      ["claim_delivery", { p_id: NIL_UUID, p_lease_minutes: 10 }],
+      [
+        "create_alert_delivery",
+        {
+          p_user_id: NIL_UUID,
+          p_event_id: NIL_UUID,
+          p_importance: 10,
+          p_scheduled_for: new Date().toISOString(),
+          p_why: "probe",
+          p_channels: ["email"],
+        },
+      ],
+      ["record_ops_status", { p_key: "forbidden", p_status: "healthy", p_detail: {} }],
     ];
     for (const [fn, args] of definerFns) {
       const { error } = await anon.rpc(fn as "admin_source_stats", args as never);

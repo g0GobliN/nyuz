@@ -1,18 +1,33 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ConsoleHeader,
   ErrorNote,
+  Field,
   Loading,
   Panel,
   Pill,
   Stat,
   StatGrid,
   formatNumber,
+  inputClass,
+  useConsoleMutation,
 } from "@/components/admin/shell";
-import { Chip } from "@/components/kit";
-import { getCostIntelligence } from "@/lib/server/cost-intelligence";
+import { Button, Chip } from "@/components/kit";
+import {
+  type AiSpend,
+  getAiSpend,
+  getCostIntelligence,
+  getUnitEconomics,
+  saveOperatingCosts,
+} from "@/lib/server/cost-intelligence";
+import {
+  COST_PROVIDERS,
+  type CostProvider,
+  type PlanEconomics,
+  type UnitEconomics,
+} from "@/lib/unit-economics";
 
 export const Route = createFileRoute("/admin/cost")({ component: CostPage });
 
@@ -38,6 +53,18 @@ function CostPage() {
     queryFn: () => getCostIntelligence({ data: { days } }),
     staleTime: 60_000,
   });
+  const unit = useQuery({
+    queryKey: ["admin", "unit-economics", days],
+    queryFn: () => getUnitEconomics({ data: { days } }),
+    staleTime: 60_000,
+  });
+  // Not windowed: the ceiling resets on the calendar month, so a 7- or 90-day
+  // view of it would answer a question nobody is asking.
+  const spend = useQuery({
+    queryKey: ["admin", "ai-spend"],
+    queryFn: () => getAiSpend(),
+    staleTime: 60_000,
+  });
 
   const data = cost.data;
 
@@ -49,6 +76,10 @@ function CostPage() {
       />
 
       <ErrorNote error={cost.error} />
+      <ErrorNote error={unit.error} />
+      <ErrorNote error={spend.error} />
+
+      {spend.data ? <AiSpendPanel data={spend.data} /> : null}
 
       <div className="mb-5 flex flex-wrap items-center gap-1.5">
         {WINDOWS.map((w) => (
@@ -58,7 +89,18 @@ function CostPage() {
         ))}
       </div>
 
-      {cost.isLoading ? <Loading label="Counting" /> : null}
+      {cost.isLoading || unit.isLoading ? <Loading label="Counting" /> : null}
+
+      {!unit.isLoading && unit.data === null ? (
+        <Panel>
+          <p className="text-[13.5px] leading-relaxed text-signal">
+            Apply migration 0043 to start measuring per-plan revenue, Stripe fees, refunds, AI spend
+            and operating costs. No margin is guessed before the ledgers exist.
+          </p>
+        </Panel>
+      ) : null}
+
+      {unit.data ? <UnitEconomicsPanel data={unit.data} /> : null}
 
       {!cost.isLoading && data === null ? (
         <Panel>
@@ -219,5 +261,232 @@ function CostPage() {
         </div>
       ) : null}
     </>
+  );
+}
+
+const PROVIDER_LABELS: Record<CostProvider, string> = {
+  cloudflare: "Cloudflare",
+  supabase: "Supabase",
+  resend: "Resend / email",
+  domain: "Domain",
+  other: "Other",
+};
+
+function usd(value: number | null): string {
+  return value === null
+    ? "—"
+    : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+}
+
+/**
+ * Month-to-date AI spend against the ceiling that stops the pipeline.
+ *
+ * The projection is the point of the panel. A balance answers "how much have I
+ * spent", which is reassuring right up until it isn't; the projection answers
+ * "does this month finish", which is the question whose answer can still be
+ * acted on. So the warning tone keys off the forecast crossing the ceiling, not
+ * off the percentage used — 40% on the 4th is worse than 80% on the 28th.
+ */
+function AiSpendPanel({ data }: { data: AiSpend }) {
+  const willExhaust = data.exhaustionDate !== null;
+  const exhausted = data.spentUsd >= data.ceilingUsd;
+
+  return (
+    <div className="mb-5">
+      <Panel
+        title="AI spend · this month"
+        note="The pipeline refuses new model calls once the ceiling is reached, so this is the number that decides whether briefings keep being produced. Set it with AI_MONTHLY_COST_USD."
+      >
+        <StatGrid>
+          <Stat
+            label="Spent"
+            value={usd(data.spentUsd)}
+            hint={
+              data.ceilingResolved
+                ? `${data.usedPct.toFixed(1)}% of the ${usd(data.ceilingUsd)} ceiling`
+                : `${data.usedPct.toFixed(1)}% of the built-in ${usd(data.ceilingUsd)} default`
+            }
+          />
+          <Stat
+            label="Projected month end"
+            value={usd(data.projectedUsd)}
+            hint={
+              exhausted
+                ? "Ceiling reached — model calls are being refused"
+                : willExhaust
+                  ? `Ceiling reached ${new Date(data.exhaustionDate as string).toLocaleDateString()}`
+                  : "Stays inside the ceiling at the current rate"
+            }
+            estimate
+          />
+          <Stat
+            label="Metered calls"
+            value={formatNumber(data.calls)}
+            hint={`${formatNumber(data.tokens)} tokens`}
+          />
+          <Stat
+            label="In flight"
+            value={usd(data.inFlightUsd)}
+            hint="Reserved at estimate, not yet settled"
+          />
+        </StatGrid>
+
+        {exhausted || willExhaust || data.unpricedCalls > 0 || !data.ceilingResolved ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {exhausted ? (
+              <Pill tone="signal">Ceiling reached — raise AI_MONTHLY_COST_USD to resume</Pill>
+            ) : willExhaust ? (
+              <Pill tone="signal">On track to stop before month end</Pill>
+            ) : null}
+            {!data.ceilingResolved ? (
+              <Pill tone="outline">
+                AI_MONTHLY_COST_USD not readable here — showing the built-in default
+              </Pill>
+            ) : null}
+            {data.unpricedCalls > 0 ? (
+              <Pill tone="outline">
+                {formatNumber(data.unpricedCalls)} calls have no rate card — spend is understated
+              </Pill>
+            ) : null}
+          </div>
+        ) : null}
+      </Panel>
+    </div>
+  );
+}
+
+function UnitEconomicsPanel({ data }: { data: UnitEconomics }) {
+  const initial = useMemo(
+    () =>
+      Object.fromEntries(
+        COST_PROVIDERS.map((provider) => {
+          const stored = data.operatingCosts.find((row) => row.provider === provider);
+          return [provider, stored ? (stored.monthly_cents / 100).toFixed(2) : ""];
+        }),
+      ) as Record<CostProvider, string>,
+    [data.operatingCosts],
+  );
+  const [costs, setCosts] = useState<Record<CostProvider, string>>(initial);
+  const save = useConsoleMutation(saveOperatingCosts, [["admin", "unit-economics"]]);
+
+  useEffect(() => setCosts(initial), [initial]);
+
+  const submit = () => {
+    const cents = Object.fromEntries(
+      COST_PROVIDERS.map((provider) => [provider, Math.round(Number(costs[provider]) * 100)]),
+    ) as Record<CostProvider, number>;
+    if (Object.values(cents).some((value) => !Number.isFinite(value) || value < 0)) return;
+    save.mutate({ data: { costs: cents } });
+  };
+
+  return (
+    <div className="mb-5 space-y-5">
+      <Panel
+        title={`Unit economics · last ${data.windowDays} days`}
+        note="Revenue, refunds and Stripe fees are prorated over each subscription's service period. Annual sales therefore appear as earned monthly value, not a one-day windfall."
+      >
+        <StatGrid>
+          <Stat label="Paying customers" value={formatNumber(data.payingCustomersAllTime)} />
+          <Stat
+            label="Next evidence check"
+            value={data.nextMilestone ? `${data.nextMilestone} customers` : "100 reached"}
+          />
+          <Stat label="Monthly overhead" value={usd(data.overheadMonthlyUsd)} />
+          <Stat label="Shared AI in window" value={usd(data.sharedAiUsd)} />
+        </StatGrid>
+
+        {!data.complete ? (
+          <div className="mt-4 rounded-xl border border-border bg-surface-2 px-4 py-3">
+            <p className="text-[12.5px] font-semibold">
+              Margin withheld until the ledger is complete
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-[12px] text-muted-foreground">
+              {data.incompleteReasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <PlanCard name="Personal · $14.99" data={data.plans.personal} complete={data.complete} />
+          <PlanCard name="Pro · $29.99" data={data.plans.pro} complete={data.complete} />
+        </div>
+      </Panel>
+
+      <Panel
+        title="Actual monthly overhead"
+        note="Enter the monthly equivalent from each real invoice. For a $10 annual domain, enter $0.83. Zero is valid for a free plan; blank means unknown and keeps margin hidden."
+      >
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {COST_PROVIDERS.map((provider) => (
+            <Field key={provider} label={PROVIDER_LABELS[provider]}>
+              <div className="relative">
+                <span className="absolute left-3.5 top-[18px] text-[13px] text-muted-foreground">
+                  $
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={costs[provider]}
+                  onChange={(event) =>
+                    setCosts((current) => ({ ...current, [provider]: event.target.value }))
+                  }
+                  className={`${inputClass} pl-7`}
+                />
+              </div>
+            </Field>
+          ))}
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <Button onClick={submit} disabled={save.isPending}>
+            {save.isPending ? "Saving…" : "Save overhead"}
+          </Button>
+          {save.isSuccess ? <span className="text-[12px] text-muted-foreground">Saved</span> : null}
+        </div>
+        <ErrorNote error={save.error} />
+      </Panel>
+    </div>
+  );
+}
+
+function PlanCard({
+  name,
+  data,
+  complete,
+}: {
+  name: string;
+  data: PlanEconomics;
+  complete: boolean;
+}) {
+  const rows: [string, string][] = [
+    ["Customers in window", formatNumber(data.customers)],
+    ["Recognized revenue", usd(data.recognizedRevenueUsd)],
+    ["Refunds", usd(data.refundsUsd)],
+    ["Stripe fees", usd(data.stripeFeesUsd)],
+    ["Direct AI", usd(data.directAiUsd)],
+    ["P95 direct AI / customer", usd(data.p95DirectAiUsd)],
+    ["Shared AI allocation", usd(data.sharedAiUsd)],
+    ["Overhead allocation", usd(data.overheadUsd)],
+    [complete ? "Total cost" : "Known cost subtotal", usd(data.totalCostUsd)],
+    ["Cost / customer", usd(data.costPerCustomerUsd)],
+    [complete ? "Contribution" : "Known contribution subtotal", usd(data.contributionUsd)],
+    ["Gross margin", data.marginPct === null ? "—" : `${data.marginPct.toFixed(1)}%`],
+  ];
+
+  return (
+    <section className="rounded-2xl border border-hairline bg-surface-2 p-4">
+      <h3 className="text-[14px] font-semibold">{name}</h3>
+      <dl className="mt-3 divide-y divide-[var(--hairline)]">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-4 py-2 text-[12.5px]">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="tabular-nums">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }

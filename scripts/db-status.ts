@@ -49,6 +49,10 @@ main(async () => {
   heading("Events");
   say(row("analysed", await n(events().not("analysed_at", "is", null))));
   say(row("awaiting analysis", await n(events().is("analysed_at", null))));
+  say(
+    row("pending and eligible", await n(events().is("analysed_at", null).eq("status", "pending"))),
+  );
+  say(row("failed", await n(events().is("analysed_at", null).eq("status", "failed"))));
 
   // The shared-analysis property in one number. Tokens are recorded per event and
   // never re-spent, so this total is the entire model cost of understanding the

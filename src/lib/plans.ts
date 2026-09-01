@@ -5,10 +5,10 @@ import type { PlanTier } from "@/lib/supabase/types";
  * read these — not the admin override, which can only drift from what Stripe
  * actually charges.
  *
- *   nyuz personal         US$19.00 / month
- *   nyuz personal annual  US$190.00 / year
- *   nyuz pro              US$29.00 / month
- *   nyuz pro annual       US$290.00 / year
+ *   nyuz personal         US$14.99 / month
+ *   nyuz personal annual  US$149.90 / year
+ *   nyuz pro              US$29.99 / month
+ *   nyuz pro annual       US$299.90 / year
  *
  * ─────────────────────────────────────────────────────────────────────────
  * THESE NUMBERS ARE DISPLAY ONLY. THE CHARGE IS THE STRIPE PRICE OBJECT.
@@ -21,7 +21,7 @@ import type { PlanTier } from "@/lib/supabase/types";
  *
  * So this table is only true once, in the Stripe account:
  *
- *   1. New prices exist at $19/$190 and $29/$290.
+ *   1. New prices exist at $14.99/$149.90 and $29.99/$299.90.
  *   2. `STRIPE_PRICE_PERSONAL_MONTHLY` and its three siblings point at them.
  *   3. The previous ids ($7/$69, $15/$149) have been moved to the matching
  *      `*_LEGACY` variables, so existing subscribers keep billing against the
@@ -29,7 +29,7 @@ import type { PlanTier } from "@/lib/supabase/types";
  *
  * Miss step 3 and every current subscriber's next webhook resolves to no plan
  * and silently loses their entitlements. Miss step 2 and the page advertises
- * $19 while checkout charges $7 — the disagreement between the page and the
+ * $14.99 while checkout charges $7 — the disagreement between the page and the
  * invoice that this whole module exists to prevent.
  *
  * Targets come from docs/plan2.md §55–56. §57's $39 Intelligence tier is
@@ -37,20 +37,20 @@ import type { PlanTier } from "@/lib/supabase/types";
  */
 export const DEFAULT_PLAN_PRICES: Record<PlanTier, number> = {
   free: 0,
-  personal: 19,
-  pro: 29,
+  personal: 14.99,
+  pro: 29.99,
 };
 
 /**
  * Annual totals. Exactly two months free against twelve months of the monthly
- * price — Personal saves $38 on $228, Pro saves $58 on $348.
+ * price — Personal saves $29.98, Pro saves $59.98.
  *
  * The pricing page derives the saving from these numbers rather than printing a
  * fixed claim, so changing them here changes the copy with them.
  */
 export const DEFAULT_ANNUAL_PRICES: Record<Exclude<PlanTier, "free">, number> = {
-  personal: 190,
-  pro: 290,
+  personal: 149.9,
+  pro: 299.9,
 };
 
 /** "$7.00" — the same two-decimal form Stripe shows. */
@@ -77,6 +77,21 @@ export type PlanLimits = {
   retentionDays: number;
   asksPerDay: number;
   askModel: PlanModel | null;
+  /**
+   * Vestigial, and kept only so the tier table stays readable beside `askModel`.
+   *
+   * It described a per-reader digest call that no longer exists: `digest.ts`
+   * assembles `why_it_matters` from the shared `event_impacts` written once per
+   * event, so no model call scales with reader count and there is nothing left
+   * for a per-plan model to select. `digestCapabilityFor` has no production
+   * caller for the same reason.
+   *
+   * Deliberately flagged rather than deleted, because the misreading it invites
+   * is a costly one: it looks like free readers are served by a cheap model, and
+   * a cost estimate built on that assumption would be wrong in the expensive
+   * direction. Per-reader AI is Ask, and Ask alone — that is what `askModel`,
+   * `asksPerDay` and `monthlyAiTokenCap` govern.
+   */
   digestModel: PlanModel;
   storyCaps: Record<DensityBand, number>;
   alerts: AlertAccess;

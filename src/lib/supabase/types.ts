@@ -85,20 +85,27 @@ export type Subscription = {
   stripe_subscription_id: string | null;
   /** True between a cancellation and `current_period_end` (0041). */
   cancel_at_period_end: boolean;
+  /** Stripe event creation time of the last lifecycle state we accepted (0045). */
+  stripe_event_created_at: string | null;
+  /** The terminal subscription id, preventing same-second stale resurrection (0045). */
+  retired_stripe_subscription_id: string | null;
+  /** Short lease preventing two simultaneous first-checkout sessions (0045). */
+  checkout_started_at: string | null;
 };
 
 /**
  * One row per Stripe event already processed (0005).
  *
- * The webhook inserts before doing the work and treats a unique violation as
- * "already done" — Stripe retries for up to three days and does not promise
- * exactly-once delivery. No RLS policies at all: written only with the
- * service-role key, and the absence of a write policy is the write guard.
+ * The webhook holds a short processing lease, then marks completion. A failed
+ * attempt remains reclaimable rather than becoming a permanent false duplicate.
+ * No RLS policies: this is service-role-only operational state.
  */
 export type StripeEvent = {
   event_id: string;
   type: string;
   received_at: string;
+  processing_started_at: string | null;
+  processed_at: string | null;
 };
 
 export type NotificationPreferences = {
@@ -224,6 +231,13 @@ export type UserCustomSource = {
   updated_at: string;
 };
 
+/** Service-only rate-limit ledger for outbound custom-feed probes (0042). */
+export type SourceProbeLog = {
+  id: number;
+  user_id: string;
+  created_at: string;
+};
+
 /**
  * Somebody turned away by the capacity gate who left an address (0038).
  *
@@ -246,12 +260,41 @@ export type AlertClaim = { user_id: string; event_id: string; created_at: string
 export type AiUsageLedger = {
   id: string;
   user_id: string | null;
+  plan: PlanTier | null;
   capability: AiCapability;
   model: string;
   prompt_tokens: number;
+  cached_prompt_tokens: number;
   completion_tokens: number;
+  cost_microusd: number | null;
   reserved_tokens: number;
   created_at: string;
+};
+
+export type BillingLedger = {
+  charge_id: string;
+  invoice_id: string;
+  user_id: string | null;
+  plan: PlanTier;
+  interval: "month" | "year";
+  price_id: string;
+  currency: string;
+  gross_cents: number;
+  refunded_cents: number;
+  stripe_fee_amount: number;
+  stripe_fee_currency: string;
+  period_start: string;
+  period_end: string;
+  paid_at: string;
+  livemode: boolean;
+  updated_at: string;
+};
+
+export type OperatingCostSetting = {
+  provider: "cloudflare" | "supabase" | "resend" | "domain" | "other";
+  monthly_cents: number;
+  updated_by: string | null;
+  updated_at: string;
 };
 
 export type ImpactStatus = "pending" | "generating" | "complete" | "failed";
@@ -269,6 +312,8 @@ export type EventImpact = {
   completion_tokens: number;
   created_at: string;
   updated_at: string;
+  /** Temporary AI capacity retry time; null for real failures (0045). */
+  deferred_until: string | null;
 };
 
 export type TranslationStatus = "pending" | "generating" | "complete" | "failed";
@@ -305,6 +350,8 @@ export type EventTranslation = {
   completion_tokens: number;
   created_at: string;
   updated_at: string;
+  /** Temporary AI capacity retry time; null for real failures (0045). */
+  deferred_until: string | null;
 };
 
 export type EventRow = {
@@ -322,6 +369,8 @@ export type EventRow = {
   last_updated_at: string;
   analysed_at: string | null;
   analysis_tokens: number;
+  /** Work held by a temporary AI ceiling becomes eligible after this time (0045). */
+  analysis_deferred_until: string | null;
 };
 
 export type Article = {
@@ -335,6 +384,7 @@ export type Article = {
   published_at: string | null;
   fetched_at: string;
   content_hash: string;
+  clustering_deferred_until: string | null;
 };
 
 export type EventTopic = { event_id: string; topic_id: string; confidence: number };
@@ -380,6 +430,8 @@ export type Digest = {
   generation_tokens: number;
   /** Scheduled briefing vs out-of-schedule alert. Default `briefing`. */
   kind: DigestKind;
+  /** Work held by a temporary AI ceiling becomes eligible after this time (0045). */
+  generation_deferred_until: string | null;
 };
 
 export type DigestItem = {
@@ -398,6 +450,15 @@ export type Delivery = {
   last_error: string | null;
   delivered_at: string | null;
   created_at: string;
+  /** Recoverable send lease preventing concurrent workers duplicating a send (0045). */
+  processing_started_at: string | null;
+};
+
+export type OpsStatus = {
+  key: string;
+  status: "healthy" | "warning" | "error";
+  detail: Json;
+  updated_at: string;
 };
 
 export type Feedback = {
@@ -572,8 +633,11 @@ export type Database = {
         | "stripe_customer_id"
         | "stripe_subscription_id"
         | "cancel_at_period_end"
+        | "stripe_event_created_at"
+        | "retired_stripe_subscription_id"
+        | "checkout_started_at"
       >;
-      stripe_events: Table<StripeEvent, "received_at">;
+      stripe_events: Table<StripeEvent, "received_at" | "processing_started_at" | "processed_at">;
       notification_preferences: Table<
         NotificationPreferences,
         Exclude<keyof NotificationPreferences, "user_id">
@@ -610,6 +674,7 @@ export type Database = {
       cluster_shadow_log: Table<ClusterShadowLog, "id" | "agreed" | "created_at">;
       user_source_prefs: Table<UserSourcePref, "pref" | "created_at">;
       user_custom_sources: Table<UserCustomSource, "active" | "created_at" | "updated_at">;
+      source_probe_log: Table<SourceProbeLog, "id" | "created_at">;
       waitlist: Table<
         WaitlistEntry,
         "id" | "name" | "note" | "created_at" | "invited_at" | "signed_up_at"
@@ -628,10 +693,18 @@ export type Database = {
         | "last_updated_at"
         | "analysed_at"
         | "analysis_tokens"
+        | "analysis_deferred_until"
       >;
       articles: Table<
         Article,
-        "id" | "source_id" | "event_id" | "author" | "excerpt" | "published_at" | "fetched_at"
+        | "id"
+        | "source_id"
+        | "event_id"
+        | "author"
+        | "excerpt"
+        | "published_at"
+        | "fetched_at"
+        | "clustering_deferred_until"
       >;
       event_topics: Table<EventTopic, "confidence">;
       event_impacts: Table<
@@ -643,6 +716,7 @@ export type Database = {
         | "completion_tokens"
         | "created_at"
         | "updated_at"
+        | "deferred_until"
       >;
       event_translations: Table<
         EventTranslation,
@@ -658,6 +732,7 @@ export type Database = {
         | "completion_tokens"
         | "created_at"
         | "updated_at"
+        | "deferred_until"
       >;
       user_events: Table<
         UserEvent,
@@ -673,12 +748,24 @@ export type Database = {
       >;
       digests: Table<
         Digest,
-        "digest_id" | "generated_at" | "status" | "item_count" | "generation_tokens" | "kind"
+        | "digest_id"
+        | "generated_at"
+        | "status"
+        | "item_count"
+        | "generation_tokens"
+        | "kind"
+        | "generation_deferred_until"
       >;
       digest_items: Table<DigestItem, "why_it_matters">;
       deliveries: Table<
         Delivery,
-        "id" | "status" | "attempts" | "last_error" | "delivered_at" | "created_at"
+        | "id"
+        | "status"
+        | "attempts"
+        | "last_error"
+        | "delivered_at"
+        | "created_at"
+        | "processing_started_at"
       >;
       feedback: Table<Feedback, "created_at">;
       saved_stories: Table<SavedStory, "saved_at">;
@@ -686,8 +773,19 @@ export type Database = {
       alert_claims: Table<AlertClaim, "created_at">;
       ai_usage_ledger: Table<
         AiUsageLedger,
-        "id" | "user_id" | "prompt_tokens" | "completion_tokens" | "reserved_tokens" | "created_at"
+        | "id"
+        | "user_id"
+        | "plan"
+        | "prompt_tokens"
+        | "cached_prompt_tokens"
+        | "completion_tokens"
+        | "cost_microusd"
+        | "reserved_tokens"
+        | "created_at"
       >;
+      billing_ledger: Table<BillingLedger, "refunded_cents" | "updated_at">;
+      operating_cost_settings: Table<OperatingCostSetting, "updated_by" | "updated_at">;
+      ops_status: Table<OpsStatus, "detail" | "updated_at">;
       telegram_accounts: Table<
         TelegramAccount,
         "chat_id" | "connect_nonce" | "connect_expires_at" | "linked_at"
@@ -831,6 +929,15 @@ export type Database = {
         Args: { p_event_ids: string[] };
         Returns: { event_id: string; has_demand: boolean }[];
       };
+      pending_events_with_demand: {
+        Args: { p_limit?: number };
+        Returns: {
+          id: string;
+          title: string;
+          status: EventStatus;
+          analysis_tokens: number;
+        }[];
+      };
       increment_post_view: {
         Args: { p_slug: string };
         Returns: undefined;
@@ -852,6 +959,17 @@ export type Database = {
         Args: { p_user_id: string; p_event_id: string; p_importance: number };
         Returns: string;
       };
+      create_alert_delivery: {
+        Args: {
+          p_user_id: string;
+          p_event_id: string;
+          p_importance: number;
+          p_scheduled_for: string;
+          p_why: string;
+          p_channels: DeliveryChannel[];
+        };
+        Returns: string;
+      };
       reserve_ai_tokens: {
         Args: {
           p_user_id: string | null;
@@ -860,16 +978,64 @@ export type Database = {
           p_reserve: number;
           p_user_monthly_cap: number;
           p_global_monthly_cap: number;
+          p_estimated_cost_microusd: number | null;
+          p_global_monthly_cost_microusd: number;
         };
         Returns: string | null;
       };
+      ai_spend_this_month: {
+        Args: Record<string, never>;
+        Returns: {
+          spent_microusd: number;
+          settled_microusd: number;
+          in_flight_microusd: number;
+          tokens: number;
+          calls: number;
+          unpriced_calls: number;
+          month_start: string;
+        }[];
+      };
       settle_ai_tokens: {
-        Args: { p_id: string; p_prompt_tokens: number; p_completion_tokens: number };
+        Args: {
+          p_id: string;
+          p_prompt_tokens: number;
+          p_cached_prompt_tokens: number;
+          p_completion_tokens: number;
+          p_cost_microusd: number | null;
+        };
+        Returns: undefined;
+      };
+      release_ai_reservation: {
+        Args: { p_id: string };
+        Returns: boolean;
+      };
+      claim_subscription_checkout: {
+        Args: { p_user_id: string };
+        Returns: string;
+      };
+      release_subscription_checkout: {
+        Args: { p_user_id: string };
+        Returns: undefined;
+      };
+      claim_delivery: {
+        Args: { p_id: string; p_lease_minutes?: number };
+        Returns: boolean;
+      };
+      record_ops_status: {
+        Args: { p_key: string; p_status: string; p_detail?: Json };
         Returns: undefined;
       };
       purge_expired_digests: {
         Args: { p_limit?: number };
         Returns: number;
+      };
+      purge_expired_corpus: {
+        Args: { p_limit?: number };
+        Returns: number;
+      };
+      claim_source_probe: {
+        Args: { p_user_id: string };
+        Returns: string;
       };
       is_admin: {
         Args: { uid?: string };

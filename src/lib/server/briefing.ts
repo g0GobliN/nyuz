@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { parseInput } from "@/lib/server/validate";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { completeRouted } from "@/lib/ai/config";
+import { AiBudgetExceededError, AiUnpricedRouteError, completeRouted } from "@/lib/ai/config";
 import { TruncatedCompletionError } from "@/lib/ai/deepseek";
 import { signedInOnly } from "./guard";
 import { backfill, WINDOW_HOURS } from "@/lib/pipeline/backfill";
@@ -470,7 +470,15 @@ export type AskResult =
   | {
       ok: false;
       reason:
-        "disabled" | "not-found" | "empty" | "failed" | "plan" | "quota" | "cooldown" | "off-topic";
+        | "disabled"
+        | "not-found"
+        | "empty"
+        | "failed"
+        | "plan"
+        | "quota"
+        | "cooldown"
+        | "off-topic"
+        | "at-capacity";
       detail: string;
     };
 
@@ -581,7 +589,6 @@ export const askStory = createServerFn({ method: "POST" })
       `What happened: ${story.what}`,
       story.before ? `Before: ${story.before}` : "",
       story.after ? `After: ${story.after}` : "",
-      story.why ? `Why it was in this reader's briefing: ${story.why}` : "",
       story.sourceList.length > 0
         ? `Sources: ${story.sourceList.map((s) => s.name).join(", ")}`
         : "",
@@ -614,6 +621,19 @@ export const askStory = createServerFn({ method: "POST" })
       }
       return { ok: true, answer };
     } catch (error) {
+      // The monthly ceiling is an operator state, not a reader mistake. Saying
+      // "could not be generated" would send somebody retrying against a wall
+      // that will not move until the month rolls over or the cap is raised.
+      // `AiUnpricedRouteError` is an operator misconfiguration rather than a
+      // budget state, but it is indistinguishable from one to a reader and has
+      // the same remedy — wait for somebody to fix it — so it reads the same.
+      if (error instanceof AiBudgetExceededError || error instanceof AiUnpricedRouteError) {
+        return {
+          ok: false,
+          reason: "at-capacity",
+          detail: "Ask is at capacity right now. Please try again later.",
+        };
+      }
       const timedOut = error instanceof Error && /aborted|timeout/i.test(error.message);
       const detail =
         error instanceof TruncatedCompletionError

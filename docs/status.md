@@ -42,7 +42,7 @@ account that owns the key. A stranger cannot receive mail until
 | Admin console (analytics, users, bans, roles, audit)   | **Built**                                                         |
 | Blog (authoring + public pages)                        | **Built**                                                         |
 | AI provider routing configuration                      | **Built** — two stages route through it                           |
-| Billing (checkout, portal, webhook)                    | **Built** (test mode; unproven against live)                      |
+| Billing (checkout, portal, webhook)                    | **Built**; live account configuration and end-to-end payment remain |
 | Lifecycle email (account, billing, pause)              | **Built** — Free warns at 23 inactive days, pauses at 30          |
 | Onboarding flow                                        | **Built**, persisted to the account                               |
 | Source list (87 feeds, 83 active)                      | **Built** — expanded past technology into general news; see `track.md` |
@@ -261,7 +261,7 @@ been understood twice, which is the one failure this design cannot absorb.
 `subscriptions.plan` is written by `customer.subscription.*` events, and the price of every
 incoming event is matched against the nyuz catalogue first — the Stripe account is shared
 with another product, so an unmatched price is ignored rather than trusted. It has been
-exercised in test mode only. **No live payment has ever run through it.**
+exercised with automated/test-mode coverage only. **A live payment still must be run before launch.**
 
 **Delivery.** Email briefing delivery exists: `deliveries` rows, Resend transport,
 idempotency keys, and retry of queued failures up to five attempts. Telegram and

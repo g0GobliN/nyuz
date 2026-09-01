@@ -11,6 +11,7 @@ import {
   mediaSchema,
   moveSection,
   parseSetting,
+  pricesSchema,
   sectionsSchema,
 } from "@/lib/site-content";
 
@@ -87,6 +88,38 @@ describe("moveSection", () => {
     const moved = moveSection(SECTIONS_DEFAULT, 3, 1);
     expect(moved).toHaveLength(SECTIONS_DEFAULT.length);
     expect(new Set(moved.map((s) => s.key)).size).toBe(SECTIONS_DEFAULT.length);
+  });
+});
+
+describe("pricesSchema", () => {
+  it("accepts Stripe prices in whole cents", () => {
+    expect(
+      pricesSchema.parse({
+        free: 0,
+        personal: 14.99,
+        pro: 29.99,
+        personalAnnual: 149.9,
+        proAnnual: 299.9,
+      }),
+    ).toEqual({
+      free: 0,
+      personal: 14.99,
+      pro: 29.99,
+      personalAnnual: 149.9,
+      proAnnual: 299.9,
+    });
+  });
+
+  it("rejects fractions smaller than one cent", () => {
+    expect(() =>
+      pricesSchema.parse({
+        free: 0,
+        personal: 14.999,
+        pro: 29.99,
+        personalAnnual: 149.9,
+        proAnnual: 299.9,
+      }),
+    ).toThrow();
   });
 });
 

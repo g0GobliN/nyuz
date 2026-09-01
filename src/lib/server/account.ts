@@ -85,3 +85,138 @@ export const pingPresence = createServerFn({ method: "POST" })
       .eq("id", context.actor.id)
       .or(`last_seen_at.is.null,last_seen_at.lt."${hourAgo}"`);
   });
+
+/** A portable copy of the account data nyuz stores for the signed-in reader. */
+export const exportAccountData = createServerFn({ method: "GET" })
+  .middleware([signedInOnly])
+  .handler(async ({ context }) => {
+    const { actor } = context;
+    const [
+      profile,
+      subscription,
+      preferences,
+      topics,
+      exclusions,
+      sourcePrefs,
+      feedback,
+      saved,
+      matches,
+      digests,
+      questions,
+      aiUsage,
+      customSources,
+      telegram,
+      push,
+    ] = await Promise.all([
+      actor.db.from("profiles").select("*").eq("id", actor.id).maybeSingle(),
+      actor.db
+        .from("subscriptions")
+        .select("plan, status, current_period_end, cancel_at_period_end")
+        .eq("user_id", actor.id)
+        .maybeSingle(),
+      actor.db.from("notification_preferences").select("*").eq("user_id", actor.id).maybeSingle(),
+      actor.db
+        .from("user_topics")
+        .select(
+          "created_at, importance, frequency, keywords, exclude_keywords, weight, muted, topics ( label )",
+        )
+        .eq("user_id", actor.id),
+      actor.db.from("user_exclusions").select("term").eq("user_id", actor.id),
+      actor.db
+        .from("user_source_prefs")
+        .select("source_id, pref, sources ( name, homepage )")
+        .eq("user_id", actor.id),
+      actor.db.from("feedback").select("event_id, vote, created_at").eq("user_id", actor.id),
+      actor.db.from("saved_stories").select("event_id, saved_at").eq("user_id", actor.id),
+      actor.db
+        .from("user_events")
+        .select("event_id, relevance, matched_at")
+        .eq("user_id", actor.id),
+      actor.db
+        .from("digests")
+        .select("digest_id, scheduled_for, generated_at, status, item_count")
+        .eq("user_id", actor.id)
+        .order("scheduled_for", { ascending: false }),
+      actor.db
+        .from("ask_log")
+        .select("event_id, created_at")
+        .eq("user_id", actor.id)
+        .order("created_at", { ascending: false }),
+      actor.db
+        .from("ai_usage_ledger")
+        .select(
+          "capability, model, prompt_tokens, cached_prompt_tokens, completion_tokens, cost_microusd, reserved_tokens, created_at",
+        )
+        .eq("user_id", actor.id)
+        .order("created_at", { ascending: false }),
+      actor.db
+        .from("user_custom_sources")
+        .select("active, created_at, updated_at, sources ( name, homepage, feed_url )")
+        .eq("user_id", actor.id),
+      actor.db
+        .from("telegram_accounts")
+        .select("chat_id, linked_at")
+        .eq("user_id", actor.id)
+        .maybeSingle(),
+      actor.db.from("push_subscriptions").select("endpoint, created_at").eq("user_id", actor.id),
+    ]);
+
+    const failed = [
+      profile,
+      subscription,
+      preferences,
+      topics,
+      exclusions,
+      sourcePrefs,
+      feedback,
+      saved,
+      matches,
+      digests,
+      questions,
+      aiUsage,
+      customSources,
+      telegram,
+      push,
+    ].find((result) => result.error);
+    if (failed?.error) throw new Error(`exporting account data: ${failed.error.message}`);
+
+    const digestIds = (digests.data ?? []).map((digest) => digest.digest_id);
+    const [items, deliveries] = digestIds.length
+      ? await Promise.all([
+          actor.db
+            .from("digest_items")
+            .select("digest_id, event_id, position, why_it_matters")
+            .in("digest_id", digestIds),
+          actor.db
+            .from("deliveries")
+            .select("digest_id, channel, status, attempts, delivered_at, created_at")
+            .in("digest_id", digestIds),
+        ])
+      : [
+          { data: [], error: null },
+          { data: [], error: null },
+        ];
+    if (items.error) throw new Error(`exporting briefing items: ${items.error.message}`);
+    if (deliveries.error) throw new Error(`exporting deliveries: ${deliveries.error.message}`);
+
+    return {
+      exportedAt: new Date().toISOString(),
+      account: { id: actor.id, email: actor.email, profile: profile.data },
+      subscription: subscription.data,
+      preferences: preferences.data,
+      topics: topics.data ?? [],
+      exclusions: exclusions.data ?? [],
+      sourcePreferences: sourcePrefs.data ?? [],
+      feedback: feedback.data ?? [],
+      savedStories: saved.data ?? [],
+      matchedStories: matches.data ?? [],
+      questions: questions.data ?? [],
+      aiUsage: aiUsage.data ?? [],
+      customSources: customSources.data ?? [],
+      telegram: telegram.data,
+      pushSubscriptions: push.data ?? [],
+      briefings: digests.data ?? [],
+      briefingItems: items.data ?? [],
+      deliveries: deliveries.data ?? [],
+    };
+  });

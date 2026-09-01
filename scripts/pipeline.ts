@@ -197,6 +197,7 @@ const DECISION: Record<ArticleOutcome["decision"], string> = {
   alone: "alone ",
   ignored: "skip  ",
   skipped: "dry   ",
+  deferred: "later ",
   failed: "FAIL  ",
 };
 
@@ -259,6 +260,7 @@ const VERDICT: Record<EventOutcome["decision"], string> = {
   // still pending, not failed — it becomes eligible the moment a reader's
   // interests reach it.
   no_demand: "waits ",
+  deferred: "later ",
   failed: "FAIL  ",
 };
 

@@ -292,7 +292,7 @@ Named with reasons, per §121's requirement that gaps be explicit.
 | Cluster skip enabled | §25–27 | Built, off. No shadow measurement exists yet — enabling would be guessing |
 | Demand-driven collection enabled | §105 | Built, off. Wants a look at the numbers first |
 | Adaptive polling enabled | §19–22 | Built, off. Same |
-| Pricing changed to $19/$29/$39 | §54–61 | **Explicitly out of scope.** Grandfathering machinery is built; no live Stripe price was touched, no ID invented |
+| Live Stripe prices at $14.99/$149.90 and $29.99/$299.90 | §54–61 | The code catalogue and grandfathering machinery are built; no live Stripe price was touched and no ID was invented |
 | Future Intelligence tier | §57 | Schema supports it; not exposed |
 | Performance tests at 1K/10K/100K | §98 | Needs a seeded database |
 | Live RLS/concurrency tests | §96–97 | Asserted against migration text only |

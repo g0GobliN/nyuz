@@ -2,6 +2,8 @@ import { definePlugin } from "nitro";
 
 import { describe, runScheduled } from "@/lib/pipeline/cron";
 import type { ServerEnv } from "@/lib/supabase/admin";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { recordOps } from "@/lib/server/ops";
 
 /**
  * Wires Cloudflare's Cron Trigger to the pipeline.
@@ -46,11 +48,35 @@ export default definePlugin((nitro) => {
           new Date(controller.scheduledTime),
         );
         console.log(describe(result));
+        const db = createAdminClient(env as ServerEnv | undefined);
+        const failed =
+          "report" in result && "failed" in result.report ? Number(result.report.failed) : 0;
+        await Promise.all([
+          recordOps(db, "cron:heartbeat", "healthy", {
+            cron: controller.cron,
+            stage: result.stage,
+            scheduled_at: new Date(controller.scheduledTime).toISOString(),
+          }),
+          recordOps(db, `cron:${controller.cron}`, failed > 0 ? "warning" : "healthy", {
+            stage: result.stage,
+            failed,
+          }),
+        ]);
       } catch (error) {
         // Nothing is listening for a throw from a cron, and an unhandled
         // rejection inside waitUntil is reported without the context that makes
         // it readable. Logged with the schedule that produced it instead.
         console.error(`cron ${controller.cron} failed`, error);
+        try {
+          await recordOps(
+            createAdminClient(env as ServerEnv | undefined),
+            `cron:${controller.cron}`,
+            "error",
+            { error: error instanceof Error ? error.message : String(error) },
+          );
+        } catch (statusError) {
+          console.error("recording cron failure status", statusError);
+        }
       }
     };
 

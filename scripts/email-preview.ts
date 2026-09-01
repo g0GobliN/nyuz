@@ -2,6 +2,7 @@
  * Renders every lifecycle email template with sample data, for eyeballing.
  *
  *   node scripts/tsrun.mjs scripts/email-preview.ts
+ *   npm run email:preview -- --name "Sam Lee"
  *
  * The templates in src/lib/email/templates.ts are pure functions — no
  * transport, no database — so this needs no .env and sends nothing. It writes
@@ -27,27 +28,33 @@ import {
 import type { Email } from "../src/lib/email/shell.ts";
 
 const baseUrl = "https://nyuz.app";
-const name = "Vishal";
+const args = process.argv.slice(2);
+const nameFlag = args.findIndex((arg) => arg === "--name" || arg.startsWith("--name="));
+const nameArg = nameFlag < 0 ? undefined : args[nameFlag];
+const name =
+  nameArg === "--name"
+    ? (args[nameFlag + 1] ?? "Vishal")
+    : (nameArg?.slice("--name=".length) ?? "Vishal");
 
 const samples: Record<string, Email> = {
   "01-welcome": welcomeEmail({ name, baseUrl }),
   "02-subscription-started": subscriptionStartedEmail({
     name,
     baseUrl,
-    plan: "Pro",
-    priceLabel: "$14/month",
+    plan: "Personal",
+    priceLabel: "$14.99/month",
     renewsOn: new Date("2026-09-30T00:00:00Z"),
   }),
   "03-subscription-cancelled": subscriptionCancelledEmail({
     name,
     baseUrl,
-    plan: "Pro",
+    plan: "Personal",
     accessUntil: new Date("2026-09-30T00:00:00Z"),
   }),
   "04-payment-failed": paymentFailedEmail({
     name,
     baseUrl,
-    plan: "Pro",
+    plan: "Personal",
     retryOn: new Date("2026-09-03T00:00:00Z"),
   }),
   "05-briefings-paused": briefingsPausedEmail({ name, baseUrl }),

@@ -16,7 +16,7 @@ continue without re-deriving the design.
 ## Where things stand
 
 **Working today.** Marketing site, accounts and OAuth, admin console, blog, editable
-site content, Stripe checkout and webhook (test mode), lifecycle email via Resend,
+site content, Stripe checkout and webhook (live configuration pending), lifecycle email via Resend,
 reader preferences persisted to Postgres, the full pipeline (ingest → cluster →
 analyse → match → digest), day-one backfill, email delivery, and a dashboard that
 reads `user_events` and `digest_items`. CI refs are dropped at ingest, parked as

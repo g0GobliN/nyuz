@@ -37,19 +37,19 @@ export const Route = createFileRoute("/")({
     // `loaderData` is undefined while the loader is in flight, so every field
     // needs a literal fallback rather than an optional chain into a template.
     if (!seo) return { meta: [] };
+    const image = seo.ogImage
+      ? new URL(seo.ogImage, "https://nyuz.app").toString()
+      : "https://nyuz.app/og-image.png";
     return {
       meta: [
         { title: seo.title },
         { name: "description", content: seo.description },
         { property: "og:title", content: seo.title },
         { property: "og:description", content: seo.description },
-        ...(seo.ogImage
-          ? [
-              { property: "og:image", content: seo.ogImage },
-              { name: "twitter:image", content: seo.ogImage },
-            ]
-          : []),
+        { property: "og:image", content: image },
+        { name: "twitter:image", content: image },
       ],
+      links: [{ rel: "canonical", href: "https://nyuz.app/" }],
     };
   },
   component: Index,

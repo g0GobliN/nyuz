@@ -39,7 +39,17 @@ export const Route = createFileRoute("/auth")({
   }),
 });
 
-type Mode = "signin" | "signup";
+type Mode = "signin" | "signup" | "forgot" | "recovery";
+
+export function passwordRecoveryError(raw: string): string {
+  if (/rate limit|too many requests/i.test(raw)) {
+    return "Too many reset attempts. Wait a few minutes and try again.";
+  }
+  if (/expired|invalid|otp|session/i.test(raw)) {
+    return "This recovery link is invalid or has expired. Request a new one.";
+  }
+  return raw || "Password recovery failed. Try again.";
+}
 
 /**
  * Turns whatever came back from GoTrue into something a person can act on.
@@ -72,19 +82,47 @@ function Auth() {
   const navigate = useNavigate();
   const { content, signup } = Route.useLoaderData();
   const signupsOpen = signup.open;
-  const { signIn, signUp, signInWithProvider, session, loading } = useAuth();
+  const {
+    signIn,
+    signUp,
+    signInWithProvider,
+    requestPasswordReset,
+    updatePassword,
+    clearRecovery,
+    recovery,
+    session,
+    loading,
+  } = useAuth();
 
   const [mode, setMode] = useState<Mode>("signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetComplete, setResetComplete] = useState(false);
+  const recoveryRequested =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("recovery") === "1";
+
+  useEffect(() => {
+    if (recovery || recoveryRequested) setMode("recovery");
+  }, [recovery, recoveryRequested]);
+
+  useEffect(() => {
+    if (recoveryRequested && !loading && !recovery && !session) {
+      setError("This recovery link is invalid or has expired. Request a new one.");
+    }
+  }, [recoveryRequested, loading, recovery, session]);
 
   // Already signed in (or just became so) — nothing to do on this page.
   useEffect(() => {
-    if (!loading && session) navigate({ to: "/dashboard" });
-  }, [loading, session, navigate]);
+    if (!loading && session && !recovery && !recoveryRequested && mode !== "recovery") {
+      navigate({ to: "/dashboard" });
+    }
+  }, [loading, session, recovery, recoveryRequested, mode, navigate]);
 
   // Maintenance closes sign-in too. Letting somebody in to a dashboard whose
   // every request is failing is worse than telling them the door is shut.
@@ -109,17 +147,35 @@ function Auth() {
     e.preventDefault();
     setError(null);
 
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+    if (mode !== "recovery" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
       setError("Enter an email address we can reach you at.");
       return;
     }
-    if (password.length < 6) {
+    if (mode !== "forgot" && password.length < 6) {
       setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (mode === "recovery" && password !== confirmation) {
+      setError("The passwords do not match.");
       return;
     }
 
     setBusy(true);
     try {
+      if (mode === "forgot") {
+        await requestPasswordReset(email.trim());
+        setResetSent(true);
+        setBusy(false);
+        return;
+      }
+      if (mode === "recovery") {
+        if (!session) throw new Error("Recovery session is invalid or expired.");
+        await updatePassword(password);
+        setResetComplete(true);
+        setBusy(false);
+        window.setTimeout(() => navigate({ to: "/dashboard", replace: true }), 1200);
+        return;
+      }
       if (mode === "signup") {
         if (!signupsOpen) {
           setError(
@@ -137,7 +193,11 @@ function Auth() {
       // The auth listener flips `session`, and the effect above redirects.
     } catch (err) {
       const raw = err instanceof Error ? err.message : "";
-      setError(signupError(raw, "Something went wrong. Try again."));
+      setError(
+        mode === "forgot" || mode === "recovery"
+          ? passwordRecoveryError(raw)
+          : signupError(raw, "Something went wrong. Try again."),
+      );
       setBusy(false);
     }
   };
@@ -152,104 +212,183 @@ function Auth() {
       <main className="veil flex flex-1 items-center justify-center px-5 py-12 sm:px-8">
         <div className="w-full max-w-sm animate-rise">
           <h1 className="display text-4xl">
-            {mode === "signin" ? "Welcome back." : "Build your nyuz."}
+            {mode === "signin"
+              ? "Welcome back."
+              : mode === "signup"
+                ? "Build your nyuz."
+                : mode === "forgot"
+                  ? "Reset your password."
+                  : "Choose a new password."}
           </h1>
           <p className="mt-4 text-[14.5px] leading-relaxed text-muted-foreground">
             {mode === "signin"
               ? "This morning's briefing is where you left it."
-              : "Free to start. No card. Tell us what actually matters."}
+              : mode === "signup"
+                ? "Free to start. No card. Tell us what actually matters."
+                : mode === "forgot"
+                  ? "We will send a time-limited recovery link to your account email."
+                  : "The recovery link has opened a protected session for this change."}
           </p>
 
-          <div className="mt-8 flex flex-col gap-2.5">
-            <Button
-              variant="outline"
-              className="w-full"
-              disabled={busy}
-              onClick={() => oauth("google")}
-            >
-              <GoogleMark /> Continue with Google
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full"
-              disabled={busy}
-              onClick={() => oauth("github")}
-            >
-              <Github className="h-4 w-4" /> Continue with GitHub
-            </Button>
-          </div>
+          {mode === "signin" || mode === "signup" ? (
+            <>
+              <div className="mt-8 flex flex-col gap-2.5">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={busy}
+                  onClick={() => oauth("google")}
+                >
+                  <GoogleMark /> Continue with Google
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={busy}
+                  onClick={() => oauth("github")}
+                >
+                  <Github className="h-4 w-4" /> Continue with GitHub
+                </Button>
+              </div>
 
-          <div className="my-7 flex items-center gap-4">
-            <span className="h-px flex-1 bg-[var(--hairline)]" />
-            <span className="text-[11.5px] uppercase tracking-[0.16em] text-muted-foreground">
-              or
-            </span>
-            <span className="h-px flex-1 bg-[var(--hairline)]" />
-          </div>
+              <div className="my-7 flex items-center gap-4">
+                <span className="h-px flex-1 bg-[var(--hairline)]" />
+                <span className="text-[11.5px] uppercase tracking-[0.16em] text-muted-foreground">
+                  or
+                </span>
+                <span className="h-px flex-1 bg-[var(--hairline)]" />
+              </div>
+            </>
+          ) : null}
 
-          <form onSubmit={submit} noValidate>
-            {mode === "signup" ? (
-              <Field
-                id="name"
-                label="What should we call you?"
-                icon={<UserIcon className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                type="text"
-                autoComplete="name"
-                value={name}
-                onChange={setName}
-                placeholder="Your name"
-              />
-            ) : null}
+          {resetSent ? (
+            <div className="mt-8 rounded-2xl border border-hairline bg-surface p-5 text-[13.5px] leading-relaxed">
+              If an account exists for that address, its recovery email is on the way.
+            </div>
+          ) : resetComplete ? (
+            <div className="mt-8 rounded-2xl border border-hairline bg-surface p-5 text-[13.5px] leading-relaxed">
+              Password updated. Taking you back to your briefing…
+            </div>
+          ) : (
+            <form onSubmit={submit} noValidate>
+              {mode === "signup" ? (
+                <Field
+                  id="name"
+                  label="What should we call you?"
+                  icon={<UserIcon className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                  type="text"
+                  autoComplete="name"
+                  value={name}
+                  onChange={setName}
+                  placeholder="Your name"
+                />
+              ) : null}
 
-            <Field
-              id="email"
-              label="Email address"
-              icon={<Mail className="h-4 w-4 shrink-0 text-muted-foreground" />}
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(v) => {
-                setEmail(v);
-                if (error) setError(null);
+              {mode !== "recovery" ? (
+                <Field
+                  id="email"
+                  label="Email address"
+                  icon={<Mail className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(v) => {
+                    setEmail(v);
+                    if (error) setError(null);
+                  }}
+                  placeholder="you@work.com"
+                  className={mode === "signup" ? "mt-4" : ""}
+                />
+              ) : null}
+
+              {mode !== "forgot" ? (
+                <Field
+                  id="password"
+                  label={mode === "recovery" ? "New password" : "Password"}
+                  icon={<Lock className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                  type="password"
+                  autoComplete={
+                    mode === "signup" || mode === "recovery" ? "new-password" : "current-password"
+                  }
+                  value={password}
+                  onChange={(v) => {
+                    setPassword(v);
+                    if (error) setError(null);
+                  }}
+                  placeholder={
+                    mode === "signup" || mode === "recovery" ? "At least 6 characters" : "••••••••"
+                  }
+                  className={mode === "recovery" ? "" : "mt-4"}
+                />
+              ) : null}
+
+              {mode === "recovery" ? (
+                <Field
+                  id="password-confirmation"
+                  label="Confirm new password"
+                  icon={<Lock className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                  type="password"
+                  autoComplete="new-password"
+                  value={confirmation}
+                  onChange={(v) => {
+                    setConfirmation(v);
+                    if (error) setError(null);
+                  }}
+                  placeholder="Repeat the new password"
+                  className="mt-4"
+                />
+              ) : null}
+
+              {error ? <p className="mt-3 text-[12.5px] text-destructive">{error}</p> : null}
+
+              <Button type="submit" className="mt-6 w-full" disabled={busy}>
+                {busy ? (
+                  <>
+                    <LogoLoader
+                      className="h-4 w-4"
+                      tone="current"
+                      label={
+                        mode === "signup"
+                          ? "Creating account"
+                          : mode === "forgot"
+                            ? "Sending reset"
+                            : mode === "recovery"
+                              ? "Updating password"
+                              : "Signing in"
+                      }
+                    />
+                    {mode === "signup"
+                      ? "Creating account"
+                      : mode === "forgot"
+                        ? "Sending reset"
+                        : mode === "recovery"
+                          ? "Updating password"
+                          : "Signing in"}
+                  </>
+                ) : mode === "signup" ? (
+                  "Create account"
+                ) : mode === "forgot" ? (
+                  "Send recovery email"
+                ) : mode === "recovery" ? (
+                  "Set new password"
+                ) : (
+                  "Sign in"
+                )}
+              </Button>
+            </form>
+          )}
+
+          {mode === "signin" ? (
+            <button
+              onClick={() => {
+                setMode("forgot");
+                setError(null);
               }}
-              placeholder="you@work.com"
-              className={mode === "signup" ? "mt-4" : ""}
-            />
-
-            <Field
-              id="password"
-              label="Password"
-              icon={<Lock className="h-4 w-4 shrink-0 text-muted-foreground" />}
-              type="password"
-              autoComplete={mode === "signup" ? "new-password" : "current-password"}
-              value={password}
-              onChange={(v) => {
-                setPassword(v);
-                if (error) setError(null);
-              }}
-              placeholder={mode === "signup" ? "At least 6 characters" : "••••••••"}
-              className="mt-4"
-            />
-
-            {error ? <p className="mt-3 text-[12.5px] text-destructive">{error}</p> : null}
-
-            <Button type="submit" className="mt-6 w-full" disabled={busy}>
-              {busy ? (
-                <>
-                  <LogoLoader
-                    className="h-4 w-4"
-                    tone="current"
-                    label={mode === "signup" ? "Creating account" : "Signing in"}
-                  />
-                  {mode === "signup" ? "Creating account" : "Signing in"}
-                </>
-              ) : mode === "signup" ? (
-                "Create account"
-              ) : (
-                "Sign in"
-              )}
-            </Button>
-          </form>
+              className="mt-4 w-full text-center text-[12.5px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Forgot password?
+            </button>
+          ) : null}
 
           {/* Full is not the same as closed. "Full" has somewhere to send
               somebody — a place in a queue; "closed" is the operator switching
@@ -283,7 +422,7 @@ function Auth() {
                   </button>
                 </>
               ) : null
-            ) : (
+            ) : mode === "signup" ? (
               <>
                 Already have an account?{" "}
                 <button
@@ -296,6 +435,20 @@ function Auth() {
                   Sign in
                 </button>
               </>
+            ) : (
+              <button
+                onClick={() => {
+                  clearRecovery();
+                  window.history.replaceState({}, "", "/auth");
+                  setMode("signin");
+                  setResetSent(false);
+                  setResetComplete(false);
+                  setError(null);
+                }}
+                className="text-foreground underline-offset-4 hover:underline"
+              >
+                Back to sign in
+              </button>
             )}
           </p>
 
