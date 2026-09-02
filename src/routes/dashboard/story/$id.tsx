@@ -19,6 +19,7 @@ import {
   legacyEventIntelligence,
   understandMinutes,
   type EventIntelligence,
+  novelSentences,
   type SupportedStatement,
   type TimelinePoint,
 } from "@/lib/understand";
@@ -35,9 +36,6 @@ const PROMPTS = [
   "How does this affect developers?",
   "What should I do about it this week?",
 ];
-
-/** How many sources the rail lists before deferring to the full list below. */
-const RAIL_SOURCES = 5;
 
 function StoryDetail() {
   const { id } = Route.useParams();
@@ -148,8 +146,6 @@ function StoryDetail() {
                 </Link>
               </section>
             ) : null}
-
-            <Sources story={story} />
           </div>
 
           <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
@@ -186,7 +182,7 @@ function StoryDetail() {
                 Based on {story.sources} {story.sources === 1 ? "source" : "sources"}
               </p>
               <ul className="mt-4 space-y-2.5">
-                {story.sourceList.slice(0, RAIL_SOURCES).map((s) => (
+                {story.sourceList.map((s) => (
                   <li
                     key={s.url ?? s.name}
                     className="flex items-center justify-between gap-3 text-[13px]"
@@ -213,14 +209,6 @@ function StoryDetail() {
                   </li>
                 ))}
               </ul>
-              {story.sourceList.length > RAIL_SOURCES ? (
-                <a
-                  href="#sources"
-                  className="mt-3 inline-block text-[12px] text-signal underline-offset-4 hover:underline"
-                >
-                  All {story.sourceList.length} sources
-                </a>
-              ) : null}
               <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">
                 nyuz is not the source. This explanation is generated — open the reporting before
                 acting on it.
@@ -341,8 +329,17 @@ function showBeforeAfter(story: Story, summary: string): boolean {
   );
 }
 
-function analysisWhy(story: Story, summary: string): string {
-  return story.why && isNewInformation(summary, story.why) ? story.why : "";
+/**
+ * The personalised "why it matters", reduced to whatever it adds over the
+ * evidence already on the page. Empty when it adds nothing.
+ */
+function analysisWhy(story: Story, intelligence: EventIntelligence): string {
+  if (!story.why) return "";
+  return novelSentences(story.why, [
+    intelligence.summary,
+    ...intelligence.facts.map((fact) => fact.text),
+    ...intelligence.context.map((item) => item.text),
+  ]);
 }
 
 function understandTime(story: Story, intelligence: EventIntelligence) {
@@ -350,7 +347,7 @@ function understandTime(story: Story, intelligence: EventIntelligence) {
   return understandMinutes([
     ...intelligenceText(intelligence),
     ...changed,
-    analysisWhy(story, intelligence.summary),
+    analysisWhy(story, intelligence),
   ]);
 }
 
@@ -394,14 +391,9 @@ function UnderstandBody({
   const context = uniqueAfterSummary(intelligence.summary, intelligence.context);
   const whatNext = uniqueAfterSummary(intelligence.summary, intelligence.whatNext);
   const changed = showBeforeAfter(story, intelligence.summary);
-  const why = analysisWhy(story, intelligence.summary);
+  const why = analysisWhy(story, intelligence);
   const timeline = timelinePoints(story, intelligence);
-  const glance = [
-    ...intelligence.keyNumbers,
-    ...(intelligence.coverage === "thin"
-      ? [{ value: String(story.sources), label: "Available sources", evidence: [] }]
-      : []),
-  ];
+  const glance = intelligence.keyNumbers;
 
   return (
     <div className="max-w-[40rem] space-y-8">
@@ -472,15 +464,6 @@ function UnderstandBody({
         </section>
       ) : null}
 
-      {why ? (
-        <section className="border-l-2 border-signal pl-5">
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-signal">
-            Why it matters · nyuz analysis
-          </p>
-          <p className="mt-2 text-[15px] leading-relaxed">{why}</p>
-        </section>
-      ) : null}
-
       {intelligence.affectedGroups.length > 0 ? (
         <section>
           <BlockHeading>Who could be affected</BlockHeading>
@@ -505,30 +488,6 @@ function UnderstandBody({
               </div>
             ))}
           </dl>
-        </section>
-      ) : null}
-
-      {timeline.length >= 2 ? (
-        <section>
-          <BlockHeading>How this event formed</BlockHeading>
-          <ol className="relative mt-4 space-y-4 pl-6">
-            <span className="absolute bottom-2 left-[4px] top-2 w-px bg-border" />
-            {timeline.map((item, index) => (
-              <li key={`${item.when}-${item.what}`} className="relative">
-                <span
-                  className="absolute -left-6 top-[7px] h-[7px] w-[7px] rounded-full"
-                  style={{
-                    background: index === timeline.length - 1 ? "var(--signal)" : "var(--border)",
-                  }}
-                />
-                <p className="text-[12px] tabular-nums text-muted-foreground">{item.when}</p>
-                <p className="mt-0.5 text-[14.5px]">
-                  {item.what}
-                  <EvidenceRefs refs={item.evidence} story={story} />
-                </p>
-              </li>
-            ))}
-          </ol>
         </section>
       ) : null}
 
@@ -578,72 +537,41 @@ function UnderstandBody({
         </section>
       ) : null}
 
-      {intelligence.coverage === "thin" ? (
-        <p className="border-t border-hairline pt-4 text-[12.5px] leading-relaxed text-muted-foreground">
-          <span className="text-foreground">Coverage is limited.</span> nyuz has{" "}
-          {story.sources === 1 ? "one source" : "limited source material"} for this event, so it
-          stops here rather than filling the gaps with speculation.
-        </p>
+      {why ? (
+        <div className="rounded-3xl border border-signal/30 bg-surface p-6">
+          <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal">
+            Why it matters to you
+          </h2>
+          <p className="mt-3 text-[15px] leading-relaxed">{why}</p>
+        </div>
+      ) : null}
+
+      {timeline.length > 0 ? (
+        <section>
+          <BlockHeading>How this event formed</BlockHeading>
+          <ol className="relative mt-4 space-y-4 pl-6">
+            <span className="absolute bottom-2 left-[4px] top-2 w-px bg-border" />
+            {timeline.map((item, index) => (
+              <li key={`${item.when}-${item.what}`} className="relative">
+                <span
+                  className="absolute -left-6 top-[7px] h-[7px] w-[7px] rounded-full"
+                  style={{
+                    background: index === timeline.length - 1 ? "var(--signal)" : "var(--border)",
+                  }}
+                />
+                <p className="text-[12px] tabular-nums text-muted-foreground">{item.when}</p>
+                <p className="mt-0.5 text-[14.5px]">
+                  {item.what}
+                  <EvidenceRefs refs={item.evidence} story={story} />
+                </p>
+              </li>
+            ))}
+          </ol>
+        </section>
       ) : null}
 
       <EndOfStory onReach={onReachEnd} />
     </div>
-  );
-}
-
-function Sources({ story }: { story: Story }) {
-  const visible = story.sourceList.slice(0, 8);
-  const remaining = story.sourceList.slice(8);
-  const rows = (sources: Story["sourceList"]) =>
-    sources.map((source) => {
-      const absoluteIndex = story.sourceList.indexOf(source) + 1;
-      return (
-        <li key={source.url ?? `${source.name}-${absoluteIndex}`} className="py-3">
-          {source.url ? (
-            <a
-              href={source.url}
-              target="_blank"
-              rel="noreferrer"
-              className="group flex items-start justify-between gap-4"
-            >
-              <span className="min-w-0">
-                <span className="text-[12px] text-muted-foreground">
-                  [{absoluteIndex}] {source.name}
-                </span>
-                {source.headline ? (
-                  <span className="mt-0.5 block text-[13.5px] leading-snug group-hover:underline">
-                    {source.headline}
-                  </span>
-                ) : null}
-              </span>
-              <ExternalLink className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            </a>
-          ) : (
-            <span className="text-[13.5px]">
-              [{absoluteIndex}] {source.name}
-            </span>
-          )}
-        </li>
-      );
-    });
-
-  return (
-    <section id="sources" className="max-w-[40rem] scroll-mt-24 border-t border-hairline pt-7">
-      <BlockHeading>Original sources</BlockHeading>
-      <p className="mt-3 text-[12.5px] leading-relaxed text-muted-foreground">
-        nyuz is not the source. Generated explanations can be wrong; open the original material
-        before acting on it.
-      </p>
-      <ul className="mt-3 divide-y divide-[var(--hairline)]">{rows(visible)}</ul>
-      {remaining.length > 0 ? (
-        <details className="mt-3">
-          <summary className="cursor-pointer text-[12.5px] text-muted-foreground">
-            Show {remaining.length} more {remaining.length === 1 ? "source" : "sources"}
-          </summary>
-          <ul className="mt-3 divide-y divide-[var(--hairline)]">{rows(remaining)}</ul>
-        </details>
-      ) : null}
-    </section>
   );
 }
 

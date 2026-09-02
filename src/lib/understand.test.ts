@@ -7,6 +7,7 @@ import {
   intelligenceText,
   legacyEventIntelligence,
   type EventIntelligence,
+  novelSentences,
 } from "./understand";
 
 describe("readEventIntelligence", () => {
@@ -393,5 +394,39 @@ describe("legacyEventIntelligence", () => {
     expect(intel.whatNext).toEqual([]);
     expect(intel.unknowns).toEqual([]);
     expect(intel.conflicts).toEqual([]);
+  });
+});
+
+describe("novelSentences", () => {
+  it("drops a why paragraph that only restates the summary", () => {
+    const summary = "Nvidia agreed to acquire Hugging Face. The acquisition price was $13 billion.";
+    const why = "Nvidia has an agreement to acquire Hugging Face for $13 billion.";
+    expect(novelSentences(why, [summary])).toBe("");
+  });
+
+  it("keeps the clause the summary does not cover", () => {
+    const summary = "Nvidia agreed to acquire Hugging Face for $13 billion.";
+    const why =
+      "Nvidia agreed to acquire Hugging Face for $13 billion. The deal needs clearance from European regulators before it closes.";
+    expect(novelSentences(why, [summary])).toBe(
+      "The deal needs clearance from European regulators before it closes.",
+    );
+  });
+
+  it("also filters against facts already listed on the page", () => {
+    const why = "Regulators must approve the transaction.";
+    expect(
+      novelSentences(why, ["Something else.", "Regulators must approve the transaction."]),
+    ).toBe("");
+  });
+
+  it("does not repeat itself across its own sentences", () => {
+    const why =
+      "Nvidia agreed to acquire Hugging Face for $13 billion. Nvidia has an agreement to acquire Hugging Face for $13 billion.";
+    expect(novelSentences(why, [])).toBe("Nvidia agreed to acquire Hugging Face for $13 billion.");
+  });
+
+  it("leaves a short sentence alone rather than guessing it is a repeat", () => {
+    expect(novelSentences("Prices rose.", ["Prices rose."])).toBe("Prices rose.");
   });
 });

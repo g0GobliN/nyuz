@@ -320,6 +320,24 @@ export function briefingText(text: string, maxWords = 90): string {
   return selected.join(" ");
 }
 
+/**
+ * The part of `text` that says something the supplied statements do not.
+ *
+ * A personalised "why it matters" is frequently the summary re-stated with one
+ * new clause attached. Dropping the whole paragraph loses the clause; keeping it
+ * whole prints the same three sentences twice. So the filter runs per sentence.
+ */
+export function novelSentences(text: string, against: string[]): string {
+  const seen = [...against];
+  const kept: string[] = [];
+  for (const sentence of sentences(text)) {
+    if (seen.some((existing) => repeats(existing, sentence))) continue;
+    seen.push(sentence);
+    kept.push(sentence);
+  }
+  return kept.join(" ");
+}
+
 export function understandMinutes(texts: string[]): "<1 min" | "1 min" | "2 min" {
   const words = texts.reduce((total, text) => total + wordCount(text), 0);
   if (words < 120) return "<1 min";
