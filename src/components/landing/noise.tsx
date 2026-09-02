@@ -38,9 +38,9 @@ export function NoiseSection() {
           </p>
           <p className="text-foreground">
             <strong className="font-medium">nyuz watches instead of you.</strong> You say what
-            matters. It reads everything, works out what actually happened, throws away the noise
-            and the duplicates, and sends you the handful of things worth knowing — at the time you
-            choose, in the format you choose.
+            matters. It keeps watch across relevant sources, works out what actually changed, throws
+            away the noise and the duplicates, and sends you the handful of things worth knowing —
+            at the time you choose, in the format you choose.
           </p>
           <p>
             Most mornings that&apos;s six stories. Some mornings it&apos;s one. Occasionally

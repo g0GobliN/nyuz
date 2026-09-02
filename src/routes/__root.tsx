@@ -116,7 +116,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "description",
         content:
-          "You don't read the news. It reports to you. nyuz watches hundreds of sources, merges the duplicates, and sends you the handful of things worth knowing.",
+          "Tell nyuz what matters. It keeps watch across relevant sources, connects duplicate coverage into events, and delivers a personalized news briefing without the noise.",
       },
       { name: "author", content: "nyuz" },
       { name: "theme-color", content: THEME_COLORS.dark },
@@ -124,7 +124,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         property: "og:description",
         content:
-          "You don't read the news. It reports to you. nyuz watches hundreds of sources, merges the duplicates, and sends you the handful of things worth knowing.",
+          "Tell nyuz what matters. It keeps watch across relevant sources, connects duplicate coverage into events, and delivers a personalized news briefing without the noise.",
       },
       { property: "og:type", content: "website" },
       { property: "og:image", content: "https://nyuz.app/og-image.png" },

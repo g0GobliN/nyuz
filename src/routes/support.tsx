@@ -99,7 +99,7 @@ function Support() {
                 <div>
                   <p className="text-[15px] font-medium">How it works</p>
                   <p className="mt-1 text-[13.5px] text-muted-foreground">
-                    Learn how nyuz filters and delivers news
+                    Learn how nyuz keeps watch and filters what matters
                   </p>
                 </div>
               </Link>

@@ -20,8 +20,8 @@ export function SourceTransparency() {
           the source.
         </h2>
         <p className="mt-5 max-w-sm text-[15px] leading-relaxed text-muted-foreground">
-          Every line in your briefing carries the reporting it came from. Open a story and the
-          original articles are one tap away, with publication times.
+          Every item in your briefing keeps the sources it came from. Open a story and the original
+          articles or posts are one tap away, with publication times.
         </p>
       </div>
 

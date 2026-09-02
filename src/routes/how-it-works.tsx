@@ -45,8 +45,8 @@ function HowItWorks() {
               Understand the event, not thirty copies of the same article.
             </h1>
             <p className="mt-7 max-w-lg text-[16.5px] leading-relaxed text-muted-foreground animate-rise [animation-delay:120ms]">
-              nyuz reads the internet on a schedule, groups the reporting that describes the same
-              thing, and decides what deserves a place in your morning.
+              nyuz keeps watch across supported sources on a schedule, groups coverage of the same
+              event, and decides what deserves a place in your morning.
             </p>
           </div>
         </section>

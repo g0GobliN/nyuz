@@ -189,8 +189,8 @@ function Pricing() {
               not volume.
             </h1>
             <p className="mt-6 text-[16px] leading-relaxed text-muted-foreground">
-              Every plan watches the same internet. What changes is how precisely it is shaped
-              around you.
+              Every plan starts with the same core sources. What changes is how precisely it is
+              shaped around you.
             </p>
 
             <div className="mt-9 flex flex-col items-center gap-4">
