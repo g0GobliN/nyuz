@@ -17,6 +17,7 @@ import {
 } from "@/lib/plans";
 import { judgeStoryQuestion } from "@/lib/ask-scope";
 import { asPercent, clockOf, importanceBand, type Story } from "@/lib/story";
+import { intelligenceText, readEventIntelligence } from "@/lib/understand";
 import { aiRateLimit } from "./rate-limit";
 import type {
   Database,
@@ -484,9 +485,9 @@ export type AskResult =
 
 const ASK_REFUSAL = "NOT_THIS_STORY";
 
-const ASK_SYSTEM = `You answer one question about one news event, using only the coverage you are given.
+const ASK_SYSTEM = `You answer one question about one event, using only the event intelligence and source material you are given.
 
-Be concrete. Do not restate the headline. Do not invent a consequence, a date, a company, or a number that is not in the coverage. If the coverage does not support an answer, say so in one sentence and stop.
+Be concrete. Do not restate the headline. Do not invent a consequence, a date, a company, or a number that is not in the supplied material. If the material does not support an answer, say that the sources available to nyuz do not answer it, then stop.
 
 Write to one person. No "developers should", no "the industry".
 
@@ -589,9 +590,14 @@ export const askStory = createServerFn({ method: "POST" })
       `What happened: ${story.what}`,
       story.before ? `Before: ${story.before}` : "",
       story.after ? `After: ${story.after}` : "",
-      story.sourceList.length > 0
-        ? `Sources: ${story.sourceList.map((s) => s.name).join(", ")}`
+      story.understand
+        ? `Shared event intelligence:\n${intelligenceText(story.understand).join("\n")}`
         : "",
+      ...story.sourceList.slice(0, 6).map((source, index) => {
+        const excerpt = (source.excerpt ?? "").replace(/\s+/g, " ").trim().slice(0, 700);
+        const label = `[${index + 1}] ${source.name}${source.headline ? ` — ${source.headline}` : ""}`;
+        return excerpt ? `${label}\n${excerpt}` : label;
+      }),
       "",
       `Question: ${data.question}`,
     ]
@@ -953,7 +959,9 @@ type EventBits = {
   before_state: string | null;
   after_state: string | null;
   first_seen_at: string;
+  last_updated_at: string;
   analysed_at: string | null;
+  understand: unknown;
 };
 
 async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
@@ -962,7 +970,7 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
   const { data: events, error } = await db
     .from("events")
     .select(
-      "id, title, what_happened, importance, novelty, before_state, after_state, first_seen_at, analysed_at",
+      "id, title, what_happened, importance, novelty, before_state, after_state, first_seen_at, last_updated_at, analysed_at, understand",
     )
     .in("id", eventIds);
   if (error) throw new Error(`reading events: ${error.message}`);
@@ -977,6 +985,7 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
     const event = byId.get(id);
     if (!event) return [];
     const coverage = articles.get(id) ?? [];
+    const understand = readEventIntelligence(event.understand, coverage.length);
     const publishedAt = coverage[0]?.publishedAt ?? event.analysed_at ?? event.first_seen_at;
     return [
       {
@@ -995,10 +1004,12 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
         topics: topics.get(id) ?? [],
         time: clockOf(publishedAt),
         publishedAt,
+        updatedAt: event.last_updated_at,
         sourceList: coverage.map((c) => ({
           name: c.name,
           at: clockOf(c.publishedAt),
           url: c.url,
+          headline: c.headline,
           ...(c.excerpt ? { excerpt: c.excerpt } : {}),
         })),
         before: event.before_state ?? "",
@@ -1007,17 +1018,24 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
           at: clockOf(c.publishedAt),
           label: `${c.name} published`,
         })),
+        ...(understand ? { understand } : {}),
       },
     ];
   });
 }
 
-type Coverage = { name: string; url: string; publishedAt: string; excerpt: string };
+type Coverage = {
+  name: string;
+  url: string;
+  headline: string;
+  publishedAt: string;
+  excerpt: string;
+};
 
 async function articlesFor(db: Db, eventIds: string[]): Promise<Map<string, Coverage[]>> {
   const { data, error } = await db
     .from("articles")
-    .select("event_id, url, published_at, excerpt, sources ( name )")
+    .select("event_id, url, title, published_at, excerpt, sources ( name )")
     .in("event_id", eventIds)
     .order("published_at", { ascending: true, nullsFirst: false });
   if (error) throw new Error(`reading articles: ${error.message}`);
@@ -1030,7 +1048,7 @@ async function articlesFor(db: Db, eventIds: string[]): Promise<Map<string, Cove
     const excerpt = (row.excerpt ?? "").trim();
     const list = out.get(row.event_id) ?? [];
     if (!list.some((c) => c.url === row.url)) {
-      list.push({ name, url: row.url, publishedAt, excerpt });
+      list.push({ name, url: row.url, headline: row.title, publishedAt, excerpt });
     }
     out.set(row.event_id, list);
   }

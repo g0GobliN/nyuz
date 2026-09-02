@@ -19,10 +19,14 @@ export type Story = {
   time: string;
   /** The same moment as `time`, dated. Rendered through `formatStoryTime`. */
   publishedAt: string;
-  sourceList: { name: string; at: string; url?: string; excerpt?: string }[];
+  /** Most recent evidence attachment or analysis update, when available. */
+  updatedAt?: string;
+  sourceList: { name: string; at: string; url?: string; headline?: string; excerpt?: string }[];
   before: string;
   after: string;
   timeline: { at: string; label: string }[];
+  /** Shared, structured event knowledge. Absent for events analysed before 0046. */
+  understand?: EventIntelligence;
   matched?: string[];
 };
 
@@ -43,3 +47,4 @@ export function clockOf(iso: string): string {
   if (Number.isNaN(date.getTime())) return "";
   return `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
 }
+import type { EventIntelligence } from "@/lib/understand";

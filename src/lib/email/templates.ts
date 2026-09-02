@@ -373,7 +373,7 @@ export type BriefingItem = {
   title: string;
   why: string;
   href: string;
-  /** Half the Read column. Empty falls back to `why` so older callers still send a body. */
+  /** Half the Understand column. Empty falls back to `why` so older callers still send a body. */
   grafs?: string[] | undefined;
 };
 
@@ -391,7 +391,7 @@ function storyText(item: BriefingItem): string {
     ...grafs,
     ...(why ? ["", `Why it matters: ${why}`] : []),
     "",
-    `Read the full story: ${item.href}`,
+    `Understand this event: ${item.href}`,
   ].join("\n");
 }
 
@@ -498,7 +498,7 @@ export function breakingEmail({
       disclaimer: true,
       body: [
         storyBrief({ index: 0, title, grafs: bodyGrafs, why: aside, href, last: true }),
-        pMuted("The full story, sources, and questions are on nyuz."),
+        pMuted("The full explanation, sources, and questions are on nyuz."),
         button("Open the rest on nyuz", href),
       ].join("\n"),
     }),

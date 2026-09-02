@@ -5,6 +5,7 @@ import type { Story } from "@/lib/story";
 import type { FeedbackState, Vote } from "@/lib/feedback-store";
 import { formatStoryTime } from "@/lib/story-time";
 import { cn } from "@/lib/utils";
+import { briefingText } from "@/lib/understand";
 
 const TONE: Record<Story["importance"], string> = {
   High: "text-signal border-signal/40",
@@ -62,7 +63,9 @@ export function StoryCard({
         </h2>
       </Link>
 
-      <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">{story.what}</p>
+      <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">
+        {briefingText(story.what)}
+      </p>
 
       {because || story.why ? (
         <div className="mt-4 rounded-2xl bg-surface-2 p-4">
@@ -96,7 +99,7 @@ export function StoryCard({
           params={{ id: story.id }}
           className="rounded-full border border-border px-3.5 py-1.5 text-[12.5px] transition-colors hover:bg-muted"
         >
-          Read
+          Understand <span aria-hidden>→</span>
         </Link>
         <Link
           to="/dashboard/story/$id"
@@ -104,7 +107,7 @@ export function StoryCard({
           hash="ask"
           className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-[12.5px] transition-colors hover:bg-muted"
         >
-          <Sparkles className="h-3.5 w-3.5" /> Explain more
+          <Sparkles className="h-3.5 w-3.5" /> Ask nyuz
         </Link>
 
         <button

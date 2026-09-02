@@ -49,7 +49,7 @@ export function formatTelegramBriefing(input: {
     return (
       `<b>${n}. ${escapeHtml(item.title)}</b>` +
       (why ? `\n${escapeHtml(why)}` : "") +
-      `\n<a href="${escapeHtml(item.href)}">Read</a>`
+      `\n<a href="${escapeHtml(item.href)}">Understand</a>`
     );
   });
 
@@ -65,7 +65,7 @@ export function formatTelegramAlert(input: { title: string; why: string; href: s
   return clip(
     `<b>Breaking · ${escapeHtml(input.title)}</b>` +
       (why ? `\n${escapeHtml(why)}` : "") +
-      `\n\n<a href="${escapeHtml(input.href)}">Read the story</a>`,
+      `\n\n<a href="${escapeHtml(input.href)}">Understand the event</a>`,
   );
 }
 

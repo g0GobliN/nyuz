@@ -43,7 +43,8 @@ import {
   type SecretBag,
 } from "@/lib/ai/config";
 import { TruncatedCompletionError } from "@/lib/ai/deepseek";
-import type { Database, EventStatus } from "@/lib/supabase/types";
+import type { Database, EventStatus, Json } from "@/lib/supabase/types";
+import { readEventIntelligence, type EventIntelligence } from "@/lib/understand";
 import { isVcsRef } from "./shortlist";
 
 type Db = SupabaseClient<Database>;
@@ -127,26 +128,61 @@ function contract(slugs: string[]): string {
 
 {
   "title": "one neutral line naming what happened, under 100 characters",
-  "what_happened": "3 to 5 short paragraphs separated by blank lines. Plain past tense. A news brief, not an essay.",
+  "what_happened": "one 50-90 word briefing paragraph containing only unique supported facts",
   "before_state": "what was true before this, or null if the coverage does not say",
   "after_state": "what is true now that was not before, or null",
   "importance": 0,
   "novelty": 0,
   "topics": ["slug"],
-  "impact": "1-2 sentences on why this matters to someone who tracks this space"
+  "impact": "1-2 sentences on why this matters to someone who tracks this space, or null",
+  "understand": {
+    "coverage": "thin, normal, or rich, based on usable unique facts rather than source count",
+    "summary": "a 40-80 word event explanation with no repeated facts",
+    "facts": [{ "text": "one unique reported fact", "evidence": [1] }],
+    "key_numbers": [{ "value": "$13B", "label": "Deal value", "evidence": [1] }],
+    "context": [{ "text": "supported background needed to understand the event", "evidence": [2] }],
+    "timeline": [{ "when": "Q4", "what": "Expected closing", "evidence": [2] }],
+    "affected_groups": [{ "group": "Developers", "effect": "a concrete supported effect", "basis": "reported or analysis", "evidence": [2] }],
+    "what_next": [{ "text": "a reported next step, not a prediction", "evidence": [2] }],
+    "unknowns": ["The available sources do not specify ..."],
+    "conflicts": [{ "topic": "Transaction value", "reports": [{ "text": "$12B", "evidence": [1] }, { "text": "$13B", "evidence": [2] }] }]
+  }
 }
+
+Every evidence number refers to the numbered article supplied in the user message.
+Use only valid article numbers. A statement supported by several articles lists
+each of them. Do not claim that every source supports a fact unless it does.
+
+understand is event intelligence, not an article. Extract unique facts before
+writing blocks. Several paraphrases of one fact are one fact. A detail already in
+summary must not be repeated in facts unless the fact adds material precision.
+
+Every understand array is optional in substance: use [] when the evidence does
+not justify it. Never manufacture a timeline from one date, key numbers without
+meaningful labels, effects not grounded in the supplied evidence, future steps
+that were not reported, or generic context. Unknown means the available sources
+do not specify something material; it does not mean the thing does not exist.
+
+affected_groups with basis "analysis" is the only place for a bounded inference.
+It must still be grounded in listed evidence and must not be phrased as reported.
+All facts, context, numbers, timeline points and next steps are directly reported.
+If credible accounts disagree, preserve both in conflicts instead of choosing.
+
+For thin evidence, a short summary and one or two facts may be the entire useful
+answer. Mark coverage thin and leave unsupported arrays empty. Never pad.
 
 impact is shared: it is shown to every reader this event is briefed to, not written
 for any one person. Say what changes for someone in the field generally -- a
 constraint that shifted, a decision this forces, a thing that no longer works the
 old way -- not "this matters if you use X" and not a restatement of what_happened.
 
-what_happened is about the event, not about the coverage of it. Name who did what:
+what_happened is the Briefing layer. It is about the event, not about the coverage
+of it. Name who did what:
 "OpenAI wrote to the governor opposing SB 1047", never "an article reported that
 OpenAI wrote to the governor". Where the only thing that happened is that somebody
-published an argument or a review, name them and say what they argued. Each
-paragraph is one or two sentences. Separate them with a blank line so a Read
-page can set them as a news column.
+published an argument or a review, name them and say what they argued. Do not
+repeat a fact in different words to reach the target; fewer than 50 words is
+correct when the evidence is thin.
 
 importance, 0 to 10 - how much this changes for someone working in the field:
   0-2   routine. A point release, a blog post, a conference talk.
@@ -463,7 +499,7 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
-    parsed = readAnalysis(data, ctx.slugs);
+    parsed = readAnalysis(data, ctx.slugs, articles.length);
   } catch (error) {
     // A truncated call spent everything it was given and the API reports the
     // reasoning half of it. Recorded as a floor rather than an estimate: it is a
@@ -630,6 +666,8 @@ export type Analysis = {
    * path that already exists.
    */
   impact: string | null;
+  /** Optional for rollout compatibility; legacy replies still produce a valid event. */
+  understand: EventIntelligence | null;
 };
 
 /**
@@ -643,7 +681,11 @@ export type Analysis = {
  * `what_happened` is not repaired, it is refused — the event stays unanalysed and
  * says so.
  */
-export function readAnalysis(reply: unknown, allowed: string[]): Analysis | null {
+export function readAnalysis(
+  reply: unknown,
+  allowed: string[],
+  evidenceCount = 0,
+): Analysis | null {
   if (typeof reply !== "object" || reply === null || Array.isArray(reply)) return null;
   const raw = reply as Record<string, unknown>;
 
@@ -692,6 +734,7 @@ export function readAnalysis(reply: unknown, allowed: string[]): Analysis | null
     topics: topics.slice(0, MAX_TOPICS),
     unknownTopics,
     impact: text(raw["impact"]),
+    understand: readEventIntelligence(raw["understand"], evidenceCount),
   };
 }
 
@@ -803,6 +846,7 @@ async function writeAnalysis(
       after_state: analysis.afterState,
       importance: analysis.importance,
       novelty: analysis.novelty,
+      understand: analysis.understand as unknown as Json,
       status: "complete",
       analysis_deferred_until: null,
       analysed_at: now,

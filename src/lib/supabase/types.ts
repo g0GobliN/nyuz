@@ -369,6 +369,8 @@ export type EventRow = {
   last_updated_at: string;
   analysed_at: string | null;
   analysis_tokens: number;
+  /** Versioned shared intelligence for the evidence-driven Understand page (0046). */
+  understand: Json | null;
   /** Work held by a temporary AI ceiling becomes eligible after this time (0045). */
   analysis_deferred_until: string | null;
 };
@@ -693,6 +695,7 @@ export type Database = {
         | "last_updated_at"
         | "analysed_at"
         | "analysis_tokens"
+        | "understand"
         | "analysis_deferred_until"
       >;
       articles: Table<
