@@ -8,6 +8,9 @@ import {
   legacyEventIntelligence,
   type EventIntelligence,
   novelSentences,
+  collapseTimeline,
+  corroboration,
+  eventTimeline,
 } from "./understand";
 
 describe("readEventIntelligence", () => {
@@ -302,6 +305,10 @@ describe("intelligenceText", () => {
       whatNext: [{ text: "Next", evidence: [1], kind: "reported" }],
       unknowns: ["Unknown"],
       conflicts: [{ topic: "Topic", reports: [{ text: "Report", evidence: [1] }] }],
+      relationship: null,
+      comparison: null,
+      series: null,
+      overview: [],
     };
     const texts = intelligenceText(intel);
     expect(texts).toContain("Summary");
@@ -428,5 +435,297 @@ describe("novelSentences", () => {
 
   it("leaves a short sentence alone rather than guessing it is a repeat", () => {
     expect(novelSentences("Prices rose.", ["Prices rose."])).toBe("Prices rose.");
+  });
+});
+
+/** A parsed document with only the fields a test cares about set. */
+function parse(understand: Record<string, unknown>, evidenceCount = 2) {
+  return readEventIntelligence(
+    { coverage: "normal", summary: "An event happened that matters.", ...understand },
+    evidenceCount,
+  );
+}
+
+describe("relationship", () => {
+  it("reads a subject, relation and object the evidence supports", () => {
+    const parsed = parse({
+      relationship: {
+        subject: "Nvidia",
+        relation: "acquiring",
+        object: "Hugging Face",
+        detail: "$13B",
+        evidence: [1],
+      },
+    });
+    expect(parsed?.relationship).toEqual({
+      subject: "Nvidia",
+      relation: "acquiring",
+      object: "Hugging Face",
+      detail: "$13B",
+      evidence: [1],
+    });
+  });
+
+  it("drops a relationship missing a side", () => {
+    const parsed = parse({
+      relationship: { subject: "Nvidia", relation: "acquiring", evidence: [1] },
+    });
+    expect(parsed?.relationship).toBeNull();
+  });
+
+  it("drops a relationship with no evidence", () => {
+    const parsed = parse({
+      relationship: { subject: "Nvidia", relation: "acquiring", object: "Hugging Face" },
+    });
+    expect(parsed?.relationship).toBeNull();
+  });
+
+  it("drops a relationship that points a thing at itself", () => {
+    const parsed = parse({
+      relationship: {
+        subject: "Sonos",
+        relation: "announced",
+        object: "Sonos",
+        evidence: [1],
+      },
+    });
+    expect(parsed?.relationship).toBeNull();
+  });
+});
+
+describe("comparison", () => {
+  const rows = [{ label: "Monthly", left: "$20", right: "$25", evidence: [1] }];
+
+  it("reads rows with two supported sides", () => {
+    const parsed = parse({
+      comparison: { caption: "Pricing", left_label: "Before", right_label: "Now", rows },
+    });
+    expect(parsed?.comparison?.rows).toHaveLength(1);
+    expect(parsed?.comparison?.leftLabel).toBe("Before");
+  });
+
+  it("drops a row whose sides are the same value", () => {
+    const parsed = parse({
+      comparison: {
+        left_label: "Before",
+        right_label: "Now",
+        rows: [{ label: "Monthly", left: "$20", right: "$20", evidence: [1] }],
+      },
+    });
+    expect(parsed?.comparison).toBeNull();
+  });
+
+  it("drops the whole comparison when no row survives", () => {
+    const parsed = parse({
+      comparison: {
+        left_label: "Before",
+        right_label: "Now",
+        rows: [{ label: "Monthly", left: "$20", right: "$25" }],
+      },
+    });
+    expect(parsed?.comparison).toBeNull();
+  });
+
+  it("drops a comparison with no side labels", () => {
+    const parsed = parse({ comparison: { rows } });
+    expect(parsed?.comparison).toBeNull();
+  });
+});
+
+describe("series", () => {
+  const point = (label: string, value: number) => ({
+    label,
+    value,
+    display: `$${value}B`,
+    evidence: [1],
+  });
+
+  it("reads three or more comparable numbers", () => {
+    const parsed = parse({
+      series: {
+        caption: "Quarterly revenue",
+        shape: "bar",
+        points: [point("Q1", 26), point("Q2", 30), point("Q3", 35)],
+      },
+    });
+    expect(parsed?.series?.points).toHaveLength(3);
+    expect(parsed?.series?.shape).toBe("bar");
+  });
+
+  it("refuses a chart of two numbers", () => {
+    const parsed = parse({ series: { points: [point("Q1", 26), point("Q2", 30)] } });
+    expect(parsed?.series).toBeNull();
+  });
+
+  it("refuses a chart of one number, which is a key number", () => {
+    const parsed = parse({
+      series: { points: [{ label: "Price", value: 699, display: "$699", evidence: [1] }] },
+    });
+    expect(parsed?.series).toBeNull();
+  });
+
+  it("refuses a chart where every value is identical", () => {
+    const parsed = parse({
+      series: { points: [point("Q1", 30), point("Q2", 30), point("Q3", 30)] },
+    });
+    expect(parsed?.series).toBeNull();
+  });
+
+  it("drops points with unusable numbers before deciding", () => {
+    const parsed = parse({
+      series: {
+        points: [point("Q1", 26), { label: "Q2", value: "n/a", evidence: [1] }, point("Q3", 35)],
+      },
+    });
+    expect(parsed?.series).toBeNull();
+  });
+
+  it("defaults an unrecognised shape to bars", () => {
+    const parsed = parse({
+      series: { shape: "donut", points: [point("Q1", 26), point("Q2", 30), point("Q3", 35)] },
+    });
+    expect(parsed?.series?.shape).toBe("bar");
+  });
+});
+
+describe("overview", () => {
+  it("reads two or more announced things", () => {
+    const parsed = parse({
+      overview: [
+        { name: "Beam Ultra", kind: "Soundbar", detail: "$699", evidence: [1] },
+        { name: "Sonos 27", kind: "OS update", evidence: [2] },
+      ],
+    });
+    expect(parsed?.overview).toHaveLength(2);
+    expect(parsed?.overview[1]?.detail).toBe("");
+  });
+
+  it("refuses an overview of one thing", () => {
+    const parsed = parse({
+      overview: [{ name: "Beam Ultra", kind: "Soundbar", evidence: [1] }],
+    });
+    expect(parsed?.overview).toEqual([]);
+  });
+
+  it("drops items with no evidence", () => {
+    const parsed = parse({
+      overview: [{ name: "Beam Ultra", evidence: [1] }, { name: "Sonos Fabric" }],
+    });
+    expect(parsed?.overview).toEqual([]);
+  });
+});
+
+describe("collapseTimeline", () => {
+  it("folds repeated publication rows into one stage", () => {
+    const collapsed = collapseTimeline([
+      { when: "09:00", what: "Engadget published", evidence: [1] },
+      { when: "10:00", what: "Engadget published", evidence: [2] },
+      { when: "11:00", what: "Engadget published", evidence: [3] },
+    ]);
+    expect(collapsed).toHaveLength(1);
+    expect(collapsed[0]?.when).toBe("09:00");
+    expect(collapsed[0]?.evidence).toEqual([1, 2, 3]);
+  });
+
+  it("folds paraphrases of one stage together", () => {
+    const collapsed = collapseTimeline([
+      { when: "Aug 27", what: "Nvidia announced the acquisition of Hugging Face", evidence: [1] },
+      {
+        when: "Aug 27",
+        what: "The Hugging Face acquisition was announced by Nvidia",
+        evidence: [2],
+      },
+    ]);
+    expect(collapsed).toHaveLength(1);
+  });
+
+  it("keeps genuinely different stages", () => {
+    const collapsed = collapseTimeline([
+      { when: "Aug 27", what: "Deal announced", evidence: [1] },
+      { when: "Q4", what: "Regulatory review expected to conclude", evidence: [2] },
+    ]);
+    expect(collapsed).toHaveLength(2);
+  });
+});
+
+describe("eventTimeline", () => {
+  const base = parse({});
+
+  it("prefers the analysed stages over the publication record", () => {
+    const intel = parse({
+      timeline: [
+        { when: "Aug 27", what: "Deal announced", evidence: [1] },
+        { when: "Q4", what: "Expected closing", evidence: [2] },
+      ],
+    });
+    const points = eventTimeline(intel!, [
+      { when: "09:00", what: "Engadget published", evidence: [] },
+    ]);
+    expect(points.map((point) => point.what)).toEqual(["Deal announced", "Expected closing"]);
+  });
+
+  it("falls back to the publication record when there are no analysed stages", () => {
+    const points = eventTimeline(base!, [
+      { when: "09:00", what: "Reuters published", evidence: [] },
+      { when: "11:00", what: "Engadget published", evidence: [] },
+    ]);
+    expect(points).toHaveLength(2);
+  });
+
+  it("shows nothing when one outlet published three times", () => {
+    const points = eventTimeline(base!, [
+      { when: "09:00", what: "Engadget published", evidence: [] },
+      { when: "10:00", what: "Engadget published", evidence: [] },
+      { when: "11:00", what: "Engadget published", evidence: [] },
+    ]);
+    expect(points).toEqual([]);
+  });
+
+  it("shows nothing for a single-source event", () => {
+    const points = eventTimeline(base!, [
+      { when: "09:00", what: "Hacker News published", evidence: [] },
+    ]);
+    expect(points).toEqual([]);
+  });
+});
+
+describe("corroboration", () => {
+  const outlets = ["Reuters", "TechCrunch", "The Verge", "Reuters"];
+
+  it("counts distinct outlets behind a statement", () => {
+    expect(corroboration([1, 2, 3], outlets)).toBe(3);
+  });
+
+  it("counts syndicated copies of one outlet once", () => {
+    expect(corroboration([1, 4], outlets)).toBe(1);
+  });
+
+  it("ignores references to sources that are not there", () => {
+    expect(corroboration([1, 99], outlets)).toBe(1);
+  });
+});
+
+describe("thin evidence stays text-only", () => {
+  it("produces no visual blocks at all", () => {
+    const intel = legacyEventIntelligence({
+      what: "Acme announced an agreement to acquire Example Corp for $800 million.",
+      sources: [{ excerpt: "Acme announced an agreement to acquire Example Corp." }],
+    });
+    expect(intel.relationship).toBeNull();
+    expect(intel.comparison).toBeNull();
+    expect(intel.series).toBeNull();
+    expect(intel.overview).toEqual([]);
+    expect(intel.keyNumbers).toEqual([]);
+    expect(eventTimeline(intel, [])).toEqual([]);
+  });
+
+  it("keeps every visual block empty when the model omits them", () => {
+    const parsed = parse({
+      facts: [{ text: "One reported fact about the event.", evidence: [1] }],
+    });
+    expect(parsed?.relationship).toBeNull();
+    expect(parsed?.comparison).toBeNull();
+    expect(parsed?.series).toBeNull();
+    expect(parsed?.overview).toEqual([]);
   });
 });

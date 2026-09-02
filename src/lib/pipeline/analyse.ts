@@ -145,7 +145,11 @@ function contract(slugs: string[]): string {
     "affected_groups": [{ "group": "Developers", "effect": "a concrete supported effect", "basis": "reported or analysis", "evidence": [2] }],
     "what_next": [{ "text": "a reported next step, not a prediction", "evidence": [2] }],
     "unknowns": ["The available sources do not specify ..."],
-    "conflicts": [{ "topic": "Transaction value", "reports": [{ "text": "$12B", "evidence": [1] }, { "text": "$13B", "evidence": [2] }] }]
+    "conflicts": [{ "topic": "Transaction value", "reports": [{ "text": "$12B", "evidence": [1] }, { "text": "$13B", "evidence": [2] }] }],
+    "relationship": { "subject": "Nvidia", "relation": "acquiring", "object": "Hugging Face", "detail": "$13B", "evidence": [1] },
+    "comparison": { "caption": "Pricing", "left_label": "Before", "right_label": "Now", "rows": [{ "label": "Monthly", "left": "$20", "right": "$25", "evidence": [1] }] },
+    "series": { "caption": "Quarterly revenue", "shape": "bar", "points": [{ "label": "Q1", "value": 26.0, "display": "$26B", "evidence": [1] }] },
+    "overview": [{ "name": "Beam Ultra", "kind": "Soundbar", "detail": "$699", "evidence": [1] }]
   }
 }
 
@@ -168,8 +172,28 @@ It must still be grounded in listed evidence and must not be phrased as reported
 All facts, context, numbers, timeline points and next steps are directly reported.
 If credible accounts disagree, preserve both in conflicts instead of choosing.
 
+relationship, comparison, series and overview exist so the page can draw what is
+clearer seen than read. Each is null or [] unless the evidence carries it:
+
+relationship: one subject-relation-object the event turns on -- an acquirer and a
+target, a regulator and the company it is investigating, two partners. Not a
+restatement of the summary with arrows.
+
+comparison: two states or entities the evidence gives comparable values for --
+old price and new price, expected and actual, last quarter and this one. Both
+sides of every row must be reported. Omit a row whose sides say the same thing.
+
+series: three or more comparable numbers over periods or entities, for a chart.
+value is a plain number, display is how to print it. Two numbers are a
+comparison, not a chart; one number is a key number. Never assemble a series from
+numbers that measure different things.
+
+overview: two or more things announced together -- several products, several
+measures in one policy. One thing announced is a fact, not an overview.
+
 For thin evidence, a short summary and one or two facts may be the entire useful
-answer. Mark coverage thin and leave unsupported arrays empty. Never pad.
+answer. Mark coverage thin and leave unsupported arrays empty. Never pad. Never
+invent a number, date, relationship or trend so that a block can be drawn.
 
 impact is shared: it is shown to every reader this event is briefed to, not written
 for any one person. Say what changes for someone in the field generally -- a

@@ -14,14 +14,19 @@ import { loadStory, askStory } from "@/lib/server/briefing";
 import type { Story } from "@/lib/story";
 import { cn } from "@/lib/utils";
 import {
+  corroboration,
   dedupeStatements,
+  eventTimeline,
   intelligenceText,
   legacyEventIntelligence,
-  understandMinutes,
-  type EventIntelligence,
   novelSentences,
+  understandMinutes,
+  type Comparison,
+  type EventIntelligence,
+  type NumericSeries,
+  type OverviewItem,
+  type Relationship,
   type SupportedStatement,
-  type TimelinePoint,
 } from "@/lib/understand";
 
 export const Route = createFileRoute("/dashboard/story/$id")({
@@ -311,13 +316,15 @@ function uniqueAfterSummary(
 }
 
 /**
- * The event's own timeline when the analysis produced one, otherwise the
- * pipeline's record of how the event formed. Both are real; neither is invented
- * to fill the block.
+ * How the event developed, from the analysed stages when they exist and the
+ * publication record otherwise — collapsed either way, so three pieces from one
+ * outlet do not read as three stages.
  */
-function timelinePoints(story: Story, intelligence: EventIntelligence): TimelinePoint[] {
-  if (intelligence.timeline.length > 0) return intelligence.timeline;
-  return story.timeline.map((point) => ({ when: point.at, what: point.label, evidence: [] }));
+function timelinePoints(story: Story, intelligence: EventIntelligence) {
+  return eventTimeline(
+    intelligence,
+    story.timeline.map((point) => ({ when: point.at, what: point.label, evidence: [] })),
+  );
 }
 
 function showBeforeAfter(story: Story, summary: string): boolean {
@@ -349,6 +356,182 @@ function understandTime(story: Story, intelligence: EventIntelligence) {
     ...changed,
     analysisWhy(story, intelligence),
   ]);
+}
+
+/**
+ * The shape of the event: who is doing what to whom. Two names and an arrow beat
+ * a sentence when the sentence is only there to relate them.
+ */
+function RelationshipDiagram({
+  relationship,
+  story,
+}: {
+  relationship: Relationship;
+  story: Story;
+}) {
+  return (
+    <section className="border-y border-hairline py-6">
+      <div className="flex flex-col items-center text-center">
+        <p className="text-[15px] font-medium uppercase tracking-[0.08em]">
+          {relationship.subject}
+        </p>
+        <span aria-hidden className="my-1.5 h-5 w-px bg-border" />
+        <p className="text-[11px] uppercase tracking-[0.16em] text-signal">
+          {relationship.relation}
+        </p>
+        <span aria-hidden className="my-1.5 h-5 w-px bg-border" />
+        <p className="text-[15px] font-medium uppercase tracking-[0.08em]">{relationship.object}</p>
+        {relationship.detail ? (
+          <p className="mt-4 font-serif text-2xl">{relationship.detail}</p>
+        ) : null}
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          <EvidenceRefs refs={relationship.evidence} story={story} />
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/** Two states the evidence gives comparable values for, side by side. */
+function ComparisonTable({ comparison, story }: { comparison: Comparison; story: Story }) {
+  return (
+    <section>
+      <BlockHeading>{comparison.caption || "Compared"}</BlockHeading>
+      <div className="mt-3 divide-y divide-[var(--hairline)] border-y border-hairline">
+        <div className="grid grid-cols-[1fr_1fr] gap-4 py-2 sm:grid-cols-[8rem_1fr_1fr]">
+          <span className="hidden text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground sm:block" />
+          <span className="text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
+            {comparison.leftLabel}
+          </span>
+          <span className="text-[10.5px] uppercase tracking-[0.16em] text-signal">
+            {comparison.rightLabel}
+          </span>
+        </div>
+        {comparison.rows.map((row) => (
+          <div
+            key={row.label}
+            className="grid grid-cols-[1fr_1fr] gap-4 py-3 sm:grid-cols-[8rem_1fr_1fr]"
+          >
+            <p className="col-span-2 text-[12px] text-muted-foreground sm:col-span-1 sm:text-[14px] sm:text-foreground">
+              {row.label}
+            </p>
+            <p className="text-[14.5px] text-muted-foreground">{row.left}</p>
+            <p className="text-[14.5px]">
+              {row.right}
+              <EvidenceRefs refs={row.evidence} story={story} />
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Bars for comparable quantities, a line for a trend. Both are drawn from the
+ * numbers the analysis reported — SVG and CSS rather than a charting library,
+ * because a dozen points does not justify the bundle.
+ */
+function NumericChart({ series, story }: { series: NumericSeries; story: Story }) {
+  const max = Math.max(...series.points.map((point) => point.value));
+  const min = Math.min(0, ...series.points.map((point) => point.value));
+  const span = max - min || 1;
+
+  return (
+    <section>
+      <BlockHeading>{series.caption || "By the numbers"}</BlockHeading>
+      {series.shape === "line" ? (
+        <div className="mt-4">
+          <svg
+            viewBox="0 0 100 32"
+            preserveAspectRatio="none"
+            className="h-24 w-full"
+            role="img"
+            aria-label={series.points.map((p) => `${p.label} ${p.display}`).join(", ")}
+          >
+            <polyline
+              fill="none"
+              stroke="var(--signal)"
+              strokeWidth="0.6"
+              vectorEffect="non-scaling-stroke"
+              points={series.points
+                .map((point, index) => {
+                  const x = (index / (series.points.length - 1)) * 100;
+                  const y = 30 - ((point.value - min) / span) * 28;
+                  return `${x},${y}`;
+                })
+                .join(" ")}
+            />
+          </svg>
+          <div className="mt-2 flex justify-between text-[11px] tabular-nums text-muted-foreground">
+            {series.points.map((point) => (
+              <span key={point.label}>{point.label}</span>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 space-y-2.5">
+          {series.points.map((point) => (
+            <div key={point.label} className="grid grid-cols-[4.5rem_1fr_auto] items-center gap-3">
+              <span className="truncate text-[12px] text-muted-foreground">{point.label}</span>
+              <span className="h-2 rounded-full bg-muted">
+                <span
+                  className="block h-2 rounded-full bg-signal"
+                  style={{ width: `${Math.max(2, ((point.value - min) / span) * 100)}%` }}
+                />
+              </span>
+              <span className="text-[12.5px] tabular-nums">{point.display}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="mt-3 text-[11px] text-muted-foreground">
+        <EvidenceRefs refs={series.points.flatMap((point) => point.evidence)} story={story} />
+      </p>
+    </section>
+  );
+}
+
+/** Several things announced together, listed rather than narrated. */
+function StructuredOverview({ items, story }: { items: OverviewItem[]; story: Story }) {
+  return (
+    <section>
+      <BlockHeading>What was announced</BlockHeading>
+      <dl className="mt-3 divide-y divide-[var(--hairline)] border-y border-hairline">
+        {items.map((item) => (
+          <div key={item.name} className="flex items-baseline justify-between gap-4 py-3">
+            <div className="min-w-0">
+              <dt className="text-[14.5px] font-medium">{item.name}</dt>
+              {item.kind ? (
+                <dd className="mt-0.5 text-[12px] text-muted-foreground">{item.kind}</dd>
+              ) : null}
+            </div>
+            <dd className="shrink-0 text-[14px] tabular-nums">
+              {item.detail}
+              <EvidenceRefs refs={item.evidence} story={story} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+/**
+ * How many outlets stand behind a fact, shown only past three. Counted by outlet
+ * rather than by article, so syndication does not read as confirmation.
+ */
+function Corroboration({ refs, story }: { refs: number[]; story: Story }) {
+  const outlets = corroboration(
+    refs,
+    story.sourceList.map((source) => source.name),
+  );
+  if (outlets < 3) return null;
+  return (
+    <span className="ml-2 text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground">
+      {outlets} sources
+    </span>
+  );
 }
 
 function EvidenceRefs({ refs, story }: { refs: number[]; story: Story }) {
@@ -390,7 +573,7 @@ function UnderstandBody({
   const facts = uniqueAfterSummary(intelligence.summary, intelligence.facts);
   const context = uniqueAfterSummary(intelligence.summary, intelligence.context);
   const whatNext = uniqueAfterSummary(intelligence.summary, intelligence.whatNext);
-  const changed = showBeforeAfter(story, intelligence.summary);
+  const changed = !intelligence.comparison && showBeforeAfter(story, intelligence.summary);
   const why = analysisWhy(story, intelligence);
   const timeline = timelinePoints(story, intelligence);
   const glance = intelligence.keyNumbers;
@@ -398,6 +581,10 @@ function UnderstandBody({
   return (
     <div className="max-w-[40rem] space-y-8">
       <p className="text-[19px] leading-[1.65] tracking-[-0.01em]">{intelligence.summary}</p>
+
+      {intelligence.relationship ? (
+        <RelationshipDiagram relationship={intelligence.relationship} story={story} />
+      ) : null}
 
       {glance.length > 0 ? (
         <section className="border-y border-hairline py-5">
@@ -425,12 +612,23 @@ function UnderstandBody({
                 <span>
                   {fact.text}
                   <EvidenceRefs refs={fact.evidence} story={story} />
+                  <Corroboration refs={fact.evidence} story={story} />
                 </span>
               </li>
             ))}
           </ul>
         </section>
       ) : null}
+
+      {intelligence.overview.length > 0 ? (
+        <StructuredOverview items={intelligence.overview} story={story} />
+      ) : null}
+
+      {intelligence.comparison ? (
+        <ComparisonTable comparison={intelligence.comparison} story={story} />
+      ) : null}
+
+      {intelligence.series ? <NumericChart series={intelligence.series} story={story} /> : null}
 
       {changed ? (
         <section>

@@ -31,6 +31,52 @@ export type EvidenceConflict = {
   reports: { text: string; evidence: number[] }[];
 };
 
+/** Who did what to whom. One line, drawn rather than written. */
+export type Relationship = {
+  subject: string;
+  relation: string;
+  object: string;
+  detail: string;
+  evidence: number[];
+};
+
+export type ComparisonRow = {
+  label: string;
+  left: string;
+  right: string;
+  evidence: number[];
+};
+
+/** Two comparable states or entities, side by side. */
+export type Comparison = {
+  caption: string;
+  leftLabel: string;
+  rightLabel: string;
+  rows: ComparisonRow[];
+};
+
+export type SeriesPoint = {
+  label: string;
+  value: number;
+  display: string;
+  evidence: number[];
+};
+
+/** Comparable numbers across periods or entities. Only ever drawn, never invented. */
+export type NumericSeries = {
+  caption: string;
+  shape: "bar" | "line";
+  points: SeriesPoint[];
+};
+
+/** One of several things announced together. */
+export type OverviewItem = {
+  name: string;
+  kind: string;
+  detail: string;
+  evidence: number[];
+};
+
 /**
  * The global, reusable explanation of one event.
  *
@@ -50,6 +96,10 @@ export type EventIntelligence = {
   whatNext: SupportedStatement[];
   unknowns: string[];
   conflicts: EvidenceConflict[];
+  relationship: Relationship | null;
+  comparison: Comparison | null;
+  series: NumericSeries | null;
+  overview: OverviewItem[];
 };
 
 type RecordValue = Record<string, unknown>;
@@ -102,6 +152,102 @@ function statements(
     if (out.length >= limit) break;
   }
   return dedupeStatements(out);
+}
+
+/**
+ * A relationship is only drawable when all three parts of the sentence survive.
+ * A subject with no object is a fact, and belongs in prose.
+ */
+function relationshipOf(value: unknown, evidenceCount: number): Relationship | null {
+  const row = record(value);
+  if (!row) return null;
+  const subject = boundedText(row["subject"], 60);
+  const relation = boundedText(row["relation"], 40);
+  const object = boundedText(row["object"], 60);
+  const evidence = evidenceRefs(row["evidence"], evidenceCount);
+  if (!subject || !relation || !object || evidence.length === 0) return null;
+  if (subject.toLowerCase() === object.toLowerCase() || repeats(subject, object)) return null;
+  return { subject, relation, object, detail: boundedText(row["detail"], 40) ?? "", evidence };
+}
+
+/**
+ * A comparison needs two sides that differ. Rows whose halves say the same thing
+ * are the paraphrase problem in table form, so they are dropped; if that empties
+ * the table, there was no comparison to draw.
+ */
+function comparisonOf(value: unknown, evidenceCount: number): Comparison | null {
+  const row = record(value);
+  if (!row) return null;
+  const leftLabel = boundedText(field(row, "leftLabel", "left_label"), 40);
+  const rightLabel = boundedText(field(row, "rightLabel", "right_label"), 40);
+  if (!leftLabel || !rightLabel || !Array.isArray(row["rows"])) return null;
+
+  const rows: ComparisonRow[] = [];
+  for (const entry of row["rows"]) {
+    const cells = record(entry);
+    if (!cells) continue;
+    const label = boundedText(cells["label"], 60);
+    const left = boundedText(cells["left"], 90);
+    const right = boundedText(cells["right"], 90);
+    const evidence = evidenceRefs(cells["evidence"], evidenceCount);
+    if (!label || !left || !right || evidence.length === 0) continue;
+    if (left.toLowerCase() === right.toLowerCase()) continue;
+    rows.push({ label, left, right, evidence });
+    if (rows.length >= 5) break;
+  }
+  if (rows.length === 0) return null;
+  return { caption: boundedText(row["caption"], 80) ?? "", leftLabel, rightLabel, rows };
+}
+
+/** Numbers a chart can honestly carry: at least three points, and not all equal. */
+function seriesOf(value: unknown, evidenceCount: number): NumericSeries | null {
+  const row = record(value);
+  if (!row) return null;
+  if (!Array.isArray(row["points"])) return null;
+
+  const points: SeriesPoint[] = [];
+  for (const entry of row["points"]) {
+    const cells = record(entry);
+    if (!cells) continue;
+    const label = boundedText(cells["label"], 40);
+    const display = boundedText(cells["display"], 40);
+    const evidence = evidenceRefs(cells["evidence"], evidenceCount);
+    const value = typeof cells["value"] === "number" ? cells["value"] : Number(cells["value"]);
+    if (!label || !Number.isFinite(value) || evidence.length === 0) continue;
+    points.push({ label, value, display: display ?? String(value), evidence });
+    if (points.length >= 12) break;
+  }
+
+  // Two numbers are a comparison, not a trend, and one number is a key number.
+  // A flat line of identical values communicates nothing a sentence would not.
+  if (points.length < 3) return null;
+  if (new Set(points.map((point) => point.value)).size < 2) return null;
+  if (points.every((point) => point.value <= 0)) return null;
+
+  const shape = row["shape"] === "line" ? "line" : "bar";
+  return { caption: boundedText(row["caption"], 80) ?? "", shape, points };
+}
+
+/** An overview of one thing is a fact. Two or more is a list worth structuring. */
+function overviewOf(value: unknown, evidenceCount: number): OverviewItem[] {
+  if (!Array.isArray(value)) return [];
+  const out: OverviewItem[] = [];
+  for (const entry of value) {
+    const row = record(entry);
+    if (!row) continue;
+    const name = boundedText(row["name"], 60);
+    const evidence = evidenceRefs(row["evidence"], evidenceCount);
+    if (!name || evidence.length === 0) continue;
+    if (out.some((item) => item.name.toLowerCase() === name.toLowerCase())) continue;
+    out.push({
+      name,
+      kind: boundedText(row["kind"], 40) ?? "",
+      detail: boundedText(row["detail"], 90) ?? "",
+      evidence,
+    });
+    if (out.length >= 6) break;
+  }
+  return out.length >= 2 ? out : [];
 }
 
 /**
@@ -218,6 +364,10 @@ export function readEventIntelligence(
     whatNext: statements(field(raw, "whatNext", "what_next"), evidenceCount, "reported", 5),
     unknowns,
     conflicts,
+    relationship: relationshipOf(raw["relationship"], evidenceCount),
+    comparison: comparisonOf(raw["comparison"], evidenceCount),
+    series: seriesOf(raw["series"], evidenceCount),
+    overview: overviewOf(raw["overview"], evidenceCount),
   };
 }
 
@@ -406,7 +556,66 @@ export function legacyEventIntelligence(input: {
     whatNext: [],
     unknowns: [],
     conflicts: [],
+    relationship: null,
+    comparison: null,
+    series: null,
+    overview: [],
   };
+}
+
+/**
+ * Collapse a timeline down to the stages that actually differ.
+ *
+ * `story.timeline` is one row per article — "Engadget published", three times
+ * over for three Engadget pieces about one announcement. That is crawler
+ * history, not how the event developed, so repeated stages fold into their first
+ * appearance and near-paraphrases fold into each other.
+ */
+export function collapseTimeline(points: TimelinePoint[]): TimelinePoint[] {
+  const out: TimelinePoint[] = [];
+  for (const point of points) {
+    const seen = out.find(
+      (existing) =>
+        existing.what.toLowerCase() === point.what.toLowerCase() ||
+        repeats(existing.what, point.what),
+    );
+    if (seen) {
+      for (const ref of point.evidence) if (!seen.evidence.includes(ref)) seen.evidence.push(ref);
+      continue;
+    }
+    out.push({ ...point, evidence: [...point.evidence] });
+  }
+  return out;
+}
+
+/**
+ * The timeline worth drawing: the analysed event stages when they exist, else
+ * the collapsed publication record. Fewer than two distinct stages is not a
+ * progression, and drawing a one-item timeline implies development that the
+ * evidence does not show.
+ */
+export function eventTimeline(
+  intelligence: EventIntelligence,
+  fallback: TimelinePoint[],
+): TimelinePoint[] {
+  const source = intelligence.timeline.length > 0 ? intelligence.timeline : fallback;
+  const collapsed = collapseTimeline(source);
+  return collapsed.length >= 2 ? collapsed : [];
+}
+
+/**
+ * How many distinct outlets stand behind a statement.
+ *
+ * Counted by source name, so eight syndicated copies of one wire story do not
+ * read as eight independent confirmations.
+ */
+export function corroboration(evidence: number[], sourceNames: string[]): number {
+  const outlets = new Set<string>();
+  for (const ref of evidence) {
+    const name = sourceNames[ref - 1];
+    if (name) outlets.add(name.trim().toLowerCase());
+  }
+  return outlets.size;
 }
 
 export function intelligenceText(intelligence: EventIntelligence): string[] {
@@ -419,5 +628,9 @@ export function intelligenceText(intelligence: EventIntelligence): string[] {
     ...intelligence.whatNext.map((item) => item.text),
     ...intelligence.unknowns,
     ...intelligence.conflicts.flatMap((item) => item.reports.map((report) => report.text)),
+    ...(intelligence.comparison
+      ? intelligence.comparison.rows.map((row) => `${row.label} ${row.left} ${row.right}`)
+      : []),
+    ...intelligence.overview.map((item) => `${item.name} ${item.kind} ${item.detail}`),
   ];
 }
