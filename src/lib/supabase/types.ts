@@ -1012,6 +1012,11 @@ export type Database = {
         Args: { p_id: string };
         Returns: boolean;
       };
+      /** Clears reservations that never settled and recorded no usage (0047). */
+      void_stale_ai_reservations: {
+        Args: { p_older_than?: string };
+        Returns: number;
+      };
       claim_subscription_checkout: {
         Args: { p_user_id: string };
         Returns: string;

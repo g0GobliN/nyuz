@@ -364,6 +364,60 @@ describe("launch cost and privacy boundaries", () => {
     expect(migration).toMatch(/revoke all on function public\.ai_spend_this_month\(\)/);
   });
 
+  it("never voids a reservation that recorded real usage", () => {
+    // A stale reservation is one that never settled and recorded nothing. A row
+    // holding any prompt tokens, completion tokens or cost is real spend, and
+    // clearing it would under-count the month against both ceilings.
+    const migration = readFileSync("supabase/migrations/0047_stale_ai_reservations.sql", "utf8");
+    const reaper = migration.slice(
+      migration.indexOf("create or replace function public.void_stale_ai_reservations"),
+      migration.indexOf("revoke all on function public.void_stale_ai_reservations"),
+    );
+    for (const guard of [
+      "reserved_tokens > 0",
+      "cost_microusd is null",
+      "prompt_tokens = 0",
+      "completion_tokens = 0",
+      "created_at < now() - p_older_than",
+    ]) {
+      expect(reaper).toContain(guard);
+    }
+    expect(migration).toMatch(
+      /revoke all on function public\.void_stale_ai_reservations\(interval\)/,
+    );
+  });
+
+  it("keeps both ceilings self-healing when the reaper has not run", () => {
+    // The reaper is a convenience. If it never ran, an outage's abandoned
+    // reservations would still block every later call, so the ceiling applies
+    // the same cutoff itself — in the token sum, the money sum and the per-user
+    // sum alike.
+    const migration = readFileSync("supabase/migrations/0047_stale_ai_reservations.sql", "utf8");
+    const reserve = migration.slice(
+      migration.indexOf("create or replace function public.reserve_ai_tokens"),
+    );
+    expect(reserve.match(/created_at < stale_before/g) ?? []).toHaveLength(3);
+    expect(reserve).toContain("stale_before timestamptz := now() - interval '1 hour'");
+    // The ceilings themselves must survive the rewrite.
+    expect(reserve).toContain("if global_used + p_reserve > p_global_monthly_cap then");
+    expect(reserve).toContain(
+      "if spent + p_estimated_cost_microusd > p_global_monthly_cost_microusd then",
+    );
+    expect(reserve).toContain(
+      "if p_global_monthly_cost_microusd is null or p_estimated_cost_microusd is null then",
+    );
+  });
+
+  it("reaps abandoned reservations before a stage reserves more", () => {
+    const cron = readFileSync("src/lib/pipeline/cron.ts", "utf8");
+    expect(cron).toContain("void_stale_ai_reservations");
+    // Only the stages that spend need it, and they must reap first.
+    const shared = cron.slice(cron.indexOf("async function runShared"));
+    expect(shared).toMatch(
+      /await reapStaleReservations\(env\);[\s\S]*?stage === "cluster"\) return runCluster/,
+    );
+  });
+
   it("does not send the reader-specific match reason to Ask AI", () => {
     const briefing = readFileSync("src/lib/server/briefing.ts", "utf8");
     const askHandler = briefing.slice(briefing.indexOf("export const askStory"));
