@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useCanGoBack, useRouter } from "@tanstack/react-router";
 import { humanError } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Bookmark, ExternalLink, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
@@ -42,6 +42,51 @@ const PROMPTS = [
   "What should I do about it this week?",
 ];
 
+/**
+ * Returns the reader to the list they came from, at the place they left it.
+ *
+ * This was a `<Link to="/dashboard">`, and a link pushes a new history entry.
+ * A push has no earlier position to restore, so it always lands at the top of
+ * the feed: someone working down the list was thrown back to the first card
+ * every time they finished a story, and had to scroll past everything they had
+ * already read to reach the next one. Stepping back through history instead
+ * returns to the entry they actually left, which is the one the router has a
+ * saved scroll position for.
+ *
+ * It also stops assuming the feed is where they came from — Alerts and History
+ * link to stories too, and the old link dropped those readers on the home feed.
+ *
+ * A reader who opened the story cold (a shared link, a new tab) has nothing
+ * behind them, so they still get a real link to the feed.
+ */
+function BackToFeed({ className }: { className?: string }) {
+  const router = useRouter();
+  const canGoBack = useCanGoBack();
+  const label = (
+    <>
+      <ArrowLeft className="h-3.5 w-3.5" /> Back to your nyuz
+    </>
+  );
+  const style = cn(
+    "inline-flex cursor-pointer items-center gap-2 text-[13px] text-muted-foreground transition-colors hover:text-foreground",
+    className,
+  );
+
+  if (!canGoBack) {
+    return (
+      <Link to="/dashboard" className={style}>
+        {label}
+      </Link>
+    );
+  }
+
+  return (
+    <button type="button" onClick={() => router.history.back()} className={style}>
+      {label}
+    </button>
+  );
+}
+
 function StoryDetail() {
   const { id } = Route.useParams();
   const storyQ = useQuery({
@@ -74,12 +119,7 @@ function StoryDetail() {
     return (
       <DashboardShell title="Understand">
         <p className="text-[15px]">This event is not in your briefing.</p>
-        <Link
-          to="/dashboard"
-          className="mt-4 inline-flex items-center gap-2 text-[13px] text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to your nyuz
-        </Link>
+        <BackToFeed className="mt-4" />
       </DashboardShell>
     );
   }
@@ -88,12 +128,7 @@ function StoryDetail() {
 
   return (
     <DashboardShell title="Understand">
-      <Link
-        to="/dashboard"
-        className="inline-flex items-center gap-2 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to your nyuz
-      </Link>
+      <BackToFeed />
 
       <article className="mt-6 animate-rise">
         <div className="flex flex-wrap items-center gap-3">
@@ -108,7 +143,7 @@ function StoryDetail() {
           </span>
         </div>
 
-        <h1 className="display mt-4 max-w-[40rem] text-[clamp(1.9rem,4.5vw,2.9rem)]">
+        <h1 className="display mt-4 max-w-[40rem] text-[clamp(1.5rem,4.5vw,2.9rem)]">
           {story.title}
         </h1>
         <p className="mt-4 text-[13px] text-muted-foreground">
