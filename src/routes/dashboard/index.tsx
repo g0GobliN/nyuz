@@ -11,7 +11,7 @@ import { useFeedback } from "@/lib/feedback-store";
 import { useImpressions } from "@/lib/use-engagement";
 import { usePrefs } from "@/lib/prefs-store";
 import { loadHomeFeed } from "@/lib/server/briefing";
-import { clockInZone } from "@/lib/pipeline/schedule";
+import { nextBriefingLabel } from "@/lib/pipeline/schedule";
 import { useReveal } from "@/lib/use-reveal";
 import type { Story } from "@/lib/story";
 
@@ -72,7 +72,7 @@ function DashboardHome() {
   const nextLabel = prefs.paused
     ? "Paused"
     : feed.data?.nextAt
-      ? `${clockInZone(new Date(feed.data.nextAt), prefs.timezone)}`
+      ? nextBriefingLabel(new Date(feed.data.nextAt), prefs.timezone)
       : `Tomorrow · ${prefs.time}`;
 
   return (

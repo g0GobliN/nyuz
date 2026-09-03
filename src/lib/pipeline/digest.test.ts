@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { capFor } from "@/lib/density";
-import { queuedChannels, readWhys, selectItems, type MatchRow } from "./digest";
+import { nextAttemptAt, queuedChannels, readWhys, selectItems, type MatchRow } from "./digest";
 
 function match(id: string, relevance: number, at = "2026-08-25T06:00:00Z"): MatchRow {
   return { eventId: id, relevance, matchedAt: at };
@@ -99,5 +99,51 @@ describe("queuedChannels", () => {
     expect(
       queuedChannels(["email", "telegram", "whatsapp", "push"], { telegram: true, push: true }),
     ).toEqual(["email", "telegram", "push"]);
+  });
+});
+
+describe("nextAttemptAt", () => {
+  const AT = Date.parse("2026-09-03T09:00:00Z");
+  const minutesLater = (iso: string): number => (Date.parse(iso) - AT) / 60_000;
+
+  it("stretches the five attempts across roughly eighty minutes", () => {
+    // The bug this pins: with no deadline at all, every retry landed on the
+    // next five-minute tick, so all five attempts were spent inside
+    // twenty-five minutes and a half-hour provider outage failed the batch.
+    const total = [1, 2, 3, 4].reduce((sum, n) => sum + minutesLater(nextAttemptAt(n, AT)), 0);
+    expect(total).toBeGreaterThan(50);
+    expect(total).toBeLessThan(120);
+  });
+
+  it("waits longer after each successive failure", () => {
+    // Compared at the jitter floor and ceiling so the bands cannot overlap.
+    for (const [earlier, later] of [
+      [1, 2],
+      [2, 3],
+      [3, 4],
+    ] as const) {
+      const most = Math.max(
+        ...Array.from({ length: 40 }, () => minutesLater(nextAttemptAt(earlier, AT))),
+      );
+      const least = Math.min(
+        ...Array.from({ length: 40 }, () => minutesLater(nextAttemptAt(later, AT))),
+      );
+      expect(most).toBeLessThan(least);
+    }
+  });
+
+  it("jitters so a batch that failed together does not retry together", () => {
+    const deadlines = new Set(Array.from({ length: 25 }, () => nextAttemptAt(2, AT)));
+    expect(deadlines.size).toBeGreaterThan(1);
+  });
+
+  it("holds the last delay for an attempt past the end of the schedule", () => {
+    expect(minutesLater(nextAttemptAt(9, AT))).toBeGreaterThan(30);
+  });
+
+  it("never returns a deadline in the past", () => {
+    for (let n = 1; n <= 6; n += 1) {
+      expect(minutesLater(nextAttemptAt(n, AT))).toBeGreaterThan(0);
+    }
   });
 });

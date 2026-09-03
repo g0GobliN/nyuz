@@ -78,6 +78,39 @@ export function clockInZone(at: Date, timeZone: string): string {
   return `${pad(parts.hour)}:${pad(parts.minute)}`;
 }
 
+/** Human label for the next briefing slot in the reader's own timezone. */
+export function nextBriefingLabel(at: Date, timeZone: string, now = new Date()): string {
+  const target = partsInZone(at, timeZone);
+  const today = partsInZone(now, timeZone);
+  const daysAway = localDayDistance(today, target);
+  const clock = `${pad(target.hour)}:${pad(target.minute)}`;
+
+  if (daysAway === 0) return `Today · ${clock}`;
+  if (daysAway === 1) return `Tomorrow · ${clock}`;
+
+  const weekday = at.toLocaleDateString(undefined, {
+    timeZone,
+    weekday: "long",
+  });
+  return `${weekday} · ${clock}`;
+}
+
+/**
+ * The hour of the day this instant fell on where the reader is, or null when
+ * the zone is one the runtime cannot read.
+ *
+ * Null rather than a throw or a UTC guess: the one caller is push copy deciding
+ * between "morning" and "evening", and a briefing that arrives with no
+ * time-of-day word is correct, where one that calls 22:00 "morning" is not.
+ */
+export function hourInZone(at: Date, timeZone: string): number | null {
+  try {
+    return partsInZone(at, timeZone).hour;
+  } catch {
+    return null;
+  }
+}
+
 export function parseClock(sendAt: string): { hour: number; minute: number } | null {
   const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(sendAt.trim());
   if (!match) return null;
@@ -93,6 +126,12 @@ function uniqueDays(days: number[]): number[] {
 
 function pad(n: number): string {
   return String(n).padStart(2, "0");
+}
+
+function localDayDistance(from: ClockParts, to: ClockParts): number {
+  const a = Date.UTC(from.year, from.month - 1, from.day);
+  const b = Date.UTC(to.year, to.month - 1, to.day);
+  return Math.round((b - a) / 86_400_000);
 }
 
 function addDays(parts: ClockParts, days: number): ClockParts {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clockInZone, nextSlot, parseClock } from "./schedule";
+import { clockInZone, nextBriefingLabel, nextSlot, parseClock } from "./schedule";
 
 const WEEKDAYS = [1, 2, 3, 4, 5];
 
@@ -72,5 +72,25 @@ describe("nextSlot", () => {
 describe("clockInZone", () => {
   it("prints the hour the reader asked for", () => {
     expect(clockInZone(new Date("2026-08-26T11:30:00Z"), "America/New_York")).toBe("07:30");
+  });
+});
+
+describe("nextBriefingLabel", () => {
+  it("shows today when the slot is later the same day", () => {
+    expect(
+      nextBriefingLabel(new Date("2026-08-26T07:30:00Z"), "UTC", new Date("2026-08-26T06:00:00Z")),
+    ).toBe("Today · 07:30");
+  });
+
+  it("shows tomorrow after today's slot has passed", () => {
+    expect(
+      nextBriefingLabel(new Date("2026-08-27T07:30:00Z"), "UTC", new Date("2026-08-26T08:00:00Z")),
+    ).toBe("Tomorrow · 07:30");
+  });
+
+  it("shows the next weekday when the next slot is further out", () => {
+    expect(
+      nextBriefingLabel(new Date("2026-08-31T07:30:00Z"), "UTC", new Date("2026-08-28T12:00:00Z")),
+    ).toBe("Monday · 07:30");
   });
 });

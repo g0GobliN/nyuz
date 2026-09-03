@@ -55,7 +55,7 @@ import { recordOps } from "@/lib/server/ops";
 import { sendTelegramMessage, type TelegramEnv } from "@/lib/server/telegram/send";
 import { sendStoryPushes, type PushEnv } from "@/lib/server/push/send";
 import { formatTelegramAlert, formatTelegramBriefing } from "@/lib/telegram/format";
-import { storyPush } from "@/lib/push/payload";
+import { briefingPush, partOfDay, storyPush } from "@/lib/push/payload";
 import type {
   Database,
   DeliveryChannel,
@@ -64,7 +64,7 @@ import type {
   ImpactStatus,
   PlanTier,
 } from "@/lib/supabase/types";
-import { nextSlot } from "./schedule";
+import { hourInZone, nextSlot } from "./schedule";
 
 type Db = SupabaseClient<Database>;
 
@@ -76,6 +76,37 @@ const STALE_MINUTES = 15;
 
 /** Send attempts before a queued delivery is marked failed for good. */
 const MAX_ATTEMPTS = 5;
+
+/**
+ * How long to wait after each failed attempt, indexed by attempt number.
+ *
+ * The retryable errors are the ones where the far side is asking for less
+ * traffic — a Resend or Telegram 429, a push service 503. Retrying every reader
+ * on the next five-minute tick answers being rate limited with a synchronised
+ * burst against whoever just rate limited us, and burns all five attempts
+ * inside twenty-five minutes, so a half-hour outage failed the entire batch
+ * permanently.
+ *
+ * These four delays stretch the same five attempts across roughly eighty
+ * minutes, which is long enough to sit out a typical provider incident, while
+ * the jitter below spreads a batch that failed together across the window
+ * rather than re-converging on it.
+ */
+const RETRY_BACKOFF_MINUTES = [2, 6, 18, 54];
+
+/**
+ * When a delivery that has just failed its `attempts`th try may be tried again.
+ *
+ * The ±25% jitter is the point of the function, not a detail: without it every
+ * delivery queued in the same cron run shares a deadline and the herd stays a
+ * herd for all five attempts.
+ */
+export function nextAttemptAt(attempts: number, now: number = Date.now()): string {
+  const index = Math.min(Math.max(attempts, 1), RETRY_BACKOFF_MINUTES.length) - 1;
+  const minutes = RETRY_BACKOFF_MINUTES[index] ?? RETRY_BACKOFF_MINUTES[0] ?? 2;
+  const jittered = minutes * (0.75 + Math.random() * 0.5);
+  return new Date(now + jittered * 60_000).toISOString();
+}
 
 /** A bounded reply prevents one truncation from losing a 30- or 50-story briefing. */
 export const WHY_CHUNK_SIZE = 10;
@@ -962,12 +993,15 @@ export async function flushDeliveries(db: Db, options: DigestOptions): Promise<D
 }
 
 async function deliverDue(db: Db, options: DigestOptions): Promise<DeliveryReport> {
+  // `next_attempt_at` is null for a delivery that has never been deferred — a
+  // first attempt is not a retry — so "due" is null or in the past.
   const query = db
     .from("deliveries")
     .select("id, digest_id, channel, status, attempts, last_error")
     .eq("status", "queued")
     .in("channel", ["email", "telegram", "push"])
-    .lt("attempts", MAX_ATTEMPTS);
+    .lt("attempts", MAX_ATTEMPTS)
+    .or(`next_attempt_at.is.null,next_attempt_at.lte.${new Date().toISOString()}`);
 
   const { data, error } = await query;
   if (error) throw new Error(`reading deliveries: ${error.message}`);
@@ -1026,7 +1060,7 @@ async function sendOne(
   // than failing the send.
   const { data: langRow } = await db
     .from("notification_preferences")
-    .select("language")
+    .select("language, timezone")
     .eq("user_id", digestRow.user_id)
     .maybeSingle();
 
@@ -1038,7 +1072,7 @@ async function sendOne(
     row.channel === "telegram"
       ? await sendTelegramDelivery(db, digestRow, items, first, origin, options)
       : row.channel === "push"
-        ? await sendPushDelivery(db, digestRow, items, origin, options)
+        ? await sendPushDelivery(db, digestRow, items, origin, options, langRow?.timezone ?? null)
         : await sendEmailDelivery(db, digestRow, items, first, origin, options);
 
   const attempts = row.attempts + 1;
@@ -1150,15 +1184,50 @@ async function sendTelegramDelivery(
           briefingHref: `${origin}/dashboard/briefing`,
         });
 
-  return sendTelegramMessage({ chatId: account.chat_id, html, env: options.telegram });
+  const result = await sendTelegramMessage({
+    chatId: account.chat_id,
+    html,
+    env: options.telegram,
+  });
+
+  // A blocked bot used to leave the link in place for ever: every future
+  // briefing and alert failed its Telegram delivery after one attempt, while
+  // the reader's settings page went on saying "Linked". Removing the row is
+  // what makes the two agree — the reader sees Telegram is disconnected and can
+  // reconnect, and nothing is queued for a chat that will never accept it.
+  if (!result.ok && result.gone) {
+    await db.from("telegram_accounts").delete().eq("user_id", digestRow.user_id);
+    await recordOps(db, "delivery:telegram-unlinked", "warning", {
+      user_id: digestRow.user_id,
+      detail: result.error,
+    });
+  }
+
+  return result;
 }
 
+/**
+ * One OS notice for a briefing; one per story for an alert.
+ *
+ * `sendStoryPushes` raises a notification per story it is given, and this used
+ * to hand it the entire digest — fifty stories on Pro at Deep density, per
+ * device, at 07:30. The briefing is not the notification: it is in the email
+ * and on the dashboard, and the notice exists to be worth opening. So a
+ * briefing sends one notice naming its lead stories, and the reader taps
+ * through to the feed.
+ *
+ * Alerts keep a notice each. An alert digest holds exactly one item (see
+ * `create_alert_delivery`), and the whole point of one is that it is a single
+ * event worth interrupting somebody for — folding it into a summary would
+ * describe it as part of a set it is not part of.
+ */
 async function sendPushDelivery(
   db: Db,
-  digestRow: { user_id: string; kind: string | null },
+  digestRow: { user_id: string; kind: string | null; digest_id: string; scheduled_for: string },
   items: MailItem[],
   origin: string,
   options: DigestOptions,
+  timezone: string | null,
 ) {
   const { data: rows } = await db
     .from("push_subscriptions")
@@ -1169,20 +1238,33 @@ async function sendPushDelivery(
     return { ok: false as const, error: "no push subscription", retryable: false };
   }
 
-  const stories = items.map((item) =>
-    storyPush({
-      title: item.title,
-      why: item.why,
-      href: `${origin}/dashboard/story/${item.eventId}`,
-      eventId: item.eventId,
-      breaking: digestRow.kind === "alert",
-    }),
-  );
+  const alert = digestRow.kind === "alert";
+  const stories = alert
+    ? items.map((item) =>
+        storyPush({
+          title: item.title,
+          why: item.why,
+          href: `${origin}/dashboard/story/${item.eventId}`,
+          eventId: item.eventId,
+          breaking: true,
+        }),
+      )
+    : [
+        briefingPush({
+          titles: items.map((item) => item.title),
+          total: items.length,
+          href: `${origin}/dashboard`,
+          tag: digestRow.digest_id,
+          when: partOfDay(
+            timezone ? hourInZone(new Date(digestRow.scheduled_for), timezone) : null,
+          ),
+        }),
+      ];
 
   const result = await sendStoryPushes({
     subscriptions,
     stories,
-    urgency: digestRow.kind === "alert" ? "high" : "normal",
+    urgency: alert ? "high" : "normal",
     env: options.push,
   });
 
@@ -1190,7 +1272,19 @@ async function sendPushDelivery(
     await db.from("push_subscriptions").delete().in("id", result.dropIds);
   }
 
-  if (result.ok) return { ok: true as const };
+  if (result.ok) {
+    // The reader was reached, but a device was not and never will be. Recorded
+    // rather than returned, because failing the delivery over it would mark
+    // every future briefing failed while the reader keeps receiving them.
+    if (result.partialError) {
+      await recordOps(db, "delivery:push-partial", "warning", {
+        user_id: digestRow.user_id,
+        digest_id: digestRow.digest_id,
+        detail: result.partialError,
+      });
+    }
+    return { ok: true as const };
+  }
   return { ok: false as const, error: result.error, retryable: result.retryable };
 }
 
@@ -1208,6 +1302,10 @@ async function markDelivery(
       status,
       last_error: lastError,
       processing_started_at: null,
+      // Only a re-queue carries a deadline. Clearing it on the terminal
+      // statuses keeps a row that later gets requeued by hand from inheriting
+      // a stale one and sitting out its first attempt.
+      next_attempt_at: status === "queued" ? nextAttemptAt(attempts) : null,
       delivered_at: status === "sent" ? new Date().toISOString() : null,
     })
     .eq("id", id);
