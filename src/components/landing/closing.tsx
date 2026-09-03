@@ -68,7 +68,7 @@ export function FinalCta() {
   return (
     <section className="veil relative flex min-h-[80vh] items-center justify-center px-5 py-32 text-center sm:px-8">
       <div className="mx-auto max-w-2xl">
-        <h2 className="display text-[clamp(2.4rem,7vw,4.25rem)]">
+        <h2 className="display text-[clamp(1.875rem,7vw,4.25rem)]">
           The internet never stops.
           <br />
           You don&apos;t have to keep checking it.

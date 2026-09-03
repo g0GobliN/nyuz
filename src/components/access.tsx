@@ -40,9 +40,9 @@ export function MaintenanceScreen({ access = ACCESS_DEFAULT }: { access?: Access
         <Logo />
         <ThemeToggle />
       </header>
-      <main className="veil flex flex-1 items-center justify-center px-5 py-16 sm:px-8">
+      <main className="veil flex flex-1 items-center justify-center px-5 py-12 sm:px-8 sm:py-16">
         <div className="w-full max-w-md text-center animate-rise">
-          <h1 className="display text-[clamp(2.2rem,6vw,3.25rem)]">Back shortly.</h1>
+          <h1 className="display text-[clamp(1.625rem,6vw,3.25rem)]">Back shortly.</h1>
           <p className="mt-5 text-[15px] leading-relaxed text-muted-foreground">{message}</p>
           <p className="mt-8 text-[13px] text-muted-foreground">
             Nothing is lost. Your briefings, topics and history are exactly where you left them.

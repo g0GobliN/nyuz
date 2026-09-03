@@ -145,14 +145,14 @@ function Index() {
 
       <main>
         {/* Hero */}
-        <section className="veil relative px-5 pb-20 pt-28 sm:px-8 sm:pt-32">
+        <section className="veil relative px-5 pb-14 pt-24 sm:px-8 sm:pb-20 sm:pt-32">
           <div className="mx-auto grid w-full max-w-6xl items-center gap-14 lg:grid-cols-[1.05fr_0.95fr]">
             <div className="animate-rise">
               {/* The headline is one editable string; a newline in it breaks the
                   line, which is why this renders with pre-line rather than two
                   hard-coded lines and a <br>. The console preview uses the same
                   class, so what an editor sees is what ships. */}
-              <h1 className="display whitespace-pre-line text-[clamp(2.75rem,8vw,5rem)]">
+              <h1 className="display whitespace-pre-line text-[clamp(2.125rem,8vw,5rem)]">
                 {hero.headline}
               </h1>
               {hero.sub ? (
@@ -226,7 +226,7 @@ function Index() {
               )}
 
               {i === bandAfter && media.midpage.url ? (
-                <div className="border-t border-hairline px-5 py-16 sm:px-8">
+                <div className="border-t border-hairline px-5 py-12 sm:px-8 sm:py-16">
                   <div className="mx-auto w-full max-w-6xl">
                     <MediaBand item={media.midpage} ratio="3 / 1" />
                   </div>
@@ -237,7 +237,7 @@ function Index() {
         })}
 
         {media.closing.url ? (
-          <div className="border-t border-hairline px-5 py-16 sm:px-8">
+          <div className="border-t border-hairline px-5 py-12 sm:px-8 sm:py-16">
             <div className="mx-auto w-full max-w-4xl">
               <MediaBand item={media.closing} ratio="16 / 9" />
             </div>

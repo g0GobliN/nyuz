@@ -503,7 +503,7 @@ export function PageHeader({
             {eyebrow}
           </p>
         ) : null}
-        <h1 className="display mt-2 text-[clamp(1.9rem,4.5vw,2.75rem)]">{title}</h1>
+        <h1 className="display mt-2 text-[clamp(1.5rem,4.5vw,2.75rem)]">{title}</h1>
         {sub ? (
           <p className="mt-3 max-w-lg text-[14.5px] leading-relaxed text-muted-foreground">{sub}</p>
         ) : null}
@@ -523,7 +523,7 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="rounded-3xl border border-dashed border-border px-8 py-16 text-center">
+    <div className="rounded-3xl border border-dashed border-border px-6 py-12 text-center sm:px-8 sm:py-16">
       <p className="font-serif text-2xl">{title}</p>
       <p className="mx-auto mt-3 max-w-sm text-[14px] leading-relaxed text-muted-foreground">
         {body}

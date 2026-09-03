@@ -31,7 +31,7 @@ function NotFoundComponent() {
         <p className="font-serif text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
           404
         </p>
-        <h1 className="display mt-4 text-[clamp(2.2rem,6vw,3.25rem)]">Nothing here.</h1>
+        <h1 className="display mt-4 text-[clamp(1.625rem,6vw,3.25rem)]">Nothing here.</h1>
         <p className="mt-5 text-[14.5px] leading-relaxed text-muted-foreground">
           This address does not point at anything. It may have moved, or it may never have existed.
         </p>
@@ -68,7 +68,7 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
         <p className="font-serif text-[13px] uppercase tracking-[0.18em] text-muted-foreground">
           Error
         </p>
-        <h1 className="display mt-4 text-[clamp(2.2rem,6vw,3.25rem)]">That didn&apos;t load.</h1>
+        <h1 className="display mt-4 text-[clamp(1.625rem,6vw,3.25rem)]">That didn&apos;t load.</h1>
         <p className="mt-5 text-[14.5px] leading-relaxed text-muted-foreground">
           Something failed on our side rather than yours. Nothing you have saved is affected — your
           topics, briefings and history are untouched.

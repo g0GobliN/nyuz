@@ -128,6 +128,28 @@
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 6px 20px -10px oklch(0 0 0 / 0.5);
 }
 
+/*
+ * The display scale is sized for a column that is a third of a desktop window.
+ * On a phone that same column is the whole screen, so a 36px heading stops
+ * reading as a heading and starts reading as a zoomed-in page. Tailwind's font
+ * sizes are variables, not literals, so redefining them below the sm breakpoint
+ * retunes every heading utility at once — a text-4xl stays one step above
+ * text-3xl, the whole ladder just starts lower.
+ *
+ * Body sizes (xs through xl) are deliberately untouched: they are already at
+ * reading size, and shrinking them would cost legibility, not gain density.
+ */
+@media (width < 40rem) {
+  :root {
+    --text-2xl: 1.25rem;
+    --text-3xl: 1.5rem;
+    --text-4xl: 1.75rem;
+    --text-5xl: 2rem;
+    --text-6xl: 2.25rem;
+    --text-7xl: 2.5rem;
+  }
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
@@ -136,6 +158,10 @@
   html {
     scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
+    /* Preflight only ships the -webkit- prefix. Without the standard property
+       some mobile engines inflate text inside long blocks on their own, which
+       undoes the scale above. */
+    text-size-adjust: 100%;
   }
 
   body {

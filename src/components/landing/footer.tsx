@@ -31,7 +31,7 @@ export function SiteFooter({
   const blogOn = content.flags["blog"] === true;
 
   return (
-    <footer className="border-t border-hairline px-5 py-14 sm:px-8">
+    <footer className="border-t border-hairline px-5 py-10 sm:px-8 sm:py-14">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 md:flex-row md:items-start md:justify-between">
         <div className="max-w-xs">
           <Logo />
