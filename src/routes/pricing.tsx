@@ -9,22 +9,20 @@ import { getPublicSiteContent } from "@/lib/server/settings";
 import { useReveal } from "@/lib/use-reveal";
 import { cn } from "@/lib/utils";
 import { DEFAULT_ANNUAL_PRICES, DEFAULT_PLAN_PRICES, PLAN_LIMITS, formatUsd } from "@/lib/plans";
+import { pageHead } from "@/lib/seo";
 
 export const Route = createFileRoute("/pricing")({
   loader: () => getPublicSiteContent(),
   component: Pricing,
-  head: () => ({
-    meta: [
-      { title: "Pricing — nyuz" },
-      {
-        name: "description",
-        // Left as prose rather than interpolated from the loader: a search
-        // snippet is cached for weeks, so a number in it goes stale in a place
-        // nobody can see. The page body is where the live figures belong.
-        content: "Start free. Paid plans from $14.99/month. Relevance, not quantity.",
-      },
-    ],
-  }),
+  head: () =>
+    pageHead({
+      path: "/pricing",
+      title: "Pricing — nyuz",
+      // Left as prose rather than interpolated from the loader: a search
+      // snippet is cached for weeks, so a number in it goes stale in a place
+      // nobody can see. The page body is where the live figures belong.
+      description: "Start free. Paid plans from $14.99/month. Relevance, not quantity.",
+    }),
 });
 
 /**
@@ -181,9 +179,9 @@ function Pricing() {
     <div ref={ref} className="min-h-screen bg-background">
       <SiteNav content={content} />
       <main>
-        <section className="veil px-5 pb-14 pt-32 text-center sm:px-8">
+        <section className="veil px-5 pb-10 pt-24 text-center sm:px-8 sm:pb-14 sm:pt-32">
           <div className="mx-auto w-full max-w-2xl">
-            <h1 className="display text-[clamp(2.5rem,7vw,4.25rem)] animate-rise">
+            <h1 className="display text-[clamp(1.875rem,7vw,4.25rem)] animate-rise">
               Pay for relevance,
               <br />
               not volume.

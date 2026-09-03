@@ -4,20 +4,18 @@ import { Eyebrow, Section } from "@/components/kit";
 import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
 import { getPublicSiteContent } from "@/lib/server/settings";
+import { pageHead } from "@/lib/seo";
 
 export const Route = createFileRoute("/about")({
   loader: () => getPublicSiteContent(),
   component: About,
-  head: () => ({
-    meta: [
-      { title: "About — nyuz" },
-      {
-        name: "description",
-        content:
-          "nyuz keeps watch across relevant sources, connects duplicate coverage into events, filters the noise, and delivers a personalized briefing.",
-      },
-    ],
-  }),
+  head: () =>
+    pageHead({
+      path: "/about",
+      title: "About — nyuz",
+      description:
+        "nyuz keeps watch across relevant sources, connects duplicate coverage into events, filters the noise, and delivers a personalized briefing.",
+    }),
 });
 
 function About() {
@@ -27,10 +25,10 @@ function About() {
     <div className="min-h-screen bg-background">
       <SiteNav content={content} />
       <main>
-        <section className="veil px-5 pb-14 pt-32 text-center sm:px-8">
+        <section className="veil px-5 pb-10 pt-24 text-center sm:px-8 sm:pb-14 sm:pt-32">
           <div className="mx-auto w-full max-w-2xl">
             <Eyebrow>About</Eyebrow>
-            <h1 className="display mt-4 text-[clamp(2.5rem,7vw,4.25rem)] animate-rise">
+            <h1 className="display mt-4 text-[clamp(1.875rem,7vw,4.25rem)] animate-rise">
               Stop searching.
               <br />
               Start knowing.

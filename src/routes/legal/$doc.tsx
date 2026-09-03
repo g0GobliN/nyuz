@@ -2,6 +2,7 @@ import { createFileRoute, notFound, Link } from "@tanstack/react-router";
 import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
 import { getPublicSiteContent } from "@/lib/server/settings";
+import { pageHead } from "@/lib/seo";
 
 /**
  * The published policies.
@@ -653,9 +654,17 @@ export const Route = createFileRoute("/legal/$doc")({
     const content = await getPublicSiteContent();
     return { doc, content };
   },
-  head: ({ loaderData }) => ({
-    meta: [{ title: loaderData ? `${loaderData.doc.title} — nyuz` : "nyuz" }],
-  }),
+  head: ({ loaderData, params }) => {
+    if (!loaderData) return { meta: [{ title: "nyuz" }] };
+    return pageHead({
+      path: `/legal/${params.doc}`,
+      title: `${loaderData.doc.title} — nyuz`,
+      // The intro line, not the body: a legal document's first paragraph is
+      // written to say what the document covers, which is exactly what a search
+      // snippet needs.
+      description: loaderData.doc.intro,
+    });
+  },
   component: LegalDoc,
 });
 
@@ -666,7 +675,7 @@ function LegalDoc() {
   return (
     <div className="min-h-screen bg-background">
       <SiteNav content={content} />
-      <main className="px-5 pb-24 pt-32 sm:px-8">
+      <main className="px-5 pb-16 pt-24 sm:px-8 sm:pb-24 sm:pt-32">
         <div className="mx-auto grid w-full max-w-5xl gap-14 md:grid-cols-[180px_1fr]">
           <nav className="md:sticky md:top-28 md:self-start">
             {/* Grouped rather than one flat run: there are nine documents now,

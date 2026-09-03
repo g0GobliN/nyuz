@@ -11,6 +11,7 @@ import {
 import { SourceTransparency, FinalCta } from "@/components/landing/closing";
 import { getPublicSiteContent } from "@/lib/server/settings";
 import { useReveal } from "@/lib/use-reveal";
+import { pageHead } from "@/lib/seo";
 
 // The loader is here for the chrome, not the body: the announcement strip and the
 // blog link have to be identical on every marketing page, and they come from the
@@ -19,16 +20,13 @@ import { useReveal } from "@/lib/use-reveal";
 export const Route = createFileRoute("/how-it-works")({
   loader: () => getPublicSiteContent(),
   component: HowItWorks,
-  head: () => ({
-    meta: [
-      { title: "How nyuz works" },
-      {
-        name: "description",
-        content:
-          "Sources are collected once, duplicates are merged into events, and only what matches your interests reaches your briefing.",
-      },
-    ],
-  }),
+  head: () =>
+    pageHead({
+      path: "/how-it-works",
+      title: "How nyuz works",
+      description:
+        "Sources are collected once, duplicates are merged into events, and only what matches your interests reaches your briefing.",
+    }),
 });
 
 function HowItWorks() {
@@ -39,9 +37,9 @@ function HowItWorks() {
     <div ref={ref} className="min-h-screen bg-background">
       <SiteNav content={content} />
       <main>
-        <section className="veil px-5 pb-16 pt-32 sm:px-8">
+        <section className="veil px-5 pb-12 pt-24 sm:px-8 sm:pb-16 sm:pt-32">
           <div className="mx-auto w-full max-w-6xl">
-            <h1 className="display max-w-3xl text-[clamp(2.5rem,7vw,4.5rem)] animate-rise">
+            <h1 className="display max-w-3xl text-[clamp(1.875rem,7vw,4.5rem)] animate-rise">
               Understand the event, not thirty copies of the same article.
             </h1>
             <p className="mt-7 max-w-lg text-[16.5px] leading-relaxed text-muted-foreground animate-rise [animation-delay:120ms]">
