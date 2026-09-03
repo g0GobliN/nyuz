@@ -302,6 +302,13 @@ export const unbanUser = createServerFn({ method: "POST" })
   .handler(async ({ context, data }): Promise<{ ok: true }> => {
     const { actor } = context;
 
+    // An admin cannot unban another admin or a superadmin; only a superadmin can
+    // act on staff. This mirrors banUser so the two stay symmetric.
+    const targetRole = await roleOf(actor, data.userId);
+    if (targetRole !== "user" && actor.role !== "superadmin") {
+      throw new AdminAuthError("Only a superadmin can unban another admin.", 403);
+    }
+
     const { error: authError } = await actor.db.auth.admin.updateUserById(data.userId, {
       ban_duration: "none",
     });
@@ -386,10 +393,22 @@ export const setUserPlan = createServerFn({ method: "POST" })
       throw new AdminAuthError("Unknown plan.", 400);
     }
 
+    // An admin cannot change the plan of another admin or a superadmin; only a
+    // superadmin can act on staff. This stops one admin from cutting off access.
+    const targetRole = await roleOf(actor, data.userId);
+    if (targetRole !== "user" && actor.role !== "superadmin") {
+      throw new AdminAuthError("Only a superadmin can change another admin's plan.", 403);
+    }
+
+    // Clear any retired subscription IDs so a later webhook cannot overwrite
+    // this manual override.
     const { error } = await actor.db.from("subscriptions").upsert({
       user_id: data.userId,
       plan: data.plan,
       status: "active",
+      stripe_subscription_id: null,
+      retired_stripe_subscription_id: null,
+      cancel_at_period_end: false,
       updated_at: new Date().toISOString(),
     });
     if (error) throw new AdminAuthError(`Plan change failed: ${error.message}`, 500);
