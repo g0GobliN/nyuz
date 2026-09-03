@@ -1,43 +1,20 @@
 import { createMiddleware } from "@tanstack/react-start";
 import { getRequestHeader } from "@tanstack/react-start/server";
+import { RATE_LIMITS, rateLimit } from "@/lib/rate-limit-core";
 import { signedInOnly } from "./guard";
 
 /**
- * In-memory, per-isolate rate limiting. Cloudflare can route consecutive
- * requests to different Workers isolates, so this is a soft cap, not a
- * distributed one — good enough to blunt runaway AI spend and waitlist spam
- * on a student budget, not a substitute for a KV/Durable-Object limiter.
+ * The request-bound half of rate limiting.
+ *
+ * The counting lives in `@/lib/rate-limit-core`, which imports nothing. This
+ * module reads the caller's identity off the request, which needs
+ * `@tanstack/react-start/server` — a specifier denied in the client
+ * environment. Everything exported here is therefore a middleware, because the
+ * build strips middleware and its imports out of the client graph. A plain
+ * exported function here would pull a server-only import into the browser
+ * bundle through any route that transitively imports this file, and fail the
+ * build. That is not a style rule; it is the reason for the split.
  */
-
-type RateLimitEntry = { count: number; resetAt: number };
-
-const limiters = new Map<string, RateLimitEntry>();
-
-function rateLimit(
-  key: string,
-  maxRequests: number,
-  windowMs: number,
-): { allowed: boolean; resetAt: number } {
-  const now = Date.now();
-  const entry = limiters.get(key);
-  const current = entry && now < entry.resetAt ? entry : { count: 0, resetAt: now + windowMs };
-
-  if (current.count >= maxRequests) {
-    limiters.set(key, current);
-    return { allowed: false, resetAt: current.resetAt };
-  }
-
-  current.count++;
-  limiters.set(key, current);
-  return { allowed: true, resetAt: current.resetAt };
-}
-
-const RATE_LIMITS = {
-  // AI-backed calls (askStory): 20 per minute per signed-in user.
-  ai: { maxRequests: 20, windowMs: 60 * 1000 },
-  // Waitlist submissions: 5 per hour per IP.
-  signup: { maxRequests: 5, windowMs: 60 * 60 * 1000 },
-} as const;
 
 function clientIp(): string {
   return (
@@ -75,3 +52,14 @@ export const signupRateLimit = createMiddleware({ type: "function" }).server(asy
   if (!allowed) tooManyRequests(resetAt);
   return next();
 });
+
+/**
+ * Puts the caller's IP on the context without gating anything.
+ *
+ * For handlers that need to make their own decision from it rather than be
+ * refused outright — blog view counting, where being over the limit means "do
+ * not count this" and never "do not serve the post".
+ */
+export const withViewerIp = createMiddleware({ type: "function" }).server(async ({ next }) =>
+  next({ context: { viewerIp: clientIp() } }),
+);
