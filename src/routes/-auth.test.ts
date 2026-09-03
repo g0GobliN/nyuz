@@ -1,12 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { passwordRecoveryError } from "./auth";
+import { authErrorMessage } from "@/lib/auth-errors";
 
-describe("password recovery errors", () => {
-  it("gives an actionable message for expired links", () => {
-    expect(passwordRecoveryError("Auth session missing")).toContain("invalid or has expired");
+describe("authentication errors", () => {
+  it("does not expose provider errors", () => {
+    expect(authErrorMessage("unsupported provider", "github")).toBe(
+      "GitHub authentication is not available.",
+    );
   });
 
-  it("does not encourage repeated requests while rate limited", () => {
-    expect(passwordRecoveryError("email rate limit exceeded")).toContain("Wait a few minutes");
+  it("makes an expired code actionable", () => {
+    expect(authErrorMessage("otp_expired")).toBe("That code has expired. Request a new one.");
+  });
+
+  it("does not expose raw invalid-code errors", () => {
+    expect(authErrorMessage("Token has been invalidated")).toBe(
+      "That code isn't right. Try again.",
+    );
+  });
+
+  it("uses a concise message for network failures", () => {
+    expect(authErrorMessage("Failed to fetch")).toContain("Check your connection");
   });
 });
