@@ -68,31 +68,15 @@ export function timeFromDb(value: string): string {
 }
 
 /**
- * The stable identity of a topic, derived from whatever the reader typed.
+ * Topic identity and usability moved to `src/lib/topics.ts` when interests
+ * stopped being drawn from a fixed pool.
  *
- * Onboarding accepts free text, so "Open Source", "open source" and " open
- * source " must reach the same row — otherwise every reader creates their own
- * near-duplicate and the shared analysis they are supposed to share is split
- * across three topics.
+ * Re-exported rather than relocated because the rule is imported from a dozen
+ * places and there must only ever be one implementation of it: a second copy of
+ * the slug would pass its own tests while quietly forking the canonical row two
+ * readers are supposed to share.
  */
-export function topicSlug(label: string): string {
-  return (
-    label
-      .trim()
-      .toLowerCase()
-      .normalize("NFKD")
-      // Strip combining marks so "Café" and "Cafe" do not diverge.
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 64)
-  );
-}
-
-/** Rejects a topic that slugifies to nothing — punctuation, emoji, whitespace. */
-export function isUsableTopic(label: string): boolean {
-  return topicSlug(label).length > 0;
-}
+export { isUsableTopic, topicSlug } from "@/lib/topics";
 
 /** The notification row for a set of preferences. `user_id` is added by the caller. */
 export function prefsToNotificationRow(

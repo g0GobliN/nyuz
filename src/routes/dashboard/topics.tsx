@@ -1,8 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ChevronDown, PauseCircle, Plus, Search, Trash2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronDown, PauseCircle, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
-import { Button, Chip } from "@/components/kit";
+import { ExclusionPicker } from "@/components/exclusion-picker";
+import { Button } from "@/components/kit";
 import {
   Dialog,
   DialogContent,
@@ -11,11 +12,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { isCoveredTopic } from "@/lib/coverage";
 import { usePlan } from "@/lib/plan-state";
 import { PLAN_NAMES, formatTopicLimit, nextPlanUp } from "@/lib/plans";
 import { usePrefs } from "@/lib/prefs-store";
-import { IGNORE_POOL, TOPIC_POOL } from "@/lib/topics-pool";
+import { TopicPicker } from "@/components/topic-picker";
+import { topicSlug } from "@/lib/topics";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/topics")({
@@ -40,7 +41,6 @@ const DEFAULT_CONFIG: TopicConfig = {
 function Topics() {
   const { prefs, update } = usePrefs();
   const { plan, topicLimit, loading: planLoading } = usePlan();
-  const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [configs, setConfigs] = useState<Record<string, TopicConfig>>({});
   const [limitPrompt, setLimitPrompt] = useState(false);
@@ -50,52 +50,28 @@ function Topics() {
   const overBy = Math.max(0, prefs.topics.length - topicLimit);
   const upgrade = nextPlanUp(plan);
 
-  const suggestions = useMemo(
-    () =>
-      TOPIC_POOL.filter(
-        (t) => !prefs.topics.includes(t) && t.toLowerCase().includes(q.trim().toLowerCase()),
-      ),
-    [prefs.topics, q],
-  );
-
-  const custom = q.trim();
-  const poolHit = TOPIC_POOL.find(
-    (t) => isCoveredTopic(custom) && t.toLowerCase() === custom.toLowerCase(),
-  );
   const atCap = !planLoading && prefs.topics.length >= topicLimit;
-  const canAdd =
-    Boolean(poolHit) &&
-    !prefs.topics.some((t) => t.toLowerCase() === custom.toLowerCase()) &&
-    !atCap;
 
-  const add = (t: string) => {
-    if (!planLoading && prefs.topics.length >= topicLimit) {
-      setLimitPrompt(true);
+  const toggle = (t: string) => {
+    if (prefs.topics.some((x) => topicSlug(x) === topicSlug(t))) {
+      remove(t);
       return;
     }
-    if (prefs.topics.some((x) => x.toLowerCase() === t.toLowerCase())) return;
     update({ topics: [...prefs.topics, t] });
-    setQ("");
   };
-  const remove = (t: string) => update({ topics: prefs.topics.filter((x) => x !== t) });
+  const remove = (t: string) =>
+    update({ topics: prefs.topics.filter((x) => topicSlug(x) !== topicSlug(t)) });
 
   const cfg = (t: string) => configs[t] ?? DEFAULT_CONFIG;
   const setCfg = (t: string, p: Partial<TopicConfig>) =>
     setConfigs((c) => ({ ...c, [t]: { ...cfg(t), ...p } }));
 
-  const toggleExclusion = (t: string) =>
-    update({
-      exclusions: prefs.exclusions.includes(t)
-        ? prefs.exclusions.filter((x) => x !== t)
-        : [...prefs.exclusions, t],
-    });
-
   return (
     <DashboardShell title="Topics">
       <PageHeader
         eyebrow="Your nyuz"
-        title="What do you want to know about?"
-        sub="Pick from the list — a topic we do not source cannot appear in a briefing."
+        title="What do you want nyuz to watch?"
+        sub="Pick from the suggestions, or type anything you want followed."
       />
 
       {!planLoading ? (
@@ -117,32 +93,12 @@ function Topics() {
         </div>
       ) : null}
 
-      <div className="flex items-center gap-2.5 rounded-full border border-input bg-surface px-4">
-        <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && canAdd && add(custom)}
-          placeholder="Search the topics we cover"
-          className="h-12 w-full bg-transparent text-[16px] outline-none placeholder:text-muted-foreground md:text-[15px]"
-        />
-        {canAdd ? (
-          <Button size="sm" onClick={() => add(custom)} className="my-1.5 shrink-0">
-            <Plus className="h-3.5 w-3.5" /> Add
-          </Button>
-        ) : null}
-      </div>
-
-      {suggestions.length > 0 ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {suggestions.map((t) => (
-            <Chip key={t} onClick={() => add(t)}>
-              <Plus className="mr-1 inline h-3 w-3" />
-              {t}
-            </Chip>
-          ))}
-        </div>
-      ) : null}
+      <TopicPicker
+        selected={prefs.topics}
+        onToggle={toggle}
+        atCap={atCap}
+        onCapHit={() => setLimitPrompt(true)}
+      />
 
       <div className="mt-9 space-y-2">
         {prefs.topics.length === 0 ? (
@@ -245,25 +201,11 @@ function Topics() {
         <p className="mt-2 text-[13.5px] text-muted-foreground">
           Exclusions win over topics. If a story matches both, it stays out.
         </p>
-        <div className="mt-5 flex flex-wrap gap-2">
-          {Array.from(new Set([...IGNORE_POOL, ...prefs.exclusions])).map((t) => {
-            const on = prefs.exclusions.includes(t);
-            return (
-              <button
-                key={t}
-                onClick={() => toggleExclusion(t)}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] transition-all duration-300 active:scale-95",
-                  on
-                    ? "border-transparent bg-muted text-muted-foreground line-through"
-                    : "border-border bg-surface hover:border-foreground/25",
-                )}
-              >
-                {on ? <X className="h-3 w-3" /> : null}
-                {t}
-              </button>
-            );
-          })}
+        <div className="mt-5">
+          <ExclusionPicker
+            selected={prefs.exclusions}
+            onChange={(exclusions) => update({ exclusions })}
+          />
         </div>
       </section>
 
