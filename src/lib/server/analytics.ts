@@ -170,10 +170,9 @@ export const getOverview = createServerFn({ method: "GET" })
       countByEnum(db, "feedback", "vote", VOTES),
     ]);
 
-    const [priceSetting, tokens, blogViews] = await Promise.all([
+    const [priceSetting, totals] = await Promise.all([
       db.from("site_settings").select("value").eq("key", "billing.prices").maybeSingle(),
-      sumTokens(db),
-      sumBlogViews(db),
+      usageTotals(db),
     ]);
 
     const { prices, overridden } = resolvePlanPrices(priceSetting.data?.value ?? null);
@@ -208,12 +207,12 @@ export const getOverview = createServerFn({ method: "GET" })
         successRate: attempted > 0 ? deliveriesByStatus.sent / attempted : null,
       },
       feedback,
-      ai: tokens,
+      ai: totals.ai,
       blog: {
         total: blogTotal,
         published: blogPublished,
         drafts: blogTotal - blogPublished,
-        views: blogViews,
+        views: totals.blogViews,
       },
       generatedAt: new Date().toISOString(),
     };
@@ -280,34 +279,30 @@ async function countByEnum<T extends string>(
  * page is capped: beyond the cap the figure is a floor, not a total, and the
  * caller says so rather than quietly under-reporting.
  */
-const TOKEN_PAGE = 10_000;
-
-async function sumTokens(db: SupabaseClient<Database>): Promise<Overview["ai"]> {
-  const [events, digests] = await Promise.all([
-    db.from("events").select("analysis_tokens").gt("analysis_tokens", 0).limit(TOKEN_PAGE),
-    db.from("digests").select("generation_tokens").gt("generation_tokens", 0).limit(TOKEN_PAGE),
-  ]);
-
-  if (events.error) throw new Error(`sum(events.analysis_tokens): ${events.error.message}`);
-  if (digests.error) throw new Error(`sum(digests.generation_tokens): ${digests.error.message}`);
-
-  const analysisTokens = (events.data ?? []).reduce((sum, row) => sum + row.analysis_tokens, 0);
-  const generationTokens = (digests.data ?? []).reduce(
-    (sum, row) => sum + row.generation_tokens,
-    0,
-  );
+/**
+ * The overview's totals, summed by Postgres.
+ *
+ * These used to be two functions that selected rows under a `limit` and added
+ * them up here. A limit does not error, it truncates: past ten thousand
+ * analysed events the token figure quietly stopped growing, so the number an
+ * operator reads to decide whether AI spend is under control was a floor
+ * presented as a total. See 0052.
+ */
+async function usageTotals(
+  db: SupabaseClient<Database>,
+): Promise<{ ai: Overview["ai"]; blogViews: number }> {
+  const { data, error } = await db.rpc("admin_usage_totals");
+  if (error) throw new Error(`usage totals: ${error.message}`);
+  const row = Array.isArray(data) ? data[0] : data;
 
   return {
-    analysisTokens,
-    generationTokens,
-    analysedEvents: events.data?.length ?? 0,
+    ai: {
+      analysisTokens: Number(row?.analysis_tokens ?? 0),
+      generationTokens: Number(row?.generation_tokens ?? 0),
+      analysedEvents: Number(row?.analysed_events ?? 0),
+    },
+    blogViews: Number(row?.blog_views ?? 0),
   };
-}
-
-async function sumBlogViews(db: SupabaseClient<Database>): Promise<number> {
-  const { data, error } = await db.from("blog_posts").select("view_count").limit(1000);
-  if (error) throw new Error(`sum(blog_posts.view_count): ${error.message}`);
-  return (data ?? []).reduce((sum, row) => sum + row.view_count, 0);
 }
 
 /** Daily buckets for the overview chart. Grouped in Postgres — see 0003. */

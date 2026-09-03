@@ -2,7 +2,20 @@ import { createServerFn } from "@tanstack/react-start";
 import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { adminOnly, audit } from "@/lib/server/guard";
-import { DEFAULT_AI_MONTHLY_COST_USD } from "@/lib/ai/budget";
+import {
+  configuredCeiling,
+  DEFAULT_AI_MONTHLY_COST_USD,
+  MICROUSD_PER_USD,
+  MIN_AI_MONTHLY_COST_USD,
+} from "@/lib/ai/budget";
+import { ambientEnv } from "@/lib/runtime-env";
+import {
+  computeAiCredit,
+  SPEND_WINDOW_KEYS,
+  type AiCredit,
+  type SpendWindow,
+} from "@/lib/ai/credit";
+import type { AiCreditTopup } from "@/lib/supabase/types";
 import {
   computeUnitEconomics,
   COST_PROVIDERS,
@@ -125,15 +138,17 @@ export const getAiSpend = createServerFn({ method: "GET" })
     const row = Array.isArray(data) ? data[0] : null;
     if (!row) return null;
 
-    // `globalThis.process?.env`, never a bare `process.env`: on Workers the
-    // binding may not exist at all, and a bare reference is a ReferenceError
-    // that would take the console page down rather than degrade it. Same
-    // reasoning as `createAdminClient` and `readEnv` in email/send.ts.
-    const configured = globalThis.process?.env?.["AI_MONTHLY_COST_USD"];
-    const resolved =
-      configured && Number.isFinite(Number(configured)) && Number(configured) > 0
-        ? Number(configured)
-        : null;
+    // `ambientEnv()`, never a bare `process.env`: on Workers that binding does
+    // not exist at all, and a bare reference is a ReferenceError that would take
+    // the console page down rather than degrade it. Same reasoning as
+    // `createAdminClient` and `readEnv` in email/send.ts.
+    // A value below the floor is treated as unset, so `configuredCeiling` stays
+    // false and the page says the built-in default is in force — rather than
+    // reporting a typo'd $0.10 as the operator's deliberate ceiling.
+    const resolved = configuredCeiling(
+      ambientEnv()["AI_MONTHLY_COST_USD"],
+      MIN_AI_MONTHLY_COST_USD,
+    );
     const ceilingUsd = resolved ?? DEFAULT_AI_MONTHLY_COST_USD;
 
     const spentUsd = row.spent_microusd / 1_000_000;
@@ -271,6 +286,162 @@ export const saveOperatingCosts = createServerFn({ method: "POST" })
       "cost.overhead.save",
       { type: "unit_economics", id: "operating_costs" },
       data.costs,
+    );
+    return { ok: true };
+  });
+
+/**
+ * The prepaid balance, and the burn rate that says when to recharge.
+ *
+ * Reads two RPCs rather than one because they answer different questions and
+ * failing to get the second must not cost you the first: an operator staring
+ * at an empty balance because a window aggregate errored is worse off than one
+ * looking at a balance with no burn rate beside it.
+ *
+ * Returns null when 0048 is not applied, matching `getUnitEconomics` — the page
+ * says "not measured yet" rather than locking the console.
+ */
+export type AiCreditView = { credit: AiCredit; windows: SpendWindow[] };
+
+export const getAiCredit = createServerFn({ method: "GET" })
+  .middleware([adminOnly])
+  .handler(async ({ context }): Promise<AiCreditView | null> => {
+    const [balance, windows] = await Promise.all([
+      context.actor.db.rpc("ai_credit_balance"),
+      context.actor.db.rpc("ai_spend_windows"),
+    ]);
+    if (migrationMissing(balance.error)) return null;
+    if (balance.error) throw new Error(`Reading AI credit: ${balance.error.message}`);
+    const row = Array.isArray(balance.data) ? balance.data[0] : null;
+    if (!row) return null;
+
+    const rows = windows.error ? [] : (windows.data ?? []);
+    const parsed: SpendWindow[] = SPEND_WINDOW_KEYS.flatMap((key) => {
+      const match = rows.find((w) => w.window_key === key);
+      return match
+        ? [
+            {
+              key,
+              since: match.since,
+              spentUsd: match.spent_microusd / MICROUSD_PER_USD,
+              settledUsd: match.settled_microusd / MICROUSD_PER_USD,
+              inFlightUsd: match.in_flight_microusd / MICROUSD_PER_USD,
+              tokens: match.tokens,
+              calls: match.calls,
+            },
+          ]
+        : [];
+    });
+
+    // The week window feeds the burn rate. Zero when the aggregate failed, which
+    // suppresses the rate rather than inventing one — see `computeAiCredit`.
+    const week = parsed.find((w) => w.key === "week");
+
+    return {
+      credit: computeAiCredit({
+        toppedUpMicrousd: row.topped_up_microusd,
+        topups: row.topups,
+        firstTopupAt: row.first_topup_at,
+        lastTopupAt: row.last_topup_at,
+        lastTopupMicrousd: row.last_topup_microusd,
+        spentMicrousd: row.spent_microusd,
+        settledMicrousd: row.settled_microusd,
+        inFlightMicrousd: row.in_flight_microusd,
+        unfundedSpentMicrousd: row.unfunded_spent_microusd,
+        calls: row.calls,
+        unpricedCalls: row.unpriced_calls,
+        weekSpentMicrousd: week ? Math.round(week.spentUsd * MICROUSD_PER_USD) : 0,
+        now: new Date(),
+      }),
+      windows: parsed,
+    };
+  });
+
+export const listAiTopups = createServerFn({ method: "GET" })
+  .middleware([adminOnly])
+  .handler(async ({ context }): Promise<AiCreditTopup[] | null> => {
+    const { data, error } = await context.actor.db
+      .from("ai_credit_topups")
+      .select("id, amount_microusd, note, occurred_at, created_by, created_at")
+      .order("occurred_at", { ascending: false })
+      .limit(100);
+    if (migrationMissing(error)) return null;
+    if (error) throw new Error(`Reading AI top-ups: ${error.message}`);
+    return (data ?? []) as AiCreditTopup[];
+  });
+
+// Dollars in, microdollars stored. The input is a string because a $0.10 top-up
+// typed into a number field is a float, and float dollars are how a ledger ends
+// up a cent short of the invoice it is supposed to reconcile against.
+const topupInput = z.object({
+  amountUsd: z
+    .string()
+    .trim()
+    .regex(/^\d{1,6}(\.\d{1,6})?$/, "Amount must be dollars, for example 5 or 5.50."),
+  note: z.string().trim().max(200).optional(),
+  occurredAt: z.string().datetime().optional(),
+});
+
+export const addAiTopup = createServerFn({ method: "POST" })
+  .middleware([adminOnly])
+  .validator((input: unknown) => parseInput(topupInput, input))
+  .handler(async ({ context, data }) => {
+    const [dollars, fraction = ""] = data.amountUsd.split(".");
+    const amountMicrousd =
+      Number(dollars) * MICROUSD_PER_USD + Number(fraction.padEnd(6, "0").slice(0, 6));
+    if (amountMicrousd <= 0) throw new Error("A top-up must be more than zero.");
+
+    const { data: row, error } = await context.actor.db
+      .from("ai_credit_topups")
+      .insert({
+        amount_microusd: amountMicrousd,
+        note: data.note && data.note.length > 0 ? data.note : null,
+        occurred_at: data.occurredAt ?? new Date().toISOString(),
+        created_by: context.actor.id,
+      })
+      .select("id")
+      .single();
+    if (error) throw new Error(`Recording top-up: ${error.message}`);
+
+    await audit(
+      context.actor,
+      "cost.topup.add",
+      { type: "ai_credit", id: row.id },
+      {
+        amount_microusd: amountMicrousd,
+        note: data.note ?? null,
+      },
+    );
+    return { ok: true };
+  });
+
+/**
+ * Removes a top-up that was entered wrongly.
+ *
+ * A hard delete rather than a reversing entry: this table records what was
+ * paid, and a typo was never paid. The audit log keeps the amount, so the
+ * correction is still traceable without leaving a fiction in the balance.
+ */
+export const deleteAiTopup = createServerFn({ method: "POST" })
+  .middleware([adminOnly])
+  .validator((input: unknown) => parseInput(z.object({ id: z.string().uuid() }), input))
+  .handler(async ({ context, data }) => {
+    const { data: row, error } = await context.actor.db
+      .from("ai_credit_topups")
+      .delete()
+      .eq("id", data.id)
+      .select("amount_microusd, occurred_at")
+      .single();
+    if (error) throw new Error(`Removing top-up: ${error.message}`);
+
+    await audit(
+      context.actor,
+      "cost.topup.delete",
+      { type: "ai_credit", id: data.id },
+      {
+        amount_microusd: row.amount_microusd,
+        occurred_at: row.occurred_at,
+      },
     );
     return { ok: true };
   });

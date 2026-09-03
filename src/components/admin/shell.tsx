@@ -181,7 +181,7 @@ export function AdminLayout() {
           </div>
         </header>
 
-        <main className="px-5 pb-20 pt-8 sm:px-7">
+        <main className="px-5 pb-16 pt-6 sm:px-7 sm:pb-20 sm:pt-8">
           <div className="mx-auto w-full max-w-6xl">
             <Outlet />
           </div>
@@ -214,7 +214,7 @@ export function ConsoleHeader({
   return (
     <div className="mb-8 flex flex-wrap items-end justify-between gap-5">
       <div>
-        <h1 className="display text-[clamp(1.7rem,4vw,2.35rem)]">{title}</h1>
+        <h1 className="display text-[clamp(1.375rem,4vw,2.35rem)]">{title}</h1>
         {sub ? (
           <p className="mt-2.5 max-w-2xl text-[14px] leading-relaxed text-muted-foreground">
             {sub}
