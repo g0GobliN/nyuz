@@ -56,8 +56,10 @@ function asCandidate(s: Story, importance = 0, novelty = 0): Candidate {
   return {
     eventId: s.id,
     title: s.title,
+    whatHappened: "",
     importance,
     novelty,
+    tags: [],
     topics: s.topics.map((label) => ({ id: `topic:${label}`, slug: slugOf(label), label })),
     sources: [{ id: `source:${s.org}`, name: s.org }],
   };
@@ -80,7 +82,12 @@ function asReader(p: Prefs, density = 100): Reader {
         topicId: `reader:${term}`,
         slug: slugOf(term),
         label: term,
-        importance: "notable",
+        // The equivalence block is about the keyword channel, which is what
+        // `matchStories` models. Custom-topic terms are a separate route with
+        // no counterpart in the fixture matcher, so they stay empty here.
+        kind: "predefined" as const,
+        terms: [],
+        importance: "notable" as const,
         weight: 1,
         keywords: [term],
         excludeKeywords: [],
@@ -175,6 +182,8 @@ const TOPIC: ReaderTopic = {
   topicId: "t-ai",
   slug: "ai",
   label: "AI",
+  kind: "predefined",
+  terms: [],
   importance: "notable",
   weight: 1,
   keywords: [],
@@ -196,8 +205,10 @@ function event(importance: number, overrides: Partial<Candidate> = {}): Candidat
   return {
     eventId: "e1",
     title: "Something happened",
+    whatHappened: "",
     importance,
     novelty: 0,
+    tags: [],
     topics: [{ id: "t-ai", slug: "ai", label: "AI" }],
     sources: [{ id: "s1", name: "TechCrunch" }],
     ...overrides,
@@ -234,6 +245,46 @@ describe("the topic join", () => {
     // Sixteen of the analysed events are in exactly this position: correctly
     // scored, no row in `event_topics`, permanently unmatchable.
     expect(decide(event(9, { topics: [] }), reader())).toEqual({
+      matched: false,
+      reason: "no-topic-match",
+    });
+  });
+
+  it("matches a custom topic against the shared event signal", () => {
+    const custom: ReaderTopic = {
+      ...TOPIC,
+      topicId: "t-nepal-floods",
+      slug: "nepal-floods",
+      label: "Nepal floods",
+      kind: "custom",
+      terms: ["nepal", "floods"],
+    };
+    const candidate = event(5, {
+      title: "Monsoon rains inundate Kathmandu valley",
+      whatHappened: "Nepal declared an emergency after severe flooding.",
+      topics: [],
+      tags: ["nepal", "monsoon flooding", "kathmandu"],
+    });
+
+    expect(decide(candidate, reader({ topics: [custom] })).matched).toBe(true);
+  });
+
+  it("requires every term of a custom topic", () => {
+    const custom: ReaderTopic = {
+      ...TOPIC,
+      topicId: "t-india-china",
+      slug: "india-vs-china",
+      label: "India vs China",
+      kind: "custom",
+      terms: ["india", "china"],
+    };
+    const candidate = event(5, {
+      title: "China changes rare-earth export rules",
+      whatHappened: "The rules apply to several trading partners.",
+      topics: [],
+    });
+
+    expect(decide(candidate, reader({ topics: [custom] }))).toEqual({
       matched: false,
       reason: "no-topic-match",
     });
@@ -366,6 +417,47 @@ describe("exclusions, which are applied last and win", () => {
   it("is not fooled by case or punctuation", () => {
     const cased = event(9, { title: "The A.I. Act passed" });
     expect(decide(cased, reader({ exclusions: ["a i act"] })).matched).toBe(false);
+  });
+
+  it("lets a custom global exclusion veto any followed topic", () => {
+    const tech: ReaderTopic = {
+      ...TOPIC,
+      topicId: "t-tech",
+      slug: "technology",
+      label: "Technology",
+    };
+    const candidate = event(9, {
+      title: "Elon Musk backs a new robotics push",
+      topics: [{ id: "t-tech", slug: "technology", label: "Technology" }],
+    });
+
+    expect(decide(candidate, reader({ topics: [TOPIC, tech], exclusions: ["Elon Musk"] }))).toEqual(
+      {
+        matched: false,
+        reason: "excluded",
+      },
+    );
+  });
+
+  it("does not turn one topic's exclude keyword into a global exclusion", () => {
+    const ai: ReaderTopic = { ...TOPIC, excludeKeywords: ["TechCrunch"] };
+    const sports: ReaderTopic = {
+      ...TOPIC,
+      topicId: "t-sports",
+      slug: "sports",
+      label: "Sports",
+    };
+    const candidate = event(9, {
+      title: "Championship parade draws record crowds",
+      topics: [{ id: "t-sports", slug: "sports", label: "Sports" }],
+      sources: [{ id: "s1", name: "TechCrunch" }],
+    });
+
+    expect(decide(candidate, reader({ topics: [ai, sports] }))).toEqual({
+      matched: true,
+      relevance: 9,
+      topics: ["Sports"],
+    });
   });
 });
 

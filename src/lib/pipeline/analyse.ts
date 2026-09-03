@@ -44,6 +44,7 @@ import {
 } from "@/lib/ai/config";
 import { TruncatedCompletionError } from "@/lib/ai/deepseek";
 import type { Database, EventStatus, Json } from "@/lib/supabase/types";
+import { cleanTags } from "@/lib/topics";
 import { readEventIntelligence, type EventIntelligence } from "@/lib/understand";
 import { isVcsRef } from "./shortlist";
 
@@ -134,6 +135,7 @@ function contract(slugs: string[]): string {
   "importance": 0,
   "novelty": 0,
   "topics": ["slug"],
+  "tags": ["nepal", "monsoon flooding", "kathmandu"],
   "impact": "1-2 sentences on why this matters to someone who tracks this space, or null",
   "understand": {
     "coverage": "thin, normal, or rich, based on usable unique facts rather than source count",
@@ -225,7 +227,18 @@ topics - choose only from this list, most central first, at most ${MAX_TOPICS}:
 ${slugs.join(", ")}
 
 Choose no topic at all rather than a loose one. An empty list is a correct answer
-for an event outside every topic above.`;
+for an event outside every topic above.
+
+tags - up to 8 lowercase concepts this event is genuinely about, drawn from
+anywhere, NOT from the list above. Countries, regions, cities, organisations,
+people, products, technologies, and the kind of event it is (an earthquake, an
+acquisition, a strike, a court ruling). Include the country or region when the
+event is located somewhere in particular, even if the headline names only a
+city. Readers follow subjects of their own choosing and these are how their
+interests reach this event, so a missing tag is a reader who never sees it.
+
+Tag what the event IS about, not what it mentions in passing, and never tag
+something the coverage does not support. Two to six is normal.`;
 }
 
 export type AnalyseOptions = {
@@ -253,6 +266,7 @@ export type EventOutcome = {
     | "empty" // an event with no articles: nothing to read, no call made
     | "ignored" // a single-article CI ref: marked failed, no model call
     | "no_demand" // gate on, no source reaches an eligible reader: left pending
+    | "demand_check_failed" // gate RPC/database error: no AI spend, event remains pending
     | "deferred" // temporary AI capacity; retry time is persisted
     | "failed";
   articles: number;
@@ -276,6 +290,7 @@ export type AnalysisReport = {
   claimed: number;
   ignored: number;
   noDemand: number;
+  demandCheckFailed: number;
   deferred: number;
   /** Events that reached the model. The rest cost nothing. */
   modelCalls: number;
@@ -302,7 +317,9 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
   // spending decision: one call at a time is one call's worth of money committed at
   // a time, and an operator watching the output can stop it.
   for (const event of events) {
-    outcomes.push(await runOne(db, event, { options, topics, outlets, slugs, system, hasDemand }));
+    outcomes.push(
+      await runOne(db, event, { options, topics, outlets, slugs, system, demand: hasDemand }),
+    );
   }
 
   return {
@@ -315,6 +332,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
     claimed: outcomes.filter((o) => o.decision === "claimed").length,
     ignored: outcomes.filter((o) => o.decision === "ignored").length,
     noDemand: outcomes.filter((o) => o.decision === "no_demand").length,
+    demandCheckFailed: outcomes.filter((o) => o.decision === "demand_check_failed").length,
     deferred: outcomes.filter((o) => o.decision === "deferred").length,
     modelCalls: outcomes.filter((o) => o.promptTokens > 0 || o.completionTokens > 0).length,
     promptTokens: outcomes.reduce((total, o) => total + o.promptTokens, 0),
@@ -326,40 +344,49 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
 /**
  * Which of this batch's events have a source that is core coverage or
  * currently reaches an eligible reader — see 0021_demand_gate.sql for what
- * "reaches" means. `null` means the gate does not apply this run, either
- * because the flag is off (its default; see docs/track.md phase 8) or
- * because `--event` named specific events, which bypasses it on purpose —
- * the same reasoning `claimEvent` already applies to the claim gate.
+ * "reaches" means.
  *
- * Fails open, deliberately. If the flag were somehow turned on ahead of
- * 0021 being applied, or the RPC errors for any other reason, the correct
- * response is "run analysis as if the gate did not exist," not "silently
- * analyse nothing." An AI-provider-shaped outage must not take the
- * deterministic system down with it, and neither should this.
+ * Returns a discriminated union:
+ * - `inactive`: gate off or --event bypass (analysis proceeds normally)
+ * - `error`: RPC/database failed (analysis must NOT proceed - fail closed)
+ * - `loaded`: successful check with set of demanded event IDs
+ *
+ * Fails closed on RPC/database errors: if demand cannot be verified, no AI
+ * tokens are spent. The event remains pending for retry once the service recovers.
  */
+type DemandResult =
+  | { kind: "inactive" } // flag off or --event bypass
+  | { kind: "error"; message: string } // RPC/database failed
+  | { kind: "loaded"; demanded: Set<string> }; // successful check
+
 async function loadDemand(
   db: Db,
   events: Pending[],
   options: AnalyseOptions,
-): Promise<Set<string> | null> {
-  if ((options.eventIds?.length ?? 0) > 0 || events.length === 0) return null;
+): Promise<DemandResult> {
+  if ((options.eventIds?.length ?? 0) > 0 || events.length === 0) {
+    return { kind: "inactive" };
+  }
 
   const { data: flag } = await db
     .from("feature_flags")
     .select("enabled")
     .eq("key", "pre_analysis_demand_gate")
     .maybeSingle();
-  if (flag?.enabled !== true) return null;
+  if (flag?.enabled !== true) return { kind: "inactive" };
 
   const { data, error } = await db.rpc("events_with_demand", {
     p_event_ids: events.map((e) => e.id),
   });
   if (error) {
-    console.warn(`pre-analysis demand gate: ${error.message} — running without it this pass`);
-    return null;
+    console.error(`pre-analysis demand gate failed: ${error.message}`);
+    return { kind: "error", message: error.message };
   }
 
-  return new Set((data ?? []).filter((row) => row.has_demand).map((row) => row.event_id));
+  return {
+    kind: "loaded",
+    demanded: new Set((data ?? []).filter((row) => row.has_demand).map((row) => row.event_id)),
+  };
 }
 
 type Pending = {
@@ -425,8 +452,21 @@ async function selectEvents(db: Db, options: AnalyseOptions): Promise<Pending[]>
   return data ?? [];
 }
 
+/**
+ * The classification vocabulary, and the reason it is filtered.
+ *
+ * Every slug returned here is embedded in the system prompt of every event
+ * analysis. Readers can now create their own topics (0049), so an unfiltered
+ * read of this table would put every label anybody has ever typed into every
+ * prompt for ever — a prompt that grows with signups and is paid for per event.
+ *
+ * `kind = 'predefined'` is what keeps that bounded. Custom interests never
+ * reach the model: they are matched deterministically in stage 5 against the
+ * `tags` this same pass writes, which costs one extraction shared by everyone
+ * rather than one judgement per reader.
+ */
 async function loadTopics(db: Db): Promise<Map<string, string>> {
-  const { data, error } = await db.from("topics").select("id, slug");
+  const { data, error } = await db.from("topics").select("id, slug").eq("kind", "predefined");
   if (error) throw new Error(`reading topics: ${error.message}`);
   return new Map((data ?? []).map((t) => [t.slug, t.id]));
 }
@@ -452,8 +492,8 @@ type Context = {
   outlets: Map<string, string>;
   slugs: string[];
   system: string;
-  /** null = gate inactive this run. See loadDemand. */
-  hasDemand: Set<string> | null;
+  /** Demand check result. See loadDemand. */
+  demand: DemandResult;
 };
 
 type Coverage = {
@@ -476,12 +516,22 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
     completionTokens: 0,
   };
 
-  if (ctx.hasDemand !== null && !ctx.hasDemand.has(event.id)) {
-    // Left exactly as selected: no write, no claim, no coverage read. Still
-    // `pending`, still analysed_at null — eligible for the very next run,
-    // gate or no gate, the moment a source covering it gains a reader.
+  // Handle demand check result
+  if (ctx.demand.kind === "error") {
+    // Demand check failed - do not spend AI tokens. Event remains pending for retry.
+    return {
+      ...base,
+      decision: "demand_check_failed",
+      detail: `demand check failed: ${ctx.demand.message}`,
+    };
+  }
+
+  if (ctx.demand.kind === "loaded" && !ctx.demand.demanded.has(event.id)) {
+    // Gate active, event has no demand - skip analysis
     return { ...base, decision: "no_demand", detail: "no source reaches an eligible reader" };
   }
+
+  // Gate inactive or event has demand - proceed with analysis
 
   const { articles, total, error: readFailed } = await readCoverage(db, event.id, ctx.options);
   if (readFailed) return { ...base, decision: "failed", detail: readFailed };
@@ -682,6 +732,12 @@ export type Analysis = {
   topics: string[];
   unknownTopics: string[];
   /**
+   * Open-vocabulary concepts for `events.tags`. Not a second topic list: these
+   * are never shown and never joined, they are the shared signal a reader's own
+   * words match against in stage 5.
+   */
+  tags: string[];
+  /**
    * The shared "why it matters" line -- see docs/track.md phase 2. Optional,
    * unlike what_happened and the scores: a missing or unusable impact still
    * leaves an analysed, matchable event. digest.ts backfills it lazily on
@@ -757,6 +813,7 @@ export function readAnalysis(
     novelty,
     topics: topics.slice(0, MAX_TOPICS),
     unknownTopics,
+    tags: cleanTags(raw["tags"]),
     impact: text(raw["impact"]),
     understand: readEventIntelligence(raw["understand"], evidenceCount),
   };
@@ -871,6 +928,7 @@ async function writeAnalysis(
       importance: analysis.importance,
       novelty: analysis.novelty,
       understand: analysis.understand as unknown as Json,
+      tags: analysis.tags,
       status: "complete",
       analysis_deferred_until: null,
       analysed_at: now,
@@ -966,11 +1024,13 @@ export function describeAnalysis(report: AnalysisReport): string {
   );
 
   const demand = report.noDemand > 0 ? `, ${report.noDemand} no demand` : "";
+  const demandFailed =
+    report.demandCheckFailed > 0 ? `, ${report.demandCheckFailed} demand-check-failed` : "";
   const deferred = report.deferred > 0 ? `, ${report.deferred} capacity-deferred` : "";
 
   return (
     `analyse: ${report.considered} events, ${report.analysed} analysed, ` +
-    `${report.ignored} ignored, ${report.failed} failed, ${report.claimed} held elsewhere${demand}${deferred}, ` +
+    `${report.ignored} ignored, ${report.failed} failed, ${report.claimed} held elsewhere${demand}${demandFailed}${deferred}, ` +
     `${report.modelCalls} model calls, ` +
     `${report.promptTokens + report.completionTokens} tokens, ${seconds}s`
   );
