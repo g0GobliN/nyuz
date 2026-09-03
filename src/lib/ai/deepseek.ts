@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { envValue } from "@/lib/runtime-env";
 
 /**
  * DeepSeek client. The API is OpenAI-compatible, so the `openai` SDK drives it
@@ -35,7 +36,7 @@ const FALLBACK_MODELS: Record<ModelTier, string> = {
 };
 
 function env(e: AiEnv | undefined, key: keyof AiEnv): string | undefined {
-  return e?.[key] ?? globalThis.process?.env?.[key];
+  return envValue(key, e);
 }
 
 export function modelFor(tier: ModelTier, e?: AiEnv): string {

@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ambientEnv } from "@/lib/runtime-env";
 import { recordOps } from "@/lib/server/ops";
 import {
   complete,
@@ -12,9 +13,12 @@ import {
 } from "@/lib/ai/deepseek";
 import { aiCostCeilingMicrousd, aiCostMicrousd } from "@/lib/ai/cost";
 import {
+  configuredCeiling,
   DEFAULT_AI_MONTHLY_COST_USD,
   DEFAULT_AI_MONTHLY_TOKEN_BUDGET,
   MICROUSD_PER_USD,
+  MIN_AI_MONTHLY_COST_USD,
+  MIN_AI_MONTHLY_TOKEN_BUDGET,
 } from "@/lib/ai/budget";
 
 /**
@@ -78,7 +82,7 @@ export type ResolvedRoute = {
 export type SecretBag = Record<string, string | undefined>;
 
 function secretsDefault(): SecretBag {
-  return (globalThis.process?.env ?? {}) as SecretBag;
+  return ambientEnv();
 }
 
 const ENV_FALLBACK: Record<ModelTier, { model: string; maxTokens: number }> = {
@@ -368,9 +372,14 @@ async function reserveUsage(
 ): Promise<string | null> {
   const secrets = opts.secrets ?? secretsDefault();
   const configured = secrets["AI_MONTHLY_TOKEN_BUDGET"];
-  const globalCap = configured ? Number(configured) : DEFAULT_AI_MONTHLY_TOKEN_BUDGET;
-  if (!Number.isFinite(globalCap) || globalCap <= 0) {
-    throw new Error("AI_MONTHLY_TOKEN_BUDGET must be a positive token count.");
+  const globalCap =
+    configured === undefined || configured.trim() === ""
+      ? DEFAULT_AI_MONTHLY_TOKEN_BUDGET
+      : configuredCeiling(configured, MIN_AI_MONTHLY_TOKEN_BUDGET);
+  if (globalCap === null) {
+    throw new Error(
+      `AI_MONTHLY_TOKEN_BUDGET must be a token count of at least ${MIN_AI_MONTHLY_TOKEN_BUDGET}. Anything lower refuses every call and stops the pipeline.`,
+    );
   }
 
   // A reasoning completion can consume its whole ceiling, and JSON gets one
@@ -383,9 +392,14 @@ async function reserveUsage(
   const reserve = prompt + completion;
 
   const configuredCost = secrets["AI_MONTHLY_COST_USD"];
-  const costCapUsd = configuredCost ? Number(configuredCost) : DEFAULT_AI_MONTHLY_COST_USD;
-  if (!Number.isFinite(costCapUsd) || costCapUsd <= 0) {
-    throw new Error("AI_MONTHLY_COST_USD must be a positive dollar amount.");
+  const costCapUsd =
+    configuredCost === undefined || configuredCost.trim() === ""
+      ? DEFAULT_AI_MONTHLY_COST_USD
+      : configuredCeiling(configuredCost, MIN_AI_MONTHLY_COST_USD);
+  if (costCapUsd === null) {
+    throw new Error(
+      `AI_MONTHLY_COST_USD must be a dollar amount of at least ${MIN_AI_MONTHLY_COST_USD}. A slipped decimal here refuses every call and looks like a provider outage.`,
+    );
   }
 
   // Priced before anything is spent, and refused outright when it cannot be
