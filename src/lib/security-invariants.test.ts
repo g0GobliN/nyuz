@@ -336,11 +336,23 @@ describe("launch cost and privacy boundaries", () => {
     expect(budget).toContain("DEFAULT_AI_MONTHLY_TOKEN_BUDGET = 500_000");
     expect(budget).toContain("DEFAULT_AI_MONTHLY_COST_USD = 10");
 
+    // Floors, not just "above zero". A slipped decimal — 0.10 where 10 was
+    // meant — is finite and positive, and used to pass, setting a ceiling no
+    // real call fits under. Every AI call is then refused and the pipeline
+    // stalls in a way indistinguishable from the provider being down.
+    expect(budget).toContain("MIN_AI_MONTHLY_COST_USD = 1");
+    expect(budget).toContain("MIN_AI_MONTHLY_TOKEN_BUDGET = 10_000");
+    expect(budget).toMatch(/if \(!Number\.isFinite\(value\) \|\| value < floor\) return null/);
+
     const config = readFileSync("src/lib/ai/config.ts", "utf8");
-    expect(config).toMatch(/configured \? Number\(configured\) : DEFAULT_AI_MONTHLY_TOKEN_BUDGET/);
-    expect(config).toMatch(
-      /configuredCost \? Number\(configuredCost\) : DEFAULT_AI_MONTHLY_COST_USD/,
-    );
+    // An unset binding still falls back to the built-in default rather than
+    // turning metering off; a set-but-unusable one refuses loudly.
+    expect(config).toContain("DEFAULT_AI_MONTHLY_TOKEN_BUDGET");
+    expect(config).toContain("DEFAULT_AI_MONTHLY_COST_USD");
+    expect(config).toMatch(/configuredCeiling\(configured, MIN_AI_MONTHLY_TOKEN_BUDGET\)/);
+    expect(config).toMatch(/configuredCeiling\(configuredCost, MIN_AI_MONTHLY_COST_USD\)/);
+    expect(config).toContain("AI_MONTHLY_TOKEN_BUDGET must be a token count of at least");
+    expect(config).toContain("AI_MONTHLY_COST_USD must be a dollar amount of at least");
     expect(config).not.toContain("if (!configured) return null");
   });
 
@@ -435,6 +447,16 @@ describe("launch cost and privacy boundaries", () => {
     ]) {
       expect(server).toContain(header);
     }
+    // The two transport directives are gated on the request already being
+    // HTTPS, because on a plain-HTTP dev origin they break the page rather than
+    // harden it. The gate must stay one-directional: an https request still
+    // gets both, so a refactor cannot quietly ship the site without them.
+    expect(server).toContain("https ? CONTENT_SECURITY_POLICY : CONTENT_SECURITY_POLICY_INSECURE");
+    expect(server).toContain('const https = new URL(request.url).protocol === "https:"');
+    expect(server).toMatch(/if \(https\) \{\s*secured\.headers\.set\("Strict-Transport-Security"/);
+    expect(server).toContain(
+      'const CONTENT_SECURITY_POLICY = [...CSP_DIRECTIVES, "upgrade-insecure-requests"]',
+    );
   });
 
   it("does not mistake a claimed Stripe event for a completed one", () => {
@@ -452,10 +474,10 @@ describe("launch cost and privacy boundaries", () => {
 });
 
 describe("gates fail in the direction that keeps the product working", () => {
-  it("runs analysis normally when the demand gate cannot be evaluated", () => {
-    // Fail open: a broken gate must not silently stop all analysis.
+  it("spends no analysis tokens when demand cannot be evaluated", () => {
+    // Fail closed on spend: pending events remain eligible for the next run.
     const analyse = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
-    expect(analyse).toContain("running without it this pass");
+    expect(analyse).toContain('decision: "demand_check_failed"');
   });
 
   it("collects everything when demand or cadence cannot be evaluated", () => {
