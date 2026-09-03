@@ -1,17 +1,8 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Bell,
-  Check,
-  Mail,
-  MessageCircle,
-  Phone,
-  Search,
-  X,
-} from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { ArrowLeft, ArrowRight, Bell, Check, Mail, MessageCircle, Phone } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button, Chip } from "@/components/kit";
+import { ExclusionPicker } from "@/components/exclusion-picker";
 import { Logo } from "@/components/landing/nav";
 import { LogoLoader } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -23,10 +14,15 @@ import { formatTopicLimit } from "@/lib/plans";
 import { sendWelcome } from "@/lib/server/account";
 import { startFirstBriefing } from "@/lib/server/briefing";
 import { usePrefs, type Prefs } from "@/lib/prefs-store";
-import { IGNORE_POOL, TOPIC_POOL } from "@/lib/topics-pool";
+import { TopicPicker } from "@/components/topic-picker";
+import { topicSlug } from "@/lib/topics";
 import { cn } from "@/lib/utils";
+import { authEntryUrl, safeAuthDestination } from "@/lib/auth-redirect";
 
 export const Route = createFileRoute("/onboarding")({
+  validateSearch: (search: Record<string, unknown>): { next?: string } => ({
+    ...(typeof search["next"] === "string" ? { next: search["next"] } : {}),
+  }),
   component: Onboarding,
   head: () => ({
     meta: [
@@ -55,8 +51,8 @@ const STEP_TITLES = [
 ];
 
 function Onboarding() {
-  const navigate = useNavigate();
-  const { prefs, update, hydrated } = usePrefs();
+  const search = Route.useSearch();
+  const { prefs, update, hydrated, accountLoaded } = usePrefs();
   const { session, loading: sessionLoading } = useAuth();
   const { topicLimit, loading: planLoading } = usePlan();
   const [step, setStep] = useState(0);
@@ -72,7 +68,8 @@ function Onboarding() {
    * to the dashboard; everyone else goes to sign-up, where their answers are
    * waiting in local storage to be attached to the new account.
    */
-  const exitTo = session ? "/dashboard" : "/auth";
+  const destination = safeAuthDestination(search.next);
+  const exitTo = session ? destination : authEntryUrl(search.next);
 
   /**
    * A reader who has already done this does not get handed it again.
@@ -89,11 +86,12 @@ function Onboarding() {
    * before either resolves would throw a genuine new reader out of the flow they
    * just started.
    */
-  const alreadyOnboarded = !sessionLoading && Boolean(session) && hydrated && prefs.onboarded;
+  const alreadyOnboarded =
+    !sessionLoading && Boolean(session) && hydrated && accountLoaded && prefs.onboarded;
 
   useEffect(() => {
-    if (alreadyOnboarded) navigate({ to: "/dashboard", replace: true });
-  }, [alreadyOnboarded, navigate]);
+    if (alreadyOnboarded) window.location.replace(destination);
+  }, [alreadyOnboarded, destination]);
 
   useEffect(() => {
     if (hydrated && !draft) setDraft({ ...prefs, topics: [], exclusions: [] });
@@ -175,13 +173,13 @@ function Onboarding() {
         </div>
       ) : null}
 
-      <main className="veil flex flex-1 items-center px-5 py-12 sm:px-8">
+      <main className="veil flex flex-1 items-center px-5 py-8 sm:px-8 sm:py-12">
         <div className="mx-auto w-full max-w-xl">
           {step === 4 ? (
-            <SetupSequence name={draft.name} onDone={() => navigate({ to: exitTo })} />
+            <SetupSequence name={draft.name} onDone={() => window.location.replace(exitTo)} />
           ) : (
             <div key={step} className="animate-rise">
-              <h1 className="display text-[clamp(2rem,5.5vw,3rem)]">{STEP_TITLES[step]}</h1>
+              <h1 className="display text-[clamp(1.5rem,5.5vw,3rem)]">{STEP_TITLES[step]}</h1>
 
               {step === 0 ? (
                 <StepTopics
@@ -189,6 +187,7 @@ function Onboarding() {
                   patch={patch}
                   topicLimit={topicLimit}
                   planLoading={planLoading}
+                  remoteSearch={Boolean(session)}
                 />
               ) : null}
               {step === 1 ? <StepIgnore draft={draft} patch={patch} /> : null}
@@ -241,98 +240,59 @@ function StepTopics({
   patch,
   topicLimit,
   planLoading,
-}: StepProps & { topicLimit: number; planLoading: boolean }) {
-  const [q, setQ] = useState("");
+  remoteSearch,
+}: StepProps & { topicLimit: number; planLoading: boolean; remoteSearch: boolean }) {
   const atCap = !planLoading && Number.isFinite(topicLimit) && draft.topics.length >= topicLimit;
   const toggle = (t: string) => {
-    if (draft.topics.includes(t)) {
-      patch({ topics: draft.topics.filter((x) => x !== t) });
+    if (draft.topics.some((x) => topicSlug(x) === topicSlug(t))) {
+      patch({ topics: draft.topics.filter((x) => topicSlug(x) !== topicSlug(t)) });
       return;
     }
-    if (atCap) return;
     patch({ topics: [...draft.topics, t] });
   };
-
-  const matches = useMemo(
-    () => TOPIC_POOL.filter((t) => t.toLowerCase().includes(q.trim().toLowerCase())),
-    [q],
-  );
 
   return (
     <div className="mt-8">
       <p className="text-[14px] leading-relaxed text-muted-foreground">
-        Coverage is the list — world, sports, music, politics, games, tech. Pick from it. This plan
-        includes {formatTopicLimit(topicLimit)} topics.
+        Pick from the suggestions, or type whatever you actually want followed — a country, a
+        company, a rivalry. This plan includes {formatTopicLimit(topicLimit)} topics.
       </p>
-      <div className="mt-5 flex items-center gap-2.5 rounded-full border border-input bg-surface px-4">
-        <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search topics — music, sports, politics, games…"
-          className="h-12 w-full bg-transparent text-[16px] outline-none placeholder:text-muted-foreground md:text-[15px]"
+      <div className="mt-5">
+        <TopicPicker
+          selected={draft.topics}
+          onToggle={toggle}
+          atCap={atCap}
+          remoteSearch={remoteSearch}
         />
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-2">
-        {matches.map((t) => (
-          <Chip
-            key={t}
-            active={draft.topics.includes(t)}
-            onClick={() => toggle(t)}
-            className={!draft.topics.includes(t) && atCap ? "opacity-40" : undefined}
-          >
-            {draft.topics.includes(t) ? <Check className="mr-1 inline h-3 w-3" /> : null}
-            {t}
-          </Chip>
-        ))}
-      </div>
+      {draft.topics.length > 0 ? (
+        <div className="mt-6">
+          <p className="text-[12.5px] text-muted-foreground">Following</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {draft.topics.map((t) => (
+              <Chip key={t} active onClick={() => toggle(t)}>
+                <Check className="mr-1 inline h-3 w-3" />
+                {t}
+              </Chip>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function StepIgnore({ draft, patch }: StepProps) {
-  const toggle = (t: string) =>
-    patch({
-      exclusions: draft.exclusions.includes(t)
-        ? draft.exclusions.filter((x) => x !== t)
-        : [...draft.exclusions, t],
-    });
-
   return (
     <div className="mt-8">
       <p className="max-w-md text-[15px] leading-relaxed text-muted-foreground">
         Optional. Anything you mark here stays out of your briefing even when it trends.
       </p>
-      <div className="mt-7 flex flex-wrap gap-2">
-        {IGNORE_POOL.map((t) => {
-          const on = draft.exclusions.includes(t);
-          return (
-            <button
-              key={t}
-              onClick={() => toggle(t)}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[13px] transition-all duration-300 active:scale-95",
-                on
-                  ? "border-transparent bg-muted text-muted-foreground line-through"
-                  : "border-border bg-surface hover:border-foreground/25",
-              )}
-            >
-              {on ? <X className="h-3 w-3" /> : null}
-              {t}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="mt-9">
-        <label className="text-[13px] text-muted-foreground">
-          Tell us anything else you want us to know
-        </label>
-        <textarea
-          rows={3}
-          placeholder="Only tell me about React when something significant happens."
-          className="mt-2 w-full resize-none rounded-2xl border border-input bg-surface px-4 py-3 text-[16px] outline-none placeholder:text-muted-foreground focus:border-signal md:text-[14.5px]"
+      <div className="mt-5">
+        <ExclusionPicker
+          selected={draft.exclusions}
+          onChange={(exclusions) => patch({ exclusions })}
         />
       </div>
     </div>
@@ -520,7 +480,7 @@ function SetupSequence({ name, onDone }: { name: string; onDone: () => void }) {
       {/* Greeted by name only when there actually is one. This line used to
           interpolate a default that shipped with a real person's name in it, so
           every stranger who finished onboarding was welcomed as somebody else. */}
-      <h1 className="display mt-8 text-[clamp(2rem,5.5vw,3rem)]">
+      <h1 className="display mt-8 text-[clamp(1.5rem,5.5vw,3rem)]">
         {name ? `Your nyuz is ready, ${name}.` : "Your nyuz is ready."}
       </h1>
 

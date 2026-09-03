@@ -1,10 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { type Actor, signedInOnly } from "./guard";
-import { keepCoveredTopics } from "@/lib/coverage";
+import { type KeptTopic, keepUsableTopics } from "@/lib/coverage";
 import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
 import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
-import { notificationRowToPrefs, prefsToNotificationRow, topicSlug } from "@/lib/preferences-map";
+import { notificationRowToPrefs, prefsToNotificationRow } from "@/lib/preferences-map";
+import { keepUsableExclusions } from "@/lib/exclusions";
+import { MAX_TOPIC_LABEL } from "@/lib/topics";
+import { backfill } from "@/lib/pipeline/backfill";
 
 /**
  * The reader's own settings, on the server.
@@ -20,6 +23,10 @@ import { notificationRowToPrefs, prefsToNotificationRow, topicSlug } from "@/lib
 
 const prefsInput = z.object({
   name: z.string().max(120).optional(),
+  // The transport guard, not the product rule. `keepUsableTopics` decides what
+  // a topic is; this only stops an absurd body reaching it. The two differ on
+  // purpose — a value between MAX_TOPIC_LABEL and 80 is received and refused
+  // with a reason rather than silently truncated into a different subject.
   topics: z.array(z.string().min(1).max(80)).max(200).optional(),
   exclusions: z.array(z.string().min(1).max(80)).max(200).optional(),
   time: z
@@ -154,7 +161,10 @@ export const savePreferences = createServerFn({ method: "POST" })
         .upsert({ user_id: actor.id, ...patch }, { onConflict: "user_id" });
     }
 
-    if (data.topics !== undefined) await replaceTopics(actor, data.topics);
+    let followedSomethingNew = false;
+    if (data.topics !== undefined) {
+      followedSomethingNew = await replaceTopics(actor, data.topics);
+    }
     if (data.exclusions !== undefined) await replaceExclusions(actor, data.exclusions);
     if (data.paused === false) {
       await actor.db
@@ -166,6 +176,21 @@ export const savePreferences = createServerFn({ method: "POST" })
       await actor.db.from("profiles").update({ auto_paused_at: null }).eq("id", actor.id);
     }
 
+    // A newly followed subject should not sit empty until the next cron. This is
+    // the FREE half of day one — `match()` over events that were analysed for
+    // somebody else — so it spends no tokens and can run every time somebody
+    // adds a topic. `onDemand: false` is what holds that line: the paid path
+    // stays reserved for a brand-new account, once, as `backfill` documents.
+    if (followedSomethingNew) {
+      try {
+        await backfill(actor.db, { userId: actor.id, onDemand: false });
+      } catch (error) {
+        // A failed backfill costs the reader a wait until the scheduled run, and
+        // must never cost them the save that has already been written.
+        console.warn(`preferences: backfill after topic change failed: ${String(error)}`);
+      }
+    }
+
     return { ok: true };
   });
 
@@ -174,7 +199,14 @@ export const savePreferences = createServerFn({ method: "POST" })
  * one: clear and reinsert. `user_topics` cannot be treated this way — see below.
  */
 async function replaceExclusions(actor: Actor, terms: string[]): Promise<void> {
-  const wanted = [...new Set(terms.map((t) => t.trim()).filter(Boolean))];
+  const { kept, refused } = keepUsableExclusions(terms);
+  const wanted = kept;
+
+  if (refused.length > 0) {
+    console.warn(
+      `preferences: ignored unusable exclusions for ${actor.id}: ${refused.map((r) => JSON.stringify(r.label)).join(", ")}`,
+    );
+  }
 
   await actor.db.from("user_exclusions").delete().eq("user_id", actor.id);
   if (wanted.length === 0) return;
@@ -184,37 +216,69 @@ async function replaceExclusions(actor: Actor, terms: string[]): Promise<void> {
 }
 
 /**
+ * How many canonical topic rows one reader may create in a day.
+ *
+ * NOT a product limit — the plan cap is, and this sits far above it: Personal
+ * allows fifteen topics at once, so nobody legitimately creates thirty in a
+ * day. It exists because the plan cap bounds how many topics a reader HOLDS
+ * and nothing bounded how many they could CREATE by adding and removing in a
+ * loop. `topics` is read whole by the analyser and the matcher on every run, so
+ * an unbounded table is a pipeline cost, not just a storage one.
+ *
+ * Following an existing topic is never affected. Only minting a new canonical
+ * row counts, which is why a hundred readers arriving at "Nepal" spend one.
+ */
+const DAILY_TOPIC_CREATIONS = 30;
+
+/**
  * Brings `user_topics` in line with the list the reader is looking at.
  *
  * Topics are a SHARED table — that is the whole cost argument. Two readers who
  * both follow "OpenAI" must point at one row, so an event analysed once serves
- * both. Hence the slug: whatever they typed resolves to a stable identity before
- * anything is linked.
+ * both. The same now holds for anything they invent: two strangers who
+ * independently type "Nepal" resolve through `topicSlug` to one canonical row
+ * and one demand signal, never `alice_nepal` and `bob_nepal`.
+ *
+ * That reuse is why this runs server-side under the service role. `topics` has
+ * no insert policy and, since 0049, a select policy that hides other readers'
+ * custom rows — so the browser can neither create a row nor discover the one it
+ * should be reusing. Resolving here is what keeps deduplication working across
+ * readers who cannot see each other.
  *
  * Existing links are left alone rather than deleted and recreated, because
  * `user_topics` carries state the reader did not set — `weight`, adjusted by the
  * feedback loop. Rewriting the row on every save would reset months of learning
  * because somebody added an unrelated topic.
+ *
+ * Returns whether anything was newly followed, so the caller can decide whether
+ * a backfill is worth running.
  */
-async function replaceTopics(actor: Actor, labels: string[]): Promise<void> {
+async function replaceTopics(actor: Actor, labels: string[]): Promise<boolean> {
   const { db, id: userId } = actor;
 
   const plan = await planFor(actor);
   const limit = PLAN_LIMITS[plan]?.topics ?? PLAN_LIMITS.free.topics;
-  const covered = keepCoveredTopics(labels);
+  const { kept, refused } = keepUsableTopics(labels);
 
-  const wanted = new Map<string, string>();
-  for (const label of covered) {
-    const slug = topicSlug(label);
-    if (!wanted.has(slug)) wanted.set(slug, label);
+  // Refusals are logged rather than thrown. A malformed entry in a list of ten
+  // must not fail the other nine, and the selector already refuses to offer a
+  // label this would reject — anything reaching here is a stale tab or a
+  // hand-made request, neither of which is worth a 400 to the reader.
+  if (refused.length > 0) {
+    console.warn(
+      `preferences: refused ${refused.length} topic(s) for ${userId}: ` +
+        refused.map((r) => r.reason).join(", ") +
+        ` (max ${MAX_TOPIC_LABEL} chars)`,
+    );
   }
 
-  const slugs = [...wanted.keys()];
-
-  if (slugs.length === 0) {
+  if (kept.length === 0) {
     await db.from("user_topics").delete().eq("user_id", userId);
-    return;
+    return false;
   }
+
+  const bySlug = new Map(kept.map((topic) => [topic.slug, topic] as const));
+  const slugs = [...bySlug.keys()];
 
   const { data: existing } = await db
     .from("user_topics")
@@ -228,41 +292,107 @@ async function replaceTopics(actor: Actor, labels: string[]): Promise<void> {
 
   // A downgrade does not delete preferences. Existing rows past the new cap
   // remain stored and become inert in matching; only genuinely new rows are
-  // limited. Removing one still removes it normally.
+  // limited. Removing one still removes it normally. A custom topic is counted
+  // here exactly like a predefined one — the allowance is over interests, and a
+  // reader who could bypass it by typing their own would make it decorative.
   const retainedExisting = slugs.filter((slug) => existingSlugToId.has(slug));
   const room = Number.isFinite(limit) ? Math.max(0, limit - retainedExisting.length) : Infinity;
   const admittedNew = slugs.filter((slug) => !existingSlugToId.has(slug)).slice(0, room);
   const admittedSlugs = new Set([...retainedExisting, ...admittedNew]);
 
-  // Create any admitted topic that does not exist yet. `topics` is readable by everyone
-  // and writable only by service_role, which is why this runs here and not in
-  // the browser. `ignoreDuplicates` makes a race between two readers adding the
-  // same new topic a no-op rather than an error.
-  await db.from("topics").upsert(
-    [...admittedSlugs].map((slug) => ({ slug, label: wanted.get(slug) ?? slug })),
-    { onConflict: "slug", ignoreDuplicates: true },
-  );
+  const admitted = [...admittedSlugs]
+    .map((slug) => bySlug.get(slug))
+    .filter((topic): topic is KeptTopic => topic !== undefined);
 
-  const { data: topicRows } = await db
-    .from("topics")
-    .select("id, slug")
-    .in("slug", [...admittedSlugs]);
-  const idBySlug = new Map((topicRows ?? []).map((row) => [row.slug, row.id]));
-  const wantedIds = [...admittedSlugs]
-    .map((slug) => idBySlug.get(slug))
-    .filter((id): id is string => Boolean(id));
+  const wantedIds = await resolveTopics(actor, admitted);
 
   const existingIds = new Set((existing ?? []).map((row) => row.topic_id));
 
   const toAdd = wantedIds.filter((id) => !existingIds.has(id));
   const toRemove = [...existingIds].filter((id) => !wantedIds.includes(id));
 
+  // Unfollowing removes the reader's reference and nothing else. The `topics`
+  // row survives, and so do every `event`, `article` and `event_topics` link
+  // behind it — content is global, interests are personal references to it.
+  // Demand decays through `refresh_source_demand` and the grace window in 0031,
+  // which is a measurement changing, not history being destroyed.
   if (toRemove.length > 0) {
     await db.from("user_topics").delete().eq("user_id", userId).in("topic_id", toRemove);
   }
   if (toAdd.length > 0) {
     await db.from("user_topics").insert(toAdd.map((topic_id) => ({ user_id: userId, topic_id })));
   }
+
+  return toAdd.length > 0;
+}
+
+/**
+ * Canonical ids for a set of topics, creating only what does not exist.
+ *
+ * Read before write, deliberately. An upsert of every label would be one round
+ * trip fewer and would also count every already-canonical topic against the
+ * creation brake below, which would penalise readers for following popular
+ * subjects — the opposite of what the shared table is for.
+ */
+async function resolveTopics(actor: Actor, topics: KeptTopic[]): Promise<string[]> {
+  const { db, id: userId } = actor;
+  if (topics.length === 0) return [];
+
+  const slugs = topics.map((topic) => topic.slug);
+  const { data: found } = await db.from("topics").select("id, slug").in("slug", slugs);
+  const idBySlug = new Map((found ?? []).map((row) => [row.slug, row.id] as const));
+
+  const missing = topics.filter((topic) => !idBySlug.has(topic.slug));
+
+  if (missing.length > 0) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { count } = await db
+      .from("topics")
+      .select("id", { count: "exact", head: true })
+      .eq("created_by", userId)
+      .gte("created_at", since);
+
+    const room = Math.max(0, DAILY_TOPIC_CREATIONS - (count ?? 0));
+    const creatable = missing.slice(0, room);
+
+    if (creatable.length < missing.length) {
+      console.warn(
+        `preferences: topic creation limit reached for ${userId}, ` +
+          `${missing.length - creatable.length} not created`,
+      );
+    }
+
+    if (creatable.length > 0) {
+      // `ignoreDuplicates` makes a race between two readers typing the same new
+      // subject at the same moment a no-op rather than an error, and it is the
+      // reason the loser of that race still ends up on the winner's row: the
+      // re-read below resolves whatever is actually there.
+      await db.from("topics").upsert(
+        creatable.map((topic) => ({
+          slug: topic.slug,
+          label: topic.label,
+          kind: topic.predefined ? ("predefined" as const) : ("custom" as const),
+          // Predefined topics keep an empty term list: they reach events through
+          // `event_topics`, which the model writes, and giving them terms as
+          // well would widen the editorial list by a side effect.
+          terms: topic.predefined ? [] : topic.terms,
+          created_by: userId,
+        })),
+        { onConflict: "slug", ignoreDuplicates: true },
+      );
+
+      const { data: created } = await db
+        .from("topics")
+        .select("id, slug")
+        .in(
+          "slug",
+          creatable.map((topic) => topic.slug),
+        );
+      for (const row of created ?? []) idBySlug.set(row.slug, row.id);
+    }
+  }
+
+  return slugs.map((slug) => idBySlug.get(slug)).filter((id): id is string => Boolean(id));
 }
 
 async function planFor(actor: Actor) {
