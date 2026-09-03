@@ -1,6 +1,7 @@
-import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { PageLoading } from "@/components/loading";
+import { authEntryUrl } from "@/lib/auth-redirect";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/dashboard")({
@@ -15,11 +16,13 @@ export const Route = createFileRoute("/dashboard")({
  */
 function DashboardGuard() {
   const { session, loading } = useAuth();
-  const navigate = useNavigate();
 
   useEffect(() => {
-    if (!loading && !session) navigate({ to: "/auth", replace: true });
-  }, [loading, session, navigate]);
+    if (!loading && !session) {
+      const destination = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      window.location.replace(authEntryUrl(destination));
+    }
+  }, [loading, session]);
 
   if (loading || !session) {
     return <PageLoading label="Checking your session" />;
