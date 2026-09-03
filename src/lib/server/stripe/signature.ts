@@ -18,6 +18,8 @@ export type StripeEvent = {
   id: string;
   type: string;
   created?: number;
+  /** Which Stripe mode produced this event. Absent on hand-rolled fixtures. */
+  livemode?: boolean;
   data: { object: Record<string, unknown> };
 };
 
