@@ -4,20 +4,18 @@ import { Eyebrow, Section } from "@/components/kit";
 import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
 import { getPublicSiteContent } from "@/lib/server/settings";
+import { pageHead } from "@/lib/seo";
 
 export const Route = createFileRoute("/support")({
   loader: () => getPublicSiteContent(),
   component: Support,
-  head: () => ({
-    meta: [
-      { title: "Support — nyuz" },
-      {
-        name: "description",
-        content:
-          "Get help with nyuz. Find answers to common questions or contact our support team.",
-      },
-    ],
-  }),
+  head: () =>
+    pageHead({
+      path: "/support",
+      title: "Support — nyuz",
+      description:
+        "Get help with nyuz. Find answers to common questions or contact our support team.",
+    }),
 });
 
 const FAQ_ITEMS = [
@@ -62,10 +60,10 @@ function Support() {
     <div className="min-h-screen bg-background">
       <SiteNav content={content} />
       <main>
-        <section className="veil px-5 pb-14 pt-32 text-center sm:px-8">
+        <section className="veil px-5 pb-10 pt-24 text-center sm:px-8 sm:pb-14 sm:pt-32">
           <div className="mx-auto w-full max-w-2xl">
             <Eyebrow>Support</Eyebrow>
-            <h1 className="display mt-4 text-[clamp(2.5rem,7vw,4.25rem)] animate-rise">
+            <h1 className="display mt-4 text-[clamp(1.875rem,7vw,4.25rem)] animate-rise">
               How can we help?
             </h1>
             <p className="mt-6 text-[16px] leading-relaxed text-muted-foreground">
@@ -99,7 +97,7 @@ function Support() {
                 <div>
                   <p className="text-[15px] font-medium">How it works</p>
                   <p className="mt-1 text-[13.5px] text-muted-foreground">
-                    Learn how nyuz filters and delivers news
+                    Learn how nyuz keeps watch and filters what matters
                   </p>
                 </div>
               </Link>

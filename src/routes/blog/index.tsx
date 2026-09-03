@@ -6,6 +6,7 @@ import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
 import { getPublicPosts } from "@/lib/server/blog";
 import { getPublicSiteContent } from "@/lib/server/settings";
+import { pageHead } from "@/lib/seo";
 
 /**
  * The public blog index.
@@ -27,16 +28,13 @@ export const Route = createFileRoute("/blog/")({
     const posts = await getPublicPosts({ data: { limit: 24 } });
     return { content, posts };
   },
-  head: () => ({
-    meta: [
-      { title: "Blog — nyuz" },
-      {
-        name: "description",
-        content:
-          "Notes on reading the internet at scale: deduplication, personalisation, model cost, and what a briefing should and should not decide for you.",
-      },
-    ],
-  }),
+  head: () =>
+    pageHead({
+      path: "/blog",
+      title: "Blog — nyuz",
+      description:
+        "Notes on reading the internet at scale: deduplication, personalisation, model cost, and what a briefing should and should not decide for you.",
+    }),
   component: BlogIndex,
 });
 
@@ -51,11 +49,11 @@ function BlogIndex() {
   return (
     <div className="min-h-screen bg-background">
       <SiteNav content={content} />
-      <main className="px-5 pb-24 pt-32 sm:px-8">
+      <main className="px-5 pb-16 pt-24 sm:px-8 sm:pb-24 sm:pt-32">
         <div className="mx-auto w-full max-w-5xl">
           <header className="animate-rise max-w-2xl">
             <Eyebrow>Writing</Eyebrow>
-            <h1 className="display mt-3 text-[clamp(2.4rem,6vw,3.75rem)]">
+            <h1 className="display mt-3 text-[clamp(1.75rem,6vw,3.75rem)]">
               Notes from the pipeline.
             </h1>
             <p className="mt-6 text-[16px] leading-relaxed text-muted-foreground">

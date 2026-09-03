@@ -3,6 +3,12 @@ import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { adminOnly, audit, superadminOnly, AdminAuthError } from "@/lib/server/guard";
 import { invalidateRouteCache } from "@/lib/ai/config";
+import { ambientEnv } from "@/lib/runtime-env";
+import {
+  configuredCeiling,
+  DEFAULT_AI_MONTHLY_TOKEN_BUDGET,
+  MIN_AI_MONTHLY_TOKEN_BUDGET,
+} from "@/lib/ai/budget";
 import type { AiCapability } from "@/lib/supabase/types";
 
 /**
@@ -74,8 +80,7 @@ export type AiConfigView = {
 };
 
 function secretPresent(name: string): boolean {
-  const bag = (globalThis.process?.env ?? {}) as Record<string, string | undefined>;
-  const value = bag[name];
+  const value = ambientEnv()[name];
   return typeof value === "string" && value.length > 0;
 }
 
@@ -112,7 +117,12 @@ export const getAiConfig = createServerFn({ method: "GET" })
       reservedTokens += row.reserved_tokens;
       byCapability[row.capability] += tokens;
     }
-    const budgetTokens = Number(globalThis.process?.env?.["AI_MONTHLY_TOKEN_BUDGET"] ?? 0);
+    // Falls back rather than showing NaN: an unparseable or typo'd binding must
+    // not make the console's budget bar unreadable. The pipeline refuses to run
+    // on the same value — see completeRouted in ai/config.ts.
+    const budgetTokens =
+      configuredCeiling(ambientEnv()["AI_MONTHLY_TOKEN_BUDGET"], MIN_AI_MONTHLY_TOKEN_BUDGET) ??
+      DEFAULT_AI_MONTHLY_TOKEN_BUDGET;
 
     return {
       providers: (providers.data ?? []).map((p) => ({
@@ -495,9 +505,7 @@ export const probeProvider = createServerFn({ method: "POST" })
     if (error) throw new AdminAuthError(`Provider lookup: ${error.message}`, 500);
     if (!provider) throw new AdminAuthError("That provider no longer exists.", 404);
 
-    const key = ((globalThis.process?.env ?? {}) as Record<string, string | undefined>)[
-      provider.api_key_env
-    ];
+    const key = ambientEnv()[provider.api_key_env];
     if (!key) {
       return {
         ok: false,

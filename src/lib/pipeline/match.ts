@@ -50,8 +50,14 @@ import { related } from "@/lib/relate";
 import type { EmailEnv } from "@/lib/server/email/send";
 import type { TelegramEnv } from "@/lib/server/telegram/send";
 import type { PushEnv } from "@/lib/server/push/send";
-import type { Database, PlanTier, SourcePref, TopicImportance } from "@/lib/supabase/types";
-import { isCoveredTopic } from "@/lib/coverage";
+import type {
+  Database,
+  PlanTier,
+  SourcePref,
+  TopicImportance,
+  TopicKind,
+} from "@/lib/supabase/types";
+import { matchesTerms, normaliseText } from "@/lib/topics";
 import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
 import { fireAlerts } from "./alerts";
 
@@ -72,6 +78,21 @@ const IN_CHUNK = 100;
 
 /** Rows per insert. The body is JSON, so this is about keeping one failure small. */
 const WRITE_CHUNK = 500;
+
+/**
+ * Confidence for a source→topic link this stage observed rather than an
+ * operator asserting.
+ *
+ * Low on purpose. `source_topics.confidence` is "how strongly this source
+ * covers this topic", and one event proves the source touched the subject
+ * once — enough to count as demand, not enough to claim it is a beat. An
+ * editorial mapping entered in the console keeps its own higher value, because
+ * the upsert below never overwrites an existing row.
+ */
+const OBSERVED_CONFIDENCE = 0.3;
+
+/** Source→topic links written per run. A brake, not a target. */
+const OBSERVED_LINK_CAP = 200;
 
 export type MatchOptions = {
   /** Restrict to specific readers, for checking a known case. */
@@ -113,11 +134,19 @@ export type CandidateSource = { id: string; name: string };
 export type Candidate = {
   eventId: string;
   title: string;
+  /** The shared briefing paragraph. Selection reads it; vetoes do not — see below. */
+  whatHappened: string;
   /** 0..10, from the shared analysis pass. */
   importance: number;
   /** 0..10. */
   novelty: number;
   topics: CandidateTopic[];
+  /**
+   * Normalised concepts from the shared analysis pass (0049). Written once per
+   * event, read by every reader — this is what a reader's own words match
+   * against, and why custom interests cost no model call each.
+   */
+  tags: string[];
   /** The sources that reported it. Empty is possible: an event whose articles moved. */
   sources: CandidateSource[];
 };
@@ -126,6 +155,14 @@ export type ReaderTopic = {
   topicId: string;
   slug: string;
   label: string;
+  /**
+   * `predefined` reaches events through `event_topics`, which analysis wrote.
+   * `custom` reaches them through `terms` against the shared signal, because
+   * the model was never given the vocabulary to classify it.
+   */
+  kind: TopicKind;
+  /** Deterministic match terms. ALL must be present. Empty for predefined. */
+  terms: string[];
   importance: TopicImportance;
   weight: number;
   keywords: string[];
@@ -166,17 +203,25 @@ export type MatchReport = {
   candidates: number;
   matched: number;
   inserted: number;
+  /** Source→topic links this run observed. See `recordObservedCoverage`. */
+  coverageLinks: number;
   outcomes: ReaderOutcome[];
 };
 
 /**
- * Everything a reader's own words could reasonably match against.
+ * The fields a veto is allowed to see.
  *
  * Topic slugs and labels, the sources that reported it, and the title analysis
- * wrote. Not `what_happened`: the predicate is substring containment, and over
- * one to three sentences of prose that produces vetoes nobody asked for — a
- * reader who excluded "art" would lose every story about startups. A term that
- * appears only in the body is a passing mention rather than the subject.
+ * wrote. Deliberately NOT `what_happened` or `tags`: the predicate here is
+ * substring containment, and over one to three sentences of prose that produces
+ * vetoes nobody asked for — a reader who excluded "art" would lose every story
+ * about startups. A term that appears only in the body is a passing mention
+ * rather than the subject.
+ *
+ * Selection reads more than this (see `signalOf`), and that asymmetry is
+ * deliberate. Over-selecting costs one story a reader skims; over-vetoing costs
+ * a story they asked for and will never know was withheld. So the wider text is
+ * allowed to let something in and never to keep something out.
  */
 function haystack(candidate: Candidate): string[] {
   return [
@@ -186,8 +231,50 @@ function haystack(candidate: Candidate): string[] {
   ];
 }
 
-/** Whether one followed topic reaches this event: by id, or by a keyword of its own. */
-function selects(topic: ReaderTopic, candidate: Candidate, fields: string[]): boolean {
+/**
+ * The shared signal a reader's own words are matched against, normalised once.
+ *
+ * Title, the briefing paragraph, the concepts the analysis pass extracted, the
+ * curated labels and the outlet names — everything already computed for this
+ * event, for everybody. A custom interest reaching an event is arithmetic over
+ * this string, so "Nepal" finds a story headlined for Kathmandu because the
+ * shared pass tagged it `nepal`, and no model is asked about any reader.
+ *
+ * Memoised per candidate object because `decide` runs once per reader per
+ * event: without this, a thousand readers would re-normalise the same paragraph
+ * a thousand times. The cache is a WeakMap so it dies with the candidate page.
+ */
+const SIGNALS = new WeakMap<Candidate, string>();
+
+function signalOf(candidate: Candidate): string {
+  const cached = SIGNALS.get(candidate);
+  if (cached !== undefined) return cached;
+
+  const signal = normaliseText(
+    [
+      candidate.title,
+      candidate.whatHappened,
+      ...candidate.tags,
+      ...candidate.topics.flatMap((t) => [t.slug, t.label]),
+      ...candidate.sources.map((s) => s.name),
+    ].join(" "),
+  );
+
+  SIGNALS.set(candidate, signal);
+  return signal;
+}
+
+/**
+ * Whether one followed topic reaches this event.
+ *
+ * Three routes, cheapest and most exact first, and none of them a model call.
+ */
+function selects(
+  topic: ReaderTopic,
+  candidate: Candidate,
+  fields: string[],
+  signal: string,
+): boolean {
   // The exact join the plan asks for. `event_topics` against `user_topics`, on
   // the id — no text comparison can be looser or wrong, and it is what analysis
   // was constrained to write.
@@ -195,7 +282,12 @@ function selects(topic: ReaderTopic, candidate: Candidate, fields: string[]): bo
 
   // Free text the reader added to a topic. This is the only channel where
   // spelling matters, so it is the channel `related` exists for.
-  return topic.keywords.some((keyword) => fields.some((f) => related(f, keyword)));
+  if (topic.keywords.some((keyword) => fields.some((f) => related(f, keyword)))) return true;
+
+  // A reader-created interest, which the model was never given the vocabulary
+  // to classify. Every term must appear, so "India vs China" needs both
+  // countries and is not satisfied by a story about either one alone.
+  return topic.kind === "custom" && matchesTerms(signal, topic.terms);
 }
 
 /**
@@ -221,8 +313,9 @@ export function decide(candidate: Candidate, reader: Reader): Verdict {
   if (reader.topics.length === 0) return { matched: false, reason: "no-topics" };
 
   const fields = haystack(candidate);
+  const signal = signalOf(candidate);
 
-  const selected = reader.topics.filter((topic) => selects(topic, candidate, fields));
+  const selected = reader.topics.filter((topic) => selects(topic, candidate, fields, signal));
   if (selected.length === 0) return { matched: false, reason: "no-topic-match" };
 
   const dial = thresholdFor(reader.density);
@@ -311,6 +404,10 @@ export async function match(db: Db, options: MatchOptions = {}): Promise<MatchRe
     matched += outcome.matched;
   }
 
+  const coverageLinks = options.dryRun
+    ? 0
+    : await recordObservedCoverage(db, readers.readers, candidates);
+
   return {
     startedAt,
     finishedAt: new Date().toISOString(),
@@ -319,8 +416,94 @@ export async function match(db: Db, options: MatchOptions = {}): Promise<MatchRe
     candidates: candidates.length,
     matched,
     inserted,
+    coverageLinks,
     outcomes,
   };
+}
+
+/**
+ * How a reader-created interest turns into demand for shared collection.
+ *
+ * A custom topic starts with nothing in `source_topics`, so it is invisible to
+ * `admin_source_demand` (0020/0030), `events_with_demand` (0021) and
+ * `refresh_source_demand` (0031) — the reader has expressed demand and the
+ * collector cannot hear it. This closes that loop with evidence rather than
+ * guesswork: when a custom topic reaches an event, the outlets that actually
+ * reported it are recorded as covering that subject.
+ *
+ * That is the convergence the architecture depends on. A hundred readers
+ * following Nepal produce one set of links onto the handful of feeds that
+ * genuinely carry Nepal, and those feeds stay collected because a hundred
+ * people want them — not a hundred fetch jobs, not one crawler each.
+ *
+ * Three things keep it from becoming a second, accidental editorial graph:
+ *
+ *   - it is set-based over the page already in memory, so it costs one upsert
+ *     per run rather than anything per reader;
+ *   - `ignoreDuplicates` means an operator's own mapping is never overwritten
+ *     by an observation, and re-runs write nothing;
+ *   - `OBSERVED_LINK_CAP` bounds a run, so a burst of new interests cannot turn
+ *     one match cycle into a bulk write.
+ *
+ * Nothing here decides to *fetch* anything. It records what was observed; the
+ * demand functions and the console decide what to do about it.
+ */
+async function recordObservedCoverage(
+  db: Db,
+  readers: Reader[],
+  candidates: Candidate[],
+): Promise<number> {
+  // One entry per distinct custom topic across every reader — the same subject
+  // followed by many people is one piece of work, which is the whole point.
+  const custom = new Map<string, ReaderTopic>();
+  for (const reader of readers) {
+    for (const topic of reader.topics) {
+      if (topic.kind !== "custom" || topic.terms.length === 0) continue;
+      if (!custom.has(topic.topicId)) custom.set(topic.topicId, topic);
+    }
+  }
+  if (custom.size === 0) return 0;
+
+  const seen = new Set<string>();
+  const rows: { source_id: string; topic_id: string; confidence: number }[] = [];
+
+  for (const candidate of candidates) {
+    if (candidate.sources.length === 0) continue;
+    const signal = signalOf(candidate);
+
+    for (const topic of custom.values()) {
+      if (!matchesTerms(signal, topic.terms)) continue;
+      for (const source of candidate.sources) {
+        const key = `${source.id}:${topic.topicId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push({
+          source_id: source.id,
+          topic_id: topic.topicId,
+          confidence: OBSERVED_CONFIDENCE,
+        });
+        if (rows.length >= OBSERVED_LINK_CAP) break;
+      }
+      if (rows.length >= OBSERVED_LINK_CAP) break;
+    }
+    if (rows.length >= OBSERVED_LINK_CAP) break;
+  }
+
+  if (rows.length === 0) return 0;
+
+  const { error } = await db
+    .from("source_topics")
+    .upsert(rows, { onConflict: "source_id,topic_id", ignoreDuplicates: true });
+
+  // A failed link is not a failed match. The reader has already been given the
+  // event; this only affects what gets collected next time, and the next run
+  // recomputes it from scratch.
+  if (error) {
+    console.warn(`match: recording observed coverage failed: ${error.message}`);
+    return 0;
+  }
+
+  return rows.length;
 }
 
 async function matchReader(
@@ -429,6 +612,17 @@ async function existingPairs(db: Db, userId: string, eventIds: string[]): Promis
  * a brand-new account follows, and a second copy of this assembly would be a
  * second answer to the question "what does this person follow".
  */
+/** Rows bucketed by the reader they belong to, in one pass. */
+function groupByUser<T extends { user_id: string }>(rows: T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>();
+  for (const row of rows) {
+    const bucket = out.get(row.user_id);
+    if (bucket) bucket.push(row);
+    else out.set(row.user_id, [row]);
+  }
+  return out;
+}
+
 export async function loadReaders(
   db: Db,
   options: MatchOptions,
@@ -477,15 +671,24 @@ export async function loadReaders(
     (subs ?? []).map((row) => [row.user_id, row.plan] as const),
   );
 
+  // Indexed once rather than filtered per reader. These two used to be
+  // `.filter(r => r.user_id === row.user_id)` inside the map below, which is
+  // O(readers x rows): a thousand readers holding fifteen topics each is
+  // fifteen million comparisons per run, and it grows with the square of
+  // signups. Matching is already the stage nearest the Workers CPU limit, so
+  // the scan that costs nothing at ten readers is the one that ends the run at
+  // ten thousand.
+  const followedBy = groupByUser(followed ?? []);
+  const sourcePrefsBy = groupByUser(sourcePrefs ?? []);
+
   const readers = wanted.map((row) => {
     const plan = planOf.get(row.user_id) ?? "free";
-    const mine = (followed ?? [])
-      .filter((f) => f.user_id === row.user_id)
+    const mine = (followedBy.get(row.user_id) ?? [])
       .slice()
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
     const cap = PLAN_LIMITS[plan]?.topics ?? PLAN_LIMITS.free.topics;
     const active = clipLabels(mine, cap);
-    const mineSourcePrefs = (sourcePrefs ?? []).filter((p) => p.user_id === row.user_id);
+    const mineSourcePrefs = sourcePrefsBy.get(row.user_id) ?? [];
     const priorityCap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
     const activePriority = new Set(
       clipLabels(
@@ -511,12 +714,17 @@ export async function loadReaders(
         const topic = topics.get(f.topic_id);
         // A followed topic whose row has gone is not an error and not a match.
         if (!topic) return [];
-        if (!isCoveredTopic(topic.slug) && !isCoveredTopic(topic.label)) return [];
+        // There used to be a second gate here dropping any topic outside
+        // `TOPIC_POOL`. It was the last of the four that made a reader-created
+        // interest unmatchable, and it is gone deliberately: a custom topic
+        // reaches events through `terms`, which the loop below now carries.
         return [
           {
             topicId: f.topic_id,
             slug: topic.slug,
             label: topic.label,
+            kind: topic.kind,
+            terms: topic.terms,
             importance: f.importance,
             weight: f.weight,
             keywords: f.keywords,
@@ -532,10 +740,16 @@ export async function loadReaders(
   return { readers, paused };
 }
 
-async function topicIndex(db: Db): Promise<Map<string, { slug: string; label: string }>> {
-  const { data, error } = await db.from("topics").select("id, slug, label");
+type IndexedTopic = { slug: string; label: string; kind: TopicKind; terms: string[] };
+
+async function topicIndex(db: Db): Promise<Map<string, IndexedTopic>> {
+  const { data, error } = await db.from("topics").select("id, slug, label, kind, terms");
   if (error) throw new Error(`reading topics: ${error.message}`);
-  return new Map((data ?? []).map((t) => [t.id, { slug: t.slug, label: t.label }] as const));
+  return new Map(
+    (data ?? []).map(
+      (t) => [t.id, { slug: t.slug, label: t.label, kind: t.kind, terms: t.terms }] as const,
+    ),
+  );
 }
 
 /**
@@ -548,7 +762,7 @@ async function topicIndex(db: Db): Promise<Map<string, { slug: string; label: st
 async function loadCandidates(db: Db, options: MatchOptions): Promise<Candidate[]> {
   let query = db
     .from("events")
-    .select("id, title, importance, novelty, analysed_at")
+    .select("id, title, what_happened, importance, novelty, tags, analysed_at")
     .not("analysed_at", "is", null)
     .eq("status", "complete")
     .order("analysed_at", { ascending: false })
@@ -609,8 +823,13 @@ async function loadCandidates(db: Db, options: MatchOptions): Promise<Candidate[
   return events.map((event) => ({
     eventId: event.id,
     title: event.title,
+    whatHappened: event.what_happened,
     importance: event.importance,
     novelty: event.novelty,
+    // Empty for every event analysed before 0049. Those stay reachable through
+    // their title and briefing paragraph rather than being re-analysed, which
+    // would cost the corpus twice to populate a matching aid.
+    tags: event.tags,
     topics: eventTopics.get(event.id) ?? [],
     sources: eventSources.get(event.id) ?? [],
   }));
@@ -660,7 +879,7 @@ export function describeMatch(report: MatchReport): string {
   return (
     `match: ${report.readers} readers x ${report.candidates} events, ` +
     `${report.matched} matched, ${report.inserted} new, ` +
-    `${report.paused} paused, ${seconds}s` +
+    `${report.paused} paused, ${report.coverageLinks} coverage links, ${seconds}s` +
     (reasons ? ` | misses: ${reasons}` : "")
   );
 }

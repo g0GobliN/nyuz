@@ -42,7 +42,7 @@ export type Hero = z.infer<typeof heroSchema>;
 
 export const HERO_DEFAULT: Hero = {
   headline: "Stop searching.\nStart knowing.",
-  sub: "You don't read the news. It reports to you.",
+  sub: "What matters to you, reports to you.",
   ctaLabel: "Build my nyuz",
   ctaHref: "/onboarding",
   secondaryLabel: "See how it works",
@@ -299,7 +299,7 @@ export type Seo = z.infer<typeof seoSchema>;
 export const SEO_DEFAULT: Seo = {
   title: "nyuz — Stop searching. Start knowing.",
   description:
-    "You don't read the news. It reports to you. Music, sports, politics, games, or the world — nyuz watches the sources, merges the duplicates, and sends the handful of things worth knowing.",
+    "Tell nyuz what matters. It keeps watch across relevant sources, connects duplicate coverage into events, and delivers a personalized news briefing without the noise.",
   ogImage: "/og-image.png",
 };
 
@@ -312,7 +312,7 @@ export type Footer = z.infer<typeof footerSchema>;
 
 export const FOOTER_DEFAULT: Footer = {
   blurb:
-    "nyuz summarises and links to original reporting. Summaries are generated and can be wrong — every story keeps its sources one tap away.",
+    "nyuz connects and summarises updates from supported sources. Summaries are generated and can be wrong — every story keeps its original sources one tap away.",
   tagline: "Less information. More relevance. Zero searching.",
 };
 

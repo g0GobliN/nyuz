@@ -7,6 +7,7 @@ import { SiteFooter } from "@/components/landing/footer";
 import { getPublicPost, getPublicPosts } from "@/lib/server/blog";
 import { getPublicSiteContent } from "@/lib/server/settings";
 import { Markdown, stripMarkdown } from "@/lib/markdown";
+import { canonicalUrlFor } from "@/lib/seo";
 
 /**
  * A single post.
@@ -57,7 +58,11 @@ export const Route = createFileRoute("/blog/$slug")({
         ...(post.publishedAt
           ? [{ property: "article:published_time", content: post.publishedAt }]
           : []),
+        { property: "og:url", content: canonicalUrlFor(`/blog/${post.slug}`) },
       ],
+      // A post is reachable with campaign query strings from every share of it,
+      // so the canonical is what keeps those collapsing onto one indexed URL.
+      links: [{ rel: "canonical", href: canonicalUrlFor(`/blog/${post.slug}`) }],
     };
   },
   component: BlogPost,
@@ -70,7 +75,7 @@ function BlogPost() {
     <div className="min-h-screen bg-background">
       <SiteNav content={content} />
 
-      <main className="px-5 pb-24 pt-32 sm:px-8">
+      <main className="px-5 pb-16 pt-24 sm:px-8 sm:pb-24 sm:pt-32">
         <article className="mx-auto w-full max-w-2xl">
           <Link
             to="/blog"
@@ -81,7 +86,7 @@ function BlogPost() {
           </Link>
 
           <header className="mt-8 animate-rise">
-            <h1 className="display text-[clamp(2.1rem,5.5vw,3.25rem)]">{post.title}</h1>
+            <h1 className="display text-[clamp(1.625rem,5.5vw,3.25rem)]">{post.title}</h1>
             {post.excerpt ? (
               <p className="mt-5 font-serif text-xl leading-relaxed text-muted-foreground">
                 {post.excerpt}

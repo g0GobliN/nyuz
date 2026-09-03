@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { envValue } from "@/lib/runtime-env";
 import type { Database } from "./types";
 
 /**
@@ -10,7 +11,9 @@ import type { Database } from "./types";
  *
  * On Cloudflare Workers there is no ambient process.env at module scope, so the
  * client is built per call from whatever env the request hands us rather than
- * captured at import time.
+ * captured at import time. Callers that have no env to hand — server functions,
+ * which nitro invokes without one — fall back to `ambientEnv()`; see
+ * src/lib/runtime-env.ts for why `process.env` alone was not enough.
  */
 
 export type ServerEnv = {
@@ -19,9 +22,8 @@ export type ServerEnv = {
 };
 
 function readEnv(env?: ServerEnv): Required<ServerEnv> {
-  const proc = globalThis.process?.env;
-  const url = env?.VITE_SUPABASE_URL ?? proc?.["VITE_SUPABASE_URL"];
-  const key = env?.SUPABASE_SERVICE_ROLE_KEY ?? proc?.["SUPABASE_SERVICE_ROLE_KEY"];
+  const url = envValue("VITE_SUPABASE_URL", env);
+  const key = envValue("SUPABASE_SERVICE_ROLE_KEY", env);
 
   if (!url) throw new Error("Missing VITE_SUPABASE_URL");
   if (!key) {

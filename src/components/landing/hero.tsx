@@ -85,9 +85,9 @@ export function HeroPipeline() {
       <div className="relative mx-auto w-full">
         <div className="relative mx-auto flex h-[132px] w-full items-center justify-center">
           {/* duplicate cards merging into one event */}
-          {[0, 1, 2].map((i) => (
+          {["Newsroom", "Wire", "Publication"].map((source, i) => (
             <div
-              key={i}
+              key={source}
               className="absolute w-[78%] rounded-2xl border border-hairline bg-surface px-4 py-3 shadow-[var(--shadow-soft)] transition-all duration-[900ms]"
               style={{
                 transform:
@@ -98,7 +98,7 @@ export function HeroPipeline() {
                 zIndex: i === 1 ? 2 : 1,
               }}
             >
-              <p className="text-[10.5px] uppercase tracking-[0.16em] text-signal">Reuters</p>
+              <p className="text-[10.5px] uppercase tracking-[0.16em] text-signal">{source}</p>
               <p className="mt-1 text-[14px] font-medium leading-snug">
                 Overnight talks stall, then resume
               </p>

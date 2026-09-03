@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { aiCostMicrousd } from "@/lib/ai/cost";
-import { DEFAULT_AI_MONTHLY_COST_USD, MICROUSD_PER_USD } from "@/lib/ai/budget";
+import {
+  configuredCeiling,
+  DEFAULT_AI_MONTHLY_COST_USD,
+  MICROUSD_PER_USD,
+  MIN_AI_MONTHLY_COST_USD,
+  MIN_AI_MONTHLY_TOKEN_BUDGET,
+} from "@/lib/ai/budget";
 
 /**
  * The claim these tests exist to defend is a sizing claim, not a formatting one:
@@ -106,5 +112,32 @@ describe("the $10 default against real pipeline shape", () => {
         at: OFF_PEAK,
       }),
     ).toBeNull();
+  });
+});
+
+describe("configuredCeiling", () => {
+  it("rejects a slipped decimal that would refuse every call", () => {
+    // The bug this pins: 0.10 is finite and above zero, so it passed the old
+    // check and set a ceiling no real call fits under. The pipeline then stalls
+    // in a way that looks exactly like the AI provider being down.
+    expect(configuredCeiling("0.10", MIN_AI_MONTHLY_COST_USD)).toBeNull();
+    expect(configuredCeiling("0.001", MIN_AI_MONTHLY_COST_USD)).toBeNull();
+    expect(configuredCeiling("1", MIN_AI_MONTHLY_TOKEN_BUDGET)).toBeNull();
+  });
+
+  it("accepts a value at or above the floor", () => {
+    expect(configuredCeiling("1", MIN_AI_MONTHLY_COST_USD)).toBe(1);
+    expect(configuredCeiling("25", MIN_AI_MONTHLY_COST_USD)).toBe(25);
+    expect(configuredCeiling("500000", MIN_AI_MONTHLY_TOKEN_BUDGET)).toBe(500_000);
+  });
+
+  it("treats unset, blank and unparseable alike", () => {
+    for (const raw of [undefined, "", "   ", "abc", "NaN"]) {
+      expect(configuredCeiling(raw, MIN_AI_MONTHLY_COST_USD)).toBeNull();
+    }
+  });
+
+  it("rejects a negative ceiling", () => {
+    expect(configuredCeiling("-10", MIN_AI_MONTHLY_COST_USD)).toBeNull();
   });
 });

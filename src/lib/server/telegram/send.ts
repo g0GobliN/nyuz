@@ -5,6 +5,8 @@
  * Never import from a component — the token can send as the bot.
  */
 
+import { envValue } from "@/lib/runtime-env";
+
 export type TelegramEnv = {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
@@ -13,11 +15,47 @@ export type TelegramEnv = {
 };
 
 export type TelegramSendResult =
-  { ok: true; id: string } | { ok: false; error: string; retryable: boolean };
+  | { ok: true; id: string }
+  | {
+      ok: false;
+      error: string;
+      retryable: boolean;
+      /**
+       * The chat is not coming back: the reader blocked the bot, deleted their
+       * account, or the chat no longer exists. The caller should unlink rather
+       * than keep a dead row that fails every future send.
+       */
+      gone?: boolean;
+    };
+
+/**
+ * How long the Bot API gets before we give up.
+ *
+ * Same reasoning as the push transport: without it a hung call holds the
+ * `claim_delivery` lease for its full ten minutes and occupies Worker CPU while
+ * doing nothing.
+ */
+const TELEGRAM_TIMEOUT_MS = 10_000;
+
+/**
+ * Whether Telegram is saying this chat is permanently unreachable.
+ *
+ * Telegram signals a blocked bot, a deactivated user and a kicked bot all as
+ * 403, and a chat that no longer exists as 400 "chat not found". None of those
+ * improve with a retry, and none of them should leave the reader's settings
+ * page claiming Telegram is still linked.
+ *
+ * Deliberately narrow: a bare 400 is far more likely to be our own malformed
+ * HTML than a dead chat, and unlinking a working account over a formatting bug
+ * would be a much worse failure than one that retries.
+ */
+function chatIsGone(status: number, description: string): boolean {
+  if (status === 403) return true;
+  return status === 400 && /chat not found|user not found/i.test(description);
+}
 
 function readToken(env?: TelegramEnv): string | undefined {
-  const proc = globalThis.process?.env;
-  const token = env?.TELEGRAM_BOT_TOKEN ?? proc?.["TELEGRAM_BOT_TOKEN"];
+  const token = envValue("TELEGRAM_BOT_TOKEN", env);
   return token?.trim() || undefined;
 }
 
@@ -31,13 +69,11 @@ export function telegramApi(method: string, env?: TelegramEnv): string | null {
 }
 
 export function readWebhookSecret(env?: TelegramEnv): string {
-  const proc = globalThis.process?.env;
-  return (env?.TELEGRAM_WEBHOOK_SECRET ?? proc?.["TELEGRAM_WEBHOOK_SECRET"] ?? "").trim();
+  return (envValue("TELEGRAM_WEBHOOK_SECRET", env) ?? "").trim();
 }
 
 export async function getBotUsername(env?: TelegramEnv): Promise<string | null> {
-  const proc = globalThis.process?.env;
-  const fromEnv = env?.TELEGRAM_BOT_USERNAME ?? proc?.["TELEGRAM_BOT_USERNAME"];
+  const fromEnv = envValue("TELEGRAM_BOT_USERNAME", env);
   if (fromEnv?.trim()) return fromEnv.trim().replace(/^@/, "");
 
   const url = telegramApi("getMe", env);
@@ -68,6 +104,7 @@ export async function sendTelegramMessage(input: {
         parse_mode: "HTML",
         disable_web_page_preview: true,
       }),
+      signal: AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
     });
     const body = (await res.json()) as {
       ok?: boolean;
@@ -80,7 +117,8 @@ export async function sendTelegramMessage(input: {
     }
     const error = body.description ?? `Telegram ${res.status}`;
     const retryable = res.status === 429 || res.status >= 500;
-    return { ok: false, error, retryable };
+    const gone = chatIsGone(res.status, body.description ?? "");
+    return gone ? { ok: false, error, retryable, gone } : { ok: false, error, retryable };
   } catch (cause) {
     const error = cause instanceof Error ? cause.message : "network error";
     return { ok: false, error, retryable: true };

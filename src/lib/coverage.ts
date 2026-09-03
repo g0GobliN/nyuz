@@ -1,31 +1,83 @@
-import { topicSlug } from "@/lib/preferences-map";
 import { TOPIC_POOL } from "@/lib/topics-pool";
+import {
+  isValidTopic,
+  topicSlug,
+  type TopicRejection,
+  type ValidatedTopic,
+  validateTopicLabel,
+} from "@/lib/topics";
 
 /**
- * Topics we actually have sources for.
+ * The editorial topic list, and what a reader is allowed to follow.
  *
- * Onboarding used to accept any string, which implied coverage we do not have.
- * Matching is a join onto `topics` that analysis filled from this same pool, so
- * a free-text "knitting" row can never select an event. The list is the product
- * — world, sports, music, politics, games, and the tech beat.
+ * These used to be the same question. `TOPIC_POOL` was the *only* thing anybody
+ * could follow: onboarding accepted free text, `keepCoveredTopics` silently
+ * dropped anything outside the pool on save, and stage 5 dropped it again at
+ * match time. The stated reason was honesty — a topic with no sources behind it
+ * implies coverage that does not exist — and the reasoning was sound for a
+ * matcher that could only join `event_topics`, which analysis filled from this
+ * same pool.
+ *
+ * It is no longer sound, because there is now a second route to an event that
+ * costs nothing per reader (`events.tags`, written once by the shared analysis
+ * pass — see 0049). So the two questions have come apart:
+ *
+ *   `isPredefinedTopic`  is this in the model's classification vocabulary?
+ *                        Still the pool, still bounded, still the thing that
+ *                        keeps the analysis prompt a fixed size.
+ *
+ *   `keepUsableTopics`   may a reader follow this? Now: anything well-formed.
+ *
+ * Following a subject nyuz has thin coverage of is a statement about the
+ * future, not a false claim about the present. The honest handling is an empty
+ * state that says so, plus the demand signal that eventually fixes it — not a
+ * refusal to save.
  */
-const COVERED = new Set(TOPIC_POOL.map((label) => topicSlug(label)));
+const PREDEFINED = new Set(TOPIC_POOL.map((label) => topicSlug(label)));
 
-export function isCoveredTopic(label: string): boolean {
-  return COVERED.has(topicSlug(label));
+/**
+ * Whether a label is one of the seeded editorial topics.
+ *
+ * This is the vocabulary the analyser classifies into, so it must stay a fixed
+ * list a human curated. It is NOT a permission check on what a reader may
+ * follow — it was, and conflating the two is what made "Nepal" unsaveable.
+ */
+export function isPredefinedTopic(label: string): boolean {
+  return PREDEFINED.has(topicSlug(label));
 }
 
-/** Pool labels only, first spelling of each slug, original order. */
-export function keepCoveredTopics(labels: string[]): string[] {
+export type KeptTopic = ValidatedTopic & { predefined: boolean };
+
+export type TopicIntake = {
+  /** Well-formed topics, first spelling of each slug, in the reader's order. */
+  kept: KeptTopic[];
+  /** What was refused and why, so a caller can say rather than silently drop. */
+  refused: { label: string; reason: TopicRejection }[];
+};
+
+/**
+ * Normalises a reader's list into canonical topics.
+ *
+ * Order is preserved because order is the weighting the product has — the tail
+ * past a plan limit is what gets paused — so a save followed by a load must not
+ * reshuffle it. Duplicates are collapsed by slug rather than by label, which is
+ * what makes "Nepal", " nepal " and "NEPAL" one entry rather than three.
+ */
+export function keepUsableTopics(labels: string[]): TopicIntake {
   const seen = new Set<string>();
-  const kept: string[] = [];
-  for (const label of labels) {
-    const trimmed = label.trim();
-    if (!isCoveredTopic(trimmed)) continue;
-    const slug = topicSlug(trimmed);
-    if (seen.has(slug)) continue;
-    seen.add(slug);
-    kept.push(trimmed);
+  const kept: KeptTopic[] = [];
+  const refused: { label: string; reason: TopicRejection }[] = [];
+
+  for (const raw of labels) {
+    const result = validateTopicLabel(raw);
+    if (!isValidTopic(result)) {
+      refused.push({ label: raw, reason: result.rejected });
+      continue;
+    }
+    if (seen.has(result.slug)) continue;
+    seen.add(result.slug);
+    kept.push({ ...result, predefined: PREDEFINED.has(result.slug) });
   }
-  return kept;
+
+  return { kept, refused };
 }

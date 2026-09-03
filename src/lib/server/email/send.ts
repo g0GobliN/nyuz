@@ -1,3 +1,4 @@
+import { envValue } from "@/lib/runtime-env";
 import type { Email } from "@/lib/email/shell";
 
 /**
@@ -25,9 +26,8 @@ export type EmailEnv = {
  * import time. Same reasoning as `createAdminClient`.
  */
 function readEnv(env?: EmailEnv): { apiKey: string; from: string } {
-  const proc = globalThis.process?.env;
-  const apiKey = env?.RESEND_API_KEY ?? proc?.["RESEND_API_KEY"];
-  const from = env?.RESEND_FROM_EMAIL ?? proc?.["RESEND_FROM_EMAIL"];
+  const apiKey = envValue("RESEND_API_KEY", env);
+  const from = envValue("RESEND_FROM_EMAIL", env);
 
   if (!apiKey) {
     throw new Error(
@@ -39,13 +39,28 @@ function readEnv(env?: EmailEnv): { apiKey: string; from: string } {
   return { apiKey, from };
 }
 
-/** The origin links in an email point at. Absolute, because email has no base. */
+/**
+ * The origin links in an email point at. Absolute, because email has no base.
+ *
+ * Throws rather than defaulting. This used to fall back to
+ * `http://localhost:8080`, which is the one wrong answer that looks like a
+ * working one: a briefing goes out, Resend accepts it, the delivery is recorded
+ * as sent, and every link in the reader's inbox is dead. Nothing retries,
+ * because nothing failed. The same value is also the return URL for Stripe
+ * checkout, where a localhost redirect strands a reader who has just paid.
+ *
+ * `VITE_SITE_URL` is in `.env.example` and set in local `.env`, so the throw is
+ * reachable only from a genuinely misconfigured deployment — which is exactly
+ * when it should be loud.
+ */
 export function siteUrl(env?: EmailEnv): string {
-  const proc = globalThis.process?.env;
-  return (env?.VITE_SITE_URL ?? proc?.["VITE_SITE_URL"] ?? "http://localhost:8080").replace(
-    /\/+$/,
-    "",
-  );
+  const configured = envValue("VITE_SITE_URL", env);
+  if (!configured) {
+    throw new Error(
+      "Missing VITE_SITE_URL. Links in email and Stripe redirects are absolute and cannot be derived from the request.",
+    );
+  }
+  return configured.replace(/\/+$/, "");
 }
 
 export type SendResult =

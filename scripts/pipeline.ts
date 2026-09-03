@@ -260,6 +260,7 @@ const VERDICT: Record<EventOutcome["decision"], string> = {
   // still pending, not failed — it becomes eligible the moment a reader's
   // interests reach it.
   no_demand: "waits ",
+  demand_check_failed: "check ",
   deferred: "later ",
   failed: "FAIL  ",
 };

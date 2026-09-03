@@ -6,7 +6,7 @@ import { Button } from "@/components/kit";
 import { useFeedback } from "@/lib/feedback-store";
 import { useAuth } from "@/lib/auth";
 import { usePrefs } from "@/lib/prefs-store";
-import { exportAccountData } from "@/lib/server/account";
+import { deleteAccount, exportAccountData } from "@/lib/server/account";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/settings")({
@@ -23,14 +23,43 @@ function Settings() {
   const [nextEmail, setNextEmail] = useState(email);
   const { state, signals, reset } = useFeedback();
   const [saved, setSaved] = useState(false);
-  const [busy, setBusy] = useState<"email" | "export" | "pause" | null>(null);
+  const [busy, setBusy] = useState<"email" | "export" | "pause" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The danger zone stays collapsed until asked for. Typing the address is not
+  // a security control — the call is already behind `signedInOnly` — it is
+  // there so an irreversible action cannot happen on one stray click.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmEmail, setConfirmEmail] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => setNextEmail(email), [email]);
 
   const save = () => {
     setSaved(true);
     setTimeout(() => setSaved(false), 1600);
+  };
+
+  const removeAccount = async () => {
+    if (busy) return;
+    setBusy("delete");
+    setDeleteError(null);
+    try {
+      const result = await deleteAccount({ data: { confirmEmail: confirmEmail.trim() } });
+      if (!result.ok) {
+        setDeleteError(result.detail);
+        return;
+      }
+      // The session outlives the account until it is cleared, and every request
+      // it makes from here on would 401. Signing out is what actually ends the
+      // visit; the redirect follows from the auth guard.
+      await auth.signOut();
+    } catch (cause) {
+      setDeleteError(
+        cause instanceof Error ? cause.message : "Could not delete the account. Try again.",
+      );
+    } finally {
+      setBusy(null);
+    }
   };
 
   const changeEmail = async () => {
@@ -201,17 +230,66 @@ function Settings() {
             <div className="flex-1">
               <p className="text-[14px] font-medium">Delete account</p>
               <p className="mt-1.5 max-w-md text-[12.5px] leading-relaxed text-muted-foreground">
-                Removes your profile, topics, feedback signals and delivery history. This cannot be
-                undone.
+                Removes your profile, topics, feedback signals and delivery history. Any paid
+                subscription is cancelled first. This cannot be undone.
               </p>
             </div>
-            <a
-              href="mailto:privacy@nyuz.app?subject=Delete%20my%20nyuz%20account"
-              className="inline-flex h-9 items-center rounded-full border border-border px-4 text-[13px] font-medium transition-colors hover:bg-muted"
-            >
-              Request deletion
-            </a>
+            {confirmingDelete ? null : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setConfirmingDelete(true);
+                  setDeleteError(null);
+                }}
+                disabled={busy !== null}
+              >
+                Delete account
+              </Button>
+            )}
           </div>
+
+          {confirmingDelete ? (
+            <div className="mt-5 rounded-2xl border border-destructive/30 p-4">
+              <label htmlFor="confirm-delete" className="text-[12.5px] text-muted-foreground">
+                Type <span className="font-medium text-foreground">{email}</span> to confirm.
+              </label>
+              <input
+                id="confirm-delete"
+                type="email"
+                autoComplete="off"
+                value={confirmEmail}
+                onChange={(event) => setConfirmEmail(event.target.value)}
+                className="mt-2 h-11 w-full rounded-2xl border border-input bg-background px-4 text-[16px] outline-none focus:border-destructive md:text-[14.5px]"
+              />
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => void removeAccount()}
+                  disabled={
+                    busy !== null || confirmEmail.trim().toLowerCase() !== email.toLowerCase()
+                  }
+                >
+                  {busy === "delete" ? "Deleting…" : "Delete my account"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setConfirmingDelete(false);
+                    setConfirmEmail("");
+                    setDeleteError(null);
+                  }}
+                  disabled={busy !== null}
+                >
+                  Cancel
+                </Button>
+              </div>
+              {deleteError ? (
+                <p className="mt-3 text-[12.5px] text-destructive">{deleteError}</p>
+              ) : null}
+            </div>
+          ) : null}
         </section>
       </div>
     </DashboardShell>

@@ -22,6 +22,8 @@ function topic(label: string, extra: Partial<ReaderTopic> = {}): ReaderTopic {
     topicId: `topic:${label}`,
     slug: label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
     label,
+    kind: "predefined",
+    terms: [],
     importance: "notable",
     weight: 1,
     keywords: [],
@@ -136,6 +138,23 @@ describe("what a new reader is worth paying to analyse", () => {
     );
 
     expect(chosen).toEqual([]);
+  });
+
+  it("requires every term of a custom topic before buying analysis", () => {
+    const custom = topic("India vs China", {
+      kind: "custom",
+      terms: ["india", "china"],
+    });
+    const chosen = worthAnalysing(
+      [
+        event("a", "China changes rare-earth export rules"),
+        event("b", "India and China resume border talks"),
+      ],
+      reader([custom]),
+      ON_DEMAND_LIMIT,
+    );
+
+    expect(chosen.map((e) => e.id)).toEqual(["b"]);
   });
 
   it("spends nothing for a reader who follows nothing", () => {

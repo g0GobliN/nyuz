@@ -1,3 +1,5 @@
+import { envValue } from "@/lib/runtime-env";
+
 export type UnsubscribeEnv = {
   EMAIL_UNSUBSCRIBE_SECRET?: string;
 };
@@ -7,8 +9,7 @@ type Payload = { u: string; e: number; v: 1 };
 const TOKEN_DAYS = 180;
 
 function secret(env?: UnsubscribeEnv): string {
-  const value =
-    env?.EMAIL_UNSUBSCRIBE_SECRET ?? globalThis.process?.env?.["EMAIL_UNSUBSCRIBE_SECRET"];
+  const value = envValue("EMAIL_UNSUBSCRIBE_SECRET", env);
   if (!value || value.length < 32) {
     throw new Error("Missing EMAIL_UNSUBSCRIBE_SECRET (minimum 32 characters)");
   }

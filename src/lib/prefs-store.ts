@@ -71,6 +71,7 @@ export function usePrefs() {
   const { user, loading: authLoading } = useAuth();
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [hydrated, setHydrated] = useState(false);
+  const [accountLoaded, setAccountLoaded] = useState(false);
   // Guards against a save firing while the server copy is still arriving, which
   // would push defaults over real stored settings.
   const loaded = useRef(false);
@@ -117,6 +118,7 @@ export function usePrefs() {
         if (unsynced) {
           await savePreferences({
             data: {
+              name: next.name,
               topics: next.topics,
               exclusions: next.exclusions,
               time: next.time,
@@ -127,6 +129,7 @@ export function usePrefs() {
               frequency: next.frequency,
               breaking: next.breaking,
               paused: next.paused,
+              onboarded: next.onboarded,
             },
           });
 
@@ -138,10 +141,12 @@ export function usePrefs() {
           // refuses to spend anything twice for one account.
           void startFirstBriefing().catch((error: unknown) => console.error(error));
         }
+        setAccountLoaded(true);
       } catch (error) {
         // An unreachable account is not a reason to lose the local copy; the
         // cache is already rendering and the next save will retry.
         console.error(error);
+        setAccountLoaded(true);
       }
     })();
 
@@ -181,5 +186,5 @@ export function usePrefs() {
     [user],
   );
 
-  return { prefs, update, hydrated };
+  return { prefs, update, hydrated, accountLoaded };
 }

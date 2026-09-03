@@ -10,18 +10,26 @@ import {
   Pill,
   Stat,
   StatGrid,
+  formatDateTime,
   formatNumber,
   inputClass,
+  useConfirm,
   useConsoleMutation,
 } from "@/components/admin/shell";
 import { Button, Chip } from "@/components/kit";
 import {
+  type AiCreditView,
   type AiSpend,
+  addAiTopup,
+  deleteAiTopup,
+  getAiCredit,
   getAiSpend,
   getCostIntelligence,
   getUnitEconomics,
+  listAiTopups,
   saveOperatingCosts,
 } from "@/lib/server/cost-intelligence";
+import { SPEND_WINDOW_LABELS } from "@/lib/ai/credit";
 import {
   COST_PROVIDERS,
   type CostProvider,
@@ -65,6 +73,12 @@ function CostPage() {
     queryFn: () => getAiSpend(),
     staleTime: 60_000,
   });
+  // Not windowed either: a prepaid balance is a running total, not a period.
+  const creditView = useQuery({
+    queryKey: ["admin", "ai-credit"],
+    queryFn: () => getAiCredit(),
+    staleTime: 60_000,
+  });
 
   const data = cost.data;
 
@@ -78,6 +92,18 @@ function CostPage() {
       <ErrorNote error={cost.error} />
       <ErrorNote error={unit.error} />
       <ErrorNote error={spend.error} />
+      <ErrorNote error={creditView.error} />
+
+      {creditView.data ? <AiCreditPanel data={creditView.data} /> : null}
+
+      {!creditView.isLoading && creditView.data === null ? (
+        <Panel className="mb-5">
+          <p className="text-[13.5px] leading-relaxed text-signal">
+            Apply migration 0048 to record credit top-ups and see the balance, burn rate and spend
+            by window. Until then the ledger measures spend but nothing measures what was paid in.
+          </p>
+        </Panel>
+      ) : null}
 
       {spend.data ? <AiSpendPanel data={spend.data} /> : null}
 
@@ -488,5 +514,234 @@ function PlanCard({
         ))}
       </dl>
     </section>
+  );
+}
+
+/**
+ * The prepaid balance, and the date it runs out.
+ *
+ * Placed above month-to-date spend because it answers the earlier question. The
+ * monthly ceiling asks "does this month finish"; the balance asks "do I need to
+ * buy more credit", and no answer to the first is worth much when the provider
+ * account is empty. Both stay on the page: the ceiling is what refuses a call
+ * locally, the balance is what the provider refuses on.
+ *
+ * The runway, not the remaining dollars, carries the warning tone. "$3.20 left"
+ * reads as fine and is fine at ten cents a day; at two dollars a day it is a
+ * weekend away from stopping the pipeline, and only the rate can tell them apart.
+ */
+function AiCreditPanel({ data }: { data: AiCreditView }) {
+  const { credit, windows } = data;
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const add = useConsoleMutation(addAiTopup, [
+    ["admin", "ai-credit"],
+    ["admin", "ai-topups"],
+  ]);
+
+  const submit = () => {
+    if (!/^\d{1,6}(\.\d{1,6})?$/.test(amount.trim())) return;
+    add.mutate({ data: { amountUsd: amount.trim(), note: note.trim() || undefined } });
+    setAmount("");
+    setNote("");
+  };
+
+  const runway =
+    credit.daysRemaining === null
+      ? "Not measured yet"
+      : credit.daysRemaining < 1
+        ? "Under a day"
+        : `${credit.daysRemaining.toFixed(credit.daysRemaining < 10 ? 1 : 0)} days`;
+
+  return (
+    <div className="mb-5 space-y-5">
+      <Panel
+        title="AI credit · balance"
+        note="What you have topped up, minus what the pipeline has spent since. Every figure is counted from the ledger; the runway is the one projection here and it is withheld until there is an hour of history behind it."
+      >
+        <StatGrid>
+          <Stat
+            label="Remaining"
+            value={credit.topups === 0 ? "—" : usd(credit.remainingUsd)}
+            hint={
+              credit.topups === 0
+                ? "No top-up recorded yet"
+                : `${usd(credit.spentUsd)} of ${usd(credit.toppedUpUsd)} used`
+            }
+          />
+          <Stat
+            label="Runs out in"
+            value={runway}
+            hint={
+              credit.runsOutAt
+                ? `Around ${new Date(credit.runsOutAt).toLocaleDateString()}`
+                : credit.burnUsdPerDay === 0
+                  ? "Nothing spent in the last 7 days"
+                  : "Needs an hour of history"
+            }
+            estimate={credit.runsOutAt !== null}
+          />
+          <Stat
+            label="Burn"
+            value={credit.burnUsdPerDay === null ? "—" : `${usd(credit.burnUsdPerDay)}/day`}
+            hint="Measured over the last 7 days"
+          />
+          <Stat
+            label="In flight"
+            value={usd(credit.inFlightUsd)}
+            hint="Reserved at estimate, not yet settled"
+          />
+        </StatGrid>
+
+        {credit.status !== "ok" || credit.unfundedSpentUsd > 0 || credit.unpricedCalls > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {credit.status === "exhausted" ? (
+              <Pill tone="signal">Credit spent — top up before the provider refuses calls</Pill>
+            ) : null}
+            {credit.status === "low" ? (
+              <Pill tone="signal">Running low — recharge soon</Pill>
+            ) : null}
+            {credit.status === "unrecorded" ? (
+              <Pill tone="outline">
+                No top-up recorded — add one below to start tracking the balance
+              </Pill>
+            ) : null}
+            {credit.unfundedSpentUsd > 0 ? (
+              <Pill tone="outline">
+                {usd(credit.unfundedSpentUsd)} spent before the first top-up, not counted here
+              </Pill>
+            ) : null}
+            {credit.unpricedCalls > 0 ? (
+              <Pill tone="outline">
+                {formatNumber(credit.unpricedCalls)} calls have no rate card — spend is understated
+              </Pill>
+            ) : null}
+          </div>
+        ) : null}
+      </Panel>
+
+      {/* Absent when the window aggregate failed. An empty grid would read as
+          "nothing spent", which is a different claim from "not measured". */}
+      {windows.length > 0 ? (
+        <Panel
+          title="Spend by window"
+          note="The same ledger, sliced by how recently it was spent. Settled figures are measured token counts; in-flight is what open reservations authorized."
+        >
+          <StatGrid>
+            {windows.map((w) => (
+              <Stat
+                key={w.key}
+                label={SPEND_WINDOW_LABELS[w.key]}
+                value={usd(w.spentUsd)}
+                hint={`${formatNumber(w.calls)} calls · ${formatNumber(w.tokens)} tokens`}
+              />
+            ))}
+          </StatGrid>
+        </Panel>
+      ) : null}
+
+      <Panel
+        title="Record a top-up"
+        note="Enter what the provider actually charged you, not the balance it advertised. A $5 purchase is 5."
+      >
+        <div className="grid gap-4 sm:grid-cols-[160px_1fr_auto] sm:items-end">
+          <Field label="Amount">
+            <div className="relative">
+              <span className="absolute left-3.5 top-[18px] text-[13px] text-muted-foreground">
+                $
+              </span>
+              <input
+                inputMode="decimal"
+                placeholder="5.00"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                className={`${inputClass} pl-7`}
+              />
+            </div>
+          </Field>
+          <Field label="Note (optional)">
+            <input
+              placeholder="DeepSeek top-up"
+              maxLength={200}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              className={inputClass}
+            />
+          </Field>
+          <div className="pb-1">
+            <Button onClick={submit} disabled={add.isPending || amount.trim() === ""}>
+              {add.isPending ? "Recording…" : "Record top-up"}
+            </Button>
+          </div>
+        </div>
+        <ErrorNote error={add.error} />
+      </Panel>
+
+      <TopupHistory />
+    </div>
+  );
+}
+
+/**
+ * Every deposit, most recent first.
+ *
+ * Deleting is a hard delete rather than a reversing entry: this table records
+ * what was paid, and a mistyped amount was never paid. The audit log keeps it.
+ */
+function TopupHistory() {
+  const confirm = useConfirm();
+  const topups = useQuery({
+    queryKey: ["admin", "ai-topups"],
+    queryFn: () => listAiTopups(),
+    staleTime: 60_000,
+  });
+  const remove = useConsoleMutation(deleteAiTopup, [
+    ["admin", "ai-credit"],
+    ["admin", "ai-topups"],
+  ]);
+
+  if (!topups.data || topups.data.length === 0) return null;
+
+  return (
+    <Panel title="Top-up history">
+      <ul className="divide-y divide-hairline">
+        {topups.data.map((row) => (
+          <li key={row.id} className="flex flex-wrap items-center gap-3 py-3 first:pt-0">
+            <span className="font-serif text-[18px] tabular-nums">
+              {usd(row.amount_microusd / 1_000_000)}
+            </span>
+            <span className="text-[12.5px] text-muted-foreground">
+              {formatDateTime(row.occurred_at)}
+            </span>
+            {row.note ? <span className="text-[12.5px] text-signal">{row.note}</span> : null}
+            <span className="ml-auto flex items-center gap-2">
+              {confirm.is(row.id) ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="signal"
+                    disabled={remove.isPending}
+                    onClick={() => {
+                      remove.mutate({ data: { id: row.id } });
+                      confirm.clear();
+                    }}
+                  >
+                    Remove
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={confirm.clear}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => confirm.ask(row.id)}>
+                  Remove
+                </Button>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <ErrorNote error={remove.error} />
+    </Panel>
   );
 }

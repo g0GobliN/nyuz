@@ -336,11 +336,23 @@ describe("launch cost and privacy boundaries", () => {
     expect(budget).toContain("DEFAULT_AI_MONTHLY_TOKEN_BUDGET = 500_000");
     expect(budget).toContain("DEFAULT_AI_MONTHLY_COST_USD = 10");
 
+    // Floors, not just "above zero". A slipped decimal — 0.10 where 10 was
+    // meant — is finite and positive, and used to pass, setting a ceiling no
+    // real call fits under. Every AI call is then refused and the pipeline
+    // stalls in a way indistinguishable from the provider being down.
+    expect(budget).toContain("MIN_AI_MONTHLY_COST_USD = 1");
+    expect(budget).toContain("MIN_AI_MONTHLY_TOKEN_BUDGET = 10_000");
+    expect(budget).toMatch(/if \(!Number\.isFinite\(value\) \|\| value < floor\) return null/);
+
     const config = readFileSync("src/lib/ai/config.ts", "utf8");
-    expect(config).toMatch(/configured \? Number\(configured\) : DEFAULT_AI_MONTHLY_TOKEN_BUDGET/);
-    expect(config).toMatch(
-      /configuredCost \? Number\(configuredCost\) : DEFAULT_AI_MONTHLY_COST_USD/,
-    );
+    // An unset binding still falls back to the built-in default rather than
+    // turning metering off; a set-but-unusable one refuses loudly.
+    expect(config).toContain("DEFAULT_AI_MONTHLY_TOKEN_BUDGET");
+    expect(config).toContain("DEFAULT_AI_MONTHLY_COST_USD");
+    expect(config).toMatch(/configuredCeiling\(configured, MIN_AI_MONTHLY_TOKEN_BUDGET\)/);
+    expect(config).toMatch(/configuredCeiling\(configuredCost, MIN_AI_MONTHLY_COST_USD\)/);
+    expect(config).toContain("AI_MONTHLY_TOKEN_BUDGET must be a token count of at least");
+    expect(config).toContain("AI_MONTHLY_COST_USD must be a dollar amount of at least");
     expect(config).not.toContain("if (!configured) return null");
   });
 
@@ -364,6 +376,60 @@ describe("launch cost and privacy boundaries", () => {
     expect(migration).toMatch(/revoke all on function public\.ai_spend_this_month\(\)/);
   });
 
+  it("never voids a reservation that recorded real usage", () => {
+    // A stale reservation is one that never settled and recorded nothing. A row
+    // holding any prompt tokens, completion tokens or cost is real spend, and
+    // clearing it would under-count the month against both ceilings.
+    const migration = readFileSync("supabase/migrations/0047_stale_ai_reservations.sql", "utf8");
+    const reaper = migration.slice(
+      migration.indexOf("create or replace function public.void_stale_ai_reservations"),
+      migration.indexOf("revoke all on function public.void_stale_ai_reservations"),
+    );
+    for (const guard of [
+      "reserved_tokens > 0",
+      "cost_microusd is null",
+      "prompt_tokens = 0",
+      "completion_tokens = 0",
+      "created_at < now() - p_older_than",
+    ]) {
+      expect(reaper).toContain(guard);
+    }
+    expect(migration).toMatch(
+      /revoke all on function public\.void_stale_ai_reservations\(interval\)/,
+    );
+  });
+
+  it("keeps both ceilings self-healing when the reaper has not run", () => {
+    // The reaper is a convenience. If it never ran, an outage's abandoned
+    // reservations would still block every later call, so the ceiling applies
+    // the same cutoff itself — in the token sum, the money sum and the per-user
+    // sum alike.
+    const migration = readFileSync("supabase/migrations/0047_stale_ai_reservations.sql", "utf8");
+    const reserve = migration.slice(
+      migration.indexOf("create or replace function public.reserve_ai_tokens"),
+    );
+    expect(reserve.match(/created_at < stale_before/g) ?? []).toHaveLength(3);
+    expect(reserve).toContain("stale_before timestamptz := now() - interval '1 hour'");
+    // The ceilings themselves must survive the rewrite.
+    expect(reserve).toContain("if global_used + p_reserve > p_global_monthly_cap then");
+    expect(reserve).toContain(
+      "if spent + p_estimated_cost_microusd > p_global_monthly_cost_microusd then",
+    );
+    expect(reserve).toContain(
+      "if p_global_monthly_cost_microusd is null or p_estimated_cost_microusd is null then",
+    );
+  });
+
+  it("reaps abandoned reservations before a stage reserves more", () => {
+    const cron = readFileSync("src/lib/pipeline/cron.ts", "utf8");
+    expect(cron).toContain("void_stale_ai_reservations");
+    // Only the stages that spend need it, and they must reap first.
+    const shared = cron.slice(cron.indexOf("async function runShared"));
+    expect(shared).toMatch(
+      /await reapStaleReservations\(env\);[\s\S]*?stage === "cluster"\) return runCluster/,
+    );
+  });
+
   it("does not send the reader-specific match reason to Ask AI", () => {
     const briefing = readFileSync("src/lib/server/briefing.ts", "utf8");
     const askHandler = briefing.slice(briefing.indexOf("export const askStory"));
@@ -381,6 +447,16 @@ describe("launch cost and privacy boundaries", () => {
     ]) {
       expect(server).toContain(header);
     }
+    // The two transport directives are gated on the request already being
+    // HTTPS, because on a plain-HTTP dev origin they break the page rather than
+    // harden it. The gate must stay one-directional: an https request still
+    // gets both, so a refactor cannot quietly ship the site without them.
+    expect(server).toContain("https ? CONTENT_SECURITY_POLICY : CONTENT_SECURITY_POLICY_INSECURE");
+    expect(server).toContain('const https = new URL(request.url).protocol === "https:"');
+    expect(server).toMatch(/if \(https\) \{\s*secured\.headers\.set\("Strict-Transport-Security"/);
+    expect(server).toContain(
+      'const CONTENT_SECURITY_POLICY = [...CSP_DIRECTIVES, "upgrade-insecure-requests"]',
+    );
   });
 
   it("does not mistake a claimed Stripe event for a completed one", () => {
@@ -398,10 +474,10 @@ describe("launch cost and privacy boundaries", () => {
 });
 
 describe("gates fail in the direction that keeps the product working", () => {
-  it("runs analysis normally when the demand gate cannot be evaluated", () => {
-    // Fail open: a broken gate must not silently stop all analysis.
+  it("spends no analysis tokens when demand cannot be evaluated", () => {
+    // Fail closed on spend: pending events remain eligible for the next run.
     const analyse = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
-    expect(analyse).toContain("running without it this pass");
+    expect(analyse).toContain('decision: "demand_check_failed"');
   });
 
   it("collects everything when demand or cadence cannot be evaluated", () => {

@@ -60,6 +60,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SecretBag } from "@/lib/ai/config";
 import { related } from "@/lib/relate";
+import { matchesTerms, normaliseText } from "@/lib/topics";
 import type { Database } from "@/lib/supabase/types";
 import { analyse } from "./analyse";
 import { loadReaders, match, type Reader } from "./match";
@@ -306,9 +307,9 @@ async function pendingEvents(db: Db, windowHours: number, now: Date): Promise<Pe
  * nothing at all.
  *
  * What it must not do is guess. A candidate has to name a followed topic — its
- * label, its slug, or a keyword the reader added — through the same `related`
- * predicate the matcher uses, so a reader cannot be billed for an event they had
- * no visible connection to. And a candidate the reader's own exclusions veto is
+ * label, its slug, a keyword the reader added, or every term of an interest they
+ * created — through the same predicates the matcher uses, so a reader cannot be
+ * billed for an event they had no visible connection to. And a candidate the reader's own exclusions veto is
  * dropped before it is paid for rather than after.
  */
 export function worthAnalysing(
@@ -316,13 +317,23 @@ export function worthAnalysing(
   reader: Reader,
   limit: number,
 ): PendingEvent[] {
-  const wanted = reader.topics.flatMap((t) => [t.label, t.slug, ...t.keywords]);
+  const wanted = reader.topics.flatMap((t) =>
+    t.kind === "predefined" ? [t.label, t.slug, ...t.keywords] : t.keywords,
+  );
   const vetoes = [...reader.exclusions, ...reader.topics.flatMap((t) => t.excludeKeywords)];
+  // A reader-created interest has to earn its place here the same way, and can
+  // only be judged on the headline: an event this stage is deciding whether to
+  // pay for has not been analysed, so it has no tags yet. Every term must
+  // appear, which is the same rule stage 5 applies to the richer signal.
+  const custom = reader.topics.filter((t) => t.kind === "custom" && t.terms.length > 0);
 
   const chosen: PendingEvent[] = [];
   for (const event of events) {
     if (chosen.length >= limit) break;
-    if (!wanted.some((term) => related(event.title, term))) continue;
+    const named =
+      wanted.some((term) => related(event.title, term)) ||
+      custom.some((t) => matchesTerms(normaliseText(event.title), t.terms));
+    if (!named) continue;
     if (vetoes.some((term) => related(event.title, term))) continue;
     chosen.push(event);
   }

@@ -28,3 +28,35 @@ export const DEFAULT_AI_MONTHLY_TOKEN_BUDGET = 500_000;
 export const DEFAULT_AI_MONTHLY_COST_USD = 10;
 
 export const MICROUSD_PER_USD = 1_000_000;
+
+/**
+ * Floors below which a configured ceiling is treated as a typo, not a choice.
+ *
+ * Both ceilings were validated as "finite and above zero", which a slipped
+ * decimal passes: `AI_MONTHLY_COST_USD=0.10` is a perfectly valid number and a
+ * ceiling no real call fits under, so every AI call is refused and the pipeline
+ * stops producing briefings. From the outside that is indistinguishable from
+ * the provider being down — the stages defer, the backlog grows, and nothing
+ * says the cause is one character in a secret.
+ *
+ * These are deliberately far below any sane operating value rather than near
+ * it. The job is to catch `0.10` where `10` was meant, not to second-guess an
+ * operator who wants a genuinely tight budget.
+ */
+export const MIN_AI_MONTHLY_COST_USD = 1;
+export const MIN_AI_MONTHLY_TOKEN_BUDGET = 10_000;
+
+/**
+ * A configured ceiling, or null when the value cannot be one.
+ *
+ * Null covers all three ways this goes wrong — unset, unparseable, and below
+ * the floor — so callers decide once whether that means "fall back to the
+ * default" (the console, which must still render) or "refuse to run" (the
+ * pipeline, which must not spend against a ceiling nobody meant).
+ */
+export function configuredCeiling(raw: string | undefined, floor: number): number | null {
+  if (raw === undefined || raw.trim() === "") return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < floor) return null;
+  return value;
+}

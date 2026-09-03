@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCoveredTopic, keepCoveredTopics } from "@/lib/coverage";
+import { isPredefinedTopic, keepUsableTopics } from "@/lib/coverage";
 import {
   ASK_COOLDOWN_MS,
   PLAN_LIMITS,
@@ -10,26 +10,28 @@ import {
   digestCapabilityFor,
 } from "@/lib/plans";
 
-describe("isCoveredTopic", () => {
+describe("isPredefinedTopic", () => {
   it("accepts pool labels regardless of case and spacing", () => {
-    expect(isCoveredTopic("OpenAI")).toBe(true);
-    expect(isCoveredTopic(" openai ")).toBe(true);
-    expect(isCoveredTopic("Developer tools")).toBe(true);
+    expect(isPredefinedTopic("OpenAI")).toBe(true);
+    expect(isPredefinedTopic(" openai ")).toBe(true);
+    expect(isPredefinedTopic("Developer tools")).toBe(true);
   });
 
-  it("rejects a label we do not cover", () => {
-    expect(isCoveredTopic("Knitting")).toBe(false);
-    expect(isCoveredTopic("Politics")).toBe(true);
-    expect(isCoveredTopic("Music")).toBe(true);
+  it("answers what the model can classify, not what a reader may follow", () => {
+    // "Knitting" is followable now; it is simply not in the editorial
+    // vocabulary the analysis prompt is built from. Conflating those two
+    // questions is what made a reader-created interest unsaveable.
+    expect(isPredefinedTopic("Knitting")).toBe(false);
+    expect(isPredefinedTopic("Politics")).toBe(true);
+    expect(isPredefinedTopic("Music")).toBe(true);
   });
 });
 
-describe("keepCoveredTopics", () => {
-  it("drops uncovered labels and keeps first-seen spelling", () => {
-    expect(keepCoveredTopics(["Knitting", "OpenAI", "openai", "React"])).toEqual([
-      "OpenAI",
-      "React",
-    ]);
+describe("keepUsableTopics", () => {
+  it("keeps free text and marks which entries are editorial", () => {
+    const { kept } = keepUsableTopics(["Knitting", "OpenAI", "openai", "React"]);
+    expect(kept.map((t) => t.label)).toEqual(["Knitting", "OpenAI", "React"]);
+    expect(kept.map((t) => t.predefined)).toEqual([false, true, true]);
   });
 });
 

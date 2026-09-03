@@ -257,7 +257,33 @@ async function runDormant(env: Env): Promise<ScheduledResult> {
   return { stage: "dormant", report };
 }
 
-function runShared(stage: SharedStage, env: Env): Promise<ScheduledResult> {
+/**
+ * Clears reservations that never settled, before any stage tries to reserve.
+ *
+ * A model call that fails with a 5xx or a dropped connection keeps its
+ * reservation as a conservative charge, because the provider may have generated
+ * a reply nobody received. Nothing ever cleared those, so two days of provider
+ * failure in August held 2.5M tokens and $5.45 against the monthly ceilings
+ * having spent nothing, and the pipeline stopped for the rest of the month.
+ *
+ * One database call at the top of a run, and it costs nothing when the ledger is
+ * clean. Failure is logged and swallowed: an unreapable ledger is a reason to
+ * look at the ledger, not a reason to skip the run — `reserve_ai_tokens` applies
+ * the same cutoff itself, so the ceiling is right either way.
+ */
+async function reapStaleReservations(env: Env): Promise<void> {
+  const { data, error } = await createAdminClient(env).rpc("void_stale_ai_reservations", {});
+  if (error) {
+    console.error(`voiding stale AI reservations: ${error.message}`);
+    return;
+  }
+  if (typeof data === "number" && data > 0) {
+    console.log(`voided ${data} stale AI reservation${data === 1 ? "" : "s"}`);
+  }
+}
+
+async function runShared(stage: SharedStage, env: Env): Promise<ScheduledResult> {
+  if (stage === "cluster" || stage === "analyse") await reapStaleReservations(env);
   if (stage === "cluster") return runCluster(env);
   if (stage === "analyse") return runAnalyse(env);
   if (stage === "match") return runMatch(env);
@@ -289,8 +315,10 @@ export async function runScheduled(
   // The per-stage schedules are no longer registered triggers, but they stay
   // dispatchable: `npm run cron:test -- "10,40 * * * *"` has to force clustering
   // rather than depend on the minute the operator happened to run it.
-  if (cron === CLUSTER_CRON) return runCluster(env);
-  if (cron === ANALYSE_CRON) return runAnalyse(env);
+  if (cron === CLUSTER_CRON || cron === ANALYSE_CRON) {
+    await reapStaleReservations(env);
+    return cron === CLUSTER_CRON ? runCluster(env) : runAnalyse(env);
+  }
   if (cron === MATCH_CRON) return runMatch(env);
   if (cron === DORMANT_CRON) return runDormant(env);
 

@@ -118,8 +118,8 @@ const PIPE: { label: string; yours?: boolean }[] = [
   { label: "Sources" },
   { label: "Collected through the day" },
   { label: "Duplicates merged" },
-  { label: "One story, not thirty articles" },
-  { label: "Read and understood, once" },
+  { label: "One event, not thirty articles" },
+  { label: "Understood once" },
   { label: "Weighed for importance" },
   { label: "Matched to what you follow", yours: true },
   { label: "Your briefing", yours: true },
@@ -137,9 +137,9 @@ export function AiTrust() {
         </h2>
         <div className="mt-7 space-y-3 text-[14.5px] leading-relaxed text-muted-foreground">
           <p>
-            We don&apos;t ask AI to read the internet again for every person. The news is gathered
-            once, the duplicates are folded together, and each story is read properly a single time
-            — including the part about what it actually changes.
+            We don&apos;t ask AI to process the same coverage again for every person. Information is
+            collected once, the duplicates are folded together, and each event is understood a
+            single time — including the part about what it actually changes.
           </p>
           <p>
             Working out which of those stories belong in your morning happens quietly on our side,
@@ -176,7 +176,7 @@ export function Infrastructure() {
   // the real figure moves every week and a stale one is worse than none. What
   // each stage *does* is stable, and that is what this table is for.
   const rows = [
-    ["News sources", "Curated feeds, plus the ones you add"],
+    ["Sources", "Curated feeds, plus the ones you add"],
     ["Collection", "Gathered and timestamped"],
     ["Duplicates", "Near-identical articles folded together"],
     ["Understanding", "Each story read once, properly"],
@@ -216,23 +216,23 @@ export function Infrastructure() {
         <div className="flex flex-col justify-between gap-5">
           <div className="rounded-3xl border border-hairline bg-surface-2 p-7">
             <p className="font-serif text-3xl leading-snug">
-              Understand a story once. Deliver it to everyone it matters to.
+              Understand an event once. Deliver it to everyone it matters to.
             </p>
           </div>
           <div className="rounded-3xl border border-hairline bg-surface p-7">
             <p className="text-[12px] uppercase tracking-[0.16em] text-muted-foreground">
-              One story. Thousands of people. Read once.
+              One event. Thousands of people. Understood once.
             </p>
             <div className="mt-6 space-y-4">
               <ArchRow
-                label="Re-reading everything, for every person"
+                label="Re-processing every event, for every person"
                 tone="bad"
                 note="Costs climb with every new subscriber"
               />
               <ArchRow
-                label="Read once, shared by everyone"
+                label="Understood once, shared by everyone"
                 tone="good"
-                note="Costs follow the news, not the audience"
+                note="Costs follow what changes, not the audience"
               />
             </div>
             <p className="mt-6 text-[13px] leading-relaxed text-muted-foreground">

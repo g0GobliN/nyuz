@@ -3,6 +3,8 @@ import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { adminOnly, audit, AdminAuthError } from "@/lib/server/guard";
+import { withViewerIp } from "@/lib/server/rate-limit";
+import { shouldCountView } from "@/lib/rate-limit-core";
 import type { BlogPost, PostStatus } from "@/lib/supabase/types";
 
 /**
@@ -129,8 +131,9 @@ export type PublicPost = PublicPostCard & {
 };
 
 export const getPublicPost = createServerFn({ method: "GET" })
+  .middleware([withViewerIp])
   .validator((input: unknown) => parseInput(z.object({ slug: z.string().max(90) }), input))
-  .handler(async ({ data }): Promise<PublicPost | null> => {
+  .handler(async ({ data, context }): Promise<PublicPost | null> => {
     const db = createAdminClient();
     const { data: row, error } = await db
       .from("blog_posts")
@@ -145,8 +148,11 @@ export const getPublicPost = createServerFn({ method: "GET" })
     if (!row) return null;
 
     // Best-effort. A failed counter must never break the read, so the RPC
-    // result is ignored rather than awaited-and-checked.
-    void db.rpc("increment_post_view", { p_slug: data.slug });
+    // result is ignored rather than awaited-and-checked. One count per reader
+    // per post per hour, so a loop cannot invent traffic — see shouldCountView.
+    if (shouldCountView(context.viewerIp, data.slug)) {
+      void db.rpc("increment_post_view", { p_slug: data.slug });
+    }
 
     return {
       ...toCard(row),

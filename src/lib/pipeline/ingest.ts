@@ -674,45 +674,25 @@ async function store(db: Db, rows: ArticleRow[]): Promise<{ inserted: number; re
 async function updateRetitled(db: Db, rows: ArticleRow[]): Promise<number> {
   if (rows.length === 0) return 0;
 
-  const stored = new Map<string, string>();
-
-  for (const group of byUrlLength(rows.map((row) => row.url))) {
-    const data = await storage("Reading stored hashes", async () => {
-      const result = await db
-        .from("articles")
-        .select("url, content_hash")
-        .in("url", group)
-        .is("event_id", null);
-
-      if (result.error) throw new Error(result.error.message);
-      return result.data;
-    });
-
-    for (const row of data ?? []) stored.set(row.url, row.content_hash);
-  }
-
   let changed = 0;
 
-  for (const row of rows) {
-    const before = stored.get(row.url);
-    if (before === undefined || before === row.content_hash) continue;
+  // Chunked by count rather than by encoded length: these travel in a POST body,
+  // so the request-line limit that `byUrlLength` exists to dodge does not apply.
+  // The cap is only to keep one payload from becoming unreasonably large.
+  for (let i = 0; i < rows.length; i += RETITLE_BATCH) {
+    const batch = rows.slice(i, i + RETITLE_BATCH).map((row) => ({
+      url: row.url,
+      title: row.title,
+      excerpt: row.excerpt,
+      author: row.author,
+      content_hash: row.content_hash,
+    }));
 
-    await storage(`Updating ${row.url}`, async () => {
-      const result = await db
-        .from("articles")
-        .update({
-          title: row.title,
-          excerpt: row.excerpt,
-          author: row.author,
-          content_hash: row.content_hash,
-        })
-        .eq("url", row.url)
-        .is("event_id", null);
-
+    changed += await storage("Applying retitles", async () => {
+      const result = await db.rpc("update_retitled_articles", { p_rows: batch });
       if (result.error) throw new Error(result.error.message);
+      return Number(result.data ?? 0);
     });
-
-    changed += 1;
   }
 
   return changed;
@@ -732,6 +712,16 @@ async function updateRetitled(db: Db, rows: ArticleRow[]): Promise<number> {
  * to the limit is what caused this.
  */
 export const URL_FILTER_BUDGET = 4000;
+
+/**
+ * Retitled articles sent to `update_retitled_articles` in one call.
+ *
+ * Unrelated to `URL_FILTER_BUDGET`: these go in a POST body, which has no
+ * request-line limit, so this bounds payload size rather than avoiding an
+ * overflow. Retitles per run are normally in the single digits, so this is only
+ * reached during a burst.
+ */
+const RETITLE_BATCH = 500;
 
 /**
  * Article URLs grouped so that no single `in.(…)` filter can overflow.

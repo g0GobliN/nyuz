@@ -234,7 +234,7 @@ export function Markdown({ source }: { source: string }) {
           case "heading": {
             const cls =
               block.level === 2
-                ? "display mt-10 text-[clamp(1.5rem,3vw,2rem)]"
+                ? "display mt-10 text-[clamp(1.25rem,3vw,2rem)]"
                 : block.level === 3
                   ? "mt-8 text-[19px] font-semibold"
                   : "mt-6 text-[16px] font-semibold";

@@ -348,7 +348,7 @@ export function Comparison() {
       <div className="mt-12 grid gap-5 md:grid-cols-2">
         <div className="rounded-3xl border border-hairline p-7">
           <p className="text-[12px] uppercase tracking-[0.16em] text-muted-foreground">
-            Normal news
+            The old way
           </p>
           <ol className="mt-6 space-y-3">
             {["Search", "Scroll", "Click", "Read", "Repeat", "Waste time"].map((s, i) => (
@@ -366,18 +366,23 @@ export function Comparison() {
         <div className="rounded-3xl border border-signal/30 bg-surface p-7 shadow-[var(--shadow-soft)]">
           <p className="text-[12px] uppercase tracking-[0.16em] text-signal">nyuz</p>
           <ol className="mt-6 space-y-3">
-            {["Tell us once", "We monitor", "We filter", "We summarise", "You receive", "Done"].map(
-              (s, i) => (
-                <li
-                  key={s}
-                  className="reveal flex items-center gap-3 text-[15px]"
-                  style={{ transitionDelay: `${i * 60}ms` }}
-                >
-                  <span className="h-px w-6 bg-signal" />
-                  {s}
-                </li>
-              ),
-            )}
+            {[
+              "Tell us once",
+              "We keep watch",
+              "We connect",
+              "We filter",
+              "You receive",
+              "Done",
+            ].map((s, i) => (
+              <li
+                key={s}
+                className="reveal flex items-center gap-3 text-[15px]"
+                style={{ transitionDelay: `${i * 60}ms` }}
+              >
+                <span className="h-px w-6 bg-signal" />
+                {s}
+              </li>
+            ))}
           </ol>
         </div>
       </div>

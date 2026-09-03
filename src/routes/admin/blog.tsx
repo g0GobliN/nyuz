@@ -338,7 +338,7 @@ function Editor({
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal">
               Preview
             </p>
-            <h1 className="display mt-3 text-[clamp(1.9rem,5vw,2.8rem)]">
+            <h1 className="display mt-3 text-[clamp(1.5rem,5vw,2.8rem)]">
               {draft.title || "Untitled"}
             </h1>
             {draft.excerpt ? (

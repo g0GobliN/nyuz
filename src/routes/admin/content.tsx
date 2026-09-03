@@ -341,7 +341,7 @@ function HeroForm({ row }: { row: SettingRow | undefined }) {
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Preview
           </p>
-          <h3 className="display mt-3 whitespace-pre-line text-[clamp(1.6rem,4vw,2.4rem)]">
+          <h3 className="display mt-3 whitespace-pre-line text-[clamp(1.375rem,4vw,2.4rem)]">
             {hero.headline || "Headline"}
           </h3>
           {hero.sub ? (

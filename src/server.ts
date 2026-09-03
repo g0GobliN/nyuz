@@ -6,6 +6,8 @@ import { handleStripeWebhook, type WebhookEnv } from "./lib/server/stripe/webhoo
 import { handleTelegramWebhook, type TelegramWebhookEnv } from "./lib/server/telegram/webhook";
 import { verifyUnsubscribeToken, type UnsubscribeEnv } from "./lib/server/email/unsubscribe";
 import { createAdminClient, type ServerEnv } from "./lib/supabase/admin";
+import { handleSitemap, type SitemapEnv } from "./lib/server/sitemap";
+import { envValue } from "./lib/runtime-env";
 import type { DeliveryChannel } from "./lib/supabase/types";
 
 /**
@@ -23,6 +25,8 @@ const STRIPE_WEBHOOK_PATH = "/api/stripe/webhook";
 const TELEGRAM_WEBHOOK_PATH = "/api/telegram/webhook";
 const UNSUBSCRIBE_PATH = "/api/unsubscribe";
 const HEALTH_PATH = "/api/health";
+// Served here rather than from public/: it lists blog posts, which are rows.
+const SITEMAP_PATH = "/sitemap.xml";
 
 type UnsubscribeServerEnv = ServerEnv & UnsubscribeEnv;
 type HealthEnv = ServerEnv & { HEALTHCHECK_TOKEN?: string };
@@ -75,7 +79,7 @@ async function handleUnsubscribe(request: Request, env?: UnsubscribeServerEnv): 
 }
 
 async function handleHealth(request: Request, env?: HealthEnv): Promise<Response> {
-  const expected = env?.HEALTHCHECK_TOKEN ?? globalThis.process?.env?.["HEALTHCHECK_TOKEN"];
+  const expected = envValue("HEALTHCHECK_TOKEN", env);
   const supplied =
     request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
     new URL(request.url).searchParams.get("token");
@@ -104,7 +108,7 @@ async function handleHealth(request: Request, env?: HealthEnv): Promise<Response
   );
 }
 
-const CONTENT_SECURITY_POLICY = [
+const CSP_DIRECTIVES = [
   "default-src 'self'",
   "base-uri 'self'",
   "object-src 'none'",
@@ -116,12 +120,34 @@ const CONTENT_SECURITY_POLICY = [
   "img-src 'self' https: data:",
   "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
   "worker-src 'self'",
-  "upgrade-insecure-requests",
-].join("; ");
+];
+
+const CONTENT_SECURITY_POLICY = [...CSP_DIRECTIVES, "upgrade-insecure-requests"].join("; ");
+
+/**
+ * The same policy without the transport upgrade, for a request that arrived
+ * over plain HTTP.
+ *
+ * `upgrade-insecure-requests` rewrites every subresource URL to https://, and
+ * on a dev server nothing is listening for TLS on the port — so the document
+ * arrives and its stylesheet does not, leaving unstyled HTML. Chrome exempts
+ * localhost from the upgrade because a loopback origin is trustworthy, which is
+ * why this is invisible until the site is opened from another device at
+ * http://<lan-ip>:8080. HSTS is dropped for the same reason: pinning a bare
+ * LAN IP to HTTPS in a phone's browser outlives the dev session.
+ *
+ * Nothing changes in production. Cloudflare terminates TLS and hands the Worker
+ * an https:// request URL, so the deployed site always takes the branch above.
+ */
+const CONTENT_SECURITY_POLICY_INSECURE = CSP_DIRECTIVES.join("; ");
 
 function secureResponse(request: Request, response: Response): Response {
   const secured = new Response(response.body, response);
-  secured.headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+  const https = new URL(request.url).protocol === "https:";
+  secured.headers.set(
+    "Content-Security-Policy",
+    https ? CONTENT_SECURITY_POLICY : CONTENT_SECURITY_POLICY_INSECURE,
+  );
   secured.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   secured.headers.set("X-Content-Type-Options", "nosniff");
   secured.headers.set("X-Frame-Options", "DENY");
@@ -130,7 +156,9 @@ function secureResponse(request: Request, response: Response): Response {
     "Permissions-Policy",
     "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
   );
-  secured.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  if (https) {
+    secured.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
 
   const path = new URL(request.url).pathname;
   if (
@@ -210,6 +238,9 @@ export default {
       }
       if (path === HEALTH_PATH) {
         return secureResponse(request, await handleHealth(request, env as HealthEnv | undefined));
+      }
+      if (path === SITEMAP_PATH) {
+        return secureResponse(request, await handleSitemap(env as SitemapEnv | undefined));
       }
 
       const handler = await getServerEntry();

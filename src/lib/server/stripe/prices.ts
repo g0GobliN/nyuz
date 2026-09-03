@@ -1,3 +1,4 @@
+import { envValue } from "@/lib/runtime-env";
 import type { PlanTier } from "@/lib/supabase/types";
 
 /**
@@ -74,9 +75,7 @@ const CATALOGUE: {
 ];
 
 function read(env: PriceEnv | undefined, key: keyof PriceEnv): string | undefined {
-  const proc = globalThis.process?.env;
-  const value = env?.[key] ?? proc?.[key];
-  return value?.trim() || undefined;
+  return envValue(key, env)?.trim() || undefined;
 }
 
 /**

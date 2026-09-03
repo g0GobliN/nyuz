@@ -7,25 +7,29 @@ type AuthState = {
   user: User | null;
   /** True until the first session check resolves. Guards must wait on this. */
   loading: boolean;
-  recovery: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, name: string) => Promise<void>;
-  requestPasswordReset: (email: string) => Promise<void>;
-  updatePassword: (password: string) => Promise<void>;
-  clearRecovery: () => void;
-  signInWithProvider: (provider: OAuthProvider) => Promise<void>;
+  continueWithEmail: (
+    email: string,
+    options: { createAccount: boolean; next?: string },
+  ) => Promise<void>;
+  verifyEmailOtp: (email: string, token: string) => Promise<void>;
+  signInWithProvider: (provider: OAuthProvider, next?: string) => Promise<void>;
   updateEmail: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 export type OAuthProvider = "google" | "github";
 
+function callbackUrl(next?: string): string {
+  const url = new URL("/auth", window.location.origin);
+  if (next) url.searchParams.set("next", next);
+  return url.toString();
+}
+
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [recovery, setRecovery] = useState(false);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -38,10 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     // Fires on sign-in, sign-out, and token refresh — including in other tabs.
-    const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
       setSession(next);
-      if (event === "PASSWORD_RECOVERY") setRecovery(true);
-      if (event === "SIGNED_OUT") setRecovery(false);
       setLoading(false);
     });
 
@@ -56,55 +58,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       user: session?.user ?? null,
       loading,
-      recovery,
 
-      async signIn(email, password) {
-        const { error } = await getSupabaseBrowserClient().auth.signInWithPassword({
+      async continueWithEmail(email, options) {
+        const { error } = await getSupabaseBrowserClient().auth.signInWithOtp({
           email,
-          password,
+          options: {
+            emailRedirectTo: callbackUrl(options.next),
+            shouldCreateUser: options.createAccount,
+          },
         });
         if (error) throw error;
       },
 
-      async signUp(email, password, name) {
-        const { error } = await getSupabaseBrowserClient().auth.signUp({
+      async verifyEmailOtp(email, token) {
+        const { error } = await getSupabaseBrowserClient().auth.verifyOtp({
           email,
-          password,
-          // handle_new_user() reads this to seed profiles.display_name, so the
-          // greeting works from the very first briefing.
-          options: { data: { name } },
+          token,
+          type: "email",
         });
         if (error) throw error;
       },
 
-      async requestPasswordReset(email) {
-        const { error } = await getSupabaseBrowserClient().auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/auth?recovery=1`,
-        });
-        if (error) throw error;
-      },
-
-      async updatePassword(password) {
-        const { error } = await getSupabaseBrowserClient().auth.updateUser({ password });
-        if (error) throw error;
-        setRecovery(false);
-      },
-
-      clearRecovery() {
-        setRecovery(false);
-      },
-
-      async signInWithProvider(provider) {
+      async signInWithProvider(provider, next) {
         const { error } = await getSupabaseBrowserClient().auth.signInWithOAuth({
           provider,
-          options: { redirectTo: `${window.location.origin}/dashboard` },
+          options: { redirectTo: callbackUrl(next) },
         });
         if (error) {
           // Supabase reports a provider that is switched off in the dashboard as
           // a generic 400; say which one so it is obvious what to go enable.
           if (/not enabled|unsupported provider/i.test(error.message)) {
             throw new Error(
-              `${provider === "google" ? "Google" : "GitHub"} sign-in is not enabled yet. Turn it on in Supabase under Authentication > Providers.`,
+              `${provider === "google" ? "Google" : "GitHub"} authentication is not available.`,
             );
           }
           throw error;
@@ -121,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (error) throw error;
       },
     }),
-    [session, loading, recovery],
+    [session, loading],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

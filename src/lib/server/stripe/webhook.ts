@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient, type ServerEnv } from "@/lib/supabase/admin";
+import { envValue } from "@/lib/runtime-env";
 import type { Database, PlanTier } from "@/lib/supabase/types";
 import type { EmailEnv } from "@/lib/server/email/send";
 import { recordOps } from "@/lib/server/ops";
@@ -55,8 +56,33 @@ export type WebhookEnv = ServerEnv &
 type Db = SupabaseClient<Database>;
 
 function readSecret(env?: WebhookEnv): string {
-  const proc = globalThis.process?.env;
-  return env?.STRIPE_WEBHOOK_SECRET ?? proc?.["STRIPE_WEBHOOK_SECRET"] ?? "";
+  return envValue("STRIPE_WEBHOOK_SECRET", env) ?? "";
+}
+
+/**
+ * Whether an event was produced by the same Stripe mode this deployment runs in.
+ *
+ * Stripe's default is a separate endpoint per mode, so in a correct setup these
+ * always agree. They stop agreeing the moment someone points the test-mode
+ * endpoint at production while debugging — and then a test-mode
+ * `customer.subscription.created`, which anyone with the test dashboard can
+ * create for free, grants a real reader a paid plan. The signature check does
+ * not catch it: the event is genuinely from Stripe and genuinely signed.
+ *
+ * The secret key is the authority on which mode we are, because it is what
+ * every outbound call authenticates with. An event whose mode disagrees with it
+ * is describing objects on the other account, and acting on it would write
+ * entitlements from one ledger into the other.
+ *
+ * Undefined `livemode` means the payload predates this field or is a test
+ * fixture; those are allowed through so the existing suite and any hand-rolled
+ * replay keep working.
+ */
+export function modeMatches(event: StripeEvent, env?: WebhookEnv): boolean {
+  if (event.livemode === undefined) return true;
+  const key = envValue("STRIPE_SECRET_KEY", env) ?? "";
+  if (!key) return true;
+  return event.livemode === key.startsWith("sk_live_");
 }
 
 /** Stripe sends seconds; JavaScript wants milliseconds. */
@@ -672,6 +698,18 @@ export async function handleStripeWebhook(request: Request, env?: WebhookEnv): P
   }
 
   const { event } = verified;
+
+  // Before the claim, so a wrong-mode event does not consume an id in
+  // `stripe_events` and mask the real one if the endpoints are later corrected.
+  // 200 rather than 400: the event is validly signed and there is nothing for
+  // Stripe to retry — we are declining to act on it, not failing to receive it.
+  if (!modeMatches(event, env)) {
+    console.error(`Stripe webhook ignored: ${event.id} is from the other Stripe mode`);
+    return new Response(JSON.stringify({ received: true, ignored: "livemode" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
 
   let db: Db;
   try {

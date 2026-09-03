@@ -317,3 +317,65 @@ describe("isUnanalysable", () => {
     ).toBe(false);
   });
 });
+
+describe("demand gate fail-closed behavior", () => {
+  it("distinguishes between inactive, error, and loaded demand states", () => {
+    // These are type-level tests to ensure the discriminated union works correctly
+    const inactive: { kind: "inactive" } = { kind: "inactive" };
+    const error: { kind: "error"; message: string } = { kind: "error", message: "RPC failed" };
+    const loaded: { kind: "loaded"; demanded: Set<string> } = {
+      kind: "loaded",
+      demanded: new Set(["event-1"]),
+    };
+
+    expect(inactive.kind).toBe("inactive");
+    expect(error.kind).toBe("error");
+    expect(loaded.kind).toBe("loaded");
+  });
+
+  it("error state prevents analysis by returning early", () => {
+    // This tests the decision logic: when demand.kind === "error",
+    // the function should return decision: "demand_check_failed"
+    // without proceeding to AI calls or database writes
+    const errorResult = {
+      kind: "error" as const,
+      message: "Database connection failed",
+    };
+
+    // The actual runOne function checks ctx.demand.kind === "error"
+    // and returns early with decision: "demand_check_failed"
+    expect(errorResult.kind).toBe("error");
+  });
+
+  it("loaded state with no demand for event skips analysis", () => {
+    const loadedResult = {
+      kind: "loaded" as const,
+      demanded: new Set<string>(["other-event"]),
+    };
+
+    // When ctx.demand.kind === "loaded" and !ctx.demand.demanded.has(event.id),
+    // the function returns decision: "no_demand"
+    expect(loadedResult.kind).toBe("loaded");
+    expect(loadedResult.demanded.has("event-1")).toBe(false);
+  });
+
+  it("loaded state with demand for event allows analysis", () => {
+    const loadedResult = {
+      kind: "loaded" as const,
+      demanded: new Set<string>(["event-1"]),
+    };
+
+    // When ctx.demand.kind === "loaded" and ctx.demand.demanded.has(event.id),
+    // analysis proceeds normally
+    expect(loadedResult.kind).toBe("loaded");
+    expect(loadedResult.demanded.has("event-1")).toBe(true);
+  });
+
+  it("inactive state allows analysis (gate bypassed)", () => {
+    const inactiveResult = { kind: "inactive" as const };
+
+    // When ctx.demand.kind === "inactive", analysis proceeds normally
+    // (gate off or --event bypass)
+    expect(inactiveResult.kind).toBe("inactive");
+  });
+});

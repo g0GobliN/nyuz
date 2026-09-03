@@ -156,7 +156,7 @@ export function storyBrief(input: {
         ${grafs.join("")}
         ${why}
         <p style="margin:16px 0 0;font-family:${FONT};font-size:13px;font-weight:600;">
-          <a href="${escapeHtml(input.href)}" style="color:${PALETTE.signal};text-decoration:none;border-bottom:1px solid ${PALETTE.signal};">Read the full story on nyuz</a>
+          <a href="${escapeHtml(input.href)}" style="color:${PALETTE.signal};text-decoration:none;border-bottom:1px solid ${PALETTE.signal};">Understand this event on nyuz</a>
         </p>
       </td>
     </tr>

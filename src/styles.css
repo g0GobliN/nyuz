@@ -128,6 +128,28 @@
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 6px 20px -10px oklch(0 0 0 / 0.5);
 }
 
+/*
+ * The display scale is sized for a column that is a third of a desktop window.
+ * On a phone that same column is the whole screen, so a 36px heading stops
+ * reading as a heading and starts reading as a zoomed-in page. Tailwind's font
+ * sizes are variables, not literals, so redefining them below the sm breakpoint
+ * retunes every heading utility at once — a text-4xl stays one step above
+ * text-3xl, the whole ladder just starts lower.
+ *
+ * Body sizes (xs through xl) are deliberately untouched: they are already at
+ * reading size, and shrinking them would cost legibility, not gain density.
+ */
+@media (width < 40rem) {
+  :root {
+    --text-2xl: 1.25rem;
+    --text-3xl: 1.5rem;
+    --text-4xl: 1.75rem;
+    --text-5xl: 2rem;
+    --text-6xl: 2.25rem;
+    --text-7xl: 2.5rem;
+  }
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
@@ -136,6 +158,10 @@
   html {
     scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
+    /* Preflight only ships the -webkit- prefix. Without the standard property
+       some mobile engines inflate text inside long blocks on their own, which
+       undoes the scale above. */
+    text-size-adjust: 100%;
   }
 
   body {
@@ -290,6 +316,238 @@
   transform: none;
 }
 
+/* Six small marks echo the verification-code slot. They animate once on
+   entry, pulse subtly while idle, and transition into signal-blue dots when
+   the code view appears. */
+@keyframes auth-mark-enter {
+  from {
+    opacity: 0;
+    transform: scaleX(0.3) translateY(3px);
+  }
+  to {
+    opacity: 0.5;
+    transform: scaleX(0.7) translateY(0);
+  }
+}
+
+@keyframes auth-mark-idle {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scaleX(0.7) translateY(0);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scaleX(0.75) translateY(-1px);
+  }
+}
+
+@keyframes auth-mark-focus {
+  0% { transform: scaleX(0.7) translateY(0); }
+  50% { transform: scaleX(0.85) translateY(-2px); }
+  100% { transform: scaleX(0.7) translateY(0); }
+}
+
+@keyframes auth-mark-send {
+  0% {
+    opacity: 0.3;
+    transform: scaleX(0.5);
+  }
+  60% {
+    opacity: 1;
+    transform: scaleX(1.15);
+  }
+  100% {
+    opacity: 0.7;
+    transform: scaleX(0.8);
+  }
+}
+
+@keyframes auth-email-panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes auth-email-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+.auth-signal-visual {
+  position: relative;
+  width: 10rem;
+  height: 4.5rem;
+  margin-top: 0.5rem;
+}
+
+.auth-signal-marks {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  gap: 0.5rem;
+  transform: translate(-50%, -50%);
+}
+
+.auth-signal-mark {
+  width: 0.3rem;
+  height: 0.5rem;
+  border-radius: 0.125rem;
+  background: var(--muted-foreground);
+  opacity: 0.5;
+  transform: scaleX(0.7);
+  transition:
+    opacity 250ms ease,
+    transform 250ms ease,
+    background-color 250ms ease,
+    width 250ms ease,
+    height 250ms ease;
+}
+
+/* Enter animation */
+.auth-signal-visual.entering .auth-signal-mark {
+  animation: auth-mark-enter 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auth-signal-visual.entering .auth-signal-mark:nth-child(1) { animation-delay: 0ms; }
+.auth-signal-visual.entering .auth-signal-mark:nth-child(2) { animation-delay: 40ms; }
+.auth-signal-visual.entering .auth-signal-mark:nth-child(3) { animation-delay: 80ms; }
+.auth-signal-visual.entering .auth-signal-mark:nth-child(4) { animation-delay: 120ms; }
+.auth-signal-visual.entering .auth-signal-mark:nth-child(5) { animation-delay: 160ms; }
+.auth-signal-visual.entering .auth-signal-mark:nth-child(6) { animation-delay: 200ms; }
+
+/* Idle pulse */
+.auth-signal-visual.idle .auth-signal-mark {
+  animation: auth-mark-idle 4.5s ease-in-out infinite;
+}
+
+.auth-signal-visual.idle .auth-signal-mark:nth-child(1) { animation-delay: 0s; }
+.auth-signal-visual.idle .auth-signal-mark:nth-child(2) { animation-delay: 0.2s; }
+.auth-signal-visual.idle .auth-signal-mark:nth-child(3) { animation-delay: 0.4s; }
+.auth-signal-visual.idle .auth-signal-mark:nth-child(4) { animation-delay: 0.6s; }
+.auth-signal-visual.idle .auth-signal-mark:nth-child(5) { animation-delay: 0.8s; }
+.auth-signal-visual.idle .auth-signal-mark:nth-child(6) { animation-delay: 1s; }
+
+/* Focus response */
+.auth-signal-visual.focused .auth-signal-mark {
+  animation: auth-mark-focus 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.auth-signal-visual.focused .auth-signal-mark:nth-child(1) { animation-delay: 0ms; }
+.auth-signal-visual.focused .auth-signal-mark:nth-child(2) { animation-delay: 20ms; }
+.auth-signal-visual.focused .auth-signal-mark:nth-child(3) { animation-delay: 40ms; }
+.auth-signal-visual.focused .auth-signal-mark:nth-child(4) { animation-delay: 60ms; }
+.auth-signal-visual.focused .auth-signal-mark:nth-child(5) { animation-delay: 80ms; }
+.auth-signal-visual.focused .auth-signal-mark:nth-child(6) { animation-delay: 100ms; }
+
+/* Typing - pause motion */
+.auth-signal-visual.typing .auth-signal-mark {
+  animation-play-state: paused;
+}
+
+/* Submit sequential */
+.auth-signal-visual.submitting .auth-signal-mark {
+  animation: auth-mark-send 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(1) { animation-delay: 0ms; }
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(2) { animation-delay: 40ms; }
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(3) { animation-delay: 80ms; }
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(4) { animation-delay: 120ms; }
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(5) { animation-delay: 160ms; }
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(6) { animation-delay: 200ms; }
+
+/* Code state - transition to signal-blue dots */
+.auth-signal-visual.is-code .auth-signal-mark {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--signal);
+  opacity: 1;
+  transform: scaleX(1);
+  animation: none;
+}
+
+.auth-email-panel-out {
+  animation: auth-email-panel-out 240ms ease both;
+  pointer-events: none;
+}
+
+.auth-email-panel-in {
+  animation: auth-email-panel-in 260ms ease both;
+}
+
+/* Desktop-only auth visual: a still photo that breathes with a very slow
+   Ken Burns pan, scrimmed so it reads as part of the page rather than a
+   pasted-in image. Backgrounds on a display:none subtree are never
+   downloaded, so this costs mobile nothing. */
+@keyframes auth-visual-pan {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.06);
+  }
+}
+
+.auth-visual {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.auth-visual-pan {
+  position: absolute;
+  inset: -4%;
+  background-image: url("/auth-city.webp");
+  background-position: center;
+  background-size: cover;
+  animation: auth-visual-pan 32s ease-in-out infinite alternate;
+}
+
+.auth-visual-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to right, transparent 55%, var(--background) 100%),
+    linear-gradient(to top, color-mix(in oklab, var(--background) 45%, transparent), transparent 40%);
+}
+
+/* Keep the full auth entry visible above mobile browser controls on genuinely
+   short screens without compressing the normal phone layout. */
+@media (width < 40rem) and (height < 39rem) {
+  .auth-header {
+    padding-top: max(0.875rem, env(safe-area-inset-top));
+    padding-bottom: 0.5rem;
+  }
+  .auth-main {
+    padding-top: 1.5rem;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+  .auth-support {
+    margin-top: 0.875rem;
+  }
+  .auth-providers {
+    margin-top: 1.5rem;
+    gap: 0.5rem;
+  }
+  .auth-divider {
+    margin-block: 0.875rem;
+  }
+  .auth-legal {
+    margin-top: 1.125rem;
+  }
+  .auth-signal-visual {
+    height: 3.75rem;
+    margin-top: 0.25rem;
+    transform: scale(0.85);
+    transform-origin: left center;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -312,5 +570,19 @@
   }
   .mark-dot {
     opacity: 1;
+  }
+  .auth-signal-visual.entering .auth-signal-mark,
+  .auth-signal-visual.idle .auth-signal-mark,
+  .auth-signal-visual.focused .auth-signal-mark,
+  .auth-signal-visual.submitting .auth-signal-mark {
+    animation: none;
+  }
+  .auth-signal-mark {
+    opacity: 0.5;
+    transform: scaleX(0.7);
+  }
+  .auth-signal-visual.is-code .auth-signal-mark {
+    opacity: 1;
+    transform: scaleX(1);
   }
 }

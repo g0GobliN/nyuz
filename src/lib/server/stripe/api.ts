@@ -9,13 +9,14 @@
  * `encodeForm` below is the whole of that translation.
  */
 
+import { envValue } from "@/lib/runtime-env";
+
 export type StripeApiEnv = {
   STRIPE_SECRET_KEY?: string;
 };
 
 function readKey(env?: StripeApiEnv): string {
-  const proc = globalThis.process?.env;
-  const key = env?.STRIPE_SECRET_KEY ?? proc?.["STRIPE_SECRET_KEY"];
+  const key = envValue("STRIPE_SECRET_KEY", env);
   if (!key) {
     throw new Error(
       "Missing STRIPE_SECRET_KEY. In production set it with `wrangler secret put STRIPE_SECRET_KEY`.",
@@ -95,6 +96,35 @@ async function post<T>(
     };
   }
 
+  return { ok: true, data: json };
+}
+
+async function del<T>(path: string, env?: StripeApiEnv): Promise<StripeApiResult<T>> {
+  let key: string;
+  try {
+    key = readKey(env);
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`https://api.stripe.com/v1/${path}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${key}` },
+    });
+  } catch (error) {
+    return { ok: false, error: `Network error: ${(error as Error).message}` };
+  }
+
+  const json = (await response.json().catch(() => null)) as
+    (T & { error?: { message?: string } }) | null;
+  if (!response.ok || !json) {
+    return {
+      ok: false,
+      error: json?.error?.message ?? `Stripe returned ${response.status}`,
+    };
+  }
   return { ok: true, data: json };
 }
 
@@ -196,6 +226,26 @@ export function retrieveStripeSubscription(
   env?: StripeApiEnv,
 ): Promise<StripeApiResult<StripeSubscription>> {
   return get<StripeSubscription>(`subscriptions/${encodeURIComponent(subscriptionId)}`, env);
+}
+
+/**
+ * Cancels a subscription immediately, rather than at the end of the period.
+ *
+ * `DELETE /v1/subscriptions/{id}` is Stripe's immediate cancellation. That is
+ * the right verb for account deletion specifically: `cancel_at_period_end`
+ * would leave a live subscription attached to a customer whose account is about
+ * to stop existing, and the reader would keep being charged for a product they
+ * can no longer sign in to.
+ *
+ * Ordinary cancellation from the billing page still goes through the Stripe
+ * portal, which is period-end and refundable by policy. This path is only
+ * reached when the reader is deleting everything.
+ */
+export function cancelStripeSubscription(
+  subscriptionId: string,
+  env?: StripeApiEnv,
+): Promise<StripeApiResult<StripeSubscription>> {
+  return del<StripeSubscription>(`subscriptions/${encodeURIComponent(subscriptionId)}`, env);
 }
 
 export function changeStripeSubscriptionPrice(input: {

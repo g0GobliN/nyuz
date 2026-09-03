@@ -4,20 +4,18 @@ import { Eyebrow, Section } from "@/components/kit";
 import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
 import { getPublicSiteContent } from "@/lib/server/settings";
+import { pageHead } from "@/lib/seo";
 
 export const Route = createFileRoute("/about")({
   loader: () => getPublicSiteContent(),
   component: About,
-  head: () => ({
-    meta: [
-      { title: "About — nyuz" },
-      {
-        name: "description",
-        content:
-          "nyuz is an AI-powered news briefing service that filters noise and delivers only what matters to you.",
-      },
-    ],
-  }),
+  head: () =>
+    pageHead({
+      path: "/about",
+      title: "About — nyuz",
+      description:
+        "nyuz keeps watch across relevant sources, connects duplicate coverage into events, filters the noise, and delivers a personalized briefing.",
+    }),
 });
 
 function About() {
@@ -27,17 +25,17 @@ function About() {
     <div className="min-h-screen bg-background">
       <SiteNav content={content} />
       <main>
-        <section className="veil px-5 pb-14 pt-32 text-center sm:px-8">
+        <section className="veil px-5 pb-10 pt-24 text-center sm:px-8 sm:pb-14 sm:pt-32">
           <div className="mx-auto w-full max-w-2xl">
             <Eyebrow>About</Eyebrow>
-            <h1 className="display mt-4 text-[clamp(2.5rem,7vw,4.25rem)] animate-rise">
+            <h1 className="display mt-4 text-[clamp(1.875rem,7vw,4.25rem)] animate-rise">
               Stop searching.
               <br />
               Start knowing.
             </h1>
             <p className="mt-6 text-[16px] leading-relaxed text-muted-foreground">
-              nyuz is an AI-powered news briefing service that watches hundreds of sources, merges
-              the duplicates, and sends you the handful of things worth knowing.
+              Tell nyuz what matters. It keeps watch across relevant sources, connects duplicate
+              coverage into events, and sends you the handful of things worth knowing.
             </p>
           </div>
         </section>
@@ -47,9 +45,9 @@ function About() {
             <h2 className="display text-3xl sm:text-4xl">What we do</h2>
             <div className="mt-8 space-y-6 text-[15px] leading-relaxed text-muted-foreground">
               <p>
-                The internet publishes more every minute than anyone can read. nyuz solves this by
-                watching hundreds of news sources, clustering related stories, and using AI to
-                summarize what actually matters.
+                The internet publishes more every minute than anyone can read. nyuz keeps watch
+                across relevant publications and feeds, connects related coverage into events, and
+                surfaces what actually changed.
               </p>
               <p>
                 You tell us what you care about — topics like "AI regulation", "climate policy", or
@@ -74,11 +72,13 @@ function About() {
               </p>
               <p>
                 <strong className="text-foreground">2. We watch the sources.</strong> nyuz monitors
-                hundreds of news sites, blogs, and feeds in real-time.
+                newsrooms, blogs, research, sports, music, and other supported feeds on their own
+                schedules — including sources readers add.
               </p>
               <p>
                 <strong className="text-foreground">3. AI finds the signal.</strong> Our system
-                clusters related stories, scores them by relevance, and generates concise summaries.
+                connects related coverage into events, scores importance and novelty, and generates
+                concise summaries.
               </p>
               <p>
                 <strong className="text-foreground">4. You get a briefing.</strong> Receive your
