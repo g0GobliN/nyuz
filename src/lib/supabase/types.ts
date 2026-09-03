@@ -129,7 +129,24 @@ export type NotificationPreferences = {
   language: string;
 };
 
-export type Topic = { id: string; slug: string; label: string };
+/**
+ * `predefined` topics are the editorial vocabulary the analyser classifies
+ * into. `custom` topics are reader-created and never reach the model prompt —
+ * they are matched deterministically against `events.tags` (0049).
+ */
+export type TopicKind = "predefined" | "custom";
+
+export type Topic = {
+  id: string;
+  slug: string;
+  label: string;
+  kind: TopicKind;
+  /** Deterministic match terms derived from `label`. ALL must appear. */
+  terms: string[];
+  /** Who typed it first. Null once that account is deleted; the topic stays. */
+  created_by: string | null;
+  created_at: string;
+};
 
 export type UserTopic = {
   user_id: string;
@@ -297,6 +314,15 @@ export type OperatingCostSetting = {
   updated_at: string;
 };
 
+export type AiCreditTopup = {
+  id: string;
+  amount_microusd: number;
+  note: string | null;
+  occurred_at: string;
+  created_by: string | null;
+  created_at: string;
+};
+
 export type ImpactStatus = "pending" | "generating" | "complete" | "failed";
 
 /**
@@ -373,6 +399,12 @@ export type EventRow = {
   understand: Json | null;
   /** Work held by a temporary AI ceiling becomes eligible after this time (0045). */
   analysis_deferred_until: string | null;
+  /**
+   * Normalised concept tags from the shared analysis pass (0049). Lowercase,
+   * punctuation flattened. The signal custom topics match against — computed
+   * once per event and read by every reader, never rendered.
+   */
+  tags: string[];
 };
 
 export type Article = {
@@ -454,6 +486,8 @@ export type Delivery = {
   created_at: string;
   /** Recoverable send lease preventing concurrent workers duplicating a send (0045). */
   processing_started_at: string | null;
+  /** Earliest retry time. Null means eligible now; set with jittered backoff (0050). */
+  next_attempt_at: string | null;
 };
 
 export type OpsStatus = {
@@ -644,7 +678,7 @@ export type Database = {
         NotificationPreferences,
         Exclude<keyof NotificationPreferences, "user_id">
       >;
-      topics: Table<Topic, "id">;
+      topics: Table<Topic, "id" | "kind" | "terms" | "created_by" | "created_at">;
       user_topics: Table<
         UserTopic,
         | "importance"
@@ -697,6 +731,7 @@ export type Database = {
         | "analysis_tokens"
         | "understand"
         | "analysis_deferred_until"
+        | "tags"
       >;
       articles: Table<
         Article,
@@ -769,6 +804,7 @@ export type Database = {
         | "delivered_at"
         | "created_at"
         | "processing_started_at"
+        | "next_attempt_at"
       >;
       feedback: Table<Feedback, "created_at">;
       saved_stories: Table<SavedStory, "saved_at">;
@@ -788,6 +824,10 @@ export type Database = {
       >;
       billing_ledger: Table<BillingLedger, "refunded_cents" | "updated_at">;
       operating_cost_settings: Table<OperatingCostSetting, "updated_by" | "updated_at">;
+      ai_credit_topups: Table<
+        AiCreditTopup,
+        "id" | "note" | "occurred_at" | "created_by" | "created_at"
+      >;
       ops_status: Table<OpsStatus, "detail" | "updated_at">;
       telegram_accounts: Table<
         TelegramAccount,
@@ -829,6 +869,41 @@ export type Database = {
       admin_source_stats: {
         Args: Record<string, never>;
         Returns: { source_id: string; article_count: number; latest_article_at: string | null }[];
+      };
+      /**
+       * Suggestion search for the topic selector (0049). Returns predefined
+       * topics, the caller's own, and custom topics at least two distinct
+       * readers follow. Follower counts and creator identity are computed
+       * inside the function and deliberately not returned.
+       */
+      search_topics: {
+        Args: { p_user_id: string; p_query: string; p_limit?: number };
+        Returns: {
+          id: string;
+          slug: string;
+          label: string;
+          kind: TopicKind;
+          followed: boolean;
+        }[];
+      };
+      /**
+       * The source-discovery queue (0049): followed subjects, how much coverage
+       * is mapped to them, and how many recent events actually reach them.
+       * A custom topic with followers and zero mapped sources is the case an
+       * operator works through by hand.
+       */
+      admin_topic_demand: {
+        Args: { p_days?: number };
+        Returns: {
+          topic_id: string;
+          slug: string;
+          label: string;
+          kind: TopicKind;
+          followers: number;
+          paid_followers: number;
+          mapped_sources: number;
+          recent_events: number;
+        }[];
       };
       /**
        * Added in 0020, extended in 0030 with `direct_followers` (readers who
@@ -986,6 +1061,34 @@ export type Database = {
         };
         Returns: string | null;
       };
+      ai_credit_balance: {
+        Args: Record<string, never>;
+        Returns: {
+          topped_up_microusd: number;
+          topups: number;
+          first_topup_at: string | null;
+          last_topup_at: string | null;
+          last_topup_microusd: number;
+          spent_microusd: number;
+          settled_microusd: number;
+          in_flight_microusd: number;
+          unfunded_spent_microusd: number;
+          calls: number;
+          unpriced_calls: number;
+        }[];
+      };
+      ai_spend_windows: {
+        Args: Record<string, never>;
+        Returns: {
+          window_key: string;
+          since: string;
+          spent_microusd: number;
+          settled_microusd: number;
+          in_flight_microusd: number;
+          tokens: number;
+          calls: number;
+        }[];
+      };
       ai_spend_this_month: {
         Args: Record<string, never>;
         Returns: {
@@ -1044,6 +1147,29 @@ export type Database = {
       claim_source_probe: {
         Args: { p_user_id: string };
         Returns: string;
+      };
+      /** Overview totals summed in SQL rather than paged into the console (0052). */
+      admin_usage_totals: {
+        Args: Record<string, never>;
+        Returns: {
+          analysis_tokens: number;
+          generation_tokens: number;
+          analysed_events: number;
+          blog_views: number;
+        }[];
+      };
+      /** Applies a batch of publisher retitles in one statement (0051). */
+      update_retitled_articles: {
+        Args: {
+          p_rows: {
+            url: string;
+            title: string;
+            excerpt: string | null;
+            author: string | null;
+            content_hash: string;
+          }[];
+        };
+        Returns: number;
       };
       is_admin: {
         Args: { uid?: string };
