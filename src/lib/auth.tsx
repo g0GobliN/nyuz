@@ -130,10 +130,16 @@ export function useAuth(): AuthState {
  * Returns "" rather than a placeholder like "there". Every greeting in the app
  * is written to work without a name; inventing one is what produced the bug
  * where everybody was welcomed by the same hard-coded first name.
+ *
+ * `preferredName` lets the caller supply a database-backed display name that
+ * should win over the OAuth metadata. Without it, the hook falls back to
+ * `user_metadata` and finally the email local part.
  */
-export function useDisplayName(): string {
+export function useDisplayName(preferredName?: string): string {
   const { user } = useAuth();
-  if (!user) return "";
+  if (!user) return preferredName ?? "";
+
+  if (preferredName && preferredName.trim()) return preferredName.trim();
 
   const meta = user.user_metadata as { name?: unknown; full_name?: unknown } | null;
   const fromMeta =

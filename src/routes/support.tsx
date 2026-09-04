@@ -47,10 +47,6 @@ const FAQ_ITEMS = [
     q: "How do alerts work?",
     a: "On Personal and Pro plans, you can enable alerts for important stories. Configure this in Settings → Alerts. Free plans do not include alerts.",
   },
-  {
-    q: "What is the 'Ask AI' feature?",
-    a: "Ask AI lets you ask questions about individual stories in your briefing. Personal plans include 10 questions per day, Pro includes 15. Free plans do not include this feature.",
-  },
 ];
 
 function Support() {

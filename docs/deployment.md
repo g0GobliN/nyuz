@@ -115,9 +115,24 @@ npx wrangler secret put EMAIL_UNSUBSCRIBE_SECRET --name nyuz
 npx wrangler secret put HEALTHCHECK_TOKEN --name nyuz
 ```
 
-Set the four recurring Stripe Price ids, `AI_MONTHLY_TOKEN_BUDGET=500000` and
+Set the four recurring Stripe Price ids, `AI_MONTHLY_TOKEN_BUDGET=20000000` and
 `AI_MONTHLY_COST_USD=10` as Worker variables. The second is the ceiling that actually
-bounds the invoice — the token budget bounds a runaway loop, not a bill. The Price ids must be the $14.99/$149.90 Personal and $29.99/$299.90 Pro prices; changing
+bounds the invoice — the token budget bounds a runaway loop, not a bill.
+
+**Do not deploy with the shipped default of `500000`.** That number is a fail-safe for a
+missing binding, not a production capacity: measured against the current prompts and rate
+card, a Flash clustering call settles at ~849 tokens and a Pro analysis at ~7,448, so $10 of
+spend corresponds to somewhere between 6.1M tokens (all analysis) and 20.8M (all
+clustering). At 500,000 the token ceiling binds within days and the pipeline stops
+mid-month while `/admin/cost` still shows dollars unspent — the failure looks like a
+provider outage, not a budget. `5000000` is still under the whole range and would bind
+first as well. 20,000,000 puts the dollar ceiling in front for every plausible mix, and
+leaves the token cap doing the job it is actually good at: catching a loop that generates
+enormous cheap traffic, where cost per token collapses.
+
+Headroom is part of that number. A reservation holds `prompt + maxTokens * 2` until it
+settles, so one stalled batch of eight analyses pins ~315,000 tokens for up to an hour —
+63% of the 500,000 default, 1.6% of the recommended value. The Price ids must be the $14.99/$149.90 Personal and $29.99/$299.90 Pro prices; changing
 display copy does not change what Stripe charges.
 
 The Stripe endpoint must send `checkout.session.completed`,
@@ -212,7 +227,10 @@ Before enabling payments, reconcile the pre-fix pipeline backlog once:
 - [ ] Migrations applied to the target project
 - [ ] Secrets set for every active AI provider and the service role
 - [ ] Resend and Stripe secrets, four Stripe Price ids, and both AI ceilings set
-      (`AI_MONTHLY_TOKEN_BUDGET`, `AI_MONTHLY_COST_USD`)
+      (`AI_MONTHLY_TOKEN_BUDGET=20000000`, `AI_MONTHLY_COST_USD=10`) — the shipped default
+      token budget of `500000` is a fail-safe and will stop the pipeline mid-month
+- [ ] Per-model daily caps confirmed in `/admin` or `site_settings`
+      (`ai.daily_flash_cap_microusd`, `ai.daily_pro_cap_microusd`; defaults $1/day and $5/day)
 - [ ] `EMAIL_UNSUBSCRIBE_SECRET` and `HEALTHCHECK_TOKEN` set as Worker secrets;
       external `/api/health` monitor returns 200 after cron runs
 - [ ] Supabase Site URL, recovery redirect, OAuth callbacks, SMTP and auth rate/CAPTCHA

@@ -91,6 +91,8 @@ export type CompleteResult = {
   completionTokens: number;
   reasoningTokens: number;
   cachedTokens: number;
+  /** How many provider calls produced this result (1 = first attempt, 2 = retried). */
+  attempt_count: number;
 };
 
 export class CompletionUsageError extends Error {
@@ -150,6 +152,7 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
     reasoningTokens,
     cachedTokens:
       (usage?.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens ?? 0,
+    attempt_count: 1,
   };
 }
 
@@ -183,6 +186,7 @@ function addUsage(first: CompleteResult, second: CompleteResult): CompleteResult
     completionTokens: first.completionTokens + second.completionTokens,
     reasoningTokens: first.reasoningTokens + second.reasoningTokens,
     cachedTokens: first.cachedTokens + second.cachedTokens,
+    attempt_count: first.attempt_count + second.attempt_count,
   };
 }
 
@@ -207,7 +211,10 @@ export async function completeJson<T>(
   const first = await complete(opts);
 
   try {
-    return { data: JSON.parse(unwrapJson(first.content)) as T, usage: first };
+    return {
+      data: JSON.parse(unwrapJson(first.content)) as T,
+      usage: { ...first, attempt_count: 1 },
+    };
   } catch {
     // Deliberately not a conversation: the same request again, plus the reason the
     // last reply was unusable. Replaying a multi-turn exchange would cost the
@@ -220,14 +227,23 @@ export async function completeJson<T>(
         `What you sent began: ${first.content.trim().slice(0, 120)}`,
     });
 
-    const usage = addUsage(first, second);
+    const combined: CompleteResult = {
+      content: second.content,
+      model: second.model,
+      promptTokens: first.promptTokens + second.promptTokens,
+      completionTokens: first.completionTokens + second.completionTokens,
+      reasoningTokens: first.reasoningTokens + second.reasoningTokens,
+      cachedTokens: first.cachedTokens + second.cachedTokens,
+      attempt_count: 2,
+    };
+
     try {
-      return { data: JSON.parse(unwrapJson(second.content)) as T, usage };
+      return { data: JSON.parse(unwrapJson(second.content)) as T, usage: combined };
     } catch {
       const text = second.content.trim();
       throw new CompletionUsageError(
-        `${usage.model} returned unparseable JSON twice (${text.length} chars): ${text.slice(0, 200)}`,
-        usage,
+        `${combined.model} returned unparseable JSON twice (${text.length} chars): ${text.slice(0, 200)}`,
+        combined,
       );
     }
   }

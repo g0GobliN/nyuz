@@ -11,6 +11,7 @@ import { useFeedback } from "@/lib/feedback-store";
 import { useReadTracking } from "@/lib/use-engagement";
 import { usePlan } from "@/lib/plan-state";
 import { loadStory, askStory } from "@/lib/server/briefing";
+import { getLaunchFlags } from "@/lib/server/settings";
 import type { Story } from "@/lib/story";
 import { cn } from "@/lib/utils";
 import {
@@ -109,6 +110,13 @@ function StoryDetail() {
   const saved = story ? state.saved.includes(story.id) : false;
   const current = story ? state.votes[story.id] : undefined;
 
+  const flagsQ = useQuery({
+    queryKey: ["launch", "flags"],
+    queryFn: () => getLaunchFlags(),
+    staleTime: 60_000,
+  });
+  const askEnabled = flagsQ.data?.askNyuz ?? false;
+
   if (storyQ.isLoading) {
     return (
       <DashboardShell title="Understand">
@@ -133,31 +141,33 @@ function StoryDetail() {
       <BackToFeed />
 
       <article className="mt-6 animate-rise">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-signal">
-            {story.topics[0] ?? story.org}
-          </span>
-          <span className="text-[12px] tabular-nums text-muted-foreground">
-            {formatStoryTime(story.updatedAt ?? story.publishedAt)}
-          </span>
-          <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px]">
-            {story.importance} importance
-          </span>
-        </div>
-
-        <h1 className="display mt-4 max-w-[40rem] text-[clamp(1.5rem,4.5vw,2.9rem)]">
-          {story.title}
-        </h1>
-        <p className="mt-4 text-[13px] text-muted-foreground">
-          {story.org}
-          <span aria-hidden> · </span>
-          {sourceCountLabel(intelligence.analysisMeta, story.sources)}
-          <span aria-hidden> · </span>
-          {understandTime(story, intelligence)} understand
-        </p>
-
-        <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_260px]">
+        <div className="grid gap-10 lg:grid-cols-[1fr_260px]">
           <div className="min-w-0 space-y-9">
+            <div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-signal">
+                  {story.topics[0] ?? story.org}
+                </span>
+                <span className="text-[12px] tabular-nums text-muted-foreground">
+                  {formatStoryTime(story.updatedAt ?? story.publishedAt)}
+                </span>
+                <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px]">
+                  {story.importance} importance
+                </span>
+              </div>
+
+              <h1 className="display mt-4 max-w-[40rem] text-[clamp(1.5rem,4.5vw,2.9rem)]">
+                {story.title}
+              </h1>
+              <p className="mt-4 text-[13px] text-muted-foreground">
+                {story.org}
+                <span aria-hidden> · </span>
+                {sourceCountLabel(intelligence.analysisMeta, story.sources)}
+                <span aria-hidden> · </span>
+                {understandTime(story, intelligence)} understand
+              </p>
+            </div>
+
             <UnderstandBody
               story={story}
               intelligence={intelligence}
@@ -166,27 +176,8 @@ function StoryDetail() {
               }}
             />
 
-            {!planLoading && asksPerDay > 0 ? (
+            {askEnabled && !planLoading && asksPerDay > 0 ? (
               <AskPanel eventId={story.id} dailyLimit={asksPerDay} />
-            ) : !planLoading ? (
-              <section
-                id="ask"
-                className="max-w-[40rem] scroll-mt-24 rounded-3xl border border-hairline bg-surface-2 p-6"
-              >
-                <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  <Sparkles className="h-3.5 w-3.5" /> Ask nyuz
-                </h2>
-                <p className="mt-3 text-[13.5px] leading-relaxed text-muted-foreground">
-                  Ask nyuz is included on Personal and Pro. The factual explanation above stays the
-                  same on every plan.
-                </p>
-                <Link
-                  to="/dashboard/billing"
-                  className="mt-4 inline-block text-[13px] text-signal underline-offset-4 hover:underline"
-                >
-                  See plans
-                </Link>
-              </section>
             ) : null}
           </div>
 

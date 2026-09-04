@@ -19,7 +19,7 @@ type Tab = "today" | "saved";
 
 function Briefing() {
   const { prefs } = usePrefs();
-  const who = useDisplayName() || prefs.name;
+  const who = useDisplayName(prefs.name);
   const [tab, setTab] = useState<Tab>("today");
 
   const pretty = useMemo(() => {

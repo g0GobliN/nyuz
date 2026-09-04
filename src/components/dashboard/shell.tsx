@@ -124,7 +124,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
   const staff = isAdmin(viewer);
   // Falls back to the mark rather than a letter from an invented name — an
   // avatar showing a stranger's initial is worse than one showing none.
-  const who = useDisplayName() || prefs.name;
+  const who = useDisplayName(prefs.name);
   const initial = who.trim().slice(0, 1).toUpperCase() || "·";
 
   // Maintenance closes the dashboard for readers and not for staff — the whole
@@ -220,7 +220,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
                 <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-signal" />
               </Link>
               <ThemeToggle />
-              <AccountMenu initial={initial} staff={staff} />
+              <AccountMenu initial={initial} staff={staff} name={who} />
             </div>
           </div>
         </header>
@@ -262,9 +262,8 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
  * depending on how wide the window is is worse than one extra row on a desktop
  * that also has a sidebar.
  */
-function AccountMenu({ initial, staff }: { initial: string; staff: boolean }) {
+function AccountMenu({ initial, staff, name }: { initial: string; staff: boolean; name: string }) {
   const { user, signOut } = useAuth();
-  const name = useDisplayName();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
 

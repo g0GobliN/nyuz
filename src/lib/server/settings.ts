@@ -167,6 +167,52 @@ export async function evaluateFlags(userId: string): Promise<Record<string, bool
   }
 }
 
+/**
+ * Launch cost-safety flags (0053). No user bucketing — these control whether
+ * AI is allowed at all, so partial rollout would be meaningless.
+ *
+ * Returns null when the database is unreachable; the caller should treat that
+ * as "off" for the two disabled-by-default flags and "on" for the two that
+ * gate existing functionality.
+ */
+export type LaunchFlagsView = {
+  aiKillSwitch: boolean;
+  askNyuz: boolean;
+  storyTranslation: boolean;
+  enrichmentPass: boolean;
+};
+
+export const getLaunchFlags = createServerFn({ method: "GET" }).handler(
+  async (): Promise<LaunchFlagsView> => {
+    try {
+      const db = createAdminClient();
+      const { data } = await db
+        .from("feature_flags")
+        .select("key, enabled")
+        .in("key", [
+          "ai_kill_switch",
+          "ask_nyuz_enabled",
+          "story_translation_enabled",
+          "enrichment_pass_enabled",
+        ]);
+      const byKey = new Map((data ?? []).map((f) => [f.key, f.enabled === true]));
+      return {
+        aiKillSwitch: byKey.get("ai_kill_switch") ?? false,
+        askNyuz: byKey.get("ask_nyuz_enabled") ?? false,
+        storyTranslation: byKey.get("story_translation_enabled") ?? false,
+        enrichmentPass: byKey.get("enrichment_pass_enabled") ?? false,
+      };
+    } catch {
+      return {
+        aiKillSwitch: false,
+        askNyuz: false,
+        storyTranslation: false,
+        enrichmentPass: false,
+      };
+    }
+  },
+);
+
 /* ---------------------------------------------------------------------- */
 /* Admin read                                                             */
 /* ---------------------------------------------------------------------- */

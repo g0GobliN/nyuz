@@ -275,16 +275,97 @@ describe("failure is bounded, not retried forever", () => {
   // plan2 §71: never "cron sees failed -> pay again forever".
   it("excludes failed events from scheduled analysis", () => {
     const analyse = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
-    expect(analyse).toContain('options.retryFailed === true ? "pending,failed" : "pending"');
+    expect(analyse).toContain('options.retryFailed === true ? ["pending", "failed"] : ["pending"]');
   });
 
   it("does not reclaim a failed impact or translation on the ordinary path", () => {
-    // Only 'pending' and stale 'generating' are reclaimed. 'failed' is left
-    // for a deliberate retry, so an unwritable one cannot bill on every run.
+    // Only a due 'pending' row is ever taken. 'failed' is left for a deliberate
+    // retry, so an unwritable one cannot bill on every run — and 'generating'
+    // is left alone at any age, so an aged claim cannot bill a second time
+    // either. See the stale-claim invariants below.
     for (const file of ["src/lib/pipeline/digest.ts", "src/lib/pipeline/translate.ts"]) {
       const src = readFileSync(file, "utf8");
-      expect(src).toContain("status.eq.pending,and(status.eq.generating,updated_at.lt.");
+      expect(src).toContain('.eq("status", "pending")');
     }
+  });
+
+  it("resumes a crashed digest without that resuming buying anything", () => {
+    // `loadDue`/`claimDigest` DO take back a digest row left `generating`, and
+    // that is correct: generating a digest is free. Every paid step inside it —
+    // the shared impact, the translation — is claimed separately and only from
+    // `pending`, so a resumed digest re-reads finished work and skips work
+    // another worker holds. This asserts the free/paid split stays that way.
+    const digest = readFileSync("src/lib/pipeline/digest.ts", "utf8");
+    const claimImpacts = digest.slice(digest.indexOf("async function claimImpacts"));
+    expect(claimImpacts).toContain('.eq("status", "pending")');
+    expect(claimImpacts.slice(0, claimImpacts.indexOf("}"))).not.toContain("generating,updated_at");
+  });
+});
+
+describe("age is not permission to spend again", () => {
+  /**
+   * The rule this file exists to hold: a row that is in flight stays in flight.
+   *
+   * Every paid stage claims its work with a conditional update before calling a
+   * provider. The claim predicate is the only thing standing between a crashed
+   * worker and a second bill for the same work, and the tempting bug is to add
+   * "...or it has been `analysing`/`generating` for a while" so that abandoned
+   * work resumes on its own. Age is not evidence that the paid call did not
+   * happen — the reservation may be settled, the provider may have generated a
+   * response nobody read — so the ordinary cron must never take such a row.
+   *
+   * Abandoned reservations are recovered by `void_stale_ai_reservations` (0047),
+   * which frees the *budget* without buying anything. Abandoned work is
+   * recovered by an operator (`--event <id>`), which is a decision to spend.
+   */
+  const claims = [
+    ["analyse", "src/lib/pipeline/analyse.ts"],
+    ["shared impacts", "src/lib/pipeline/digest.ts"],
+    ["translations", "src/lib/pipeline/translate.ts"],
+  ] as const;
+
+  for (const [what, file] of claims) {
+    it(`does not let the cron reclaim an aged in-flight ${what} row`, () => {
+      const src = readFileSync(file, "utf8");
+      // The shape of the bug: a staleness comparison inside a claim's status
+      // predicate. `--event <id>` in analyse.ts is the one allowed exception
+      // and is guarded by `forced`, so it appears inside an `if (forced)`.
+      const claimStale = /status\.eq\.(analysing|generating),\s*\w*_?updated_at\.lt\./;
+      // `digests.status` is deliberately excluded: see the free/paid split below.
+      const forcedBlock = src.includes("if (forced) {")
+        ? src.slice(
+            src.indexOf("if (forced) {"),
+            src.indexOf("} else {", src.indexOf("if (forced) {")),
+          )
+        : "";
+      const outsideForced = src.replace(forcedBlock, "");
+      expect(claimStale.test(outsideForced)).toBe(false);
+    });
+  }
+
+  it("keeps the operator's recovery path, bounded by the stale window", () => {
+    // The exception is deliberate and must not be lost: an operator naming an
+    // event by id can take one a crash left claimed, but still not one a live
+    // worker holds.
+    const analyse = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
+    const forced = analyse.slice(analyse.indexOf("if (forced) {"));
+    expect(forced).toContain(
+      "status.in.(pending,failed),and(status.eq.analysing,last_updated_at.lt.",
+    );
+  });
+
+  it("claims analysis only in explicitly retryable states on the cron path", () => {
+    const analyse = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
+    expect(analyse).toContain('update = update.in("status", ["pending", "failed"]);');
+  });
+
+  it("frees an abandoned reservation without re-buying the work", () => {
+    // The reaper zeroes the reservation. It does not touch event, impact or
+    // translation status, and it never makes anything eligible again.
+    const reaper = ALL_SQL.find((f) => f.name.startsWith("0047"))?.sql ?? "";
+    expect(reaper).toContain("void_stale_ai_reservations");
+    expect(reaper).toContain("set reserved_tokens = 0");
+    expect(reaper).not.toMatch(/update public\.(events|event_impacts|event_translations)\b/i);
   });
 });
 

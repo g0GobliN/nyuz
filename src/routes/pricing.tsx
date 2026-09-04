@@ -80,7 +80,6 @@ const PLANS: Plan[] = [
       // something applies it again, and not before.
       `Add ${PLAN_LIMITS.personal.customSources} of your own sources`,
       "90-day history",
-      "10 Ask AI questions per day",
     ],
     cta: "Start Personal",
     popular: true,
@@ -96,7 +95,6 @@ const PLANS: Plan[] = [
       `Configurable alerts, up to ${PLAN_LIMITS.pro.alertDailyCap} a day`,
       `Add ${PLAN_LIMITS.pro.customSources} of your own sources`,
       "1-year history",
-      "15 Pro Ask AI questions per day",
     ],
     cta: "Start Pro",
   },
@@ -165,7 +163,7 @@ const FAQ = [
   },
   {
     q: "What does upgrading actually get me?",
-    a: "Reach and precision, not more words. More topics, more of your own sources, a bigger cap on a busy day, alerts outside your usual time, a longer history to look back through, and a daily allowance of questions you can ask about individual stories.",
+    a: "Reach and precision, not more words. More topics, more of your own sources, a bigger cap on a busy day, alerts outside your usual time, and a longer history to look back through.",
   },
 ];
 

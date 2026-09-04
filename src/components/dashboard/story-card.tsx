@@ -101,15 +101,6 @@ export function StoryCard({
         >
           Understand <span aria-hidden>→</span>
         </Link>
-        <Link
-          to="/dashboard/story/$id"
-          params={{ id: story.id }}
-          hash="ask"
-          className="inline-flex items-center gap-1.5 rounded-full border border-border px-3.5 py-1.5 text-[12.5px] transition-colors hover:bg-muted"
-        >
-          <Sparkles className="h-3.5 w-3.5" /> Ask nyuz
-        </Link>
-
         <button
           onClick={() => onSave(story.id)}
           aria-pressed={saved}

@@ -425,19 +425,30 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
   // rather than a separate stage or cron entry -- see `selectEnrichmentCandidates`.
   // Skipped for a targeted `--event` run: that path exists to verify one known
   // pending case, not to also refresh unrelated events it happens to scan past.
+  //
+  // Gate: enrichment_pass_enabled flag. When off (launch default), the pass
+  // is skipped entirely — no model calls, no reservations, no Pro spend.
   if ((options.eventIds?.length ?? 0) === 0) {
-    const enrichmentCandidates = await selectEnrichmentCandidates(db, ENRICHMENT_BATCH);
-    for (const event of enrichmentCandidates) {
-      outcomes.push(
-        await runEnrichment(db, event, {
-          options,
-          topics,
-          outlets,
-          slugs,
-          system,
-          demand: hasDemand,
-        }),
-      );
+    const { data: enrichmentFlag } = await db
+      .from("feature_flags")
+      .select("enabled")
+      .eq("key", "enrichment_pass_enabled")
+      .maybeSingle();
+
+    if (enrichmentFlag?.enabled === true) {
+      const enrichmentCandidates = await selectEnrichmentCandidates(db, ENRICHMENT_BATCH);
+      for (const event of enrichmentCandidates) {
+        outcomes.push(
+          await runEnrichment(db, event, {
+            options,
+            topics,
+            outlets,
+            slugs,
+            system,
+            demand: hasDemand,
+          }),
+        );
+      }
     }
   }
 
@@ -554,15 +565,15 @@ async function selectEvents(db: Db, options: AnalyseOptions): Promise<Pending[]>
     }
   }
 
-  const stale = new Date(Date.now() - STALE_MINUTES * 60_000).toISOString();
-  const states = options.retryFailed === true ? "pending,failed" : "pending";
+  const states: readonly EventStatus[] =
+    options.retryFailed === true ? ["pending", "failed"] : ["pending"];
   const now = (options.now ?? new Date()).toISOString();
 
   const { data, error } = await db
     .from("events")
     .select(columns)
     .is("analysed_at", null)
-    .or(`status.in.(${states}),and(status.eq.analysing,last_updated_at.lt.${stale})`)
+    .in("status", states)
     .or(`analysis_deferred_until.is.null,analysis_deferred_until.lte.${now}`)
     .order("first_seen_at", { ascending: false })
     .limit(options.limit ?? BATCH);
@@ -744,6 +755,7 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
       capability: "reason",
       system: `${ctx.system}\n\n${contract(ctx.slugs)}`,
       user,
+      feature: "analyse",
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
@@ -863,6 +875,7 @@ async function runEnrichment(db: Db, event: Pending, ctx: Context): Promise<Even
       capability: "reason",
       system: `${ctx.system}\n\n${contract(ctx.slugs)}`,
       user,
+      feature: "enrich",
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
@@ -983,10 +996,16 @@ async function readCoverage(
  * evaluates it as one statement, which is why two workers a millisecond apart
  * cannot both be told they hold the same event.
  *
- * `--event <id>` skips the gate on purpose: it exists for verifying a known case
- * and for recovering an event a crash left claimed, and both of those need to
- * proceed against a row this predicate would refuse. It still cannot re-analyse,
- * because the `analysed_at` check below is unconditional.
+ * Normal cron workers only claim events in explicitly retryable states:
+ * `pending`, `failed`, or `deferred` (deferred_until past). A row left in
+ * `analysing` by a crashed worker is NOT automatically reclaimed by another
+ * normal cron — the stale reservation reaper handles the reservation, and the
+ * operator can recover the event with `--event <id>`.
+ *
+ * `--event <id>` adds the stale-analysing predicate on purpose: it exists for
+ * verifying a known case and for recovering an event a crash left claimed.
+ * It still cannot re-analyse, because the `analysed_at` check below is
+ * unconditional.
  */
 async function claimEvent(
   db: Db,
@@ -1004,11 +1023,20 @@ async function claimEvent(
     .eq("id", event.id)
     .is("analysed_at", null);
 
-  if (!forced) {
+  if (forced) {
+    // The operator path, and the only one that may take an event back from a
+    // crashed worker. Bounded by STALE_MINUTES so it still cannot take one a
+    // live worker is holding.
     const stale = new Date(Date.now() - STALE_MINUTES * 60_000).toISOString();
     update = update.or(
       `status.in.(pending,failed),and(status.eq.analysing,last_updated_at.lt.${stale})`,
     );
+  } else {
+    // The cron path. Retryable states only, and deliberately no stale-`analysing`
+    // branch: age is not evidence that a paid call did not happen, so an aged
+    // claim must never become a second paid call. `deferred` work is `pending`
+    // with `analysis_deferred_until` set, which `selectEvents` gates on.
+    update = update.in("status", ["pending", "failed"]);
   }
 
   const { data, error } = await update.select("id");

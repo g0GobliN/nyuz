@@ -43,7 +43,7 @@ function greeting() {
 
 function DashboardHome() {
   const { prefs } = usePrefs();
-  const who = useDisplayName() || prefs.name;
+  const who = useDisplayName(prefs.name);
   const { state, signals, vote, toggleSaved, dismiss, muteTopic, restore } = useFeedback();
   const ref = useReveal<HTMLDivElement>();
 

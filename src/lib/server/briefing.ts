@@ -516,6 +516,23 @@ export const askStory = createServerFn({ method: "POST" })
       .eq("key", "deep_explain")
       .maybeSingle();
 
+    // ask_nyuz_enabled gate: checked before any AI reservation or model call.
+    // When off (launch default), the endpoint returns a clean disabled result
+    // and the frontend hides the Ask panel entirely.
+    const { data: askFlag } = await actor.db
+      .from("feature_flags")
+      .select("enabled")
+      .eq("key", "ask_nyuz_enabled")
+      .maybeSingle();
+
+    if (askFlag?.enabled !== true) {
+      return {
+        ok: false,
+        reason: "disabled",
+        detail: "Ask nyuz is not available on this instance yet.",
+      };
+    }
+
     const plan = await planOf(actor.db, actor.id);
     const gate = decideAsk({
       flagOn: flag?.enabled ?? null,
@@ -614,6 +631,7 @@ export const askStory = createServerFn({ method: "POST" })
         system: ASK_SYSTEM,
         user: coverage,
         maxTokens: ASK_MAX_TOKENS,
+        feature: "ask",
         meterUserId: actor.id,
         userMonthlyTokenCap: limits.monthlyAiTokenCap,
         signal: AbortSignal.timeout(25_000),

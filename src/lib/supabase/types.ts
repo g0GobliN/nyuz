@@ -39,6 +39,16 @@ export type AdminRole = "user" | "admin" | "superadmin";
 export type PostStatus = "draft" | "scheduled" | "published" | "archived";
 /** Mirrors ModelTier in src/lib/ai/deepseek.ts — keep the two in step. */
 export type AiCapability = "cluster" | "digest" | "reason";
+/**
+ * Why an AI call was made (0053). Six call sites plus 'unknown' for rows whose
+ * provenance cannot be honestly mapped (pre-launch rows without a feature tag).
+ *
+ * Distinct from `capability` (the model that ran) on purpose: a 'cluster'
+ * capability can be invoked by the cluster stage OR by translation (currently
+ * uses the `cluster` tier), and only the `feature` distinguishes the two.
+ */
+export type AiFeature =
+  "cluster" | "analyse" | "enrich" | "translate" | "impact" | "ask" | "unknown";
 
 type Table<Row, Optional extends keyof Row = never> = {
   Row: Row;
@@ -286,6 +296,8 @@ export type AiUsageLedger = {
   cost_microusd: number | null;
   reserved_tokens: number;
   created_at: string;
+  /** Which of the six call sites paid for this row (0053). Pre-launch rows are 'unknown'. */
+  feature: AiFeature;
 };
 
 export type BillingLedger = {
@@ -821,6 +833,7 @@ export type Database = {
         | "cost_microusd"
         | "reserved_tokens"
         | "created_at"
+        | "feature"
       >;
       billing_ledger: Table<BillingLedger, "refunded_cents" | "updated_at">;
       operating_cost_settings: Table<OperatingCostSetting, "updated_by" | "updated_at">;
@@ -1058,6 +1071,10 @@ export type Database = {
           p_global_monthly_cap: number;
           p_estimated_cost_microusd: number | null;
           p_global_monthly_cost_microusd: number;
+          p_daily_flash_cap_microusd?: number;
+          p_daily_pro_cap_microusd?: number;
+          /** Tags the reservation, so an unsettled call is still attributed (0053). */
+          p_feature?: AiFeature;
         };
         Returns: string | null;
       };
@@ -1108,6 +1125,8 @@ export type Database = {
           p_cached_prompt_tokens: number;
           p_completion_tokens: number;
           p_cost_microusd: number | null;
+          /** Re-stamps the feature at settlement (0053). */
+          p_feature?: AiFeature;
         };
         Returns: undefined;
       };
@@ -1119,6 +1138,31 @@ export type Database = {
       void_stale_ai_reservations: {
         Args: { p_older_than?: string };
         Returns: number;
+      };
+      /**
+       * Added in 0053. Per-feature / per-window spend: today, 7d, 30d. All six
+       * call sites plus 'unknown' appear with zero rows when they have spent
+       * nothing in the window, so a disabled feature showing cost is the first
+       * signal the operator gets that something is wrong.
+       */
+      admin_cost_breakdown: {
+        // No arguments: the three windows are fixed. See 0053 for why an
+        // argument that changed nothing was removed rather than kept.
+        Args: Record<string, never>;
+        Returns: {
+          window_key: string;
+          feature: string;
+          calls: number;
+          prompt_tokens: number;
+          completion_tokens: number;
+          tokens: number;
+          spent_microusd: number;
+        }[];
+      };
+      /** Added in 0053. Per-model spend over the last `p_days`. */
+      admin_cost_by_model: {
+        Args: { p_days?: number };
+        Returns: { model: string; calls: number; tokens: number; spent_microusd: number }[];
       };
       claim_subscription_checkout: {
         Args: { p_user_id: string };
