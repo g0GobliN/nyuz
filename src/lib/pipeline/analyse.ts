@@ -47,6 +47,9 @@ import type { Database, EventStatus, Json } from "@/lib/supabase/types";
 import { cleanTags } from "@/lib/topics";
 import { readEventIntelligence, type EventIntelligence } from "@/lib/understand";
 import { isVcsRef } from "./shortlist";
+import { extractFacts, compareExtraction } from "./extract";
+import { assignTopics, assignTags, compareTopics, compareTags } from "./topic-assign";
+import { computeEvidenceShadowMetrics, type EvidenceArticle } from "./evidence-selection";
 
 type Db = SupabaseClient<Database>;
 
@@ -113,6 +116,18 @@ const ENRICHMENT_MIN_SOURCES = 4;
 const ENRICHMENT_MIN_MULTIPLE = 2;
 const ENRICHMENT_SCAN = 50;
 const ENRICHMENT_BATCH = 3;
+
+/**
+ * Output ceiling for the analysis call. Must cover reasoning tokens plus the
+ * full JSON document: one `what_happened` paragraph, one `one_sentence`, up to
+ * six numbers, six audiences, five context items, five what-next, four
+ * perspectives, six unknowns, four watch_next, eight timeline points, and the
+ * smaller structural blocks (relationships, comparison, series, overview). A
+ * well-formed analysis runs ~1.5k visible tokens; the reasoning model spends
+ * additional tokens before any content appears, so 4096 is the safe cap that
+ * still prevents the model from padding the optional blocks to fill silence.
+ */
+const ANALYSE_MAX_TOKENS = 4096;
 
 /**
  * Whether a document is due its one material-enrichment refresh, given its
@@ -212,131 +227,84 @@ export function contract(slugs: string[]): string {
   }
 }
 
-Every evidence number refers to the numbered article supplied in the user message.
-Use only valid article numbers. A statement supported by several articles lists
-each of them. Do not claim that every source supports a fact unless it does.
+evidence is article numbers from the numbered list in the user message. Use only
+valid numbers; a statement supported by several articles lists each of them.
 
-understand is event intelligence, not an article, and it is read right after a
-briefing card that already gave the reader what_happened. Every block therefore
-has to say something what_happened, and every other block, did not -- assign
-each claim to the single section it fits best rather than restating it in two.
-A detail already covered by one_sentence must not reappear in numbers, audiences,
-context or anywhere else unless a different block genuinely needs it to make
-sense (a number inside a comparison row is not a restatement of a number already
-named in numbers).
+understand is event intelligence, not an article. The reader has already seen
+what_happened, so each block must add something what_happened did not. Place
+each claim in the single section it fits best; a detail in one_sentence must
+not reappear in numbers, audiences, context, or anywhere else unless another
+block genuinely needs it. one_sentence owns the relationship and meaning;
+numbers owns the concrete figures — do not put a headline metric in
+one_sentence when it belongs in numbers (the only exception is a figure so
+central that removing it would make the sentence unintelligible and there is
+no useful numbers entry for it).
 
-one_sentence owns the relationship and what the event means; numbers owns the
-concrete figures. Do not put a notable dollar amount, percentage, count,
-valuation, funding amount, acquisition price, or other headline metric in
-one_sentence when that figure belongs in numbers -- describe what happened
-between the parties and let the number card carry the number. The only
-exception is a figure so central that removing it would make the sentence
-misleading or unintelligible and there is no useful numbers entry for it.
+Every understand array is optional in substance: use [] or null when the
+evidence does not justify it. Never manufacture a timeline from one date,
+numbers without meaningful labels, implications not grounded in the
+evidence, future steps that were not reported, generic context, or a graph,
+comparison, series, or overview so a block can be drawn. For thin evidence,
+a one_sentence summary and one or two numbers or context items may be the
+entire useful answer. Mark coverage thin and leave unsupported arrays empty.
 
-Every understand array is optional in substance: use [] when the evidence does
-not justify it. Never manufacture a timeline from one date, numbers without
-meaningful labels, implications not grounded in the supplied evidence, future
-steps that were not reported, or generic context. Unknown means the available
-sources do not specify something material; it does not mean the thing does not
-exist. Name the specific missing fact a reader would want (a price, a date, a
-scope, a named party) rather than describing the coverage itself -- "the
-settlement amount was not disclosed" is a real unknown, "the source text does
-not specify further details" is not and must not be written. If no missing fact
-is worth a reader's attention, use [] instead of manufacturing one.
+unknowns names a specific missing fact a reader would want (a price, a date,
+a scope, a named party) — "the settlement amount was not disclosed" is a real
+unknown, "the source text does not specify further details" is not. If no
+missing fact is worth attention, use [].
 
-audiences names a real group and states what changes for them specifically, not
-"this could significantly impact the industry" or a repeat of who was mentioned
-in what_happened. It must be grounded in listed evidence, but may draw a bounded,
-clearly-scoped inference the coverage supports rather than states outright.
-All numbers, context, timeline points and next steps are directly reported.
-If credible accounts disagree over a fact, preserve both in conflicts instead of
-choosing. If they disagree over what the event means or how much it matters,
-that is perspectives, not conflicts.
+audiences names a real group and what changes for them specifically, not
+"this could significantly impact the industry" or a repeat of who was
+mentioned in what_happened. Grounded in listed evidence; a bounded,
+clearly-scoped inference the coverage supports is allowed.
 
-relationships, comparison, series and overview exist so the page can draw what is
-clearer seen than read. Each is null or [] unless the evidence carries it:
+relationships, comparison, series and overview are drawn, not narrated:
+- relationships: a small graph of the entities the event turns on, only with
+  a genuine structure (at least two edges or three nodes). A single
+  "A acquired B" is a fact, not a map.
+- comparison: two states with comparable values; omit rows whose sides match.
+- series: three or more comparable numbers for a chart (value is a plain
+  number, display is how to print it). Two is a comparison, one is a key
+  number; never assemble a series from different measures.
+- overview: two or more things announced together. One thing is a fact.
 
-relationships: a small graph of the entities the event turns on, only when there
-is a genuine structure to map -- an acquirer, a target and a regulator; a
-platform, the company building on it and that company's customers. This needs at
-least two edges or three nodes to be worth drawing; a single "A acquired B" is a
-fact, not a map, and belongs in one_sentence instead. Never draw a graph just to
-repeat one_sentence with arrows.
+perspectives needs at least two distinct sources; never invent a dissenting
+view. watch_next names a specific, checkable future development, not
+"more developments may emerge". new is only used when before_state and
+after_state are both null — it is the fallback for what changed when there
+is no clean prior state to contrast. If credible accounts disagree over a
+fact, preserve both in conflicts; if they disagree over meaning or
+importance, that is perspectives.
 
-comparison: two states or entities the evidence gives comparable values for --
-old price and new price, expected and actual, last quarter and this one. Both
-sides of every row must be reported. Omit a row whose sides say the same thing.
+impact is shared with every reader briefed to this event: what changes for
+someone in the field generally — a constraint that shifted, a decision this
+forces — not "this matters if you use X" and not a restatement of
+what_happened.
 
-series: three or more comparable numbers over periods or entities, for a chart.
-value is a plain number, display is how to print it. Two numbers are a
-comparison, not a chart; one number is a key number. Never assemble a series from
-numbers that measure different things.
+what_happened is about the event, not the coverage. Name who did what
+("OpenAI wrote to the governor opposing SB 1047", never "an article
+reported that..."). Fewer than 50 words is correct when evidence is thin.
 
-overview: two or more things announced together -- several products, several
-measures in one policy. One thing announced is a fact, not an overview.
+importance, 0 to 10 — how much this changes for someone in the field:
+0-2 routine (point release, blog post, talk); 3-5 worth knowing in your area
+(notable launch, funding round); 6-8 matters to the whole field (major
+release, acquisition, outage with real consequences, regulatory decision);
+9-10 changes plans. Most weeks contain nothing above 8.
 
-perspectives is only for a genuine, sourced difference in framing or emphasis
-between named parties -- the company announcing something and an independent
-party assessing it, for instance. It needs at least two distinct sources or it
-does not belong here. Never invent a dissenting view the coverage does not
-contain; an event with one voice in the coverage gets no perspectives block.
+novelty, 0 to 10 — how new: 0-2 already known or latest of many; 3-5
+expected step that has now happened; 6-8 genuinely unexpected or first of
+its kind from this player; 9-10 nobody was predicting this.
 
-watch_next names a specific, checkable future development this event sets up --
-a date, a threshold, a decision still pending -- not "more developments may
-emerge" or a restatement of what_next. Give a reader a concrete reason to check
-back on this event specifically.
+topics — choose only from this list, most central first, at most
+${MAX_TOPICS}: ${slugs.join(", ")}. An empty list is a correct answer for
+an event outside every topic above.
 
-new is only used when before_state and after_state are both null -- it is the
-fallback for what changed when there is no clean prior state to contrast, never
-a duplicate of what before_state/after_state already say when those exist.
-
-For thin evidence, a one_sentence summary and one or two numbers or context items
-may be the entire useful answer. Mark coverage thin and leave unsupported arrays
-empty. Never pad. Never invent a number, date, relationship or trend so that a
-block can be drawn.
-
-impact is shared: it is shown to every reader this event is briefed to, not written
-for any one person. Say what changes for someone in the field generally -- a
-constraint that shifted, a decision this forces, a thing that no longer works the
-old way -- not "this matters if you use X" and not a restatement of what_happened.
-
-what_happened is the Briefing layer. It is about the event, not about the coverage
-of it. Name who did what:
-"OpenAI wrote to the governor opposing SB 1047", never "an article reported that
-OpenAI wrote to the governor". Where the only thing that happened is that somebody
-published an argument or a review, name them and say what they argued. Do not
-repeat a fact in different words to reach the target; fewer than 50 words is
-correct when the evidence is thin.
-
-importance, 0 to 10 - how much this changes for someone working in the field:
-  0-2   routine. A point release, a blog post, a conference talk.
-  3-5   worth knowing if this is your area. A notable launch, a funding round.
-  6-8   matters to the whole field. A major release, an acquisition, an outage
-        or breach with real consequences, a regulatory decision.
-  9-10  changes plans. Rare. Most weeks contain nothing above 8.
-
-novelty, 0 to 10 - how new this is:
-  0-2   already known, rumoured for weeks, or the latest of many like it.
-  3-5   an expected step that has now actually happened.
-  6-8   genuinely unexpected, or the first of its kind from this player.
-  9-10  nobody was predicting this.
-
-topics - choose only from this list, most central first, at most ${MAX_TOPICS}:
-${slugs.join(", ")}
-
-Choose no topic at all rather than a loose one. An empty list is a correct answer
-for an event outside every topic above.
-
-tags - up to 8 lowercase concepts this event is genuinely about, drawn from
-anywhere, NOT from the list above. Countries, regions, cities, organisations,
-people, products, technologies, and the kind of event it is (an earthquake, an
-acquisition, a strike, a court ruling). Include the country or region when the
-event is located somewhere in particular, even if the headline names only a
-city. Readers follow subjects of their own choosing and these are how their
-interests reach this event, so a missing tag is a reader who never sees it.
-
-Tag what the event IS about, not what it mentions in passing, and never tag
-something the coverage does not support. Two to six is normal.`;
+tags — up to 8 lowercase concepts this event is genuinely about, drawn from
+anywhere, NOT the topic list: countries, regions, cities, organisations,
+people, products, technologies, and the kind of event (acquisition, strike,
+court ruling, etc.). Include the country or region when located somewhere
+in particular. Tag what the event IS about, not what it mentions in passing.
+Two to six is normal; a missing tag is a reader who never sees it.`;
 }
 
 export type AnalyseOptions = {
@@ -756,6 +724,7 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
       system: `${ctx.system}\n\n${contract(ctx.slugs)}`,
       user,
       feature: "analyse",
+      maxTokens: ANALYSE_MAX_TOKENS,
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
@@ -829,6 +798,15 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
   const written = await writeAnalysis(db, event, parsed, spent, ctx.topics);
   if (written) return { ...shared, decision: "failed", detail: written };
 
+  // Shadow mode: compute deterministic results and log comparison
+  // This does NOT affect the production output.
+  await recordShadowLog(db, event, articles, parsed);
+
+  // Shadow mode: compute adaptive evidence selection and deduplication metrics
+  // This does NOT affect the production output — the full 12-article set
+  // is always sent to the model. Only metrics are recorded.
+  await recordEvidenceShadowLog(db, event, articles, parsed);
+
   return { ...shared, decision: "analysed", detail: summarise(parsed) };
 }
 
@@ -876,6 +854,7 @@ async function runEnrichment(db: Db, event: Pending, ctx: Context): Promise<Even
       system: `${ctx.system}\n\n${contract(ctx.slugs)}`,
       user,
       feature: "enrich",
+      maxTokens: ANALYSE_MAX_TOKENS,
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
@@ -941,6 +920,12 @@ async function runEnrichment(db: Db, event: Pending, ctx: Context): Promise<Even
     await recordEnrichmentFailure(db, event, 0, ctx.options);
     return { ...shared, decision: "failed", detail: written };
   }
+
+  // Shadow mode: compute deterministic results and log comparison
+  await recordShadowLog(db, event, articles, parsed);
+
+  // Shadow mode: compute adaptive evidence selection and deduplication metrics
+  await recordEvidenceShadowLog(db, event, articles, parsed);
 
   return { ...shared, decision: "enriched", detail: summarise(parsed) };
 }
@@ -1392,6 +1377,191 @@ async function deferAnalysis(
 function summarise(analysis: Analysis): string {
   const topics = analysis.topics.length === 0 ? "no topics" : analysis.topics.join(" ");
   return `i${analysis.importance} n${analysis.novelty} [${topics}] ${analysis.whatHappened.slice(0, 90)}`;
+}
+
+/**
+ * Shadow mode: compute deterministic extraction results alongside
+ * the AI analysis and log the comparison.
+ *
+ * This does NOT change the production output. It only writes to
+ * `analysis_shadow_log` for measurement purposes. The deterministic
+ * results are never written to customer-visible fields.
+ *
+ * See docs/track.md phase 7 for the shadow measurement framework.
+ */
+async function recordShadowLog(
+  db: Db,
+  event: Pending,
+  articles: Coverage[],
+  analysis: Analysis,
+): Promise<void> {
+  if (articles.length === 0) return;
+
+  // Combine all article text for deterministic extraction
+  const fullText = articles.map((a) => `${a.title}\n${a.excerpt ?? ""}`).join("\n---\n");
+
+  // Deterministic extraction
+  const codeFacts = extractFacts(fullText, 0);
+  const codeTopics = assignTopics(fullText);
+  const codeTags = assignTags(fullText);
+
+  // AI results from the analysis
+  const aiFacts: Record<string, string[]> = {};
+  if (analysis.understand) {
+    const numbers = (analysis.understand.numbers ?? []).map((n: { value: string }) => n.value);
+    if (numbers.length > 0) aiFacts["money"] = numbers;
+    const dates = (analysis.understand.timeline ?? []).map((t: { when: string }) => t.when);
+    if (dates.length > 0) aiFacts["dates"] = dates;
+    const cves = (analysis.understand.unknowns ?? []).filter((u: string) => u.startsWith("CVE-"));
+    if (cves.length > 0) aiFacts["cves"] = cves;
+  }
+  const aiTopics = analysis.topics;
+  const aiTags = analysis.tags;
+
+  // Compute comparison metrics
+  const factComparisons = compareExtraction(codeFacts, aiFacts);
+  const topicComparison = compareTopics(codeTopics, aiTopics);
+  const tagComparison = compareTags(codeTags, aiTags);
+  const comparisons = [...factComparisons, topicComparison, tagComparison];
+
+  // Overall agreement rate
+  const hasOpinion = comparisons.some((c) => c.codeCount > 0 || c.aiCount > 0);
+  const rates = comparisons
+    .filter((c) => c.codeCount > 0 || c.aiCount > 0)
+    .map((c) => c.agreementRate);
+  const overallAgreementRate =
+    rates.length > 0 ? rates.reduce((a, b) => a + b, 0) / rates.length : 1.0;
+
+  // Write to shadow log — best-effort, never fails the analysis
+  try {
+    const { error } = await db.from("analysis_shadow_log").insert({
+      event_id: event.id,
+      article_id: articles[0]?.source_id ?? null,
+      article_title: articles[0]?.title ?? event.title,
+      code_facts: JSON.stringify(
+        Object.fromEntries(
+          Object.entries(codeFacts).map(([k, v]) => [k, v.map((x: { value: string }) => x.value)]),
+        ),
+      ),
+      code_topics: codeTopics,
+      code_tags: codeTags,
+      ai_facts: JSON.stringify(aiFacts),
+      ai_topics: aiTopics,
+      ai_tags: aiTags,
+      comparisons: JSON.stringify(comparisons),
+      overall_agreement_rate: Math.round(overallAgreementRate * 10000) / 10000,
+      has_opinion: hasOpinion,
+    });
+    if (error) {
+      console.warn(`shadow log for ${event.id}: ${error.message}`);
+    }
+  } catch (err) {
+    // Shadow logging must never fail the analysis
+    console.warn(`shadow log failed for ${event.id}: ${err}`);
+  }
+}
+
+/**
+ * Shadow mode: compute adaptive evidence selection and deduplication metrics
+ * alongside the AI analysis and log the comparison.
+ *
+ * This does NOT change the production output. It only writes to
+ * `evidence_shadow_log` for measurement purposes. The reduced evidence
+ * set is never sent to the model — the full 12-article set is always
+ * used for the actual analysis call.
+ *
+ * See docs/track.md phase 9 for the shadow measurement framework.
+ */
+async function recordEvidenceShadowLog(
+  db: Db,
+  event: Pending,
+  articles: Coverage[],
+  analysis: Analysis,
+): Promise<void> {
+  // Check feature flag — shadow mode is off by default
+  const { data: flag } = await db
+    .from("feature_flags")
+    .select("enabled")
+    .eq("key", "evidence_selection_shadow")
+    .maybeSingle();
+
+  if (flag?.enabled !== true) return;
+
+  if (articles.length === 0) return;
+
+  try {
+    // Load source metadata for scoring
+    const { data: sources } = await db
+      .from("sources")
+      .select("id, name, kind, coverage_mode, polling_tier, failure_count")
+      .in(
+        "id",
+        articles.map((a) => a.source_id).filter((id): id is string => id !== null),
+      );
+
+    const sourceMap = new Map<
+      string,
+      { kind?: string; coverage_mode?: string; polling_tier?: string; failure_count?: number }
+    >();
+    for (const s of sources ?? []) {
+      sourceMap.set(s.id, {
+        kind: s.kind,
+        coverage_mode: s.coverage_mode,
+        polling_tier: s.polling_tier,
+        failure_count: s.failure_count,
+      });
+    }
+
+    // Build EvidenceArticle objects with source metadata
+    const evidenceArticles: import("./evidence-selection").EvidenceArticle[] = articles.map((a) => {
+      const meta = a.source_id ? sourceMap.get(a.source_id ?? "") : undefined;
+      const article: import("./evidence-selection").EvidenceArticle = {
+        title: a.title,
+        excerpt: a.excerpt,
+        published_at: a.published_at,
+        source_id: a.source_id,
+      };
+      if (meta?.kind !== undefined) article.source_kind = meta.kind;
+      if (meta?.coverage_mode !== undefined) article.source_coverage_mode = meta.coverage_mode;
+      if (meta?.polling_tier !== undefined) article.source_polling_tier = meta.polling_tier;
+      if (meta?.failure_count !== undefined) article.source_failure_count = meta.failure_count;
+      return article;
+    });
+
+    // Compute shadow metrics
+    const metrics = computeEvidenceShadowMetrics(event.id, evidenceArticles);
+
+    // Write to evidence_shadow_log — best-effort, never fails the analysis
+    try {
+      const { error } = await (
+        db.from("evidence_shadow_log") as unknown as {
+          insert: (
+            val: Record<string, unknown>,
+          ) => Promise<{ data: unknown; error: { message: string } }>;
+        }
+      ).insert({
+        event_id: event.id,
+        full_article_count: metrics.fullArticleCount,
+        selected_article_count: metrics.selectedArticleCount,
+        facts_preserved: metrics.factsPreserved,
+        facts_lost: metrics.factsLost,
+        conflicts_preserved: metrics.conflictsPreserved,
+        source_attribution_preserved: metrics.sourceAttributionPreserved,
+        prompt_tokens_saved: metrics.promptTokensSaved,
+        agreement_rate: metrics.agreementRate,
+        selected_indices: metrics.selectedIndices as number[],
+        fact_preservation_detail: JSON.stringify(metrics.factPreservationDetail),
+      });
+      if (error) {
+        console.warn(`evidence shadow log for ${event.id}: ${error.message}`);
+      }
+    } catch (err) {
+      console.warn(`evidence shadow log failed for ${event.id}: ${err}`);
+    }
+  } catch (err) {
+    // Shadow logging must never fail the analysis
+    console.warn(`evidence shadow computation failed for ${event.id}: ${err}`);
+  }
 }
 
 /**

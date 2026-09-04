@@ -230,6 +230,28 @@ export type ClusterShadowLog = {
   created_at: string;
 };
 
+/**
+ * What the deterministic extraction layer would have produced versus what
+ * the model did (0055). Measurement only — nothing reads it to make a
+ * decision. No RLS policies: service-role only, unreachable from a browser.
+ */
+export type AnalysisShadowLog = {
+  id: number;
+  event_id: string;
+  article_id: string | null;
+  article_title: string;
+  code_facts: Json;
+  code_topics: string[];
+  code_tags: string[];
+  ai_facts: Json;
+  ai_topics: string[];
+  ai_tags: string[];
+  comparisons: Json;
+  overall_agreement_rate: number;
+  has_opinion: boolean;
+  created_at: string;
+};
+
 /** Per-tier fetch interval (0032). A table so cadence is tunable without a deploy. */
 export type PollingTierRow = {
   tier: PollingTier;
@@ -720,6 +742,7 @@ export type Database = {
       >;
       polling_tiers: Table<PollingTierRow, "label" | "description">;
       cluster_shadow_log: Table<ClusterShadowLog, "id" | "agreed" | "created_at">;
+      analysis_shadow_log: Table<AnalysisShadowLog, "id" | "has_opinion" | "created_at">;
       user_source_prefs: Table<UserSourcePref, "pref" | "created_at">;
       user_custom_sources: Table<UserCustomSource, "active" | "created_at" | "updated_at">;
       source_probe_log: Table<SourceProbeLog, "id" | "created_at">;
@@ -1005,6 +1028,20 @@ export type Database = {
           decided: number;
           agreed: number;
           agreement_rate: number;
+        }[];
+      };
+      /**
+       * Added in 0055. Per-category agreement rates for deterministic
+       * extraction shadow mode. Returns overall and per-category
+       * metrics.
+       */
+      analysis_shadow_summary: {
+        Args: { p_days?: number };
+        Returns: {
+          category: string;
+          total_events: number;
+          events_with_opinion: number;
+          avg_agreement_rate: number;
         }[];
       };
       /**

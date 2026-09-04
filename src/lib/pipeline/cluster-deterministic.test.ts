@@ -68,6 +68,60 @@ async function withDoubles(
   return { spy, cluster };
 }
 
+/** Mock helper for testing the "different" skip path. Mocks shortlist to return candidates and verdictFor to return "different". */
+async function withDoublesForDifferent(): Promise<{
+  spy: Spy;
+  cluster: typeof import("./cluster").cluster;
+}> {
+  const spy: Spy = { flashCalls: 0, features: [] };
+
+  vi.doMock("@/lib/pipeline/shortlist", async () => {
+    const actual = await vi.importActual<typeof import("./shortlist")>("./shortlist");
+    return {
+      ...actual,
+      shortlist: async () => [
+        { id: "cand-1", title: "Candidate one", event_id: "event-1", published_at: hoursAgo(2) },
+        { id: "cand-2", title: "Candidate two", event_id: "event-2", published_at: hoursAgo(2) },
+      ],
+    };
+  });
+
+  vi.doMock("@/lib/pipeline/confidence", async () => {
+    const actual = await vi.importActual<typeof import("./confidence")>("./confidence");
+    return {
+      ...actual,
+      verdictFor: () => ({ verdict: "different" as const, matchedId: null }),
+    };
+  });
+
+  vi.doMock("@/lib/ai/config", async () => {
+    const actual = await vi.importActual<typeof import("./../ai/config")>("@/lib/ai/config");
+    return {
+      ...actual,
+      completeRoutedJson: async (opts: { feature: string }) => {
+        spy.flashCalls += 1;
+        spy.features.push(opts.feature);
+        return {
+          data: { same: [1] },
+          usage: {
+            content: "{}",
+            model: "deepseek-v4-flash",
+            promptTokens: 40,
+            completionTokens: 10,
+            reasoningTokens: 0,
+            cachedTokens: 0,
+            attempt_count: 1,
+          },
+          route: { capability: "cluster", model: "deepseek-v4-flash" },
+        };
+      },
+    };
+  });
+
+  const { cluster } = await import("./cluster");
+  return { spy, cluster };
+}
+
 function tables(flags: { v2: boolean; skip: boolean }, candidates: Row[]): Record<string, Row[]> {
   return {
     articles: [
@@ -194,14 +248,18 @@ describe("with deterministic_cluster_skip OFF, Flash decides everything", () => 
 });
 
 describe("the skip path exists and works, and is not switched on", () => {
-  it("skips the model when both flags are on", async () => {
+  it("skips the model ONLY on confident 'different' verdicts", async () => {
+    // With the new logic, "same" verdicts still require the model.
+    // This test uses a "same" verdict pair, so the model IS called.
     const { spy, cluster } = await withDoubles();
     const db = new FakeDb(tables({ v2: true, skip: true }, [twin(), unrelated()]));
 
     const report = await cluster(db as never, { now: NOW });
 
-    expect(spy.flashCalls).toBe(0);
-    expect(report.aiSkipped).toBe(1);
+    // "same" verdict → model still called
+    expect(spy.flashCalls).toBe(1);
+    expect(report.aiSkipped).toBe(0);
+    expect(report.outcomes[0]?.shadowVerdict).toBe("same");
     expect(db.rows("articles").find((a) => a["id"] === "fresh")?.["event_id"]).toBe("event-twin");
   });
 
