@@ -315,7 +315,14 @@ async function runOne(
     if (options.dryRun === true) {
       return { ...base, decision: "skipped", detail: "no candidates; would create its own event" };
     }
-    return createEvent(db, article, [], "no similar headline within the window", "pending", candidates.length);
+    return createEvent(
+      db,
+      article,
+      [],
+      "no similar headline within the window",
+      "pending",
+      candidates.length,
+    );
   }
 
   // Computed before the model is asked so the shadow layer can never see, and
@@ -410,14 +417,28 @@ async function runOne(
 
   if (matched.length === 0) {
     return {
-      ...(await createEvent(db, article, [], "shortlisted, but no match", "pending", spent.candidates)),
+      ...(await createEvent(
+        db,
+        article,
+        [],
+        "shortlisted, but no match",
+        "pending",
+        spent.candidates,
+      )),
       ...spent,
       ...shadowResult,
     };
   }
 
   return {
-    ...(await createEvent(db, article, matched, "grouped with matched coverage", "pending", spent.candidates)),
+    ...(await createEvent(
+      db,
+      article,
+      matched,
+      "grouped with matched coverage",
+      "pending",
+      spent.candidates,
+    )),
     ...spent,
     ...shadowResult,
   };

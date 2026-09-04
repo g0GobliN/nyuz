@@ -49,6 +49,7 @@ import { readEventIntelligence, type EventIntelligence } from "@/lib/understand"
 import { isVcsRef } from "./shortlist";
 import { extractFacts, compareExtraction } from "./extract";
 import { assignTopics, assignTags, compareTopics, compareTags } from "./topic-assign";
+import { computeEvidenceShadowMetrics, type EvidenceArticle } from "./evidence-selection";
 
 type Db = SupabaseClient<Database>;
 
@@ -801,6 +802,11 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
   // This does NOT affect the production output.
   await recordShadowLog(db, event, articles, parsed);
 
+  // Shadow mode: compute adaptive evidence selection and deduplication metrics
+  // This does NOT affect the production output — the full 12-article set
+  // is always sent to the model. Only metrics are recorded.
+  await recordEvidenceShadowLog(db, event, articles, parsed);
+
   return { ...shared, decision: "analysed", detail: summarise(parsed) };
 }
 
@@ -917,6 +923,9 @@ async function runEnrichment(db: Db, event: Pending, ctx: Context): Promise<Even
 
   // Shadow mode: compute deterministic results and log comparison
   await recordShadowLog(db, event, articles, parsed);
+
+  // Shadow mode: compute adaptive evidence selection and deduplication metrics
+  await recordEvidenceShadowLog(db, event, articles, parsed);
 
   return { ...shared, decision: "enriched", detail: summarise(parsed) };
 }
@@ -1449,6 +1458,109 @@ async function recordShadowLog(
   } catch (err) {
     // Shadow logging must never fail the analysis
     console.warn(`shadow log failed for ${event.id}: ${err}`);
+  }
+}
+
+/**
+ * Shadow mode: compute adaptive evidence selection and deduplication metrics
+ * alongside the AI analysis and log the comparison.
+ *
+ * This does NOT change the production output. It only writes to
+ * `evidence_shadow_log` for measurement purposes. The reduced evidence
+ * set is never sent to the model — the full 12-article set is always
+ * used for the actual analysis call.
+ *
+ * See docs/track.md phase 9 for the shadow measurement framework.
+ */
+async function recordEvidenceShadowLog(
+  db: Db,
+  event: Pending,
+  articles: Coverage[],
+  analysis: Analysis,
+): Promise<void> {
+  // Check feature flag — shadow mode is off by default
+  const { data: flag } = await db
+    .from("feature_flags")
+    .select("enabled")
+    .eq("key", "evidence_selection_shadow")
+    .maybeSingle();
+
+  if (flag?.enabled !== true) return;
+
+  if (articles.length === 0) return;
+
+  try {
+    // Load source metadata for scoring
+    const { data: sources } = await db
+      .from("sources")
+      .select("id, name, kind, coverage_mode, polling_tier, failure_count")
+      .in(
+        "id",
+        articles.map((a) => a.source_id).filter((id): id is string => id !== null),
+      );
+
+    const sourceMap = new Map<
+      string,
+      { kind?: string; coverage_mode?: string; polling_tier?: string; failure_count?: number }
+    >();
+    for (const s of sources ?? []) {
+      sourceMap.set(s.id, {
+        kind: s.kind,
+        coverage_mode: s.coverage_mode,
+        polling_tier: s.polling_tier,
+        failure_count: s.failure_count,
+      });
+    }
+
+    // Build EvidenceArticle objects with source metadata
+    const evidenceArticles: import("./evidence-selection").EvidenceArticle[] = articles.map((a) => {
+      const meta = a.source_id ? sourceMap.get(a.source_id ?? "") : undefined;
+      const article: import("./evidence-selection").EvidenceArticle = {
+        title: a.title,
+        excerpt: a.excerpt,
+        published_at: a.published_at,
+        source_id: a.source_id,
+      };
+      if (meta?.kind !== undefined) article.source_kind = meta.kind;
+      if (meta?.coverage_mode !== undefined) article.source_coverage_mode = meta.coverage_mode;
+      if (meta?.polling_tier !== undefined) article.source_polling_tier = meta.polling_tier;
+      if (meta?.failure_count !== undefined) article.source_failure_count = meta.failure_count;
+      return article;
+    });
+
+    // Compute shadow metrics
+    const metrics = computeEvidenceShadowMetrics(event.id, evidenceArticles);
+
+    // Write to evidence_shadow_log — best-effort, never fails the analysis
+    try {
+      const { error } = await (
+        db.from("evidence_shadow_log") as unknown as {
+          insert: (
+            val: Record<string, unknown>,
+          ) => Promise<{ data: unknown; error: { message: string } }>;
+        }
+      ).insert({
+        event_id: event.id,
+        full_article_count: metrics.fullArticleCount,
+        selected_article_count: metrics.selectedArticleCount,
+        facts_preserved: metrics.factsPreserved,
+        facts_lost: metrics.factsLost,
+        conflicts_preserved: metrics.conflictsPreserved,
+        source_attribution_preserved: metrics.sourceAttributionPreserved,
+        prompt_tokens_saved: metrics.promptTokensSaved,
+        agreement_rate: metrics.agreementRate,
+        selected_indices: metrics.selectedIndices as number[],
+        fact_preservation_detail: JSON.stringify(metrics.factPreservationDetail),
+      });
+      if (error) {
+        console.warn(`evidence shadow log for ${event.id}: ${error.message}`);
+      }
+    } catch (err) {
+      console.warn(`evidence shadow log failed for ${event.id}: ${err}`);
+    }
+  } catch (err) {
+    // Shadow logging must never fail the analysis
+    console.warn(`evidence shadow computation failed for ${event.id}: ${err}`);
   }
 }
 

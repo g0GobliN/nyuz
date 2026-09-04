@@ -69,7 +69,10 @@ async function withDoubles(
 }
 
 /** Mock helper for testing the "different" skip path. Mocks shortlist to return candidates and verdictFor to return "different". */
-async function withDoublesForDifferent(): Promise<{ spy: Spy; cluster: typeof import("./cluster").cluster }> {
+async function withDoublesForDifferent(): Promise<{
+  spy: Spy;
+  cluster: typeof import("./cluster").cluster;
+}> {
   const spy: Spy = { flashCalls: 0, features: [] };
 
   vi.doMock("@/lib/pipeline/shortlist", async () => {

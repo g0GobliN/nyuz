@@ -646,7 +646,7 @@ function tokens(text: string): Set<string> {
   return out;
 }
 
-function repeats(a: string, b: string): boolean {
+export function repeats(a: string, b: string): boolean {
   const left = tokens(a);
   const right = tokens(b);
   const smaller = Math.min(left.size, right.size);

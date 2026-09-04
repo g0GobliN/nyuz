@@ -741,9 +741,9 @@ export type Database = {
         | "polling_tier"
       >;
       polling_tiers: Table<PollingTierRow, "label" | "description">;
-       cluster_shadow_log: Table<ClusterShadowLog, "id" | "agreed" | "created_at">;
-       analysis_shadow_log: Table<AnalysisShadowLog, "id" | "has_opinion" | "created_at">;
-       user_source_prefs: Table<UserSourcePref, "pref" | "created_at">;
+      cluster_shadow_log: Table<ClusterShadowLog, "id" | "agreed" | "created_at">;
+      analysis_shadow_log: Table<AnalysisShadowLog, "id" | "has_opinion" | "created_at">;
+      user_source_prefs: Table<UserSourcePref, "pref" | "created_at">;
       user_custom_sources: Table<UserCustomSource, "active" | "created_at" | "updated_at">;
       source_probe_log: Table<SourceProbeLog, "id" | "created_at">;
       waitlist: Table<
@@ -1016,34 +1016,34 @@ export type Database = {
         Args: Record<string, never>;
         Returns: number;
       };
-       /**
-        * Added in 0033. Shadow agreement split by verdict — the two directions
-        * carry very different risk, so they must not be blended. Read this
-        * before enabling `deterministic_cluster_skip`.
-        */
-       cluster_shadow_summary: {
-         Args: { p_days?: number };
-         Returns: {
-           verdict: "same" | "different";
-           decided: number;
-           agreed: number;
-           agreement_rate: number;
-         }[];
-       };
-       /**
-        * Added in 0055. Per-category agreement rates for deterministic
-        * extraction shadow mode. Returns overall and per-category
-        * metrics.
-        */
-       analysis_shadow_summary: {
-         Args: { p_days?: number };
-         Returns: {
-           category: string;
-           total_events: number;
-           events_with_opinion: number;
-           avg_agreement_rate: number;
-         }[];
-       };
+      /**
+       * Added in 0033. Shadow agreement split by verdict — the two directions
+       * carry very different risk, so they must not be blended. Read this
+       * before enabling `deterministic_cluster_skip`.
+       */
+      cluster_shadow_summary: {
+        Args: { p_days?: number };
+        Returns: {
+          verdict: "same" | "different";
+          decided: number;
+          agreed: number;
+          agreement_rate: number;
+        }[];
+      };
+      /**
+       * Added in 0055. Per-category agreement rates for deterministic
+       * extraction shadow mode. Returns overall and per-category
+       * metrics.
+       */
+      analysis_shadow_summary: {
+        Args: { p_days?: number };
+        Returns: {
+          category: string;
+          total_events: number;
+          events_with_opinion: number;
+          avg_agreement_rate: number;
+        }[];
+      };
       /**
        * Added in 0035. One jsonb blob of counted facts about pipeline cost.
        * Shape is `CostIntelligence` in src/lib/server/cost-intelligence.ts.
