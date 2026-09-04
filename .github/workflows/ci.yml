@@ -128,8 +128,22 @@ jobs:
       # Scoped to what actually ships. A high-severity advisory in a build tool
       # that never runs in production should not be able to block a deploy, and
       # treating those two cases the same is how an audit gate gets switched off.
+      # npm audit endpoint can return transient 5xx; retry a few times.
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if npm audit --omit=dev --audit-level=high; then
+              exit 0
+            fi
+            code=$?
+            # Only retry on 5xx (network/registry issues), not on actual vulnerabilities (exit 1)
+            if [ $attempt -eq 3 ]; then
+              exit $code
+            fi
+            echo "npm audit failed (attempt $attempt), retrying in 10s..."
+            sleep 10
+          done
 
       # Vite compiles every VITE_-prefixed variable into the bundle every
       # visitor downloads. Naming a server secret VITE_SOMETHING is therefore
