@@ -708,7 +708,7 @@ function AuthShell({
           <div
             className={
               variant === "main"
-                ? "animate-rise mx-auto w-full max-w-sm lg:mx-0 lg:max-w-[420px]"
+                ? "animate-rise -mt-14 mx-auto w-full max-w-sm lg:mx-0 lg:mt-0 lg:max-w-[420px]"
                 : "-mt-24 mx-auto w-full max-w-[480px] lg:mx-0 lg:mt-0 lg:max-w-[420px]"
             }
           >

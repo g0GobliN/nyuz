@@ -230,7 +230,10 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
         </main>
       </div>
 
-      <nav className="glass fixed inset-x-0 bottom-0 z-40 border-t border-hairline lg:hidden">
+      <nav
+        className="glass fixed inset-x-0 bottom-0 z-40 border-t border-hairline will-change-transform lg:hidden"
+        style={{ transform: "translateZ(0)" }}
+      >
         <div className="flex items-stretch overflow-x-auto px-2 pb-[env(safe-area-inset-bottom)] scrollbar-hide">
           {MOBILE.map((m) => (
             <MobileItem key={m.to} {...m} />

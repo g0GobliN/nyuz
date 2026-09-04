@@ -6,6 +6,8 @@ import {
   understandMinutes,
   intelligenceText,
   legacyEventIntelligence,
+  deriveChange,
+  sourceCountLabel,
   type EventIntelligence,
   novelSentences,
   collapseTimeline,
@@ -15,22 +17,21 @@ import {
 
 describe("readEventIntelligence", () => {
   const validIntelligence = {
-    version: 1,
+    version: 2,
     coverage: "normal" as const,
-    summary: "OpenAI released GPT-5 with improved reasoning.",
-    facts: [{ text: "The model scores 92% on MMLU", evidence: [1], kind: "reported" as const }],
-    keyNumbers: [{ value: "$20B", label: "Valuation", evidence: [1] }],
-    context: [{ text: "Previous version scored 85%", evidence: [2], kind: "context" as const }],
+    one_sentence: "OpenAI released GPT-5, connecting stronger reasoning to a new pricing tier.",
+    numbers: [{ value: "$20B", label: "Valuation", evidence: [1] }],
+    new: [{ text: "The model scores 92% on MMLU", evidence: [1] }],
+    context: [{ text: "Previous version scored 85%", evidence: [2] }],
     timeline: [{ when: "2026-09-01", what: "Release announced", evidence: [1] }],
-    affectedGroups: [
+    audiences: [
       {
-        group: "Developers",
-        effect: "API pricing unchanged",
-        basis: "reported" as const,
+        audience: "Developers",
+        implication: "API pricing unchanged despite the capability jump",
         evidence: [1],
       },
     ],
-    whatNext: [
+    what_next: [
       { text: "Enterprise rollout begins next month", evidence: [1], kind: "reported" as const },
     ],
     unknowns: ["Pricing for free tier"],
@@ -48,14 +49,14 @@ describe("readEventIntelligence", () => {
   it("parses a complete valid intelligence object", () => {
     const parsed = readEventIntelligence(validIntelligence, 2);
     expect(parsed).not.toBeNull();
-    expect(parsed?.version).toBe(1);
+    expect(parsed?.version).toBe(2);
     expect(parsed?.coverage).toBe("normal");
-    expect(parsed?.summary).toBe(validIntelligence.summary);
-    expect(parsed?.facts).toHaveLength(1);
-    expect(parsed?.keyNumbers).toHaveLength(1);
+    expect(parsed?.oneSentence).toBe(validIntelligence.one_sentence);
+    expect(parsed?.numbers).toHaveLength(1);
+    expect(parsed?.newDevelopments).toHaveLength(1);
     expect(parsed?.context).toHaveLength(1);
     expect(parsed?.timeline).toHaveLength(1);
-    expect(parsed?.affectedGroups).toHaveLength(1);
+    expect(parsed?.audiences).toHaveLength(1);
     expect(parsed?.whatNext).toHaveLength(1);
     expect(parsed?.unknowns).toHaveLength(1);
     expect(parsed?.conflicts).toHaveLength(1);
@@ -65,27 +66,31 @@ describe("readEventIntelligence", () => {
     expect(readEventIntelligence(null, 2)).toBeNull();
     expect(readEventIntelligence(undefined, 2)).toBeNull();
     expect(readEventIntelligence({}, 2)).toBeNull();
-    expect(readEventIntelligence({ version: 1, coverage: "normal", summary: "" }, 2)).toBeNull();
+    expect(
+      readEventIntelligence({ version: 2, coverage: "normal", one_sentence: "" }, 2),
+    ).toBeNull();
   });
 
   it("rejects invalid coverage values", () => {
     expect(
-      readEventIntelligence({ version: 1, coverage: "invalid", summary: "test" }, 2),
+      readEventIntelligence({ version: 2, coverage: "invalid", one_sentence: "test" }, 2),
     ).toBeNull();
-    expect(readEventIntelligence({ version: 1, coverage: null, summary: "test" }, 2)).toBeNull();
+    expect(
+      readEventIntelligence({ version: 2, coverage: null, one_sentence: "test" }, 2),
+    ).toBeNull();
   });
 
   it("handles snake_case keys from model replies", () => {
     const snakeCase = {
-      version: 1,
+      version: 2,
       coverage: "thin" as const,
-      summary: "Test",
-      key_numbers: [{ value: "100", label: "Count", evidence: [1] }],
+      one_sentence: "Test",
+      numbers: [{ value: "100", label: "Count", evidence: [1] }],
       what_next: [{ text: "Next step", evidence: [1], kind: "reported" as const }],
     };
     const parsed = readEventIntelligence(snakeCase, 1);
     expect(parsed).not.toBeNull();
-    expect(parsed?.keyNumbers).toHaveLength(1);
+    expect(parsed?.numbers).toHaveLength(1);
     expect(parsed?.whatNext).toHaveLength(1);
   });
 
@@ -93,98 +98,82 @@ describe("readEventIntelligence", () => {
     const longText = "x".repeat(800);
     const withLong = {
       ...validIntelligence,
-      summary: longText,
-      facts: [{ text: longText, evidence: [1], kind: "reported" as const }],
+      one_sentence: longText,
+      context: [{ text: longText, evidence: [2] }],
     };
-    const parsed = readEventIntelligence(withLong, 1);
-    expect(parsed?.summary.length).toBeLessThan(800);
-    expect(parsed?.facts[0]?.text.length).toBeLessThan(800);
+    const parsed = readEventIntelligence(withLong, 2);
+    expect(parsed?.oneSentence.length).toBeLessThan(800);
+    expect(parsed?.context[0]?.text.length).toBeLessThan(800);
   });
 
   it("filters out-of-bounds evidence references", () => {
     const withBadEvidence = {
       ...validIntelligence,
-      facts: [
-        { text: "Valid fact", evidence: [1], kind: "reported" as const },
-        { text: "Invalid fact", evidence: [0, 5, 100], kind: "reported" as const },
+      context: [
+        { text: "Valid context item", evidence: [2] },
+        { text: "Invalid context item", evidence: [0, 5, 100] },
       ],
     };
     const parsed = readEventIntelligence(withBadEvidence, 2);
-    expect(parsed?.facts).toHaveLength(1);
-    expect(parsed?.facts[0]?.evidence).toEqual([1]);
+    expect(parsed?.context).toHaveLength(1);
+    expect(parsed?.context[0]?.evidence).toEqual([2]);
   });
 
   it("de-duplicates evidence references", () => {
     const withDupes = {
       ...validIntelligence,
-      facts: [{ text: "Fact", evidence: [1, 1, 1, 2, 2], kind: "reported" as const }],
+      context: [{ text: "Context item", evidence: [1, 1, 1, 2, 2] }],
     };
     const parsed = readEventIntelligence(withDupes, 2);
-    expect(parsed?.facts[0]?.evidence).toEqual([1, 2]);
+    expect(parsed?.context[0]?.evidence).toEqual([1, 2]);
   });
 
   it("caps array lengths", () => {
     const manyItems = {
-      version: 1,
+      version: 2,
       coverage: "normal" as const,
-      summary: "Test",
-      facts: Array.from({ length: 20 }, (_, i) => ({
-        text: `Fact ${i}`,
-        evidence: [1],
-        kind: "reported" as const,
-      })),
-      keyNumbers: Array.from({ length: 20 }, (_, i) => ({
+      one_sentence: "Test",
+      numbers: Array.from({ length: 20 }, (_, i) => ({
         value: `${i}`,
         label: `Label ${i}`,
         evidence: [1],
       })),
       context: Array.from({ length: 20 }, (_, i) => ({
-        text: `Context ${i}`,
+        text: `Distinct context statement number ${i} about the event`,
         evidence: [1],
-        kind: "context" as const,
       })),
       timeline: Array.from({ length: 20 }, (_, i) => ({
         when: `T${i}`,
-        what: `Event ${i}`,
+        what: `Distinct timeline event number ${i}`,
         evidence: [1],
       })),
-      affectedGroups: Array.from({ length: 20 }, (_, i) => ({
-        group: `Group ${i}`,
-        effect: `Effect ${i}`,
-        basis: "reported" as const,
+      audiences: Array.from({ length: 20 }, (_, i) => ({
+        audience: `Group ${i}`,
+        implication: `Distinct implication number ${i} for this group`,
         evidence: [1],
       })),
-      whatNext: Array.from({ length: 20 }, (_, i) => ({
-        text: `Next ${i}`,
+      what_next: Array.from({ length: 20 }, (_, i) => ({
+        text: `Distinct next step number ${i}`,
         evidence: [1],
         kind: "reported" as const,
       })),
-      unknowns: Array.from({ length: 20 }, (_, i) => `Unknown ${i}`),
+      unknowns: Array.from({ length: 20 }, (_, i) => `Distinct unknown number ${i}`),
       conflicts: Array.from({ length: 20 }, (_, i) => ({
         topic: `Topic ${i}`,
-        reports: [{ text: "Report", evidence: [1] }],
+        reports: [
+          { text: "Report A", evidence: [1] },
+          { text: "Report B", evidence: [1] },
+        ],
       })),
     };
     const parsed = readEventIntelligence(manyItems, 1);
-    expect(parsed?.facts.length).toBeLessThanOrEqual(8);
-    expect(parsed?.keyNumbers.length).toBeLessThanOrEqual(6);
+    expect(parsed?.numbers.length).toBeLessThanOrEqual(6);
     expect(parsed?.context.length).toBeLessThanOrEqual(5);
     expect(parsed?.timeline.length).toBeLessThanOrEqual(8);
-    expect(parsed?.affectedGroups.length).toBeLessThanOrEqual(6);
+    expect(parsed?.audiences.length).toBeLessThanOrEqual(6);
     expect(parsed?.whatNext.length).toBeLessThanOrEqual(5);
     expect(parsed?.unknowns.length).toBeLessThanOrEqual(6);
     expect(parsed?.conflicts.length).toBeLessThanOrEqual(3);
-  });
-
-  it("requires valid basis for affected_groups", () => {
-    const invalidBasis = {
-      ...validIntelligence,
-      affectedGroups: [
-        { group: "Users", effect: "None", basis: "invalid" as const, evidence: [1] },
-      ],
-    };
-    const parsed = readEventIntelligence(invalidBasis, 1);
-    expect(parsed?.affectedGroups).toHaveLength(0);
   });
 
   it("drops conflicts with fewer than 2 reports", () => {
@@ -199,11 +188,147 @@ describe("readEventIntelligence", () => {
   it("filters nullish text values", () => {
     const withNullish = {
       ...validIntelligence,
-      summary: "null",
-      facts: [{ text: "unknown", evidence: [1], kind: "reported" as const }],
+      one_sentence: "null",
     };
     const parsed = readEventIntelligence(withNullish, 1);
     expect(parsed).toBeNull();
+  });
+
+  it("reads a legacy (version 1) document by its old field names", () => {
+    const legacy = {
+      version: 1,
+      coverage: "normal" as const,
+      summary: "Nvidia agreed to acquire Hugging Face for $13 billion.",
+      keyNumbers: [{ value: "$13B", label: "Deal value", evidence: [1] }],
+      affectedGroups: [
+        { group: "Developers", effect: "New API access", basis: "reported", evidence: [1] },
+      ],
+      relationship: {
+        subject: "Nvidia",
+        relation: "acquiring",
+        object: "Hugging Face",
+        detail: "$13B",
+        evidence: [1],
+      },
+    };
+    const parsed = readEventIntelligence(legacy, 2);
+    expect(parsed?.version).toBe(2);
+    expect(parsed?.oneSentence).toBe(legacy.summary);
+    expect(parsed?.numbers).toHaveLength(1);
+    expect(parsed?.audiences).toEqual([
+      { audience: "Developers", implication: "New API access", evidence: [1] },
+    ]);
+    // A single subject-relation-object triple is one edge, which never clears
+    // the richness gate -- "The picture" correctly does not render for it.
+    expect(parsed?.relationships).toBeNull();
+  });
+});
+
+describe("analysisMeta", () => {
+  it("is absent when the model reply never included it (the normal case for every fresh reply)", () => {
+    const parsed = readEventIntelligence(
+      { version: 2, coverage: "normal", one_sentence: "An event happened." },
+      1,
+    );
+    expect(parsed?.analysisMeta).toBeUndefined();
+  });
+
+  it("round-trips a document the pipeline already attached metadata to", () => {
+    const parsed = readEventIntelligence(
+      {
+        version: 2,
+        coverage: "thin",
+        one_sentence: "An event happened.",
+        analysisMeta: { sourceCountAtAnalysis: 1 },
+      },
+      1,
+    );
+    expect(parsed?.analysisMeta).toEqual({ sourceCountAtAnalysis: 1 });
+  });
+
+  it("round-trips a refreshed document", () => {
+    const parsed = readEventIntelligence(
+      {
+        version: 2,
+        coverage: "normal",
+        one_sentence: "An event happened.",
+        analysisMeta: { sourceCountAtAnalysis: 5, refreshedAfterEnrichment: true },
+      },
+      1,
+    );
+    expect(parsed?.analysisMeta).toEqual({
+      sourceCountAtAnalysis: 5,
+      refreshedAfterEnrichment: true,
+    });
+  });
+
+  it("drops malformed metadata rather than trusting it", () => {
+    const missingCount = readEventIntelligence(
+      {
+        version: 2,
+        coverage: "normal",
+        one_sentence: "x",
+        analysisMeta: { refreshedAfterEnrichment: true },
+      },
+      1,
+    );
+    const nonIntegerCount = readEventIntelligence(
+      {
+        version: 2,
+        coverage: "normal",
+        one_sentence: "x",
+        analysisMeta: { sourceCountAtAnalysis: "3" },
+      },
+      1,
+    );
+    expect(missingCount?.analysisMeta).toBeUndefined();
+    expect(nonIntegerCount?.analysisMeta).toBeUndefined();
+  });
+
+  it("a legacy (version 1) document never has analysis metadata", () => {
+    const parsed = readEventIntelligence(
+      { version: 1, coverage: "normal", summary: "Nvidia agreed to acquire Hugging Face." },
+      1,
+    );
+    expect(parsed?.analysisMeta).toBeUndefined();
+  });
+});
+
+describe("sourceCountLabel", () => {
+  it("legacy document (no analysisMeta): states the current count plainly, same as before this existed", () => {
+    expect(sourceCountLabel(undefined, 3)).toBe("3 sources");
+    expect(sourceCountLabel(undefined, 1)).toBe("1 source");
+  });
+
+  it("analysed count matches current count: states the count plainly", () => {
+    expect(sourceCountLabel({ sourceCountAtAnalysis: 3 }, 3)).toBe("3 sources");
+  });
+
+  it("thin analysis, evidence has since grown: states both counts rather than rounding up", () => {
+    expect(sourceCountLabel({ sourceCountAtAnalysis: 1 }, 3)).toBe(
+      "1 source analyzed · 3 currently",
+    );
+  });
+
+  it("stays truthful about the older analysis regardless of enrichment eligibility or budget state -- it only ever compares the two stored/live numbers", () => {
+    // Eligible for enrichment (1 <= 2, 5 >= 4, 5 >= 1*2) but not yet refreshed --
+    // e.g. the AI budget was exhausted when the pipeline tried. The label must
+    // not claim the document reflects the 5 sources now attached.
+    expect(sourceCountLabel({ sourceCountAtAnalysis: 1 }, 5)).toBe(
+      "1 source analyzed · 5 currently",
+    );
+  });
+
+  it("converges again once a material-enrichment refresh has actually written a new count", () => {
+    expect(sourceCountLabel({ sourceCountAtAnalysis: 5, refreshedAfterEnrichment: true }, 5)).toBe(
+      "5 sources",
+    );
+  });
+
+  it("pluralises the analysed count independently of the current count", () => {
+    expect(sourceCountLabel({ sourceCountAtAnalysis: 1 }, 4)).toBe(
+      "1 source analyzed · 4 currently",
+    );
   });
 });
 
@@ -236,6 +361,81 @@ describe("dedupeStatements", () => {
     const items = [{ text: "OpenAI released GPT-5", extra: "data" as const }];
     const deduped = dedupeStatements(items);
     expect(deduped[0]).toEqual(items[0]);
+  });
+});
+
+describe("dedupeAcrossSections (via readEventIntelligence)", () => {
+  it("drops a number whose claim already appeared in one_sentence", () => {
+    const parsed = readEventIntelligence(
+      {
+        version: 2,
+        coverage: "normal",
+        one_sentence: "OpenAI committed $1B to Daybreak.",
+        numbers: [{ value: "$1B", label: "OpenAI Daybreak", evidence: [1] }],
+      },
+      1,
+    );
+    expect(parsed?.numbers).toEqual([]);
+  });
+
+  it("drops a later section's claim once an earlier section already made it", () => {
+    const parsed = readEventIntelligence(
+      {
+        version: 2,
+        coverage: "normal",
+        one_sentence: "An event happened.",
+        numbers: [{ value: "$1B", label: "Cloudflare Managed Defense investment", evidence: [1] }],
+        context: [
+          { text: "Cloudflare's Managed Defense investment reached $1 billion", evidence: [1] },
+        ],
+      },
+      1,
+    );
+    expect(parsed?.numbers).toHaveLength(1);
+    expect(parsed?.context).toEqual([]);
+  });
+
+  it("keeps genuinely distinct claims across sections", () => {
+    const parsed = readEventIntelligence(
+      {
+        version: 2,
+        coverage: "normal",
+        one_sentence: "OpenAI launched Daybreak for essential-service cyber defense.",
+        numbers: [{ value: "$1B", label: "Program commitment", evidence: [1] }],
+        context: [
+          { text: "Cloudflare separately runs a Managed Defense product line", evidence: [2] },
+        ],
+      },
+      2,
+    );
+    expect(parsed?.numbers).toHaveLength(1);
+    expect(parsed?.context).toHaveLength(1);
+  });
+
+  it("drops a perspectives entry that duplicates an earlier claim, and clears the section if that leaves fewer than two", () => {
+    const parsed = readEventIntelligence(
+      {
+        version: 2,
+        coverage: "normal",
+        one_sentence: "OpenAI says Daybreak expands access to cyber AI.",
+        perspectives: [
+          {
+            source: "OpenAI",
+            stance: "OpenAI says Daybreak expands access to cyber AI",
+            evidence: [1],
+          },
+          {
+            source: "Independent researcher",
+            stance: "Effectiveness still needs independent testing",
+            evidence: [2],
+          },
+        ],
+      },
+      2,
+    );
+    // The OpenAI perspective repeats one_sentence and is dropped, leaving one
+    // perspective -- which is a fact with a byline, not a disagreement.
+    expect(parsed?.perspectives).toEqual([]);
   });
 });
 
@@ -294,25 +494,27 @@ describe("understandMinutes", () => {
 describe("intelligenceText", () => {
   it("collects all text blocks", () => {
     const intel: EventIntelligence = {
-      version: 1,
+      version: 2,
       coverage: "normal",
-      summary: "Summary",
-      facts: [{ text: "Fact 1", evidence: [1], kind: "reported" }],
-      keyNumbers: [{ value: "100", label: "Count", evidence: [1] }],
-      context: [{ text: "Context", evidence: [1], kind: "context" }],
-      timeline: [{ when: "2026-09-01", what: "Event", evidence: [1] }],
-      affectedGroups: [{ group: "Users", effect: "None", basis: "reported", evidence: [1] }],
+      oneSentence: "Summary",
+      numbers: [{ value: "100", label: "Count", evidence: [1] }],
+      newDevelopments: [{ text: "New thing", evidence: [1], kind: "reported" }],
+      relationships: null,
+      audiences: [{ audience: "Users", implication: "None", evidence: [1] }],
       whatNext: [{ text: "Next", evidence: [1], kind: "reported" }],
+      context: [{ text: "Context", evidence: [1], kind: "context" }],
+      perspectives: [],
       unknowns: ["Unknown"],
+      watchNext: [{ label: "Availability", detail: "GA date", evidence: [1] }],
+      timeline: [{ when: "2026-09-01", what: "Event", evidence: [1] }],
       conflicts: [{ topic: "Topic", reports: [{ text: "Report", evidence: [1] }] }],
-      relationship: null,
       comparison: null,
       series: null,
       overview: [],
     };
     const texts = intelligenceText(intel);
     expect(texts).toContain("Summary");
-    expect(texts).toContain("Fact 1");
+    expect(texts).toContain("New thing");
     expect(texts).toContain("Context");
     expect(texts).toContain("Unknown");
   });
@@ -328,9 +530,9 @@ describe("legacyEventIntelligence", () => {
       ],
     };
     const intel = legacyEventIntelligence(legacy);
-    expect(intel.version).toBe(1);
-    expect(intel.summary).toBeTruthy();
-    expect(intel.facts.length).toBeGreaterThan(0);
+    expect(intel.version).toBe(2);
+    expect(intel.oneSentence).toBeTruthy();
+    expect(intel.newDevelopments.length).toBeGreaterThan(0);
     expect(intel.coverage).toBeOneOf(["thin", "normal", "rich"]);
   });
 
@@ -361,7 +563,7 @@ describe("legacyEventIntelligence", () => {
       sources: [{ excerpt: "Some content" }],
     };
     const intel = legacyEventIntelligence(empty);
-    expect(intel.summary).toContain("usable summary");
+    expect(intel.oneSentence).toContain("usable summary");
   });
 
   it("extracts context from longer excerpts for legacy data", () => {
@@ -396,8 +598,8 @@ describe("legacyEventIntelligence", () => {
       sources: [{ excerpt: "Content" }],
     };
     const intel = legacyEventIntelligence(legacy);
-    expect(intel.keyNumbers).toEqual([]);
-    expect(intel.affectedGroups).toEqual([]);
+    expect(intel.numbers).toEqual([]);
+    expect(intel.audiences).toEqual([]);
     expect(intel.whatNext).toEqual([]);
     expect(intel.unknowns).toEqual([]);
     expect(intel.conflicts).toEqual([]);
@@ -438,58 +640,228 @@ describe("novelSentences", () => {
   });
 });
 
+describe("deriveChange", () => {
+  it("prefers a genuine before/now contrast", () => {
+    const change = deriveChange(
+      "Cloudflare offered managed security services without Daybreak models.",
+      "Cloudflare's Managed Defense now uses Daybreak models for vulnerability discovery.",
+      [],
+      "An event happened.",
+    );
+    expect(change).toEqual({
+      mode: "before_now",
+      before: "Cloudflare offered managed security services without Daybreak models.",
+      now: "Cloudflare's Managed Defense now uses Daybreak models for vulnerability discovery.",
+    });
+  });
+
+  it("never invents a before-state: falls back to new developments when before/after are absent", () => {
+    const change = deriveChange(
+      null,
+      null,
+      [{ text: "A new fact.", evidence: [1], kind: "reported" }],
+      "",
+    );
+    expect(change).toEqual({
+      mode: "new",
+      items: [{ text: "A new fact.", evidence: [1], kind: "reported" }],
+    });
+  });
+
+  it("falls back to new developments when before and now say the same thing", () => {
+    const change = deriveChange(
+      "OpenAI launched Daybreak.",
+      "OpenAI launched Daybreak.",
+      [{ text: "A genuinely new fact.", evidence: [1], kind: "reported" }],
+      "",
+    );
+    expect(change?.mode).toBe("new");
+  });
+
+  it("drops new-development items that only restate one_sentence", () => {
+    const change = deriveChange(
+      null,
+      null,
+      [{ text: "OpenAI committed $1 billion to Daybreak.", evidence: [1], kind: "reported" }],
+      "OpenAI committed $1 billion to Daybreak.",
+    );
+    expect(change).toBeNull();
+  });
+
+  it("returns null when there is nothing to say", () => {
+    expect(deriveChange(null, null, [], "")).toBeNull();
+  });
+});
+
 /** A parsed document with only the fields a test cares about set. */
 function parse(understand: Record<string, unknown>, evidenceCount = 2) {
   return readEventIntelligence(
-    { coverage: "normal", summary: "An event happened that matters.", ...understand },
+    { coverage: "normal", one_sentence: "An event happened that matters.", ...understand },
     evidenceCount,
   );
 }
 
-describe("relationship", () => {
-  it("reads a subject, relation and object the evidence supports", () => {
+describe("relationships", () => {
+  const nodes = [
+    { id: "a", label: "Nvidia" },
+    { id: "b", label: "Hugging Face" },
+    { id: "c", label: "EU regulators" },
+  ];
+
+  it("reads a graph with enough edges to be worth drawing", () => {
     const parsed = parse({
-      relationship: {
-        subject: "Nvidia",
-        relation: "acquiring",
-        object: "Hugging Face",
-        detail: "$13B",
-        evidence: [1],
+      relationships: {
+        nodes,
+        edges: [
+          { from: "a", to: "b", label: "acquiring", evidence: [1] },
+          { from: "c", to: "a", label: "reviewing", evidence: [2] },
+        ],
       },
     });
-    expect(parsed?.relationship).toEqual({
-      subject: "Nvidia",
-      relation: "acquiring",
-      object: "Hugging Face",
-      detail: "$13B",
-      evidence: [1],
-    });
+    expect(parsed?.relationships?.edges).toHaveLength(2);
   });
 
-  it("drops a relationship missing a side", () => {
+  it("reads a graph with three nodes even at one edge", () => {
     const parsed = parse({
-      relationship: { subject: "Nvidia", relation: "acquiring", evidence: [1] },
+      relationships: { nodes, edges: [{ from: "a", to: "b", evidence: [1] }] },
     });
-    expect(parsed?.relationship).toBeNull();
+    expect(parsed?.relationships?.nodes).toHaveLength(3);
   });
 
-  it("drops a relationship with no evidence", () => {
+  it("drops a graph that is just a single triple with two nodes", () => {
     const parsed = parse({
-      relationship: { subject: "Nvidia", relation: "acquiring", object: "Hugging Face" },
-    });
-    expect(parsed?.relationship).toBeNull();
-  });
-
-  it("drops a relationship that points a thing at itself", () => {
-    const parsed = parse({
-      relationship: {
-        subject: "Sonos",
-        relation: "announced",
-        object: "Sonos",
-        evidence: [1],
+      relationships: {
+        nodes: [
+          { id: "a", label: "Nvidia" },
+          { id: "b", label: "Hugging Face" },
+        ],
+        edges: [{ from: "a", to: "b", label: "acquiring", evidence: [1] }],
       },
     });
-    expect(parsed?.relationship).toBeNull();
+    expect(parsed?.relationships).toBeNull();
+  });
+
+  it("drops an edge with no evidence, and the whole graph if that empties it", () => {
+    const parsed = parse({
+      relationships: {
+        nodes: [
+          { id: "a", label: "Nvidia" },
+          { id: "b", label: "Hugging Face" },
+        ],
+        edges: [{ from: "a", to: "b", label: "acquiring" }],
+      },
+    });
+    expect(parsed?.relationships).toBeNull();
+  });
+
+  it("drops an edge that points a node at itself, and the gate re-applies to what's left", () => {
+    const parsed = parse({
+      relationships: {
+        nodes: [
+          { id: "a", label: "Nvidia" },
+          { id: "b", label: "Hugging Face" },
+        ],
+        edges: [
+          { from: "a", to: "a", evidence: [1] },
+          { from: "a", to: "b", evidence: [1] },
+        ],
+      },
+    });
+    // The self-loop is dropped, leaving one edge and two nodes -- below the
+    // richness gate, so the graph as a whole is null rather than half-drawn.
+    expect(parsed?.relationships).toBeNull();
+  });
+
+  it("drops an edge referencing an undeclared node", () => {
+    const parsed = parse({
+      relationships: {
+        nodes: [
+          { id: "a", label: "Nvidia" },
+          { id: "b", label: "Hugging Face" },
+        ],
+        edges: [
+          { from: "a", to: "z", evidence: [1] },
+          { from: "a", to: "b", evidence: [1] },
+        ],
+      },
+    });
+    // Only one edge survives (the other references an unknown node "z"), and
+    // one edge with two nodes does not clear the richness gate.
+    expect(parsed?.relationships).toBeNull();
+  });
+});
+
+describe("audiences", () => {
+  it("reads an audience with a grounded implication", () => {
+    const parsed = parse({
+      audiences: [{ audience: "Developers", implication: "API pricing unchanged", evidence: [1] }],
+    });
+    expect(parsed?.audiences).toEqual([
+      { audience: "Developers", implication: "API pricing unchanged", evidence: [1] },
+    ]);
+  });
+
+  it("drops an audience implication with no evidence", () => {
+    const parsed = parse({
+      audiences: [{ audience: "Developers", implication: "API pricing unchanged" }],
+    });
+    expect(parsed?.audiences).toEqual([]);
+  });
+});
+
+describe("perspectives", () => {
+  it("keeps two or more distinct sources", () => {
+    const parsed = parse({
+      perspectives: [
+        { source: "OpenAI", stance: "This expands access to cyber defense.", evidence: [1] },
+        {
+          source: "Independent researcher",
+          stance: "Effectiveness needs independent testing.",
+          evidence: [2],
+        },
+      ],
+    });
+    expect(parsed?.perspectives).toHaveLength(2);
+  });
+
+  it("drops a single perspective, which is a fact with a byline", () => {
+    const parsed = parse({
+      perspectives: [
+        { source: "OpenAI", stance: "This expands access to cyber defense.", evidence: [1] },
+      ],
+    });
+    expect(parsed?.perspectives).toEqual([]);
+  });
+
+  it("collapses duplicate sources to one entry", () => {
+    const parsed = parse({
+      perspectives: [
+        { source: "OpenAI", stance: "First framing.", evidence: [1] },
+        { source: "openai", stance: "Second framing, same source.", evidence: [1] },
+        { source: "Researcher", stance: "A different framing.", evidence: [2] },
+      ],
+    });
+    expect(parsed?.perspectives).toHaveLength(2);
+  });
+});
+
+describe("watchNext", () => {
+  it("reads a specific, checkable future development", () => {
+    const parsed = parse({
+      watch_next: [
+        {
+          label: "General availability",
+          detail: "Whether the service leaves early access",
+          evidence: [1],
+        },
+      ],
+    });
+    expect(parsed?.watchNext).toHaveLength(1);
+  });
+
+  it("drops an item with no detail", () => {
+    const parsed = parse({ watch_next: [{ label: "General availability" }] });
+    expect(parsed?.watchNext).toEqual([]);
   });
 });
 
@@ -711,19 +1083,19 @@ describe("thin evidence stays text-only", () => {
       what: "Acme announced an agreement to acquire Example Corp for $800 million.",
       sources: [{ excerpt: "Acme announced an agreement to acquire Example Corp." }],
     });
-    expect(intel.relationship).toBeNull();
+    expect(intel.relationships).toBeNull();
     expect(intel.comparison).toBeNull();
     expect(intel.series).toBeNull();
     expect(intel.overview).toEqual([]);
-    expect(intel.keyNumbers).toEqual([]);
+    expect(intel.numbers).toEqual([]);
     expect(eventTimeline(intel, [])).toEqual([]);
   });
 
   it("keeps every visual block empty when the model omits them", () => {
     const parsed = parse({
-      facts: [{ text: "One reported fact about the event.", evidence: [1] }],
+      context: [{ text: "One reported fact about the event.", evidence: [1] }],
     });
-    expect(parsed?.relationship).toBeNull();
+    expect(parsed?.relationships).toBeNull();
     expect(parsed?.comparison).toBeNull();
     expect(parsed?.series).toBeNull();
     expect(parsed?.overview).toEqual([]);

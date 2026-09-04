@@ -28,6 +28,14 @@ export type Story = {
   /** Shared, structured event knowledge. Absent for events analysed before 0046. */
   understand?: EventIntelligence;
   matched?: string[];
+  /**
+   * Why this reader specifically is seeing this event, when it's genuinely true.
+   *
+   * Only set when the event actually reached this reader through their own
+   * subscriptions (a `user_events` row exists) and shares a topic they follow --
+   * never a guess. Absent otherwise, and the page renders nothing in its place.
+   */
+  personalization?: { heading: string; explanation: string };
 };
 
 /** Shared 0–10 score → the three bands the cards already print. */

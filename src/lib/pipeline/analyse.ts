@@ -91,6 +91,58 @@ const MAX_TOPICS = 5;
 const STALE_MINUTES = 15;
 
 /**
+ * Material-enrichment refresh: the bounded exception to "analysed once, ever."
+ *
+ * A thin analysis (`sourceCountAtAnalysis <= 2`) is eligible for exactly one
+ * re-analysis once real evidence has substantially grown past it -- at least
+ * `ENRICHMENT_MIN_SOURCES` articles now attached, and at least double what the
+ * document was originally generated from. `1 -> 5` is the case this exists for;
+ * `7 -> 8` never qualifies, because a document already generated from enough
+ * coverage to be normal or rich is not the problem this solves.
+ *
+ * Small and separate from the main batch on purpose: this is a rare, bounded
+ * correction, not a second analysis pipeline. `ENRICHMENT_SCAN` bounds the read
+ * (cheapest way to find candidates -- `last_updated_at` already moves whenever
+ * stage 3 attaches new coverage, so the most recently touched analysed events
+ * are exactly where a newly-eligible thin document would be), and
+ * `ENRICHMENT_BATCH` bounds the spend, the same way `BATCH` does for first-time
+ * analysis.
+ */
+const ENRICHMENT_MIN_SOURCE_COUNT_AT_ANALYSIS = 2;
+const ENRICHMENT_MIN_SOURCES = 4;
+const ENRICHMENT_MIN_MULTIPLE = 2;
+const ENRICHMENT_SCAN = 50;
+const ENRICHMENT_BATCH = 3;
+
+/**
+ * Whether a document is due its one material-enrichment refresh, given its
+ * stored `analysisMeta` (as read straight off the `events.understand` column
+ * -- untyped, since a legacy or malformed document may not have one at all)
+ * and the event's current, live article count.
+ *
+ * Exported and pure so the threshold and the "never twice" rule can be tested
+ * directly against every case in the spec without a database: a legacy
+ * document (`meta` absent), an already-refreshed one, and every count
+ * combination around the boundary.
+ */
+export function isEnrichmentEligible(
+  meta: { sourceCountAtAnalysis?: unknown; refreshedAfterEnrichment?: unknown } | null | undefined,
+  currentSourceCount: number,
+): boolean {
+  const sourceCountAtAnalysis = meta?.sourceCountAtAnalysis;
+  if (typeof sourceCountAtAnalysis !== "number" || !Number.isInteger(sourceCountAtAnalysis)) {
+    return false;
+  }
+  if (meta?.refreshedAfterEnrichment === true) return false;
+
+  return (
+    sourceCountAtAnalysis <= ENRICHMENT_MIN_SOURCE_COUNT_AT_ANALYSIS &&
+    currentSourceCount >= ENRICHMENT_MIN_SOURCES &&
+    currentSourceCount >= sourceCountAtAnalysis * ENRICHMENT_MIN_MULTIPLE
+  );
+}
+
+/**
  * The default system prompt.
  *
  * Overridable from the console — the `analysis` row in `ai_prompts` wins if it is
@@ -124,7 +176,7 @@ Write plainly. No hype, no "in a move that", no restating the headline back.`;
  * articles instead of prose about news, which is the same class of breakage as
  * deleting the JSON shape.
  */
-function contract(slugs: string[]): string {
+export function contract(slugs: string[]): string {
   return `Reply with JSON only, in exactly this shape:
 
 {
@@ -139,16 +191,21 @@ function contract(slugs: string[]): string {
   "impact": "1-2 sentences on why this matters to someone who tracks this space, or null",
   "understand": {
     "coverage": "thin, normal, or rich, based on usable unique facts rather than source count",
-    "summary": "a 40-80 word event explanation with no repeated facts",
-    "facts": [{ "text": "one unique reported fact", "evidence": [1] }],
-    "key_numbers": [{ "value": "$13B", "label": "Deal value", "evidence": [1] }],
-    "context": [{ "text": "supported background needed to understand the event", "evidence": [2] }],
-    "timeline": [{ "when": "Q4", "what": "Expected closing", "evidence": [2] }],
-    "affected_groups": [{ "group": "Developers", "effect": "a concrete supported effect", "basis": "reported or analysis", "evidence": [2] }],
+    "one_sentence": "one compact sentence on how the important actors/actions connect and what the event fundamentally means -- not a restatement of what_happened, and not the place for a headline number that belongs in numbers",
+    "numbers": [{ "value": "$13B", "label": "Deal value", "evidence": [1] }],
+    "new": [{ "text": "a fact new in this announcement, only used when before_state/after_state are null", "evidence": [1] }],
+    "relationships": {
+      "nodes": [{ "id": "a", "label": "Nvidia", "type": "company" }, { "id": "b", "label": "Hugging Face", "type": "company" }],
+      "edges": [{ "from": "a", "to": "b", "label": "acquiring for $13B", "evidence": [1] }]
+    },
+    "audiences": [{ "audience": "Developers", "implication": "a concrete practical consequence for this group specifically", "evidence": [2] }],
     "what_next": [{ "text": "a reported next step, not a prediction", "evidence": [2] }],
-    "unknowns": ["The available sources do not specify ..."],
+    "context": [{ "text": "supported background needed to understand the event", "evidence": [2] }],
+    "perspectives": [{ "source": "The acquirer", "stance": "how this source frames it", "evidence": [1] }, { "source": "An independent researcher", "stance": "a materially different framing", "evidence": [3] }],
+    "unknowns": ["The settlement amount was not disclosed"],
+    "watch_next": [{ "label": "General availability", "detail": "a specific, checkable future development tied to this event", "evidence": [2] }],
+    "timeline": [{ "when": "Q4", "what": "Expected closing", "evidence": [2] }],
     "conflicts": [{ "topic": "Transaction value", "reports": [{ "text": "$12B", "evidence": [1] }, { "text": "$13B", "evidence": [2] }] }],
-    "relationship": { "subject": "Nvidia", "relation": "acquiring", "object": "Hugging Face", "detail": "$13B", "evidence": [1] },
     "comparison": { "caption": "Pricing", "left_label": "Before", "right_label": "Now", "rows": [{ "label": "Monthly", "left": "$20", "right": "$25", "evidence": [1] }] },
     "series": { "caption": "Quarterly revenue", "shape": "bar", "points": [{ "label": "Q1", "value": 26.0, "display": "$26B", "evidence": [1] }] },
     "overview": [{ "name": "Beam Ultra", "kind": "Soundbar", "detail": "$699", "evidence": [1] }]
@@ -159,27 +216,52 @@ Every evidence number refers to the numbered article supplied in the user messag
 Use only valid article numbers. A statement supported by several articles lists
 each of them. Do not claim that every source supports a fact unless it does.
 
-understand is event intelligence, not an article. Extract unique facts before
-writing blocks. Several paraphrases of one fact are one fact. A detail already in
-summary must not be repeated in facts unless the fact adds material precision.
+understand is event intelligence, not an article, and it is read right after a
+briefing card that already gave the reader what_happened. Every block therefore
+has to say something what_happened, and every other block, did not -- assign
+each claim to the single section it fits best rather than restating it in two.
+A detail already covered by one_sentence must not reappear in numbers, audiences,
+context or anywhere else unless a different block genuinely needs it to make
+sense (a number inside a comparison row is not a restatement of a number already
+named in numbers).
+
+one_sentence owns the relationship and what the event means; numbers owns the
+concrete figures. Do not put a notable dollar amount, percentage, count,
+valuation, funding amount, acquisition price, or other headline metric in
+one_sentence when that figure belongs in numbers -- describe what happened
+between the parties and let the number card carry the number. The only
+exception is a figure so central that removing it would make the sentence
+misleading or unintelligible and there is no useful numbers entry for it.
 
 Every understand array is optional in substance: use [] when the evidence does
-not justify it. Never manufacture a timeline from one date, key numbers without
-meaningful labels, effects not grounded in the supplied evidence, future steps
-that were not reported, or generic context. Unknown means the available sources
-do not specify something material; it does not mean the thing does not exist.
+not justify it. Never manufacture a timeline from one date, numbers without
+meaningful labels, implications not grounded in the supplied evidence, future
+steps that were not reported, or generic context. Unknown means the available
+sources do not specify something material; it does not mean the thing does not
+exist. Name the specific missing fact a reader would want (a price, a date, a
+scope, a named party) rather than describing the coverage itself -- "the
+settlement amount was not disclosed" is a real unknown, "the source text does
+not specify further details" is not and must not be written. If no missing fact
+is worth a reader's attention, use [] instead of manufacturing one.
 
-affected_groups with basis "analysis" is the only place for a bounded inference.
-It must still be grounded in listed evidence and must not be phrased as reported.
-All facts, context, numbers, timeline points and next steps are directly reported.
-If credible accounts disagree, preserve both in conflicts instead of choosing.
+audiences names a real group and states what changes for them specifically, not
+"this could significantly impact the industry" or a repeat of who was mentioned
+in what_happened. It must be grounded in listed evidence, but may draw a bounded,
+clearly-scoped inference the coverage supports rather than states outright.
+All numbers, context, timeline points and next steps are directly reported.
+If credible accounts disagree over a fact, preserve both in conflicts instead of
+choosing. If they disagree over what the event means or how much it matters,
+that is perspectives, not conflicts.
 
-relationship, comparison, series and overview exist so the page can draw what is
+relationships, comparison, series and overview exist so the page can draw what is
 clearer seen than read. Each is null or [] unless the evidence carries it:
 
-relationship: one subject-relation-object the event turns on -- an acquirer and a
-target, a regulator and the company it is investigating, two partners. Not a
-restatement of the summary with arrows.
+relationships: a small graph of the entities the event turns on, only when there
+is a genuine structure to map -- an acquirer, a target and a regulator; a
+platform, the company building on it and that company's customers. This needs at
+least two edges or three nodes to be worth drawing; a single "A acquired B" is a
+fact, not a map, and belongs in one_sentence instead. Never draw a graph just to
+repeat one_sentence with arrows.
 
 comparison: two states or entities the evidence gives comparable values for --
 old price and new price, expected and actual, last quarter and this one. Both
@@ -193,9 +275,25 @@ numbers that measure different things.
 overview: two or more things announced together -- several products, several
 measures in one policy. One thing announced is a fact, not an overview.
 
-For thin evidence, a short summary and one or two facts may be the entire useful
-answer. Mark coverage thin and leave unsupported arrays empty. Never pad. Never
-invent a number, date, relationship or trend so that a block can be drawn.
+perspectives is only for a genuine, sourced difference in framing or emphasis
+between named parties -- the company announcing something and an independent
+party assessing it, for instance. It needs at least two distinct sources or it
+does not belong here. Never invent a dissenting view the coverage does not
+contain; an event with one voice in the coverage gets no perspectives block.
+
+watch_next names a specific, checkable future development this event sets up --
+a date, a threshold, a decision still pending -- not "more developments may
+emerge" or a restatement of what_next. Give a reader a concrete reason to check
+back on this event specifically.
+
+new is only used when before_state and after_state are both null -- it is the
+fallback for what changed when there is no clean prior state to contrast, never
+a duplicate of what before_state/after_state already say when those exist.
+
+For thin evidence, a one_sentence summary and one or two numbers or context items
+may be the entire useful answer. Mark coverage thin and leave unsupported arrays
+empty. Never pad. Never invent a number, date, relationship or trend so that a
+block can be drawn.
 
 impact is shared: it is shown to every reader this event is briefed to, not written
 for any one person. Say what changes for someone in the field generally -- a
@@ -268,7 +366,8 @@ export type EventOutcome = {
     | "no_demand" // gate on, no source reaches an eligible reader: left pending
     | "demand_check_failed" // gate RPC/database error: no AI spend, event remains pending
     | "deferred" // temporary AI capacity; retry time is persisted
-    | "failed";
+    | "failed"
+    | "enriched"; // material-enrichment refresh: a thin early analysis replaced with a richer one
   articles: number;
   importance: number | null;
   novelty: number | null;
@@ -320,6 +419,26 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
     outcomes.push(
       await runOne(db, event, { options, topics, outlets, slugs, system, demand: hasDemand }),
     );
+  }
+
+  // The material-enrichment pass, run through this same scheduled invocation
+  // rather than a separate stage or cron entry -- see `selectEnrichmentCandidates`.
+  // Skipped for a targeted `--event` run: that path exists to verify one known
+  // pending case, not to also refresh unrelated events it happens to scan past.
+  if ((options.eventIds?.length ?? 0) === 0) {
+    const enrichmentCandidates = await selectEnrichmentCandidates(db, ENRICHMENT_BATCH);
+    for (const event of enrichmentCandidates) {
+      outcomes.push(
+        await runEnrichment(db, event, {
+          options,
+          topics,
+          outlets,
+          slugs,
+          system,
+          demand: hasDemand,
+        }),
+      );
+    }
   }
 
   return {
@@ -450,6 +569,61 @@ async function selectEvents(db: Db, options: AnalyseOptions): Promise<Pending[]>
 
   if (error) throw new Error(`selecting events: ${error.message}`);
   return data ?? [];
+}
+
+/**
+ * The rare, bounded exception: analysed events whose thin original analysis
+ * has been overtaken by real evidence growth.
+ *
+ * Scoped to the most recently touched analysed events rather than scanning
+ * every analysed row, because `last_updated_at` already moves whenever stage 3
+ * attaches new coverage to an event (`cluster.ts`'s `attach()`) -- a document
+ * that just became eligible is, almost by definition, one of these. Older
+ * analysed events that have not moved recently were not enriched recently
+ * either, so they are outside the window this exists to catch.
+ */
+async function selectEnrichmentCandidates(db: Db, limit: number): Promise<Pending[]> {
+  const { data, error } = await db
+    .from("events")
+    .select("id, title, status, analysis_tokens, understand")
+    .not("analysed_at", "is", null)
+    .not("understand", "is", null)
+    .order("last_updated_at", { ascending: false })
+    .limit(ENRICHMENT_SCAN);
+
+  if (error) throw new Error(`selecting enrichment candidates: ${error.message}`);
+
+  const out: Pending[] = [];
+  for (const row of data ?? []) {
+    if (out.length >= limit) break;
+
+    const meta = (
+      row.understand as {
+        analysisMeta?: { sourceCountAtAnalysis?: unknown; refreshedAfterEnrichment?: unknown };
+      } | null
+    )?.analysisMeta;
+
+    // Cheapest check first: most rows in the scan window will not even have
+    // usable metadata (a legacy document, or one already refreshed), and that
+    // is decidable without a second query.
+    if (typeof meta?.sourceCountAtAnalysis !== "number") continue;
+    if (meta.refreshedAfterEnrichment === true) continue;
+
+    const { count } = await db
+      .from("articles")
+      .select("id", { count: "exact", head: true })
+      .eq("event_id", row.id);
+
+    if (isEnrichmentEligible(meta, count ?? 0)) {
+      out.push({
+        id: row.id,
+        title: row.title,
+        status: row.status,
+        analysis_tokens: row.analysis_tokens,
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -612,6 +786,19 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
     };
   }
 
+  // Written on every analysis, not asked of the model: how many articles this
+  // document was actually generated from. Nothing downstream trusts the model
+  // for this number -- it is the real length of what `renderCoverage` showed it.
+  if (parsed.understand) {
+    parsed = {
+      ...parsed,
+      understand: {
+        ...parsed.understand,
+        analysisMeta: { sourceCountAtAnalysis: articles.length },
+      },
+    };
+  }
+
   const shared = {
     ...base,
     ...spent,
@@ -631,6 +818,118 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
   if (written) return { ...shared, decision: "failed", detail: written };
 
   return { ...shared, decision: "analysed", detail: summarise(parsed) };
+}
+
+/**
+ * The one-time refresh for a thin document real evidence has overtaken.
+ *
+ * Structurally a smaller `runOne`: same coverage read, same prompt, same
+ * model call, same parser, same writer. The only differences are the claim
+ * (`claimEnrichment`, which requires `status = 'complete'` instead of
+ * `analysed_at is null`) and the failure path (`recordEnrichmentFailure`,
+ * which leaves the existing `understand` and `analysed_at` untouched instead
+ * of marking the event `failed`) -- a refresh that doesn't happen must never
+ * look like the event losing what it already had.
+ */
+async function runEnrichment(db: Db, event: Pending, ctx: Context): Promise<EventOutcome> {
+  const base = {
+    eventId: event.id,
+    title: event.title,
+    articles: 0,
+    importance: null,
+    novelty: null,
+    topics: [],
+    unknownTopics: [],
+    promptTokens: 0,
+    completionTokens: 0,
+  };
+
+  const { articles, total, error: readFailed } = await readCoverage(db, event.id, ctx.options);
+  if (readFailed) return { ...base, decision: "failed", detail: readFailed };
+  if (articles.length === 0) return { ...base, decision: "empty", detail: "no articles attached" };
+
+  const claim = await claimEnrichment(db, event, ctx.options);
+  if (claim !== "held") {
+    return { ...base, articles: total, decision: "claimed", detail: claim };
+  }
+
+  const user = renderCoverage(articles, total, ctx.outlets);
+
+  let parsed: Analysis | null;
+  let spent: { promptTokens: number; completionTokens: number };
+
+  try {
+    const { data, usage } = await completeRoutedJson<unknown>({
+      capability: "reason",
+      system: `${ctx.system}\n\n${contract(ctx.slugs)}`,
+      user,
+      ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
+    });
+    spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
+    parsed = readAnalysis(data, ctx.slugs, articles.length);
+  } catch (error) {
+    // Includes an exhausted AI budget: the call throws before it spends
+    // anything, `refreshedAfterEnrichment` is never set, and the event simply
+    // stays eligible for a later run once the budget allows it again.
+    const floor = error instanceof TruncatedCompletionError ? error.reasoningTokens : 0;
+    await recordEnrichmentFailure(db, event, floor, ctx.options);
+    return {
+      ...base,
+      articles: total,
+      decision: "failed",
+      completionTokens: floor,
+      detail: `enrichment model: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  if (!parsed) {
+    await recordEnrichmentFailure(
+      db,
+      event,
+      spent.promptTokens + spent.completionTokens,
+      ctx.options,
+    );
+    return {
+      ...base,
+      ...spent,
+      articles: total,
+      decision: "failed",
+      detail: "enrichment reply parsed as JSON but was not a usable analysis",
+    };
+  }
+
+  if (parsed.understand) {
+    parsed = {
+      ...parsed,
+      understand: {
+        ...parsed.understand,
+        analysisMeta: { sourceCountAtAnalysis: articles.length, refreshedAfterEnrichment: true },
+      },
+    };
+  }
+
+  const shared = {
+    ...base,
+    ...spent,
+    title: parsed.title ?? event.title,
+    articles: total,
+    importance: parsed.importance,
+    novelty: parsed.novelty,
+    topics: parsed.topics,
+    unknownTopics: parsed.unknownTopics,
+  };
+
+  if (ctx.options.dryRun === true) {
+    return { ...shared, decision: "skipped", detail: summarise(parsed) };
+  }
+
+  const written = await writeAnalysis(db, event, parsed, spent, ctx.topics);
+  if (written) {
+    await recordEnrichmentFailure(db, event, 0, ctx.options);
+    return { ...shared, decision: "failed", detail: written };
+  }
+
+  return { ...shared, decision: "enriched", detail: summarise(parsed) };
 }
 
 /**
@@ -719,6 +1018,36 @@ async function claimEvent(
       ? "another run holds this event"
       : "already analysed, or claimed between selection and now";
   }
+  return "held";
+}
+
+/**
+ * Claims an already-analysed event for its one material-enrichment refresh.
+ *
+ * Deliberately does not touch `analysed_at` -- unlike `claimEvent`, an
+ * enrichment candidate is required to already have it set. `status = 'complete'`
+ * is the guard instead: it only takes a settled event, never one another run is
+ * mid-touching, and never one that has already been refreshed (that event's
+ * `analysisMeta.refreshedAfterEnrichment` kept it out of selection in the
+ * first place, so this is belt-and-suspenders against a race, not the primary
+ * check).
+ */
+async function claimEnrichment(
+  db: Db,
+  event: Pending,
+  options: AnalyseOptions,
+): Promise<"held" | string> {
+  if (options.dryRun === true) return "held";
+
+  const { data, error } = await db
+    .from("events")
+    .update({ status: "analysing", last_updated_at: new Date().toISOString() })
+    .eq("id", event.id)
+    .eq("status", "complete")
+    .select("id");
+
+  if (error) return `claiming for enrichment: ${error.message}`;
+  if ((data?.length ?? 0) === 0) return "not settled, or claimed between selection and now";
   return "held";
 }
 
@@ -982,6 +1311,31 @@ async function recordFailure(
     .update({
       status: "failed",
       analysis_deferred_until: null,
+      analysis_tokens: event.analysis_tokens + spent,
+      last_updated_at: new Date().toISOString(),
+    })
+    .eq("id", event.id);
+}
+
+/**
+ * A failed enrichment attempt is not a failed event. `understand` and
+ * `analysed_at` are left exactly as they were -- the document that already
+ * existed keeps working -- and `status` returns to `complete` rather than
+ * `failed`, so nothing downstream that reads status sees this event as
+ * unanalysed.
+ */
+async function recordEnrichmentFailure(
+  db: Db,
+  event: Pending,
+  spent: number,
+  options: AnalyseOptions,
+): Promise<void> {
+  if (options.dryRun === true) return;
+
+  await db
+    .from("events")
+    .update({
+      status: "complete",
       analysis_tokens: event.analysis_tokens + spent,
       last_updated_at: new Date().toISOString(),
     })

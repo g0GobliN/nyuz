@@ -1,8 +1,9 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { PageLoading } from "@/components/loading";
 import { authEntryUrl } from "@/lib/auth-redirect";
 import { useAuth } from "@/lib/auth";
+import { loadPreferences } from "@/lib/server/preferences";
 
 export const Route = createFileRoute("/dashboard")({
   component: DashboardGuard,
@@ -13,9 +14,16 @@ export const Route = createFileRoute("/dashboard")({
  * during SSR — the guard therefore runs on the client, after the first session
  * check resolves. Redirecting before `loading` clears would bounce signed-in
  * users out on every refresh.
+ *
+ * A session alone is not enough to show the dashboard: a reader who has never
+ * picked topics has nothing for it to display. `/auth` sends first-time sign-ins
+ * to `/onboarding` already, but that only covers the sign-in path — a deep link
+ * or bookmark lands here directly, so the guard checks `onboarded` itself
+ * rather than trusting that every visitor arrived through `/auth`.
  */
 function DashboardGuard() {
   const { session, loading } = useAuth();
+  const [onboarded, setOnboarded] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!loading && !session) {
@@ -24,7 +32,25 @@ function DashboardGuard() {
     }
   }, [loading, session]);
 
-  if (loading || !session) {
+  useEffect(() => {
+    if (loading || !session) return;
+    let active = true;
+    void loadPreferences().then((prefs) => {
+      if (active) setOnboarded(prefs.onboarded);
+    });
+    return () => {
+      active = false;
+    };
+  }, [loading, session]);
+
+  useEffect(() => {
+    if (onboarded === false) {
+      const destination = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      window.location.replace(`/onboarding?${new URLSearchParams({ next: destination })}`);
+    }
+  }, [onboarded]);
+
+  if (loading || !session || onboarded !== true) {
     return <PageLoading label="Checking your session" />;
   }
 

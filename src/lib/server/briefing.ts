@@ -936,7 +936,22 @@ async function loadMatchedStories(db: Db, userId: string, limit: number): Promis
 
 async function storiesFromEventIds(db: Db, userId: string, eventIds: string[]): Promise<Story[]> {
   if (eventIds.length === 0) return [];
-  const stories = await hydrateEvents(db, eventIds);
+  const [stories, why, personalization] = await Promise.all([
+    hydrateEvents(db, eventIds),
+    whyFor(db, userId, eventIds),
+    personalizationFor(db, userId, eventIds),
+  ]);
+  return stories.map((s) => {
+    const forThisStory = personalization.get(s.id);
+    return {
+      ...s,
+      why: why.get(s.id) ?? s.why,
+      ...(forThisStory ? { personalization: forThisStory } : {}),
+    };
+  });
+}
+
+async function whyFor(db: Db, userId: string, eventIds: string[]): Promise<Map<string, string>> {
   const { data } = await db
     .from("digest_items")
     .select("event_id, why_it_matters, digests ( user_id, scheduled_for )")
@@ -947,7 +962,58 @@ async function storiesFromEventIds(db: Db, userId: string, eventIds: string[]): 
     if (digest?.user_id !== userId) continue;
     if (!why.has(row.event_id)) why.set(row.event_id, row.why_it_matters);
   }
-  return stories.map((s) => ({ ...s, why: why.get(s.id) ?? s.why }));
+  return why;
+}
+
+/**
+ * "Why you're seeing this", computed, never generated.
+ *
+ * Two things both have to be true: the event actually reached this reader
+ * through their own subscriptions (a `user_events` row exists -- a reader who
+ * found this by search or a shared link gets nothing here, correctly), and it
+ * shares a topic label with what they follow. No LLM call: `user_topics` and
+ * `event_topics` both store the reader-facing label directly, so this is a
+ * plain intersection.
+ */
+async function personalizationFor(
+  db: Db,
+  userId: string,
+  eventIds: string[],
+): Promise<Map<string, { heading: string; explanation: string }>> {
+  const out = new Map<string, { heading: string; explanation: string }>();
+  const [matches, followed, eventLabels] = await Promise.all([
+    db.from("user_events").select("event_id").eq("user_id", userId).in("event_id", eventIds),
+    db.from("user_topics").select("topics ( label )").eq("user_id", userId).eq("muted", false),
+    topicsFor(db, eventIds),
+  ]);
+
+  const matchedIds = new Set((matches.data ?? []).map((row) => row.event_id));
+  if (matchedIds.size === 0) return out;
+
+  const followedLabels = new Set(
+    (followed.data ?? [])
+      .map((row) => (row.topics as { label?: string } | null)?.label)
+      .filter((label): label is string => Boolean(label))
+      .map((label) => label.toLowerCase()),
+  );
+  if (followedLabels.size === 0) return out;
+
+  for (const eventId of matchedIds) {
+    const labels = eventLabels.get(eventId) ?? [];
+    const overlap = labels.filter((label) => followedLabels.has(label.toLowerCase()));
+    if (overlap.length === 0) continue;
+    out.set(eventId, {
+      heading: "Why you're seeing this",
+      explanation: `You follow ${joinLabels(overlap)}.`,
+    });
+  }
+  return out;
+}
+
+function joinLabels(labels: string[]): string {
+  if (labels.length === 1) return labels[0]!;
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, and ${labels[labels.length - 1]}`;
 }
 
 type EventBits = {
