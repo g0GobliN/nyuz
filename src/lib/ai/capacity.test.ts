@@ -39,6 +39,7 @@ describe("temporary AI capacity", () => {
       completionTokens: 200,
       reasoningTokens: 150,
       cachedTokens: 20,
+      attempt_count: 1,
     };
     expect(completionUsageFromError(new CompletionUsageError("bad json", usage))).toBe(usage);
     expect(

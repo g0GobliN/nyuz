@@ -263,6 +263,7 @@ const VERDICT: Record<EventOutcome["decision"], string> = {
   demand_check_failed: "check ",
   deferred: "later ",
   failed: "FAIL  ",
+  enriched: "enrch ",
 };
 
 function printAnalysis(report: AnalysisReport, dryRun: boolean): void {

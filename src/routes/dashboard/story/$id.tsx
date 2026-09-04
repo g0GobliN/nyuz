@@ -11,22 +11,25 @@ import { useFeedback } from "@/lib/feedback-store";
 import { useReadTracking } from "@/lib/use-engagement";
 import { usePlan } from "@/lib/plan-state";
 import { loadStory, askStory } from "@/lib/server/briefing";
+import { getLaunchFlags } from "@/lib/server/settings";
 import type { Story } from "@/lib/story";
 import { cn } from "@/lib/utils";
 import {
   corroboration,
-  dedupeStatements,
+  deriveChange,
   eventTimeline,
   intelligenceText,
   legacyEventIntelligence,
-  novelSentences,
+  sourceCountLabel,
   understandMinutes,
+  type Audience,
   type Comparison,
   type EventIntelligence,
   type NumericSeries,
   type OverviewItem,
-  type Relationship,
-  type SupportedStatement,
+  type Perspective,
+  type RelationshipMap as RelationshipMapType,
+  type WatchItem,
 } from "@/lib/understand";
 
 export const Route = createFileRoute("/dashboard/story/$id")({
@@ -107,6 +110,13 @@ function StoryDetail() {
   const saved = story ? state.saved.includes(story.id) : false;
   const current = story ? state.votes[story.id] : undefined;
 
+  const flagsQ = useQuery({
+    queryKey: ["launch", "flags"],
+    queryFn: () => getLaunchFlags(),
+    staleTime: 60_000,
+  });
+  const askEnabled = flagsQ.data?.askNyuz ?? false;
+
   if (storyQ.isLoading) {
     return (
       <DashboardShell title="Understand">
@@ -131,31 +141,33 @@ function StoryDetail() {
       <BackToFeed />
 
       <article className="mt-6 animate-rise">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-signal">
-            {story.topics[0] ?? story.org}
-          </span>
-          <span className="text-[12px] tabular-nums text-muted-foreground">
-            {formatStoryTime(story.updatedAt ?? story.publishedAt)}
-          </span>
-          <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px]">
-            {story.importance} importance
-          </span>
-        </div>
-
-        <h1 className="display mt-4 max-w-[40rem] text-[clamp(1.5rem,4.5vw,2.9rem)]">
-          {story.title}
-        </h1>
-        <p className="mt-4 text-[13px] text-muted-foreground">
-          {story.org}
-          <span aria-hidden> · </span>
-          {story.sources} {story.sources === 1 ? "source" : "sources"}
-          <span aria-hidden> · </span>
-          {understandTime(story, intelligence)} understand
-        </p>
-
-        <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_260px]">
+        <div className="grid gap-10 lg:grid-cols-[1fr_260px]">
           <div className="min-w-0 space-y-9">
+            <div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-signal">
+                  {story.topics[0] ?? story.org}
+                </span>
+                <span className="text-[12px] tabular-nums text-muted-foreground">
+                  {formatStoryTime(story.updatedAt ?? story.publishedAt)}
+                </span>
+                <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px]">
+                  {story.importance} importance
+                </span>
+              </div>
+
+              <h1 className="display mt-4 max-w-[40rem] text-[clamp(1.5rem,4.5vw,2.9rem)]">
+                {story.title}
+              </h1>
+              <p className="mt-4 text-[13px] text-muted-foreground">
+                {story.org}
+                <span aria-hidden> · </span>
+                {sourceCountLabel(intelligence.analysisMeta, story.sources)}
+                <span aria-hidden> · </span>
+                {understandTime(story, intelligence)} understand
+              </p>
+            </div>
+
             <UnderstandBody
               story={story}
               intelligence={intelligence}
@@ -164,27 +176,8 @@ function StoryDetail() {
               }}
             />
 
-            {!planLoading && asksPerDay > 0 ? (
+            {askEnabled && !planLoading && asksPerDay > 0 ? (
               <AskPanel eventId={story.id} dailyLimit={asksPerDay} />
-            ) : !planLoading ? (
-              <section
-                id="ask"
-                className="max-w-[40rem] scroll-mt-24 rounded-3xl border border-hairline bg-surface-2 p-6"
-              >
-                <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  <Sparkles className="h-3.5 w-3.5" /> Ask nyuz
-                </h2>
-                <p className="mt-3 text-[13.5px] leading-relaxed text-muted-foreground">
-                  Ask nyuz is included on Personal and Pro. The factual explanation above stays the
-                  same on every plan.
-                </p>
-                <Link
-                  to="/dashboard/billing"
-                  className="mt-4 inline-block text-[13px] text-signal underline-offset-4 hover:underline"
-                >
-                  See plans
-                </Link>
-              </section>
             ) : null}
           </div>
 
@@ -219,7 +212,10 @@ function StoryDetail() {
 
             <div className="rounded-2xl border border-hairline bg-surface p-5">
               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                Based on {story.sources} {story.sources === 1 ? "source" : "sources"}
+                {intelligence.analysisMeta &&
+                intelligence.analysisMeta.sourceCountAtAnalysis !== story.sources
+                  ? sourceCountLabel(intelligence.analysisMeta, story.sources)
+                  : `Based on ${sourceCountLabel(intelligence.analysisMeta, story.sources)}`}
               </p>
               <ul className="mt-4 space-y-2.5">
                 {story.sourceList.map((s) => (
@@ -339,17 +335,6 @@ function eventIntelligence(story: Story): EventIntelligence {
   );
 }
 
-function isNewInformation(summary: string, text: string): boolean {
-  return dedupeStatements([{ text: summary }, { text }]).length > 1;
-}
-
-function uniqueAfterSummary(
-  summary: string,
-  statements: SupportedStatement[],
-): SupportedStatement[] {
-  return statements.filter((statement) => isNewInformation(summary, statement.text));
-}
-
 /**
  * How the event developed, from the analysed stages when they exist and the
  * publication record otherwise — collapsed either way, so three pieces from one
@@ -362,69 +347,22 @@ function timelinePoints(story: Story, intelligence: EventIntelligence) {
   );
 }
 
-function showBeforeAfter(story: Story, summary: string): boolean {
-  return (
-    Boolean(story.before && story.after) &&
-    isNewInformation(summary, story.before) &&
-    isNewInformation(summary, story.after) &&
-    isNewInformation(story.before, story.after)
-  );
-}
-
-/**
- * The personalised "why it matters", reduced to whatever it adds over the
- * evidence already on the page. Empty when it adds nothing.
- */
-function analysisWhy(story: Story, intelligence: EventIntelligence): string {
-  if (!story.why) return "";
-  return novelSentences(story.why, [
-    intelligence.summary,
-    ...intelligence.facts.map((fact) => fact.text),
-    ...intelligence.context.map((item) => item.text),
-  ]);
-}
-
 function understandTime(story: Story, intelligence: EventIntelligence) {
-  const changed = showBeforeAfter(story, intelligence.summary) ? [story.before, story.after] : [];
+  const change = deriveChange(
+    story.before,
+    story.after,
+    intelligence.newDevelopments,
+    intelligence.oneSentence,
+  );
+  const changeTexts =
+    change?.mode === "before_now"
+      ? [change.before, change.now]
+      : (change?.items.map((item) => item.text) ?? []);
   return understandMinutes([
     ...intelligenceText(intelligence),
-    ...changed,
-    analysisWhy(story, intelligence),
+    ...changeTexts,
+    story.personalization?.explanation ?? "",
   ]);
-}
-
-/**
- * The shape of the event: who is doing what to whom. Two names and an arrow beat
- * a sentence when the sentence is only there to relate them.
- */
-function RelationshipDiagram({
-  relationship,
-  story,
-}: {
-  relationship: Relationship;
-  story: Story;
-}) {
-  return (
-    <section className="border-y border-hairline py-6">
-      <div className="flex flex-col items-center text-center">
-        <p className="text-[15px] font-medium uppercase tracking-[0.08em]">
-          {relationship.subject}
-        </p>
-        <span aria-hidden className="my-1.5 h-5 w-px bg-border" />
-        <p className="text-[11px] uppercase tracking-[0.16em] text-signal">
-          {relationship.relation}
-        </p>
-        <span aria-hidden className="my-1.5 h-5 w-px bg-border" />
-        <p className="text-[15px] font-medium uppercase tracking-[0.08em]">{relationship.object}</p>
-        {relationship.detail ? (
-          <p className="mt-4 font-serif text-2xl">{relationship.detail}</p>
-        ) : null}
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          <EvidenceRefs refs={relationship.evidence} story={story} />
-        </p>
-      </div>
-    </section>
-  );
 }
 
 /** Two states the evidence gives comparable values for, side by side. */
@@ -553,6 +491,110 @@ function StructuredOverview({ items, story }: { items: OverviewItem[]; story: St
 }
 
 /**
+ * The event's structure as a small map, not a sentence with arrows — one row
+ * per edge, node labels resolved from the graph. Only rendered at all when
+ * `relationshipsOf` decided the event has a genuine multi-entity shape worth
+ * drawing, so this never repeats a fact the summary already gave in prose.
+ */
+function ThePicture({
+  relationships,
+  story,
+}: {
+  relationships: RelationshipMapType;
+  story: Story;
+}) {
+  const labelOf = (id: string) => relationships.nodes.find((node) => node.id === id)?.label ?? id;
+  return (
+    <section className="border-y border-hairline py-6">
+      <BlockHeading>The picture</BlockHeading>
+      <div className="mt-4 space-y-5">
+        {relationships.edges.map((edge, index) => (
+          <div
+            key={`${edge.from}-${edge.to}-${index}`}
+            className="flex flex-col items-center gap-1.5 text-center"
+          >
+            <p className="text-[14px] font-medium uppercase tracking-[0.04em]">
+              {labelOf(edge.from)}
+            </p>
+            <span aria-hidden className="h-4 w-px bg-border" />
+            {edge.label ? (
+              <p className="text-[11px] uppercase tracking-[0.14em] text-signal">{edge.label}</p>
+            ) : null}
+            <span aria-hidden className="h-4 w-px bg-border" />
+            <p className="text-[14px] font-medium uppercase tracking-[0.04em]">
+              {labelOf(edge.to)}
+              <EvidenceRefs refs={edge.evidence} story={story} />
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** A real audience and the practical implication for them, grouped rather than narrated. */
+function AudienceList({ audiences, story }: { audiences: Audience[]; story: Story }) {
+  return (
+    <section>
+      <BlockHeading>Who should care</BlockHeading>
+      <dl className="mt-3 divide-y divide-[var(--hairline)] border-y border-hairline">
+        {audiences.map((item) => (
+          <div key={item.audience} className="py-3.5 sm:grid sm:grid-cols-[8rem_1fr] sm:gap-5">
+            <dt className="text-[14px] font-medium">{item.audience}</dt>
+            <dd className="mt-1 text-[14px] leading-relaxed text-muted-foreground sm:mt-0">
+              {item.implication}
+              <EvidenceRefs refs={item.evidence} story={story} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+/** A genuine, sourced difference in framing — only ever rendered for two or more. */
+function PerspectiveList({ perspectives, story }: { perspectives: Perspective[]; story: Story }) {
+  return (
+    <section>
+      <BlockHeading>Different perspectives</BlockHeading>
+      <div className="mt-3 space-y-4">
+        {perspectives.map((item) => (
+          <div key={item.source}>
+            <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+              {item.source}
+            </p>
+            <p className="mt-1 text-[14.5px] leading-relaxed">
+              {item.stance}
+              <EvidenceRefs refs={item.evidence} story={story} />
+            </p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** A specific, checkable reason to come back to this event. */
+function WatchNextList({ items, story }: { items: WatchItem[]; story: Story }) {
+  return (
+    <section>
+      <BlockHeading>Watch next</BlockHeading>
+      <ul className="mt-3 space-y-3">
+        {items.map((item) => (
+          <li key={item.label}>
+            <p className="text-[14px] font-medium">{item.label}</p>
+            <p className="mt-0.5 text-[14px] leading-relaxed text-muted-foreground">
+              {item.detail}
+              <EvidenceRefs refs={item.evidence} story={story} />
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
  * How many outlets stand behind a fact, shown only past three. Counted by outlet
  * rather than by article, so syndication does not read as confirmation.
  */
@@ -605,26 +647,58 @@ function UnderstandBody({
   intelligence: EventIntelligence;
   onReachEnd: () => void;
 }) {
-  const facts = uniqueAfterSummary(intelligence.summary, intelligence.facts);
-  const context = uniqueAfterSummary(intelligence.summary, intelligence.context);
-  const whatNext = uniqueAfterSummary(intelligence.summary, intelligence.whatNext);
-  const changed = !intelligence.comparison && showBeforeAfter(story, intelligence.summary);
-  const why = analysisWhy(story, intelligence);
+  const change = deriveChange(
+    story.before,
+    story.after,
+    intelligence.newDevelopments,
+    intelligence.oneSentence,
+  );
   const timeline = timelinePoints(story, intelligence);
-  const glance = intelligence.keyNumbers;
 
   return (
     <div className="max-w-[40rem] space-y-8">
-      <p className="text-[19px] leading-[1.65] tracking-[-0.01em]">{intelligence.summary}</p>
+      <p className="text-[14.5px] leading-[1.5] tracking-[-0.01em] sm:text-[19px] sm:leading-[1.65]">
+        {intelligence.oneSentence}
+      </p>
 
-      {intelligence.relationship ? (
-        <RelationshipDiagram relationship={intelligence.relationship} story={story} />
+      {intelligence.relationships ? (
+        <ThePicture relationships={intelligence.relationships} story={story} />
       ) : null}
 
-      {glance.length > 0 ? (
+      {change?.mode === "before_now" ? (
+        <section>
+          <BlockHeading>What changed</BlockHeading>
+          <div className="mt-3 grid gap-5 sm:grid-cols-2 sm:gap-8">
+            <div className="border-t border-hairline pt-3">
+              <p className="text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
+                Before
+              </p>
+              <p className="mt-1.5 text-[14.5px] leading-relaxed">{change.before}</p>
+            </div>
+            <div className="border-t border-signal pt-3">
+              <p className="text-[10.5px] uppercase tracking-[0.16em] text-signal">Now</p>
+              <p className="mt-1.5 text-[14.5px] leading-relaxed">{change.now}</p>
+            </div>
+          </div>
+        </section>
+      ) : change?.mode === "new" ? (
+        <section>
+          <BlockHeading>New in this announcement</BlockHeading>
+          <ul className="mt-3 space-y-2.5 text-[15px] leading-relaxed">
+            {change.items.map((item) => (
+              <li key={item.text}>
+                {item.text}
+                <EvidenceRefs refs={item.evidence} story={story} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {intelligence.numbers.length > 0 ? (
         <section className="border-y border-hairline py-5">
           <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3">
-            {glance.map((item) => (
+            {intelligence.numbers.map((item) => (
               <div key={`${item.value}-${item.label}`}>
                 <p className="font-serif text-[26px] leading-none">
                   {item.value}
@@ -637,21 +711,21 @@ function UnderstandBody({
         </section>
       ) : null}
 
-      {facts.length > 0 ? (
+      {intelligence.audiences.length > 0 ? (
+        <AudienceList audiences={intelligence.audiences} story={story} />
+      ) : null}
+
+      {intelligence.context.length > 0 ? (
         <section>
-          <BlockHeading>Key facts</BlockHeading>
-          <ul className="mt-3 space-y-2.5">
-            {facts.map((fact) => (
-              <li key={fact.text} className="flex gap-3 text-[15px] leading-relaxed">
-                <span className="mt-[0.65em] h-1 w-1 shrink-0 rounded-full bg-signal" />
-                <span>
-                  {fact.text}
-                  <EvidenceRefs refs={fact.evidence} story={story} />
-                  <Corroboration refs={fact.evidence} story={story} />
-                </span>
-              </li>
+          <BlockHeading>Context</BlockHeading>
+          <div className="mt-3 space-y-3.5 text-[15px] leading-relaxed">
+            {intelligence.context.map((item) => (
+              <p key={item.text}>
+                {item.text}
+                <EvidenceRefs refs={item.evidence} story={story} />
+              </p>
             ))}
-          </ul>
+          </div>
         </section>
       ) : null}
 
@@ -665,73 +739,15 @@ function UnderstandBody({
 
       {intelligence.series ? <NumericChart series={intelligence.series} story={story} /> : null}
 
-      {changed ? (
-        <section>
-          <BlockHeading>What changed</BlockHeading>
-          <div className="mt-3 grid gap-5 sm:grid-cols-2 sm:gap-8">
-            <div className="border-t border-hairline pt-3">
-              <p className="text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
-                Before
-              </p>
-              <p className="mt-1.5 text-[14.5px] leading-relaxed">{story.before}</p>
-            </div>
-            <div className="border-t border-signal pt-3">
-              <p className="text-[10.5px] uppercase tracking-[0.16em] text-signal">Now</p>
-              <p className="mt-1.5 text-[14.5px] leading-relaxed">{story.after}</p>
-            </div>
-          </div>
-        </section>
-      ) : null}
-
-      {context.length > 0 ? (
-        <section>
-          <BlockHeading>Context</BlockHeading>
-          <div className="mt-3 space-y-3.5 text-[15px] leading-relaxed">
-            {context.map((item) => (
-              <p key={item.text}>
-                {item.text}
-                <EvidenceRefs refs={item.evidence} story={story} />
-              </p>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {intelligence.affectedGroups.length > 0 ? (
-        <section>
-          <BlockHeading>Who could be affected</BlockHeading>
-          <dl className="mt-3 divide-y divide-[var(--hairline)] border-y border-hairline">
-            {intelligence.affectedGroups.map((item) => (
-              <div
-                key={`${item.group}-${item.effect}`}
-                className="py-3.5 sm:grid sm:grid-cols-[8rem_1fr] sm:gap-5"
-              >
-                <dt className="text-[14px] font-medium">
-                  {item.group}
-                  {item.basis === "analysis" ? (
-                    <span className="ml-2 text-[9px] uppercase tracking-[0.12em] text-signal">
-                      analysis
-                    </span>
-                  ) : null}
-                </dt>
-                <dd className="mt-1 text-[14px] leading-relaxed text-muted-foreground sm:mt-0">
-                  {item.effect}
-                  <EvidenceRefs refs={item.evidence} story={story} />
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </section>
-      ) : null}
-
-      {whatNext.length > 0 ? (
+      {intelligence.whatNext.length > 0 ? (
         <section>
           <BlockHeading>What happens next</BlockHeading>
           <ul className="mt-3 space-y-2.5 text-[15px] leading-relaxed">
-            {whatNext.map((item) => (
+            {intelligence.whatNext.map((item) => (
               <li key={item.text}>
                 {item.text}
                 <EvidenceRefs refs={item.evidence} story={story} />
+                <Corroboration refs={item.evidence} story={story} />
               </li>
             ))}
           </ul>
@@ -759,6 +775,10 @@ function UnderstandBody({
         </section>
       ) : null}
 
+      {intelligence.perspectives.length > 0 ? (
+        <PerspectiveList perspectives={intelligence.perspectives} story={story} />
+      ) : null}
+
       {intelligence.unknowns.length > 0 ? (
         <section>
           <BlockHeading>Still unknown</BlockHeading>
@@ -770,12 +790,16 @@ function UnderstandBody({
         </section>
       ) : null}
 
-      {why ? (
+      {intelligence.watchNext.length > 0 ? (
+        <WatchNextList items={intelligence.watchNext} story={story} />
+      ) : null}
+
+      {story.personalization ? (
         <div className="rounded-3xl border border-signal/30 bg-surface p-6">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal">
-            Why it matters to you
+            {story.personalization.heading}
           </h2>
-          <p className="mt-3 text-[15px] leading-relaxed">{why}</p>
+          <p className="mt-3 text-[15px] leading-relaxed">{story.personalization.explanation}</p>
         </div>
       ) : null}
 

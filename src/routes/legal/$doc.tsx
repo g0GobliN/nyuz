@@ -160,7 +160,7 @@ const DOCS: Record<string, Doc> = {
         h: "Where your data goes",
         p: [
           "We use a small number of processors to run the service. Each one, what it does and where it holds data, is listed on the Subprocessors page.",
-          "Some providers process data outside your country, including in the United States and China. The locations and the data involved are listed on the Service providers page. We use contractual and other transfer safeguards where applicable law requires them; do not use Ask AI for personal or confidential information.",
+          "Some providers process data outside your country, including in the United States and China. The locations and the data involved are listed on the Service providers page. We use contractual and other transfer safeguards where applicable law requires them; do not use the service for personal or confidential information.",
         ],
       },
       {
@@ -234,7 +234,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Billing",
         p: [
-          "Paid plans renew until cancelled. Cancelling stops the next renewal and keeps access until the end of the current period. Topic, briefing, source-priority, custom-source, alert, Ask AI and history limits follow your active plan.",
+          "Paid plans renew until cancelled. Cancelling stops the next renewal and keeps access until the end of the current period. Topic, briefing, source-priority, custom-source, alert and history limits follow your active plan.",
           "The limit on sources of your own is checked when you add one. Moving to a plan with a lower limit does not remove sources you already follow, but you will not be able to add another until you are inside the new limit.",
           "Prices can change. If yours does, we will tell you before the renewal it applies to, and you can cancel before being charged the new amount.",
           "Refunds are covered on the Refunds page.",

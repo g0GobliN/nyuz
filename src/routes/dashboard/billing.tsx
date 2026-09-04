@@ -27,7 +27,7 @@ const PLANS = [
     monthly: 0,
     annual: 0,
     ...PLAN_LIMITS.free,
-    features: ["Up to 18 stories", "3 priority sources", "Flash briefing", "No alerts or Ask AI"],
+    features: ["Up to 18 stories", "3 priority sources", "Flash briefing", "No alerts"],
   },
   {
     id: "personal",
@@ -39,7 +39,6 @@ const PLANS = [
       "Up to 30 stories",
       "15 priority sources",
       `Important alerts, up to ${PLAN_LIMITS.personal.alertDailyCap} a day`,
-      "10 Flash Ask AI questions per day",
     ],
   },
   {
@@ -52,7 +51,6 @@ const PLANS = [
       "Up to 50 stories",
       "Unlimited priority sources",
       `Configurable alerts, up to ${PLAN_LIMITS.pro.alertDailyCap} a day`,
-      "15 Pro Ask AI questions per day",
     ],
   },
 ] as const;

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isUnanalysable, readAnalysis, renderCoverage } from "./analyse";
+import {
+  contract,
+  isEnrichmentEligible,
+  isUnanalysable,
+  readAnalysis,
+  renderCoverage,
+} from "./analyse";
 
 /**
  * What the model says, and what is written down because of it.
@@ -377,5 +383,69 @@ describe("demand gate fail-closed behavior", () => {
     // When ctx.demand.kind === "inactive", analysis proceeds normally
     // (gate off or --event bypass)
     expect(inactiveResult.kind).toBe("inactive");
+  });
+});
+
+describe("contract", () => {
+  it("tells one_sentence not to carry a headline figure numbers should own", () => {
+    const prompt = contract(SLUGS);
+    // The fix for the OpenAI Daybreak $1B duplication: one_sentence and numbers
+    // must not both state the same headline figure. This pins the instruction's
+    // presence in the shipped prompt -- it cannot pin live model compliance,
+    // which needs a real call the AI budget guard currently blocks.
+    expect(prompt).toContain("one_sentence owns the relationship");
+    expect(prompt).toContain("numbers owns the");
+    expect(prompt.toLowerCase()).toContain("headline metric");
+  });
+});
+
+describe("isEnrichmentEligible", () => {
+  it("1 source, still 1 source: no refresh", () => {
+    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 1 }, 1)).toBe(false);
+  });
+
+  it("1 source grown to 2: no refresh", () => {
+    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 1 }, 2)).toBe(false);
+  });
+
+  it("1 source grown to 4: eligible", () => {
+    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 1 }, 4)).toBe(true);
+  });
+
+  it("1 source grown to 5: eligible", () => {
+    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 1 }, 5)).toBe(true);
+  });
+
+  it("2 sources grown to 4: eligible (meets both the floor and the 2x multiple)", () => {
+    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 2 }, 4)).toBe(true);
+  });
+
+  it("2 sources grown to 3: not eligible (below the 4-source floor)", () => {
+    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 2 }, 3)).toBe(false);
+  });
+
+  it("5 sources grown to 6: no refresh -- already past the thin-analysis floor", () => {
+    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 5 }, 6)).toBe(false);
+  });
+
+  it("7 sources grown to 8: no refresh -- this is not the case it exists for", () => {
+    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 7 }, 8)).toBe(false);
+  });
+
+  it("already enrichment-refreshed: never eligible again, regardless of growth", () => {
+    expect(
+      isEnrichmentEligible({ sourceCountAtAnalysis: 1, refreshedAfterEnrichment: true }, 50),
+    ).toBe(false);
+  });
+
+  it("legacy document with no analysis metadata: not eligible, never mass-queued", () => {
+    expect(isEnrichmentEligible(undefined, 50)).toBe(false);
+    expect(isEnrichmentEligible(null, 50)).toBe(false);
+    expect(isEnrichmentEligible({}, 50)).toBe(false);
+  });
+
+  it("malformed metadata (non-integer or non-numeric source count): not eligible", () => {
+    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 1.5 }, 50)).toBe(false);
+    expect(isEnrichmentEligible({ sourceCountAtAnalysis: "1" }, 50)).toBe(false);
   });
 });

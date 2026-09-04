@@ -19,10 +19,10 @@ export type TimelinePoint = {
   evidence: number[];
 };
 
-export type AffectedGroup = {
-  group: string;
-  effect: string;
-  basis: "reported" | "analysis";
+/** A real audience and what changes for them, not a restatement of who was mentioned. */
+export type Audience = {
+  audience: string;
+  implication: string;
   evidence: number[];
 };
 
@@ -31,13 +31,26 @@ export type EvidenceConflict = {
   reports: { text: string; evidence: number[] }[];
 };
 
-/** Who did what to whom. One line, drawn rather than written. */
-export type Relationship = {
-  subject: string;
-  relation: string;
-  object: string;
-  detail: string;
+export type RelationshipNode = {
+  id: string;
+  label: string;
+  type?: string;
+};
+
+export type RelationshipEdge = {
+  from: string;
+  to: string;
+  label?: string;
   evidence: number[];
+};
+
+/**
+ * The structure the event turns on, as a small graph rather than one sentence.
+ * Gated to genuinely multi-entity events -- see `relationshipsOf`.
+ */
+export type RelationshipMap = {
+  nodes: RelationshipNode[];
+  edges: RelationshipEdge[];
 };
 
 export type ComparisonRow = {
@@ -77,29 +90,70 @@ export type OverviewItem = {
   evidence: number[];
 };
 
+/** A named source's stance, only meaningful next to at least one other. */
+export type Perspective = {
+  source: string;
+  stance: string;
+  evidence: number[];
+};
+
+/** A specific, checkable future development worth returning for. */
+export type WatchItem = {
+  label: string;
+  detail: string;
+  evidence: number[];
+};
+
+/** Either a real prior state to contrast, or what's new when there is none to fabricate. */
+export type Change =
+  | { mode: "before_now"; before: string; now: string }
+  | { mode: "new"; items: SupportedStatement[] };
+
+/**
+ * How much evidence this document was actually generated from, so a reader-
+ * facing "N sources" count that grows after analysis never gets credited to
+ * text that never saw the extra sources. Written by the pipeline, not the
+ * model -- never part of the JSON reply, always attached deterministically
+ * from the real article count shown to it.
+ */
+export type AnalysisMeta = {
+  sourceCountAtAnalysis: number;
+  /** Set once this document has already had its one material-enrichment refresh. */
+  refreshedAfterEnrichment?: boolean;
+};
+
 /**
  * The global, reusable explanation of one event.
  *
  * Arrays are always present after parsing, even though every field in the model
  * reply is optional. That keeps the renderer deterministic: an empty array means
  * the evidence did not justify that block, so the block does not exist.
+ *
+ * Every claim belongs in exactly one section here. The prompt asks the model to
+ * pick the single best home for each fact; `dedupeAcrossSections` is the
+ * deterministic backstop for when it doesn't, since wording alone is not
+ * reliable enough to promise a reader nothing repeats.
  */
 export type EventIntelligence = {
-  version: 1;
+  version: 2;
   coverage: CoverageDepth;
-  summary: string;
-  facts: SupportedStatement[];
-  keyNumbers: KeyNumber[];
-  context: SupportedStatement[];
-  timeline: TimelinePoint[];
-  affectedGroups: AffectedGroup[];
+  oneSentence: string;
+  numbers: KeyNumber[];
+  newDevelopments: SupportedStatement[];
+  relationships: RelationshipMap | null;
+  audiences: Audience[];
   whatNext: SupportedStatement[];
+  context: SupportedStatement[];
+  perspectives: Perspective[];
   unknowns: string[];
+  watchNext: WatchItem[];
+  timeline: TimelinePoint[];
   conflicts: EvidenceConflict[];
-  relationship: Relationship | null;
   comparison: Comparison | null;
   series: NumericSeries | null;
   overview: OverviewItem[];
+  /** Absent for every document written before this existed -- see `AnalysisMeta`. */
+  analysisMeta?: AnalysisMeta;
 };
 
 type RecordValue = Record<string, unknown>;
@@ -154,20 +208,118 @@ function statements(
   return dedupeStatements(out);
 }
 
+function numbersOf(value: unknown, evidenceCount: number): KeyNumber[] {
+  if (!Array.isArray(value)) return [];
+  const out: KeyNumber[] = [];
+  for (const entry of value) {
+    const row = record(entry);
+    if (!row) continue;
+    const numberValue = boundedText(row["value"], 80);
+    const label = boundedText(row["label"], 100);
+    const evidence = evidenceRefs(row["evidence"], evidenceCount);
+    if (!numberValue || !label || evidence.length === 0) continue;
+    out.push({ value: numberValue, label, evidence });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
 /**
- * A relationship is only drawable when all three parts of the sentence survive.
- * A subject with no object is a fact, and belongs in prose.
+ * A node graph, not a sentence with arrows. The single subject-relation-object
+ * triple this replaced repeated whatever the summary already said; requiring
+ * either a second edge or a third node is what makes this a map worth drawing
+ * instead of a fact drawn twice.
  */
-function relationshipOf(value: unknown, evidenceCount: number): Relationship | null {
+function relationshipsOf(value: unknown, evidenceCount: number): RelationshipMap | null {
   const row = record(value);
   if (!row) return null;
-  const subject = boundedText(row["subject"], 60);
-  const relation = boundedText(row["relation"], 40);
-  const object = boundedText(row["object"], 60);
-  const evidence = evidenceRefs(row["evidence"], evidenceCount);
-  if (!subject || !relation || !object || evidence.length === 0) return null;
-  if (subject.toLowerCase() === object.toLowerCase() || repeats(subject, object)) return null;
-  return { subject, relation, object, detail: boundedText(row["detail"], 40) ?? "", evidence };
+  if (!Array.isArray(row["nodes"])) return null;
+
+  const nodes: RelationshipNode[] = [];
+  const ids = new Set<string>();
+  for (const entry of row["nodes"]) {
+    const node = record(entry);
+    if (!node) continue;
+    const id = boundedText(node["id"], 40);
+    const label = boundedText(node["label"], 60);
+    if (!id || !label || ids.has(id)) continue;
+    const type = boundedText(node["type"], 30);
+    nodes.push(type ? { id, label, type } : { id, label });
+    ids.add(id);
+    if (nodes.length >= 8) break;
+  }
+  if (nodes.length < 2 || !Array.isArray(row["edges"])) return null;
+
+  const edges: RelationshipEdge[] = [];
+  for (const entry of row["edges"]) {
+    const edge = record(entry);
+    if (!edge) continue;
+    const from = boundedText(edge["from"], 40);
+    const to = boundedText(edge["to"], 40);
+    const evidence = evidenceRefs(edge["evidence"], evidenceCount);
+    if (!from || !to || from === to || !ids.has(from) || !ids.has(to) || evidence.length === 0) {
+      continue;
+    }
+    const label = boundedText(edge["label"], 40);
+    edges.push(label ? { from, to, label, evidence } : { from, to, evidence });
+    if (edges.length >= 10) break;
+  }
+
+  if (edges.length < 2 && nodes.length < 3) return null;
+  return { nodes, edges };
+}
+
+/** An implication is only worth a reader's attention when it's grounded and specific. */
+function audiencesOf(value: unknown, evidenceCount: number): Audience[] {
+  if (!Array.isArray(value)) return [];
+  const out: Audience[] = [];
+  for (const entry of value) {
+    const row = record(entry);
+    if (!row) continue;
+    const audience = boundedText(row["audience"] ?? row["group"], 100);
+    const implication = boundedText(row["implication"] ?? row["effect"], 320);
+    const evidence = evidenceRefs(row["evidence"], evidenceCount);
+    if (!audience || !implication || evidence.length === 0) continue;
+    out.push({ audience, implication, evidence });
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+/** A single viewpoint is a fact with a byline. Disagreement needs at least two. */
+function perspectivesOf(value: unknown, evidenceCount: number): Perspective[] {
+  if (!Array.isArray(value)) return [];
+  const out: Perspective[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    const row = record(entry);
+    if (!row) continue;
+    const source = boundedText(row["source"], 60);
+    const stance = boundedText(row["stance"], 240);
+    const evidence = evidenceRefs(row["evidence"], evidenceCount);
+    if (!source || !stance || evidence.length === 0) continue;
+    const key = source.toLowerCase();
+    if (seen.has(key)) continue;
+    out.push({ source, stance, evidence });
+    seen.add(key);
+    if (out.length >= 4) break;
+  }
+  return out.length >= 2 ? out : [];
+}
+
+function watchNextOf(value: unknown, evidenceCount: number): WatchItem[] {
+  if (!Array.isArray(value)) return [];
+  const out: WatchItem[] = [];
+  for (const entry of value) {
+    const row = record(entry);
+    if (!row) continue;
+    const label = boundedText(row["label"], 60);
+    const detail = boundedText(row["detail"], 240);
+    if (!label || !detail) continue;
+    out.push({ label, detail, evidence: evidenceRefs(row["evidence"], evidenceCount) });
+    if (out.length >= 4) break;
+  }
+  return out;
 }
 
 /**
@@ -251,8 +403,88 @@ function overviewOf(value: unknown, evidenceCount: number): OverviewItem[] {
 }
 
 /**
+ * Read back, never trusted from a model reply -- this only ever appears in a
+ * document the pipeline itself wrote. A malformed or missing value is simply
+ * absent rather than defaulted, so a document with no real analysis metadata
+ * (every document written before this existed) never looks eligible for
+ * anything that depends on it.
+ */
+function analysisMetaOf(value: unknown): AnalysisMeta | undefined {
+  const row = record(value);
+  if (!row) return undefined;
+  const sourceCountAtAnalysis = row["sourceCountAtAnalysis"];
+  if (typeof sourceCountAtAnalysis !== "number" || !Number.isInteger(sourceCountAtAnalysis)) {
+    return undefined;
+  }
+  if (sourceCountAtAnalysis < 0) return undefined;
+  const refreshed = row["refreshedAfterEnrichment"];
+  return refreshed === true
+    ? { sourceCountAtAnalysis, refreshedAfterEnrichment: true }
+    : { sourceCountAtAnalysis };
+}
+
+function claimText<T>(items: T[], textOf: (item: T) => string, claimed: string[]): T[] {
+  const kept: T[] = [];
+  for (const item of items) {
+    const text = textOf(item);
+    if (claimed.some((existing) => repeats(existing, text))) continue;
+    claimed.push(text);
+    kept.push(item);
+  }
+  return kept;
+}
+
+/**
+ * One claim, one section. The prompt asks the model to pick a single best home
+ * for each fact, but that alone is not reliable enough to promise a reader
+ * nothing repeats -- this is the deterministic backstop. Sections are walked in
+ * a fixed priority order and anything that already appeared upstream, even
+ * paraphrased, is dropped rather than printed again further down the page.
+ *
+ * Structural sections (relationships, timeline, comparison, series, overview)
+ * are left alone: their rows are already internally deduplicated by their own
+ * validators above, and a graph edge or a chart point is not prose that can
+ * quietly restate a sentence.
+ */
+function dedupeAcrossSections(
+  intel: Omit<EventIntelligence, "version" | "coverage">,
+): Omit<EventIntelligence, "version" | "coverage"> {
+  const claimed: string[] = [intel.oneSentence];
+
+  const numbers = claimText(intel.numbers, (n) => `${n.label} ${n.value}`, claimed);
+  const newDevelopments = claimText(intel.newDevelopments, (s) => s.text, claimed);
+  const audiences = claimText(intel.audiences, (a) => a.implication, claimed);
+  const whatNext = claimText(intel.whatNext, (s) => s.text, claimed);
+  const context = claimText(intel.context, (s) => s.text, claimed);
+  let perspectives = claimText(intel.perspectives, (p) => p.stance, claimed);
+  if (perspectives.length < 2) perspectives = [];
+  const unknowns = claimText(intel.unknowns, (u) => u, claimed);
+  const watchNext = claimText(intel.watchNext, (w) => w.detail, claimed);
+
+  return {
+    ...intel,
+    numbers,
+    newDevelopments,
+    audiences,
+    whatNext,
+    context,
+    perspectives,
+    unknowns,
+    watchNext,
+  };
+}
+
+/**
  * Parse either the snake_case model reply or the camelCase document stored in
  * Postgres. Invalid optional blocks disappear; an invalid core returns null.
+ *
+ * Also the read-time home for events analysed before this shape (`version: 1`,
+ * `summary`/`keyNumbers`/`affectedGroups`/a singular `relationship`): their
+ * fields are mapped into the new names losslessly. No migration runs; a legacy
+ * document just renders fewer of the new blocks (`newDevelopments`,
+ * `perspectives`, `watchNext`) it was never generated with, and its singular
+ * `relationship` triple has no second edge to offer so `relationships` stays
+ * null -- the richness gate does that suppression for free.
  */
 export function readEventIntelligence(
   value: unknown,
@@ -261,26 +493,17 @@ export function readEventIntelligence(
   const raw = record(value);
   if (!raw) return null;
 
-  const summary = boundedText(raw["summary"], 700);
+  const oneSentence =
+    boundedText(raw["oneSentence"] ?? raw["one_sentence"], 320) ?? boundedText(raw["summary"], 500);
   const coverage = raw["coverage"];
-  if (!summary || (coverage !== "thin" && coverage !== "normal" && coverage !== "rich")) {
+  if (!oneSentence || (coverage !== "thin" && coverage !== "normal" && coverage !== "rich")) {
     return null;
   }
 
-  const keyNumbers: KeyNumber[] = [];
-  const rawNumbers = field(raw, "keyNumbers", "key_numbers");
-  if (Array.isArray(rawNumbers)) {
-    for (const entry of rawNumbers) {
-      const row = record(entry);
-      if (!row) continue;
-      const numberValue = boundedText(row["value"], 80);
-      const label = boundedText(row["label"], 100);
-      const evidence = evidenceRefs(row["evidence"], evidenceCount);
-      if (!numberValue || !label || evidence.length === 0) continue;
-      keyNumbers.push({ value: numberValue, label, evidence });
-      if (keyNumbers.length >= 6) break;
-    }
-  }
+  const numbers = numbersOf(
+    field(raw, "numbers", "numbers") ?? field(raw, "keyNumbers", "key_numbers"),
+    evidenceCount,
+  );
 
   const timeline: TimelinePoint[] = [];
   if (Array.isArray(raw["timeline"])) {
@@ -296,28 +519,10 @@ export function readEventIntelligence(
     }
   }
 
-  const affectedGroups: AffectedGroup[] = [];
-  const rawGroups = field(raw, "affectedGroups", "affected_groups");
-  if (Array.isArray(rawGroups)) {
-    for (const entry of rawGroups) {
-      const row = record(entry);
-      if (!row) continue;
-      const group = boundedText(row["group"], 100);
-      const effect = boundedText(row["effect"], 320);
-      const basis = row["basis"];
-      const evidence = evidenceRefs(row["evidence"], evidenceCount);
-      if (
-        !group ||
-        !effect ||
-        (basis !== "reported" && basis !== "analysis") ||
-        evidence.length === 0
-      ) {
-        continue;
-      }
-      affectedGroups.push({ group, effect, basis, evidence });
-      if (affectedGroups.length >= 6) break;
-    }
-  }
+  const audiences = audiencesOf(
+    field(raw, "audiences", "audiences") ?? field(raw, "affectedGroups", "affected_groups"),
+    evidenceCount,
+  );
 
   const unknowns: string[] = [];
   if (Array.isArray(raw["unknowns"])) {
@@ -352,22 +557,36 @@ export function readEventIntelligence(
     }
   }
 
-  return {
-    version: 1,
-    coverage,
-    summary,
-    facts: statements(raw["facts"], evidenceCount, "reported", 8),
-    keyNumbers,
-    context: statements(raw["context"], evidenceCount, "context", 5),
-    timeline,
-    affectedGroups,
+  // A legacy document's singular `relationship` triple never clears the
+  // richness gate on its own (one edge), so it is simply not translated --
+  // the field just reads as absent, which is the correct rendering for it.
+  const relationships = relationshipsOf(raw["relationships"], evidenceCount);
+
+  const deduped = dedupeAcrossSections({
+    oneSentence,
+    numbers,
+    newDevelopments: statements(field(raw, "newDevelopments", "new"), evidenceCount, "reported", 8),
+    relationships,
+    audiences,
     whatNext: statements(field(raw, "whatNext", "what_next"), evidenceCount, "reported", 5),
+    context: statements(raw["context"], evidenceCount, "context", 5),
+    perspectives: perspectivesOf(raw["perspectives"], evidenceCount),
     unknowns,
+    watchNext: watchNextOf(field(raw, "watchNext", "watch_next"), evidenceCount),
+    timeline,
     conflicts,
-    relationship: relationshipOf(raw["relationship"], evidenceCount),
     comparison: comparisonOf(raw["comparison"], evidenceCount),
     series: seriesOf(raw["series"], evidenceCount),
     overview: overviewOf(raw["overview"], evidenceCount),
+  });
+
+  const analysisMeta = analysisMetaOf(raw["analysisMeta"]);
+
+  return {
+    version: 2,
+    coverage,
+    ...deduped,
+    ...(analysisMeta ? { analysisMeta } : {}),
   };
 }
 
@@ -473,9 +692,11 @@ export function briefingText(text: string, maxWords = 90): string {
 /**
  * The part of `text` that says something the supplied statements do not.
  *
- * A personalised "why it matters" is frequently the summary re-stated with one
- * new clause attached. Dropping the whole paragraph loses the clause; keeping it
- * whole prints the same three sentences twice. So the filter runs per sentence.
+ * Several places need "the novel part of a paragraph that otherwise restates
+ * known facts" -- a personalised note is frequently the summary re-stated with
+ * one new clause attached. Dropping the whole paragraph loses the clause;
+ * keeping it whole prints the same sentences twice. So the filter runs per
+ * sentence.
  */
 export function novelSentences(text: string, against: string[]): string {
   const seen = [...against];
@@ -488,11 +709,62 @@ export function novelSentences(text: string, against: string[]): string {
   return kept.join(" ");
 }
 
+/**
+ * What the page can truthfully say about how many sources fed this document.
+ *
+ * `analysisMeta` is absent for every document written before it existed --
+ * absence is not evidence the current count and the analysed count match, so
+ * the only honest fallback is the current count alone, same as the page said
+ * before this existed. Once metadata exists, a gap between what was analysed
+ * and what is now attached is stated plainly rather than rounded up to the
+ * live number: the generated text never saw the sources that arrived after
+ * it was written. The gap closes on its own once a material-enrichment
+ * refresh succeeds and `sourceCountAtAnalysis` catches up -- nothing here
+ * needs to know whether that has happened, only compare the two numbers.
+ */
+export function sourceCountLabel(
+  analysisMeta: AnalysisMeta | undefined,
+  currentSourceCount: number,
+): string {
+  const plural = (n: number) => (n === 1 ? "source" : "sources");
+  if (!analysisMeta || analysisMeta.sourceCountAtAnalysis === currentSourceCount) {
+    return `${currentSourceCount} ${plural(currentSourceCount)}`;
+  }
+  const { sourceCountAtAnalysis } = analysisMeta;
+  return `${sourceCountAtAnalysis} ${plural(sourceCountAtAnalysis)} analyzed · ${currentSourceCount} currently`;
+}
+
 export function understandMinutes(texts: string[]): "<1 min" | "1 min" | "2 min" {
   const words = texts.reduce((total, text) => total + wordCount(text), 0);
   if (words < 120) return "<1 min";
   if (words < 260) return "1 min";
   return "2 min";
+}
+
+/**
+ * The Before/Now block, or "New in this announcement" when there is no clean
+ * prior state to contrast.
+ *
+ * `before`/`now` come from the event's own `before_state`/`after_state` -- shared
+ * top-level fields the analysis pass already writes, not a second copy asked
+ * for inside `understand` -- so a legacy event (analysed long before this
+ * redesign) gets this block exactly like a new one. `newDevelopments` is the
+ * fallback for when the coverage never supported a real prior state: never
+ * fabricate one just to fill the shape.
+ */
+export function deriveChange(
+  before: string | null | undefined,
+  after: string | null | undefined,
+  newDevelopments: SupportedStatement[],
+  oneSentence: string,
+): Change | null {
+  const b = boundedText(before, 300);
+  const a = boundedText(after, 300);
+  if (b && a && b.toLowerCase() !== a.toLowerCase() && !repeats(b, a)) {
+    return { mode: "before_now", before: b, now: a };
+  }
+  const items = newDevelopments.filter((item) => !repeats(item.text, oneSentence));
+  return items.length > 0 ? { mode: "new", items } : null;
 }
 
 export type LegacyEvidence = { excerpt?: string | undefined };
@@ -505,9 +777,9 @@ export function legacyEventIntelligence(input: {
   what: string;
   sources: LegacyEvidence[];
 }): EventIntelligence {
-  const summary =
+  const oneSentence =
     briefingText(input.what) || "The available sources do not contain a usable summary.";
-  const excerptFacts = input.sources.flatMap((source, index) =>
+  const excerptStatements = input.sources.flatMap((source, index) =>
     sentences(source.excerpt ?? "")
       .filter((text) => text.length >= 40)
       .slice(0, 3)
@@ -517,17 +789,20 @@ export function legacyEventIntelligence(input: {
         kind: "reported" as const,
       })),
   );
-  const facts = dedupeStatements(excerptFacts).slice(0, 8);
+  const newDevelopments = dedupeStatements(excerptStatements)
+    .filter((item) => !repeats(item.text, oneSentence))
+    .slice(0, 8);
   const usableWords =
-    wordCount(summary) + facts.reduce((total, fact) => total + wordCount(fact.text), 0);
+    wordCount(oneSentence) +
+    newDevelopments.reduce((total, item) => total + wordCount(item.text), 0);
   const coverage: CoverageDepth =
-    facts.length >= 8 && input.sources.length >= 3 && usableWords >= 350
+    newDevelopments.length >= 8 && input.sources.length >= 3 && usableWords >= 350
       ? "rich"
-      : facts.length >= 4 && usableWords >= 100
+      : newDevelopments.length >= 4 && usableWords >= 100
         ? "normal"
         : "thin";
 
-  // Add context from longer excerpts that don't qualify as facts
+  // Add context from longer excerpts that don't qualify as new-development facts.
   const context = input.sources.flatMap((source, index) =>
     sentences(source.excerpt ?? "")
       .filter((text) => text.length >= 60 && text.length < 200)
@@ -541,22 +816,24 @@ export function legacyEventIntelligence(input: {
 
   // No timeline: source counts are not dates. A legacy event either has the
   // pipeline's own event timeline (which the page falls back to) or it has no
-  // timeline at all — manufacturing one from "N sources covered this" would be
+  // timeline at all -- manufacturing one from "N sources covered this" would be
   // filler dressed as evidence.
 
   return {
-    version: 1,
+    version: 2,
     coverage,
-    summary,
-    facts,
-    keyNumbers: [],
-    context: dedupeStatements(context).slice(0, 6),
-    timeline: [],
-    affectedGroups: [],
+    oneSentence,
+    numbers: [],
+    newDevelopments,
+    relationships: null,
+    audiences: [],
     whatNext: [],
+    context: dedupeStatements(context).slice(0, 6),
+    perspectives: [],
     unknowns: [],
+    watchNext: [],
+    timeline: [],
     conflicts: [],
-    relationship: null,
     comparison: null,
     series: null,
     overview: [],
@@ -620,13 +897,16 @@ export function corroboration(evidence: number[], sourceNames: string[]): number
 
 export function intelligenceText(intelligence: EventIntelligence): string[] {
   return [
-    intelligence.summary,
-    ...intelligence.facts.map((item) => item.text),
-    ...intelligence.context.map((item) => item.text),
-    ...intelligence.timeline.map((item) => `${item.when} ${item.what}`),
-    ...intelligence.affectedGroups.map((item) => `${item.group} ${item.effect}`),
+    intelligence.oneSentence,
+    ...intelligence.numbers.map((item) => `${item.label} ${item.value}`),
+    ...intelligence.newDevelopments.map((item) => item.text),
+    ...intelligence.audiences.map((item) => `${item.audience} ${item.implication}`),
     ...intelligence.whatNext.map((item) => item.text),
+    ...intelligence.context.map((item) => item.text),
+    ...intelligence.perspectives.map((item) => `${item.source} ${item.stance}`),
+    ...intelligence.timeline.map((item) => `${item.when} ${item.what}`),
     ...intelligence.unknowns,
+    ...intelligence.watchNext.map((item) => `${item.label} ${item.detail}`),
     ...intelligence.conflicts.flatMap((item) => item.reports.map((report) => report.text)),
     ...(intelligence.comparison
       ? intelligence.comparison.rows.map((row) => `${row.label} ${row.left} ${row.right}`)

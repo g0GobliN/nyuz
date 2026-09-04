@@ -512,16 +512,27 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // returns immediately without a round trip.
   const language = toLanguageTag(prefs.language);
   if (needsTranslation(language)) {
-    const byId = new Map(ready.map((r) => [r.eventId, r.text]));
-    const translated = await translateEvents(
-      db,
-      briefs
-        .filter((b) => byId.has(b.eventId))
-        .map((b) => translatable(b, byId.get(b.eventId) ?? null)),
-      language,
-      { ...(options.secrets ? { secrets: options.secrets } : {}), now: options.now ?? new Date() },
-    );
-    tokens += translated.tokens;
+    const { data: translationFlag } = await db
+      .from("feature_flags")
+      .select("enabled")
+      .eq("key", "story_translation_enabled")
+      .maybeSingle();
+
+    if (translationFlag?.enabled === true) {
+      const byId = new Map(ready.map((r) => [r.eventId, r.text]));
+      const translated = await translateEvents(
+        db,
+        briefs
+          .filter((b) => byId.has(b.eventId))
+          .map((b) => translatable(b, byId.get(b.eventId) ?? null)),
+        language,
+        {
+          ...(options.secrets ? { secrets: options.secrets } : {}),
+          now: options.now ?? new Date(),
+        },
+      );
+      tokens += translated.tokens;
+    }
   }
 
   const rows = ready.map((item, position) => ({
@@ -606,9 +617,11 @@ type ImpactRow = {
  * existed. That backlog only shrinks: every event analysed from here on
  * writes its impact as part of the same call that understands it.
  *
- * Events another worker is actively writing (a fresh `generating` claim) or
- * has permanently failed to write are simply absent from the result — see
- * the module doc for why that is the correct behaviour rather than a bug.
+ * Events another worker is writing (`generating`, at any age) or has
+ * permanently failed to write are simply absent from the result — see the
+ * module doc for why that is the correct behaviour rather than a bug. An aged
+ * `generating` row is NOT treated as free to retake: a claim that has gone
+ * quiet is not proof that the paid call behind it never happened.
  */
 async function resolveImpacts(
   db: Db,
@@ -626,14 +639,12 @@ async function resolveImpacts(
     const row = existing.get(brief.eventId);
     if (row?.status === "complete" && row.text) {
       ready.push({ eventId: brief.eventId, text: row.text });
-    } else if (
-      row === undefined ||
-      (row.status === "pending" && isDue(row.deferred_until, now)) ||
-      isStale(row.updated_at, now)
-    ) {
+    } else if (row === undefined || (row.status === "pending" && isDue(row.deferred_until, now))) {
       needsBackfill.push(brief);
     }
-    // Fresh 'generating' (held elsewhere) or 'failed': left out this round.
+    // 'generating' (held elsewhere, however old) or 'failed': left out this
+    // round. Matches `claimImpacts`, which only ever takes a due 'pending' row —
+    // selecting anything else here would only produce claims that always lose.
   }
 
   if (needsBackfill.length === 0 || options.dryRun === true) {
@@ -653,6 +664,7 @@ async function resolveImpacts(
         system: `${IMPACT_PROMPT}\n\n${impactContract()}`,
         user: renderImpactBrief(claimed),
         maxTokens: 8192,
+        feature: "impact",
         ...(options.secrets ? { secrets: options.secrets } : {}),
       });
     } catch (error) {
@@ -688,10 +700,6 @@ async function loadImpacts(db: Db, eventIds: string[]): Promise<Map<string, Impa
   return new Map((data ?? []).map((row) => [row.event_id, row]));
 }
 
-function isStale(updatedAt: string, now: Date): boolean {
-  return new Date(updatedAt).getTime() < now.getTime() - STALE_MINUTES * 60_000;
-}
-
 function isDue(deferredUntil: string | null, now: Date): boolean {
   return deferredUntil === null || Date.parse(deferredUntil) <= now.getTime();
 }
@@ -700,8 +708,10 @@ function isDue(deferredUntil: string | null, now: Date): boolean {
  * Claims a batch of events for impact generation, the same shape as
  * `analyse.ts`'s `claimEvent`: ensure a row exists, then a conditional
  * update decides the winner atomically so two workers backfilling the same
- * event cannot both pay for it. `failed` is deliberately not reclaimed here
- * — see the module doc.
+ * event cannot both pay for it. Only a due `pending` row is ever taken:
+ * `failed` is not reclaimed (see the module doc), and neither is `generating`,
+ * at any age — a stale claim is recovered by an operator, never by the cron
+ * buying the same explanation twice.
  */
 async function claimImpacts(db: Db, briefs: EventBrief[], now: Date): Promise<EventBrief[]> {
   const ids = briefs.map((b) => b.eventId);
@@ -712,12 +722,12 @@ async function claimImpacts(db: Db, briefs: EventBrief[], now: Date): Promise<Ev
   );
   if (seedError) throw new Error(`seeding event_impacts: ${seedError.message}`);
 
-  const stale = new Date(now.getTime() - STALE_MINUTES * 60_000).toISOString();
   const { data, error } = await db
     .from("event_impacts")
     .update({ status: "generating", deferred_until: null, updated_at: now.toISOString() })
     .in("event_id", ids)
-    .or(`status.eq.pending,and(status.eq.generating,updated_at.lt.${stale})`)
+    .eq("status", "pending")
+    .or("deferred_until.is.null,deferred_until.lte." + now.toISOString())
     .select("event_id");
   if (error) throw new Error(`claiming event_impacts: ${error.message}`);
 

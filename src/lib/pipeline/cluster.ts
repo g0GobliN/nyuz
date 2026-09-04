@@ -436,6 +436,7 @@ async function ask(
     capability: "cluster",
     system: SYSTEM,
     user: `New headline:\n${article.title}\n\nCandidates:\n${numbered}`,
+    feature: "cluster",
     ...(options.secrets ? { secrets: options.secrets } : {}),
   });
 

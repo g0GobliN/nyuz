@@ -12,6 +12,7 @@ import {
   type ModelTier,
 } from "@/lib/ai/deepseek";
 import { aiCostCeilingMicrousd, aiCostMicrousd } from "@/lib/ai/cost";
+import { dailyCapsMicrousd } from "@/lib/ai/launch-flags";
 import {
   configuredCeiling,
   DEFAULT_AI_MONTHLY_COST_USD,
@@ -214,6 +215,11 @@ export type RoutedOptions = {
   /** Present on per-reader work so the monthly plan budget is enforced atomically. */
   meterUserId?: string;
   userMonthlyTokenCap?: number;
+  /**
+   * Which of the six call sites is making this call (0053). Required so the
+   * ledger can answer "where exactly did my $X go?" per feature.
+   */
+  feature: "cluster" | "analyse" | "enrich" | "translate" | "impact" | "ask";
 };
 
 export type RoutedResult = CompleteResult & { route: ResolvedRoute };
@@ -274,6 +280,7 @@ export function completionUsageFromError(error: unknown): CompleteResult | null 
       completionTokens: error.completionTokens,
       reasoningTokens: error.reasoningTokens,
       cachedTokens: error.cachedTokens,
+      attempt_count: 1,
     };
   }
   return null;
@@ -371,6 +378,20 @@ async function reserveUsage(
   mayRetry: boolean,
 ): Promise<string | null> {
   const secrets = opts.secrets ?? secretsDefault();
+
+  // Kill switch: if the operator has flipped the global kill switch, refuse
+  // every call before a reservation is written and before a provider is
+  // contacted. Deterministic processing continues regardless.
+  const dbForFlags = createAdminClient(secrets);
+  const { data: killFlag } = await dbForFlags
+    .from("feature_flags")
+    .select("enabled")
+    .eq("key", "ai_kill_switch")
+    .maybeSingle();
+  if (killFlag?.enabled === true) {
+    throw new AiBudgetExceededError();
+  }
+
   const configured = secrets["AI_MONTHLY_TOKEN_BUDGET"];
   const globalCap =
     configured === undefined || configured.trim() === ""
@@ -409,6 +430,12 @@ async function reserveUsage(
   const estimated = estimatedCostMicrousd(route, prompt, completion);
   if (estimated === null) throw new AiUnpricedRouteError(route.providerSlug, route.model);
 
+  // Daily per-model caps: the operator's numbers from `site_settings`, or an
+  // environment override, or the built-in defaults. Read here rather than left
+  // to the SQL defaults, because a cap the console can display but not change
+  // is worse than no console at all.
+  const daily = await dailyCapsMicrousd(dbForFlags, secrets);
+
   const db = createAdminClient(secrets);
   const { data, error } = await db.rpc("reserve_ai_tokens", {
     p_user_id: opts.meterUserId ?? null,
@@ -419,6 +446,12 @@ async function reserveUsage(
     p_global_monthly_cap: globalCap,
     p_estimated_cost_microusd: estimated,
     p_global_monthly_cost_microusd: Math.round(costCapUsd * MICROUSD_PER_USD),
+    p_daily_flash_cap_microusd: daily.flash,
+    p_daily_pro_cap_microusd: daily.pro,
+    // Tagged here as well as at settlement: a call that never settles is
+    // exactly the spend an operator most needs attributed, and `settleUsage`
+    // is the thing that did not run.
+    p_feature: opts.feature,
   });
   if (error) throw new Error(`reserving AI budget: ${error.message}`);
   if (!data) {
@@ -465,6 +498,7 @@ async function settleUsage(
       cachedPromptTokens: usage.cachedTokens,
       completionTokens: usage.completionTokens,
     }),
+    p_feature: opts.feature,
   });
   // The provider call already succeeded. Keep the reservation as a conservative
   // charge and surface the accounting failure without breaking the product.
