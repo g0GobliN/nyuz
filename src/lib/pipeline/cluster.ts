@@ -315,7 +315,7 @@ async function runOne(
     if (options.dryRun === true) {
       return { ...base, decision: "skipped", detail: "no candidates; would create its own event" };
     }
-    return createEvent(db, article, [], "no similar headline within the window");
+    return createEvent(db, article, [], "no similar headline within the window", "pending", candidates.length);
   }
 
   // Computed before the model is asked so the shadow layer can never see, and
@@ -327,13 +327,12 @@ async function runOne(
   let usage: { promptTokens: number; completionTokens: number };
   let skipped = false;
 
-  if (skipOn && shadow !== null && shadow.verdict !== "ambiguous") {
-    // The confident half of plan2 §25. `different` resolves to no match and
-    // `same` to exactly the one candidate the deterministic layer named —
-    // `verdictFor` only ever returns `same` when precisely one candidate is a
-    // confident match and every other is confidently different, so there is
-    // no ambiguity left to resolve here.
-    matched = shadow.verdict === "same" ? candidates.filter((c) => c.id === shadow.matchedId) : [];
+  if (skipOn && shadow !== null && shadow.verdict === "different") {
+    // Only skip on confident "different" verdicts. "same" verdicts still
+    // require the model — shadow agreement on "same" is lower (60% in audit)
+    // and a wrong merge misinforms every reader. "different" at 100% agreement
+    // only creates an extra event, which costs one analysis, not misinformation.
+    matched = [];
     usage = { promptTokens: 0, completionTokens: 0 };
     skipped = true;
   } else {
@@ -411,14 +410,14 @@ async function runOne(
 
   if (matched.length === 0) {
     return {
-      ...(await createEvent(db, article, [], "shortlisted, but no match")),
+      ...(await createEvent(db, article, [], "shortlisted, but no match", "pending", spent.candidates)),
       ...spent,
       ...shadowResult,
     };
   }
 
   return {
-    ...(await createEvent(db, article, matched, "grouped with matched coverage")),
+    ...(await createEvent(db, article, matched, "grouped with matched coverage", "pending", spent.candidates)),
     ...spent,
     ...shadowResult,
   };
@@ -558,7 +557,7 @@ async function attach(
  * to have understood anything.
  */
 async function discardRef(db: Db, article: Unclustered): Promise<ArticleOutcome> {
-  const outcome = await createEvent(db, article, [], "CI ref, not a headline", "failed");
+  const outcome = await createEvent(db, article, [], "CI ref, not a headline", "failed", 0);
   if (outcome.decision === "failed") return outcome;
   return { ...outcome, decision: "ignored", detail: "CI ref, not a headline" };
 }
@@ -578,6 +577,7 @@ async function createEvent(
   siblings: Candidate[],
   why: string,
   status: EventStatus = "pending",
+  candidateCount = 0,
 ): Promise<ArticleOutcome> {
   const failure = (detail: string): ArticleOutcome => ({
     articleId: article.id,
@@ -585,7 +585,7 @@ async function createEvent(
     decision: "failed",
     eventId: null,
     detail,
-    candidates: 0,
+    candidates: candidateCount,
     siblings: 0,
     promptTokens: 0,
     completionTokens: 0,
@@ -624,7 +624,7 @@ async function createEvent(
     decision: ids.length > 1 ? "created" : "alone",
     eventId: event.id,
     detail: ids.length > 1 ? `${why}, ${ids.length} articles` : why,
-    candidates: 0,
+    candidates: candidateCount,
     siblings: ids.length - 1,
     promptTokens: 0,
     completionTokens: 0,
