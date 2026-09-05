@@ -27,7 +27,7 @@ export function formatStoryTime(iso: string, now: Date = new Date()): string {
   if (days === 1) return `Yesterday · ${time}`;
 
   // Within the same year the year is noise. Across one it is the entire point,
-  // and a briefing kept for a year on the Pro plan will cross that line.
+  // and a briefing kept for a year on the Omni plan will cross that line.
   const date = at.toLocaleDateString(undefined, {
     day: "numeric",
     month: "short",

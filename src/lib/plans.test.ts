@@ -20,21 +20,21 @@ describe("resolvePlanPrices", () => {
   });
 
   it("applies a stored override and says so", () => {
-    const { prices, overridden } = resolvePlanPrices({ personal: 9, pro: 19 });
-    expect(prices.personal).toBe(9);
-    expect(prices.pro).toBe(19);
+    const { prices, overridden } = resolvePlanPrices({ plura: 9, omni: 19 });
+    expect(prices.plura).toBe(9);
+    expect(prices.omni).toBe(19);
     expect(overridden).toBe(true);
   });
 
   it("keeps the default for any tier the override omits", () => {
-    const { prices } = resolvePlanPrices({ personal: 9 });
-    expect(prices.pro).toBe(DEFAULT_PLAN_PRICES.pro);
+    const { prices } = resolvePlanPrices({ plura: 9 });
+    expect(prices.omni).toBe(DEFAULT_PLAN_PRICES.omni);
   });
 
   it("ignores non-numeric and negative values rather than trusting them", () => {
-    const { prices } = resolvePlanPrices({ personal: "free", pro: -5 });
-    expect(prices.personal).toBe(DEFAULT_PLAN_PRICES.personal);
-    expect(prices.pro).toBe(DEFAULT_PLAN_PRICES.pro);
+    const { prices } = resolvePlanPrices({ plura: "uno", omni: -5 });
+    expect(prices.plura).toBe(DEFAULT_PLAN_PRICES.plura);
+    expect(prices.omni).toBe(DEFAULT_PLAN_PRICES.omni);
   });
 
   it("survives a stored value of the wrong shape entirely", () => {
@@ -46,22 +46,22 @@ describe("resolvePlanPrices", () => {
   });
 
   it("does not mutate the shared default table", () => {
-    resolvePlanPrices({ personal: 99 });
-    expect(DEFAULT_PLAN_PRICES.personal).toBe(14.99);
+    resolvePlanPrices({ plura: 99 });
+    expect(DEFAULT_PLAN_PRICES.plura).toBe(14.99);
   });
 });
 
 describe("DEFAULT_PLAN_PRICES", () => {
   it("matches the Stripe catalogue", () => {
-    expect(DEFAULT_PLAN_PRICES.personal).toBe(14.99);
-    expect(DEFAULT_PLAN_PRICES.pro).toBe(29.99);
+    expect(DEFAULT_PLAN_PRICES.plura).toBe(14.99);
+    expect(DEFAULT_PLAN_PRICES.omni).toBe(29.99);
   });
 });
 
 describe("DEFAULT_ANNUAL_PRICES", () => {
   it("matches the Stripe catalogue", () => {
-    expect(DEFAULT_ANNUAL_PRICES.personal).toBe(149.9);
-    expect(DEFAULT_ANNUAL_PRICES.pro).toBe(299.9);
+    expect(DEFAULT_ANNUAL_PRICES.plura).toBe(149.9);
+    expect(DEFAULT_ANNUAL_PRICES.omni).toBe(299.9);
   });
 });
 

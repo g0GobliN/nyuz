@@ -8,7 +8,7 @@ import type { PlanTier } from "@/lib/supabase/types";
  * account-wide: an endpoint registered for nyuz receives every subscription
  * event on the account, including the other product's. Without a positive match
  * against these ids, a LaunchReady customer paying for a credit pack would be
- * handed a nyuz Pro plan.
+ * handed a nyuz Omni plan.
  *
  * The ids live in the environment rather than in this file because test-mode and
  * live-mode prices are different objects with different ids. Hard-coding the
@@ -16,24 +16,24 @@ import type { PlanTier } from "@/lib/supabase/types";
  */
 
 export type PriceEnv = {
-  STRIPE_PRICE_PERSONAL_MONTHLY?: string;
-  STRIPE_PRICE_PERSONAL_ANNUAL?: string;
-  STRIPE_PRICE_PRO_MONTHLY?: string;
-  STRIPE_PRICE_PRO_ANNUAL?: string;
+  STRIPE_PRICE_PLURA_MONTHLY?: string;
+  STRIPE_PRICE_PLURA_ANNUAL?: string;
+  STRIPE_PRICE_OMNI_MONTHLY?: string;
+  STRIPE_PRICE_OMNI_ANNUAL?: string;
   /**
    * Prices an existing subscriber is still billed against after a repricing.
    * Unset until one happens. See the `legacy` note on CATALOGUE.
    */
-  STRIPE_PRICE_PERSONAL_MONTHLY_LEGACY?: string;
-  STRIPE_PRICE_PERSONAL_ANNUAL_LEGACY?: string;
-  STRIPE_PRICE_PRO_MONTHLY_LEGACY?: string;
-  STRIPE_PRICE_PRO_ANNUAL_LEGACY?: string;
+  STRIPE_PRICE_PLURA_MONTHLY_LEGACY?: string;
+  STRIPE_PRICE_PLURA_ANNUAL_LEGACY?: string;
+  STRIPE_PRICE_OMNI_MONTHLY_LEGACY?: string;
+  STRIPE_PRICE_OMNI_ANNUAL_LEGACY?: string;
 };
 
 export type Interval = "month" | "year";
 
 export type ResolvedPrice = {
-  plan: Extract<PlanTier, "personal" | "pro">;
+  plan: Extract<PlanTier, "plura" | "omni">;
   interval: Interval;
   /** For the receipt email — "$7 / month". */
   label: string;
@@ -56,22 +56,22 @@ const CATALOGUE: {
    */
   legacy?: true;
 }[] = [
-  { key: "STRIPE_PRICE_PERSONAL_MONTHLY", plan: "personal", interval: "month" },
-  { key: "STRIPE_PRICE_PERSONAL_ANNUAL", plan: "personal", interval: "year" },
-  { key: "STRIPE_PRICE_PRO_MONTHLY", plan: "pro", interval: "month" },
-  { key: "STRIPE_PRICE_PRO_ANNUAL", plan: "pro", interval: "year" },
+  { key: "STRIPE_PRICE_PLURA_MONTHLY", plan: "plura", interval: "month" },
+  { key: "STRIPE_PRICE_PLURA_ANNUAL", plan: "plura", interval: "year" },
+  { key: "STRIPE_PRICE_OMNI_MONTHLY", plan: "omni", interval: "month" },
+  { key: "STRIPE_PRICE_OMNI_ANNUAL", plan: "omni", interval: "year" },
   // Populated when a repricing actually happens. Empty today, and the
   // machinery is here so that the day it happens is a configuration change
   // and a one-line addition rather than a redesign under time pressure.
   {
-    key: "STRIPE_PRICE_PERSONAL_MONTHLY_LEGACY",
-    plan: "personal",
+    key: "STRIPE_PRICE_PLURA_MONTHLY_LEGACY",
+    plan: "plura",
     interval: "month",
     legacy: true,
   },
-  { key: "STRIPE_PRICE_PERSONAL_ANNUAL_LEGACY", plan: "personal", interval: "year", legacy: true },
-  { key: "STRIPE_PRICE_PRO_MONTHLY_LEGACY", plan: "pro", interval: "month", legacy: true },
-  { key: "STRIPE_PRICE_PRO_ANNUAL_LEGACY", plan: "pro", interval: "year", legacy: true },
+  { key: "STRIPE_PRICE_PLURA_ANNUAL_LEGACY", plan: "plura", interval: "year", legacy: true },
+  { key: "STRIPE_PRICE_OMNI_MONTHLY_LEGACY", plan: "omni", interval: "month", legacy: true },
+  { key: "STRIPE_PRICE_OMNI_ANNUAL_LEGACY", plan: "omni", interval: "year", legacy: true },
 ];
 
 function read(env: PriceEnv | undefined, key: keyof PriceEnv): string | undefined {

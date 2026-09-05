@@ -303,7 +303,7 @@ export const loadHistory = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<HistoryFeed> => {
     const { actor } = context;
     const plan = await planOf(actor.db, actor.id);
-    const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+    const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.uno;
     const since = new Date(Date.now() - limits.retentionDays * 86_400_000).toISOString();
 
     const { data, error } = await actor.db
@@ -544,7 +544,7 @@ export const askStory = createServerFn({ method: "POST" })
     if (!gate.ok) {
       const detail =
         gate.reason === "plan"
-          ? "Ask is included on Personal and Pro."
+          ? "Ask is included on Plura and Omni."
           : "Deep explanations are switched off.";
       return { ok: false, reason: gate.reason, detail };
     }
@@ -580,7 +580,7 @@ export const askStory = createServerFn({ method: "POST" })
       };
     }
 
-    const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+    const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.uno;
     const cap = limits.asksPerDay;
     const { data: claimed, error: claimError } = await actor.db.rpc("claim_ask", {
       p_user_id: actor.id,
@@ -597,7 +597,7 @@ export const askStory = createServerFn({ method: "POST" })
           : reason === "cooldown"
             ? "Wait a moment before asking again."
             : reason === "plan"
-              ? "Ask is included on Personal and Pro."
+              ? "Ask is included on Plura and Omni."
               : "Ask is temporarily unavailable.";
       return { ok: false, reason, detail };
     }
@@ -628,7 +628,7 @@ export const askStory = createServerFn({ method: "POST" })
     try {
       const capability = askCapabilityFor(limits.askModel);
       if (capability === null) {
-        return { ok: false, reason: "plan", detail: "Ask is included on Personal and Pro." };
+        return { ok: false, reason: "plan", detail: "Ask is included on Plura and Omni." };
       }
       const result = await completeRouted({
         capability,
@@ -744,7 +744,7 @@ export const loadWatchedSources = createServerFn({ method: "GET" })
     if (error) throw new Error(`reading sources: ${error.message}`);
     if (prefError) throw new Error(`reading source prefs: ${prefError.message}`);
 
-    return groupForReader(rows ?? [], prefs ?? [], subscription?.plan ?? "free");
+    return groupForReader(rows ?? [], prefs ?? [], subscription?.plan ?? "uno");
   });
 
 /**
@@ -773,7 +773,7 @@ export const searchSources = createServerFn({ method: "GET" })
     ]);
     if (error) throw new Error(`searching sources: ${error.message}`);
 
-    return groupForReader(rows ?? [], prefs ?? [], subscription?.plan ?? "free");
+    return groupForReader(rows ?? [], prefs ?? [], subscription?.plan ?? "uno");
   });
 
 /**
@@ -789,7 +789,7 @@ function groupForReader(
   plan: PlanTier,
 ): SourceGroup[] {
   const prefOf = new Map(prefs.map((p) => [p.source_id, p.pref] as const));
-  const priorityCap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
+  const priorityCap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.uno.prioritySources;
   const activePriorities = new Set(
     clipLabels(
       prefs
@@ -828,7 +828,7 @@ export const setSourcePref = createServerFn({ method: "POST" })
   .handler(async ({ context, data }): Promise<{ ok: boolean; reason?: "plan" }> => {
     if (data.pref === "priority") {
       const plan = await planOf(context.actor.db, context.actor.id);
-      const cap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
+      const cap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.uno.prioritySources;
       if (Number.isFinite(cap)) {
         const { count } = await context.actor.db
           .from("user_source_prefs")
@@ -900,7 +900,7 @@ async function planOf(db: Db, userId: string): Promise<PlanTier> {
     .select("plan")
     .eq("user_id", userId)
     .maybeSingle();
-  return data?.plan ?? "free";
+  return data?.plan ?? "uno";
 }
 
 async function headlinesFor(db: Db, digestIds: string[]): Promise<Map<string, string>> {

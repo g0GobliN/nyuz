@@ -126,7 +126,7 @@ function tables(over: {
             },
           ],
     digest_items: [],
-    subscriptions: [{ user_id: "reader-1", plan: "free" }],
+    subscriptions: [{ user_id: "reader-1", plan: "uno" }],
     telegram_accounts: [],
     push_subscriptions: [],
     deliveries: [],

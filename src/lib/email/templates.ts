@@ -29,7 +29,7 @@ import {
  * mail has to keep too.
  */
 
-export type PlanLabel = "Personal" | "Pro";
+export type PlanLabel = "Plura" | "Omni";
 
 type Base = {
   /** Blank is fine — every greeting here works without a name. */
@@ -203,7 +203,7 @@ export function subscriptionCancelledEmail({
           `That is done — you will not be charged again. You keep everything ${escapeHtml(plan)} includes until <strong>${escapeHtml(until)}</strong>, the end of the period you have already paid for.`,
         ),
         p(
-          "After that the account moves to Free rather than closing. Your topics, exclusions and schedule stay exactly as you left them, and briefings keep arriving within the Free plan's limits.",
+          "After that the account moves to Uno rather than closing. Your topics, exclusions and schedule stay exactly as you left them, and briefings keep arriving within the Uno plan's limits.",
         ),
         button("Reactivate", href),
         pMuted(
@@ -216,7 +216,7 @@ export function subscriptionCancelledEmail({
       "",
       `That is done - you will not be charged again. You keep everything ${plan} includes until ${until}, the end of the period you have already paid for.`,
       "",
-      "After that the account moves to Free rather than closing. Your topics, exclusions and schedule stay exactly as you left them, and briefings keep arriving within the Free plan's limits.",
+      "After that the account moves to Uno rather than closing. Your topics, exclusions and schedule stay exactly as you left them, and briefings keep arriving within the Uno plan's limits.",
       "",
       `Reactivate: ${href}`,
       "",
@@ -255,7 +255,7 @@ export function paymentFailedEmail({
         ),
         button("Update payment method", href),
         pMuted(
-          "If the retry fails too, the account moves to Free rather than closing. Nothing is deleted and nothing is lost.",
+          "If the retry fails too, the account moves to Uno rather than closing. Nothing is deleted and nothing is lost.",
         ),
       ].join("\n"),
     }),
@@ -268,7 +268,7 @@ export function paymentFailedEmail({
       "",
       `Update payment method: ${href}`,
       "",
-      "If the retry fails too, the account moves to Free rather than closing. Nothing is deleted and nothing is lost.",
+      "If the retry fails too, the account moves to Uno rather than closing. Nothing is deleted and nothing is lost.",
     ].join("\n"),
   };
 }
@@ -334,7 +334,7 @@ export function dormantEmail({
       body: [
         p(greet(name)),
         p(
-          `You have not visited nyuz in ${String(days)} days. Free briefings pause automatically after 30 inactive days, so this is a good moment to tune them or keep them running.`,
+          `You have not visited nyuz in ${String(days)} days. Uno briefings pause automatically after 30 inactive days, so this is a good moment to tune them or keep them running.`,
         ),
         p(
           "<strong>The stories are not right.</strong> Topics too broad, or something you follow dragging in noise you did not want. Exclusions are the sharper tool here — they win over topics, always.",
@@ -351,7 +351,7 @@ export function dormantEmail({
     text: [
       greetText(name),
       "",
-      `You have not visited nyuz in ${days} days. Free briefings pause automatically after 30 inactive days, so this is a good moment to tune them or keep them running.`,
+      `You have not visited nyuz in ${days} days. Uno briefings pause automatically after 30 inactive days, so this is a good moment to tune them or keep them running.`,
       "",
       "The stories are not right. Topics too broad, or something you follow dragging in noise you did not want. Exclusions are the sharper tool here - they win over topics, always.",
       "",

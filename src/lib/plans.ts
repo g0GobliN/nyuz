@@ -5,10 +5,10 @@ import type { PlanTier } from "@/lib/supabase/types";
  * read these — not the admin override, which can only drift from what Stripe
  * actually charges.
  *
- *   nyuz personal         US$14.99 / month
- *   nyuz personal annual  US$149.90 / year
- *   nyuz pro              US$29.99 / month
- *   nyuz pro annual       US$299.90 / year
+ *   nyuz plura          US$14.99 / month
+ *   nyuz plura annual   US$149.90 / year
+ *   nyuz omni           US$29.99 / month
+ *   nyuz omni annual    US$299.90 / year
  *
  * ─────────────────────────────────────────────────────────────────────────
  * THESE NUMBERS ARE DISPLAY ONLY. THE CHARGE IS THE STRIPE PRICE OBJECT.
@@ -22,7 +22,7 @@ import type { PlanTier } from "@/lib/supabase/types";
  * So this table is only true once, in the Stripe account:
  *
  *   1. New prices exist at $14.99/$149.90 and $29.99/$299.90.
- *   2. `STRIPE_PRICE_PERSONAL_MONTHLY` and its three siblings point at them.
+ *   2. `STRIPE_PRICE_PLURA_MONTHLY` and its three siblings point at them.
  *   3. The previous ids ($7/$69, $15/$149) have been moved to the matching
  *      `*_LEGACY` variables, so existing subscribers keep billing against the
  *      price they signed up on and nobody is repriced without agreeing to it.
@@ -36,21 +36,21 @@ import type { PlanTier } from "@/lib/supabase/types";
  * deliberately not here: that section says not to expose it at launch.
  */
 export const DEFAULT_PLAN_PRICES: Record<PlanTier, number> = {
-  free: 0,
-  personal: 14.99,
-  pro: 29.99,
+  uno: 0,
+  plura: 14.99,
+  omni: 29.99,
 };
 
 /**
  * Annual totals. Exactly two months free against twelve months of the monthly
- * price — Personal saves $29.98, Pro saves $59.98.
+ * price — Plura saves $29.98, Omni saves $59.98.
  *
  * The pricing page derives the saving from these numbers rather than printing a
  * fixed claim, so changing them here changes the copy with them.
  */
-export const DEFAULT_ANNUAL_PRICES: Record<Exclude<PlanTier, "free">, number> = {
-  personal: 149.9,
-  pro: 299.9,
+export const DEFAULT_ANNUAL_PRICES: Record<Exclude<PlanTier, "uno">, number> = {
+  plura: 149.9,
+  omni: 299.9,
 };
 
 /** "$7.00" — the same two-decimal form Stripe shows. */
@@ -58,7 +58,7 @@ export function formatUsd(amount: number): string {
   return `$${amount.toFixed(2)}`;
 }
 
-export const PLAN_TIERS: PlanTier[] = ["free", "personal", "pro"];
+export const PLAN_TIERS: PlanTier[] = ["uno", "plura", "omni"];
 
 export type DensityBand = "minimal" | "focused" | "broad" | "deep";
 export type PlanModel = "flash" | "pro";
@@ -97,11 +97,11 @@ export type PlanLimits = {
   alerts: AlertAccess;
   /**
    * The most alerts a plan may receive in a rolling 24 hours. A **ceiling, not
-   * a target** — what actually governs the volume is `alerts`: Personal only
+   * a target** — what actually governs the volume is `alerts`: Plura only
    * ever alerts on events scoring 6 or higher, so an ordinary day sends zero
    * or one and the cap is never approached.
    *
-   * There used to be an `alertWeeklyCap` beside this, and Personal used it for
+   * There used to be an `alertWeeklyCap` beside this, and Plura used it for
    * a ration of 3 per rolling 7 days. Two fields meant every caller had to
    * know which one applied to which plan, and the weekly one meant a busy
    * Tuesday silenced a paying reader until the following Tuesday. Both are
@@ -118,7 +118,7 @@ export type PlanLimits = {
  * One table, because these numbers decide two different things in two different
  * places: what the billing page advertises, and what the topics page lets a
  * reader do. They were only ever written down on the billing page, which is why
- * somebody could pick eight topics on the Free plan and not discover until they
+ * somebody could pick eight topics on the Uno plan and not discover until they
  * opened billing that five of them were inert.
  *
  * `Infinity` rather than a large number or null: it compares correctly against a
@@ -126,7 +126,7 @@ export type PlanLimits = {
  * something obviously wrong if one ever forgets to.
  */
 export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
-  free: {
+  uno: {
     topics: 3,
     prioritySources: 3,
     // Zero on purpose (plan2 §63): a free reader consumes the already-active
@@ -145,7 +145,7 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     // Reduced to 50K tokens for student budget. 400K per free user could become expensive.
     monthlyAiTokenCap: 50_000,
   },
-  personal: {
+  plura: {
     topics: 15,
     prioritySources: 15,
     customSources: 5,
@@ -161,7 +161,7 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     // Reduced for student budget. Increase after covering costs with paid users.
     monthlyAiTokenCap: 200_000,
   },
-  pro: {
+  omni: {
     topics: Infinity,
     prioritySources: Infinity,
     // Finite where topics are not: each one is a real crawler on a schedule,
@@ -215,7 +215,7 @@ export type AskDecision =
 /**
  * Whether this Ask is allowed. Pure, so the cap can be tested without a model.
  *
- * `flagOn` is fail-closed: missing or false both refuse. Free has a zero cap,
+ * `flagOn` is fail-closed: missing or false both refuse. Uno has a zero cap,
  * which is the same as "not on this plan" rather than a quota message.
  */
 export function decideAsk(input: {
@@ -253,9 +253,9 @@ export function nextPlanUp(plan: PlanTier): PlanTier | null {
 }
 
 export const PLAN_NAMES: Record<PlanTier, string> = {
-  free: "Free",
-  personal: "Personal",
-  pro: "Pro",
+  uno: "nyuz Uno",
+  plura: "nyuz Plura",
+  omni: "nyuz Omni",
 };
 
 /**

@@ -25,8 +25,6 @@ import {
  * twelve articles shown are all the coverage there was.
  */
 
-const SLUGS = ["ai", "openai", "nvidia", "chips", "funding", "open-source"];
-
 const reply = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   title: "OpenAI opposes California's AI safety bill",
   what_happened: "OpenAI sent a letter to the governor opposing SB 1047.",
@@ -41,7 +39,7 @@ const reply = (over: Record<string, unknown> = {}): Record<string, unknown> => (
 
 describe("readAnalysis", () => {
   it("reads a well-formed reply", () => {
-    const analysis = readAnalysis(reply(), SLUGS);
+    const analysis = readAnalysis(reply(), ["openai", "ai"], []);
 
     expect(analysis).not.toBeNull();
     expect(analysis?.whatHappened).toBe("OpenAI sent a letter to the governor opposing SB 1047.");
@@ -60,37 +58,37 @@ describe("readAnalysis", () => {
       // backfills it lazily. Refusing the whole analysis over one missing
       // sentence would throw away real signal to protect a path that already
       // exists for exactly this case.
-      const analysis = readAnalysis(reply({ impact: undefined }), SLUGS);
+      const analysis = readAnalysis(reply({ impact: undefined }), [], []);
       expect(analysis).not.toBeNull();
       expect(analysis?.impact).toBeNull();
     });
 
     it("treats the model's null-shaped strings as null, same as before_state", () => {
-      expect(readAnalysis(reply({ impact: "unknown" }), SLUGS)?.impact).toBeNull();
-      expect(readAnalysis(reply({ impact: "   " }), SLUGS)?.impact).toBeNull();
+      expect(readAnalysis(reply({ impact: "unknown" }), [], [])?.impact).toBeNull();
+      expect(readAnalysis(reply({ impact: "   " }), [], [])?.impact).toBeNull();
     });
   });
 
   describe("refusing rather than repairing", () => {
     it("refuses a reply with no what_happened", () => {
       // The one field with no substitute. There is nothing to show a reader.
-      expect(readAnalysis(reply({ what_happened: undefined }), SLUGS)).toBeNull();
-      expect(readAnalysis(reply({ what_happened: "   " }), SLUGS)).toBeNull();
+      expect(readAnalysis(reply({ what_happened: undefined }), [], [])).toBeNull();
+      expect(readAnalysis(reply({ what_happened: "   " }), [], [])).toBeNull();
     });
 
     it("refuses a reply with a missing or unparseable score", () => {
-      expect(readAnalysis(reply({ importance: undefined }), SLUGS)).toBeNull();
-      expect(readAnalysis(reply({ novelty: null }), SLUGS)).toBeNull();
-      expect(readAnalysis(reply({ importance: "high" }), SLUGS)).toBeNull();
-      expect(readAnalysis(reply({ novelty: Number.NaN }), SLUGS)).toBeNull();
+      expect(readAnalysis(reply({ importance: undefined }), [], [])).toBeNull();
+      expect(readAnalysis(reply({ novelty: null }), [], [])).toBeNull();
+      expect(readAnalysis(reply({ importance: "high" }), [], [])).toBeNull();
+      expect(readAnalysis(reply({ novelty: Number.NaN }), [], [])).toBeNull();
     });
 
     it("refuses anything that is not an object", () => {
       // What a model returns when it ignores the format: prose, a list, nothing.
-      expect(readAnalysis("The event is about OpenAI.", SLUGS)).toBeNull();
-      expect(readAnalysis([reply()], SLUGS)).toBeNull();
-      expect(readAnalysis(null, SLUGS)).toBeNull();
-      expect(readAnalysis(undefined, SLUGS)).toBeNull();
+      expect(readAnalysis("The event about OpenAI.", [], [])).toBeNull();
+      expect(readAnalysis([reply()], [], [])).toBeNull();
+      expect(readAnalysis(null, [], [])).toBeNull();
+      expect(readAnalysis(undefined, [], [])).toBeNull();
     });
   });
 
@@ -98,94 +96,58 @@ describe("readAnalysis", () => {
     it("clamps to the range the column allows", () => {
       // `events.importance` has a `check (importance between 0 and 10)`, so an 11
       // is not a bad score, it is a failed write of an otherwise good analysis.
-      expect(readAnalysis(reply({ importance: 11, novelty: -3 }), SLUGS)?.importance).toBe(10);
-      expect(readAnalysis(reply({ importance: 11, novelty: -3 }), SLUGS)?.novelty).toBe(0);
+      expect(readAnalysis(reply({ importance: 11, novelty: -3 }), [], [])?.importance).toBe(10);
+      expect(readAnalysis(reply({ importance: 11, novelty: -3 }), [], [])?.novelty).toBe(0);
     });
 
     it("accepts a score written as a string", () => {
       // A formatting slip by a model that got the judgement right. Paying for the
       // reasoning a second time to punish the quote marks would be absurd.
-      expect(readAnalysis(reply({ importance: "8" }), SLUGS)?.importance).toBe(8);
+      expect(readAnalysis(reply({ importance: "8" }), [], [])?.importance).toBe(8);
     });
 
     it("keeps one decimal place and no more", () => {
-      expect(readAnalysis(reply({ importance: 6.44 }), SLUGS)?.importance).toBe(6.4);
-      expect(readAnalysis(reply({ importance: 6.46 }), SLUGS)?.importance).toBe(6.5);
+      expect(readAnalysis(reply({ importance: 6.44 }), [], [])?.importance).toBe(6.4);
+      expect(readAnalysis(reply({ importance: 6.46 }), [], [])?.importance).toBe(6.5);
     });
 
     it("keeps a genuine zero", () => {
       // Distinct from a missing score, and the two must not collapse: 0 is the
       // correct answer for a routine point release.
-      expect(readAnalysis(reply({ importance: 0 }), SLUGS)?.importance).toBe(0);
+      expect(readAnalysis(reply({ importance: 0 }), [], [])?.importance).toBe(0);
     });
   });
 
-  describe("topics", () => {
-    it("drops slugs that do not exist and reports them", () => {
-      // A topic nobody can subscribe to matches no reader, so inventing the row
-      // would be spend with no effect. Reported because a slug the model keeps
-      // reaching for is evidence the topic list is too narrow.
-      const analysis = readAnalysis(reply({ topics: ["ai", "quantum", "biotech"] }), SLUGS);
+  describe("topics and tags", () => {
+    it("uses code-assigned topics when provided", () => {
+      const analysis = readAnalysis(reply(), ["openai", "ai"], ["technology", "regulation"]);
 
-      expect(analysis?.topics).toEqual(["ai"]);
-      expect(analysis?.unknownTopics).toEqual(["quantum", "biotech"]);
+      expect(analysis?.topics).toEqual(["openai", "ai"]);
+      expect(analysis?.tags).toEqual(["technology", "regulation"]);
+      expect(analysis?.unknownTopics).toEqual([]);
     });
 
-    it("normalises case and whitespace before matching", () => {
-      expect(readAnalysis(reply({ topics: [" AI ", "OpenAI"] }), SLUGS)?.topics).toEqual([
-        "ai",
-        "openai",
-      ]);
+    it("falls back to empty arrays when code returns nothing", () => {
+      const analysis = readAnalysis(reply(), [], []);
+
+      expect(analysis?.topics).toEqual([]);
+      expect(analysis?.tags).toEqual([]);
+      expect(analysis?.unknownTopics).toEqual([]);
     });
 
-    it("de-duplicates, in both lists", () => {
-      // A repeat would be a duplicate row against a two-column primary key. The
-      // upsert would survive it; the count of topics on the event would not.
-      const analysis = readAnalysis(reply({ topics: ["ai", "ai", "nope", "nope"] }), SLUGS);
-
-      expect(analysis?.topics).toEqual(["ai"]);
-      expect(analysis?.unknownTopics).toEqual(["nope"]);
-    });
-
-    it("caps the list", () => {
-      const analysis = readAnalysis(
-        reply({ topics: ["ai", "openai", "nvidia", "chips", "funding", "open-source"] }),
-        SLUGS,
-      );
+    it("caps topics at MAX_TOPICS and tags at 8", () => {
+      const manyTopics = Array.from({ length: 10 }, (_, i) => `topic-${i}`);
+      const manyTags = Array.from({ length: 12 }, (_, i) => `tag-${i}`);
+      const analysis = readAnalysis(reply(), manyTopics, manyTags);
 
       expect(analysis?.topics).toHaveLength(5);
-    });
-
-    it("accepts objects with a slug, and ignores other shapes", () => {
-      const analysis = readAnalysis(
-        reply({ topics: [{ slug: "ai" }, { name: "openai" }, 7, null, ["chips"]] }),
-        SLUGS,
-      );
-
-      // `{name: "openai"}` is dropped rather than guessed at: the key it used is
-      // not the key it was asked for, and reading any string off any object would
-      // eventually link a confidence score as a topic.
-      expect(analysis?.topics).toEqual(["ai"]);
-    });
-
-    it("accepts an empty list as an answer", () => {
-      // Deliberately not a failure. An event outside every topic is a real event
-      // that nobody has subscribed to, and it is correct for it to reach no one.
-      const analysis = readAnalysis(reply({ topics: [] }), SLUGS);
-
-      expect(analysis).not.toBeNull();
-      expect(analysis?.topics).toEqual([]);
-    });
-
-    it("survives topics that are not a list at all", () => {
-      expect(readAnalysis(reply({ topics: "ai, openai" }), SLUGS)?.topics).toEqual([]);
-      expect(readAnalysis(reply({ topics: undefined }), SLUGS)?.topics).toEqual([]);
+      expect(analysis?.tags).toHaveLength(8);
     });
   });
 
   describe("the fields that are allowed to be absent", () => {
     it("keeps null for a before or after state the coverage did not give", () => {
-      const analysis = readAnalysis(reply({ before_state: null, after_state: null }), SLUGS);
+      const analysis = readAnalysis(reply({ before_state: null, after_state: null }), [], []);
 
       expect(analysis?.beforeState).toBeNull();
       expect(analysis?.afterState).toBeNull();
@@ -196,14 +158,15 @@ describe("readAnalysis", () => {
       // instead. Storing it would put "Unknown" on a story page in the position of
       // a finding, under a real headline, next to real sources.
       for (const evasion of ["null", "None", "unknown", "N/A", "Not stated", "not specified."]) {
-        expect(readAnalysis(reply({ before_state: evasion }), SLUGS)?.beforeState).toBeNull();
+        expect(readAnalysis(reply({ before_state: evasion }), [], [])?.beforeState).toBeNull();
       }
     });
 
     it("does not mistake real prose for an evasion", () => {
       const analysis = readAnalysis(
         { ...reply(), before_state: "No such rule existed in any US state." },
-        SLUGS,
+        [],
+        [],
       );
 
       expect(analysis?.beforeState).toBe("No such rule existed in any US state.");
@@ -212,12 +175,12 @@ describe("readAnalysis", () => {
     it("leaves the title null when the model did not give a usable one", () => {
       // Null means "keep the placeholder from clustering". An empty string would
       // replace a real headline with nothing at all.
-      expect(readAnalysis(reply({ title: "" }), SLUGS)?.title).toBeNull();
-      expect(readAnalysis(reply({ title: 12 }), SLUGS)?.title).toBeNull();
+      expect(readAnalysis(reply({ title: "" }), [], [])?.title).toBeNull();
+      expect(readAnalysis(reply({ title: 12 }), [], [])?.title).toBeNull();
     });
 
     it("truncates an over-long title rather than refusing the analysis", () => {
-      const analysis = readAnalysis(reply({ title: "x".repeat(400) }), SLUGS);
+      const analysis = readAnalysis(reply({ title: "x".repeat(400) }), [], []);
 
       expect(analysis?.title).toHaveLength(200);
     });
@@ -388,7 +351,7 @@ describe("demand gate fail-closed behavior", () => {
 
 describe("contract", () => {
   it("tells one_sentence not to carry a headline figure numbers should own", () => {
-    const prompt = contract(SLUGS);
+    const prompt = contract();
     // The fix for the OpenAI Daybreak $1B duplication: one_sentence and numbers
     // must not both state the same headline figure. This pins the instruction's
     // presence in the shipped prompt -- it cannot pin live model compliance,

@@ -119,13 +119,13 @@ export function thresholdFor(density: number): number {
 }
 
 /** How many stories a briefing at this density is allowed to carry. */
-export function capFor(density: number, plan: PlanTier = "free"): number {
+export function capFor(density: number, plan: PlanTier = "uno"): number {
   const level = levelFor(density);
   return PLAN_LIMITS[plan]?.storyCaps[level.key] ?? level.cap;
 }
 
 /** Honest UI copy: availability can make a briefing shorter, never longer. */
-export function countFor(density: number, plan: PlanTier = "free"): string {
+export function countFor(density: number, plan: PlanTier = "uno"): string {
   return `Up to ${capFor(density, plan)}`;
 }
 

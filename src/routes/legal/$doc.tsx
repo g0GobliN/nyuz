@@ -106,7 +106,7 @@ const DOCS: Record<string, Doc> = {
         p: [
           "Your account email, the topics and exclusions you configure, your delivery schedule, channels and reading language, and the feedback signals you give on individual stories.",
           "We store which briefings were generated and delivered so you can read your history and so we can retry failed deliveries.",
-          "We record the time of your most recent visit. It distinguishes active from dormant accounts; Free briefings pause after 30 inactive days and resume when you return.",
+          "We record the time of your most recent visit. It distinguishes active from dormant accounts; Uno briefings pause after 30 inactive days and resume when you return.",
           "If you add a source of your own, we store the address of the feed and the fact that you follow it. Feeds are shared: if another reader adds the same one, you both follow the same feed. We do not publish who follows what.",
           "If you enable Telegram or browser push, we store the delivery identifier needed to reach that account or browser. For paid plans, Stripe gives us billing identifiers and subscription status; nyuz does not receive your full card number.",
         ],
@@ -130,7 +130,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "How long we keep it",
         p: [
-          "Briefing history follows your plan's retention window — 7 days on Free, 90 days on Personal, one year on Pro. Older items are deleted, not archived.",
+          "Briefing history follows your plan's retention window — 7 days on Uno, 90 days on Plura, one year on Omni. Older items are deleted, not archived.",
           "Feedback signals are kept while your account is open, because they are what stops us sending you the same irrelevant story twice. You can clear them at any time from Settings, which resets personalisation to your stated topics alone.",
           "Our delivery records expire with the briefing history for your plan. Email providers may keep separate delivery, bounce and complaint metadata under their own retention policies.",
         ],
@@ -200,7 +200,7 @@ const DOCS: Record<string, Doc> = {
           "You can choose a reading language other than English. English is the language nyuz works in, and other languages are translations of it, which may be delayed or unavailable.",
           "Availability targets are best-effort. Refunds for a missed or delayed briefing follow the Refunds policy.",
           "A quiet day is a working day. If nothing clears your threshold, you get a short briefing or none — that is the product behaving correctly, not an outage.",
-          "Free briefings pause after 30 days without a visit so unused accounts do not keep generating work. We warn you first, preserve your settings, and resume automatically when you return.",
+          "Uno briefings pause after 30 days without a visit so unused accounts do not keep generating work. We warn you first, preserve your settings, and resume automatically when you return.",
         ],
       },
       {
@@ -279,7 +279,7 @@ const DOCS: Record<string, Doc> = {
           "Share one account across a team. Seats exist; ask us about them.",
           "Use delivery channels to send anything to anyone other than yourself.",
           "Configure topics or instructions designed to make the service generate harassment, or content targeting a private individual.",
-          "Circumvent plan limits, whether by automation or by holding multiple free accounts.",
+          "Circumvent plan limits, whether by automation or by holding multiple Uno accounts.",
           "Submit a source in order to make us fetch something you could not or should not fetch yourself, such as an address on a private or internal network.",
           "Submit a source to point us at somebody else's service as a way of putting load on it, or at material you have no right to have collected.",
         ],
@@ -555,7 +555,7 @@ const DOCS: Record<string, Doc> = {
             ["メールアドレス — Email", ENTITY.mail.contact],
             [
               "販売価格 — Price",
-              "Free: US$0. Personal: US$14.99 per month or US$149.90 per year. Pro: US$29.99 per month or US$299.90 per year. Current prices are always on the Pricing page.",
+              "Uno: US$0. Plura: US$14.99 per month or US$149.90 per year. Omni: US$29.99 per month or US$299.90 per year. Current prices are always on the Pricing page.",
             ],
             [
               "商品代金以外の必要料金 — Additional charges",

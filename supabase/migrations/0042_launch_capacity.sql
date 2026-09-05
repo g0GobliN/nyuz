@@ -2,10 +2,10 @@
 -- prices. Preserve any values the operator deliberately set to something else.
 update public.site_settings
    set value = value || jsonb_build_object(
-         'personal', 14.99,
-         'pro', 29.99,
-         'personalAnnual', 149.90,
-         'proAnnual', 299.90
+         'plura', 14.99,
+         'omni', 29.99,
+         'pluraAnnual', 149.90,
+         'omniAnnual', 299.90
        ),
        updated_at = now()
  where key = 'billing.prices'
@@ -110,9 +110,9 @@ begin
   perform pg_advisory_xact_lock(hashtext('source_probe:' || p_user_id::text));
 
   select plan into user_plan from public.subscriptions where user_id = p_user_id;
-  cap := case coalesce(user_plan, 'free')
-           when 'pro' then 25
-           when 'personal' then 5
+  cap := case coalesce(user_plan, 'uno')
+           when 'omni' then 25
+           when 'plura' then 5
            else 0
          end;
   if cap <= 0 then return 'plan'; end if;

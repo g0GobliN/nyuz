@@ -57,10 +57,10 @@ export type UnitEconomics = {
   complete: boolean;
   incompleteReasons: string[];
   operatingCosts: OperatingCost[];
-  plans: Record<"personal" | "pro", PlanEconomics>;
+  plans: Record<"plura" | "omni", PlanEconomics>;
 };
 
-const PAID_PLANS = ["personal", "pro"] as const;
+const PAID_PLANS = ["plura", "omni"] as const;
 type PaidPlan = (typeof PAID_PLANS)[number];
 
 function percentile(values: number[], fraction: number): number | null {
@@ -90,7 +90,7 @@ function emptyPlan(): PlanEconomics {
 }
 
 function paidPlan(value: PlanTier | null): PaidPlan | null {
-  return value === "personal" || value === "pro" ? value : null;
+  return value === "plura" || value === "omni" ? value : null;
 }
 
 export function computeUnitEconomics(input: {
@@ -104,10 +104,10 @@ export function computeUnitEconomics(input: {
   const to = input.now.getTime();
   const from = to - input.days * 86_400_000;
   const reasons = new Set<string>();
-  const plans: Record<PaidPlan, PlanEconomics> = { personal: emptyPlan(), pro: emptyPlan() };
+  const plans: Record<PaidPlan, PlanEconomics> = { plura: emptyPlan(), omni: emptyPlan() };
   const customers: Record<PaidPlan, Set<string>> = {
-    personal: new Set(),
-    pro: new Set(),
+    plura: new Set(),
+    omni: new Set(),
   };
 
   for (const row of input.billing) {

@@ -41,20 +41,20 @@ const samples: Record<string, Email> = {
   "02-subscription-started": subscriptionStartedEmail({
     name,
     baseUrl,
-    plan: "Personal",
+    plan: "Plura",
     priceLabel: "$14.99/month",
     renewsOn: new Date("2026-09-30T00:00:00Z"),
   }),
   "03-subscription-cancelled": subscriptionCancelledEmail({
     name,
     baseUrl,
-    plan: "Personal",
+    plan: "Plura",
     accessUntil: new Date("2026-09-30T00:00:00Z"),
   }),
   "04-payment-failed": paymentFailedEmail({
     name,
     baseUrl,
-    plan: "Personal",
+    plan: "Plura",
     retryOn: new Date("2026-09-03T00:00:00Z"),
   }),
   "05-briefings-paused": briefingsPausedEmail({ name, baseUrl }),

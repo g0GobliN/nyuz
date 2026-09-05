@@ -54,7 +54,7 @@ describe("stageForMinute", () => {
     expect(order).toEqual(["cluster", "analyse", "match"]);
   });
 
-  it("checks inactive Free readers daily at noon", () => {
+  it("checks inactive Uno readers daily at noon", () => {
     expect(stageForMinute(monday(12, 0))).toBe("dormant");
     expect(stageForMinute(monday(13, 0))).toBeNull();
     expect(stageForMinute(tuesday(12, 0))).toBe("dormant");

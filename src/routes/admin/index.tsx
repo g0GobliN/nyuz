@@ -132,8 +132,8 @@ function OverviewPage() {
               value={formatNumber(d.revenue.paid)}
               hint={`${pct(d.revenue.conversion)} of accounts`}
             />
-            <Stat label="Personal" value={formatNumber(d.revenue.byPlan.personal)} />
-            <Stat label="Pro" value={formatNumber(d.revenue.byPlan.pro)} />
+            <Stat label="Plura" value={formatNumber(d.revenue.byPlan.plura)} />
+            <Stat label="Omni" value={formatNumber(d.revenue.byPlan.omni)} />
           </StatGrid>
         </Panel>
 

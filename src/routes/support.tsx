@@ -45,7 +45,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "How do alerts work?",
-    a: "On Personal and Pro plans, you can enable alerts for important stories. Configure this in Settings → Alerts. Free plans do not include alerts.",
+    a: "On Plura and Omni plans, you can enable alerts for important stories. Configure this in Settings → Alerts. Uno plans do not include alerts.",
   },
 ];
 

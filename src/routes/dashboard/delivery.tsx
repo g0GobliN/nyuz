@@ -39,7 +39,7 @@ const ZONES = [
 function Delivery() {
   const { prefs, update } = usePrefs();
   const { plan } = usePlan();
-  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.uno;
   const effectiveBreaking = allowedBreaking(plan, prefs.breaking);
   // The address on the account, not a stored copy — the account is the only
   // thing that actually receives a briefing.
@@ -301,14 +301,14 @@ function Delivery() {
                       : b === "everything"
                         ? "Everything"
                         : "Off"}
-                    {locked ? ` · ${b === "everything" ? "Pro" : "Paid"}` : ""}
+                    {locked ? ` · ${b === "everything" ? "Omni" : "Paid"}` : ""}
                   </Chip>
                 );
               })}
             </div>
             <p className="mt-3 text-[12.5px] leading-relaxed text-muted-foreground">
               {limits.alerts === "none"
-                ? "Alerts are a paid feature. Free stories wait for the next scheduled briefing."
+                ? "Alerts are a paid feature. On Uno, stories wait for the next scheduled briefing."
                 : limits.alerts === "important"
                   ? `Only what you would regret missing arrives outside your schedule. Most days that is nothing at all, and never more than ${limits.alertDailyCap} in a day.`
                   : `Choose important or everything, with a ceiling of ${limits.alertDailyCap} alerts a day.`}

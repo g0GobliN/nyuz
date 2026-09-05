@@ -1,12 +1,12 @@
 /**
- * Deterministic topic and tag assignment — shadow mode only.
+ * Deterministic topic and tag assignment.
  *
  * This module assigns topics and tags to events using keyword matching
  * against the topic pool. It does NOT call the AI model — it uses
  * pure string matching against the same pool that the AI model uses.
  *
- * The results are compared against AI-assigned topics in shadow mode.
- * No production output is affected.
+ * The results are used directly in production. Shadow comparison is still
+ * recorded for observability.
  *
  * See docs/track.md phase 7 for the shadow measurement framework.
  */

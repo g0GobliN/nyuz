@@ -186,7 +186,7 @@ function CustomSources() {
 
       {data && !canAdd ? (
         <p className="mt-5 text-[13px] leading-relaxed">
-          Adding your own sources is included on Personal and Pro.
+          Adding your own sources is included on Plura and Omni.
         </p>
       ) : null}
 

@@ -682,14 +682,14 @@ export async function loadReaders(
   const sourcePrefsBy = groupByUser(sourcePrefs ?? []);
 
   const readers = wanted.map((row) => {
-    const plan = planOf.get(row.user_id) ?? "free";
+    const plan = planOf.get(row.user_id) ?? "uno";
     const mine = (followedBy.get(row.user_id) ?? [])
       .slice()
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
-    const cap = PLAN_LIMITS[plan]?.topics ?? PLAN_LIMITS.free.topics;
+    const cap = PLAN_LIMITS[plan]?.topics ?? PLAN_LIMITS.uno.topics;
     const active = clipLabels(mine, cap);
     const mineSourcePrefs = sourcePrefsBy.get(row.user_id) ?? [];
-    const priorityCap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.free.prioritySources;
+    const priorityCap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.uno.prioritySources;
     const activePriority = new Set(
       clipLabels(
         mineSourcePrefs

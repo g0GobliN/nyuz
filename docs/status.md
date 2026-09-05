@@ -7,7 +7,7 @@ has not been re-walked claim by claim; only the counts and the V2 entries are cu
 
 Real growth happened in the gap: the source list and topic vocabulary both expanded
 well past technology into general news. One `subscriptions` row shows
-`plan = 'pro', status = 'active'` with **no Stripe customer or subscription id** —
+`plan = 'omni', status = 'active'` with **no Stripe customer or subscription id** —
 checked directly, not assumed — so it did not come through checkout. Not a paying
 customer; "zero paying customers" below still holds.
 

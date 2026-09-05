@@ -49,8 +49,8 @@ language sql
 immutable
 as $fn$
   select case p_plan
-    when 'pro' then null
-    when 'personal' then 15
+    when 'omni' then null
+    when 'plura' then 15
     else 3
   end;
 $fn$;
@@ -79,7 +79,7 @@ begin
   select s.plan into plan
     from public.subscriptions s
    where s.user_id = new.user_id;
-  cap := public.plan_priority_source_cap(coalesce(plan, 'free'));
+  cap := public.plan_priority_source_cap(coalesce(plan, 'uno'));
   if cap is null then
     return new;
   end if;
@@ -134,11 +134,11 @@ begin
   select s.plan into plan
     from public.subscriptions s
    where s.user_id = p_user_id;
-  plan := coalesce(plan, 'free');
+  plan := coalesce(plan, 'uno');
 
-  if plan = 'free' then
+  if plan = 'uno' then
     return 'plan';
-  elsif plan = 'personal' then
+  elsif plan = 'plura' then
     if p_importance < 6 then
       return 'importance';
     end if;
@@ -288,11 +288,11 @@ begin
       from public.digests d
       join public.subscriptions s on s.user_id = d.user_id
      where d.status in ('ready', 'sent', 'skipped', 'failed')
-       and d.scheduled_for < now() - make_interval(days => case s.plan
-         when 'pro' then 365
-         when 'personal' then 90
-         else 7
-       end)
+        and d.scheduled_for < now() - make_interval(days => case s.plan
+          when 'omni' then 365
+          when 'plura' then 90
+          else 7
+        end)
      order by d.scheduled_for asc
      limit greatest(1, least(p_limit, 5000))
   )

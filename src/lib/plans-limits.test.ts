@@ -46,56 +46,56 @@ describe("clipLabels", () => {
 });
 
 describe("PLAN_LIMITS.asksPerDay", () => {
-  it("gives Free no Ask calls", () => {
-    expect(PLAN_LIMITS.free.asksPerDay).toBe(0);
+  it("gives Uno no Ask calls", () => {
+    expect(PLAN_LIMITS.uno.asksPerDay).toBe(0);
   });
 
   it("gives paid plans a daily cap", () => {
-    expect(PLAN_LIMITS.personal.asksPerDay).toBe(10);
-    expect(PLAN_LIMITS.pro.asksPerDay).toBe(15);
+    expect(PLAN_LIMITS.plura.asksPerDay).toBe(10);
+    expect(PLAN_LIMITS.omni.asksPerDay).toBe(15);
   });
 
   it("keeps expensive features bounded per plan", () => {
-    expect(PLAN_LIMITS.free.storyCaps.deep).toBe(18);
-    expect(PLAN_LIMITS.personal.storyCaps.deep).toBe(30);
-    expect(PLAN_LIMITS.pro.storyCaps.deep).toBe(50);
-    expect(PLAN_LIMITS.free.alerts).toBe("none");
+    expect(PLAN_LIMITS.uno.storyCaps.deep).toBe(18);
+    expect(PLAN_LIMITS.plura.storyCaps.deep).toBe(30);
+    expect(PLAN_LIMITS.omni.storyCaps.deep).toBe(50);
+    expect(PLAN_LIMITS.uno.alerts).toBe("none");
   });
 
   it("caps alerts per day, generously, on one window for every plan", () => {
     // Ceilings, not targets. Alerts reuse the shared event analysis and cost no
     // AI, so these exist to bound a bad day rather than to protect a budget —
-    // what keeps Personal quiet is its importance floor, not this number.
-    expect(PLAN_LIMITS.free.alertDailyCap).toBe(0);
-    expect(PLAN_LIMITS.personal.alertDailyCap).toBe(10);
-    expect(PLAN_LIMITS.pro.alertDailyCap).toBe(25);
+    // what keeps Plura quiet is its importance floor, not this number.
+    expect(PLAN_LIMITS.uno.alertDailyCap).toBe(0);
+    expect(PLAN_LIMITS.plura.alertDailyCap).toBe(10);
+    expect(PLAN_LIMITS.omni.alertDailyCap).toBe(25);
   });
 
-  it("differentiates Pro by sensitivity rather than by starving Personal", () => {
-    // Personal is generous on volume and limited to what it would be a problem
-    // to miss. Pro's extra is the ability to widen that, not merely a bigger
+  it("differentiates Omni by sensitivity rather than by starving Plura", () => {
+    // Plura is generous on volume and limited to what it would be a problem
+    // to miss. Omni's extra is the ability to widen that, not merely a bigger
     // number — so a paid reader is never made to feel rationed.
-    expect(PLAN_LIMITS.personal.alerts).toBe("important");
-    expect(PLAN_LIMITS.pro.alerts).toBe("configurable");
-    expect(PLAN_LIMITS.pro.alertDailyCap).toBeGreaterThan(PLAN_LIMITS.personal.alertDailyCap);
+    expect(PLAN_LIMITS.plura.alerts).toBe("important");
+    expect(PLAN_LIMITS.omni.alerts).toBe("configurable");
+    expect(PLAN_LIMITS.omni.alertDailyCap).toBeGreaterThan(PLAN_LIMITS.plura.alertDailyCap);
   });
 });
 
 describe("plan feature routing", () => {
-  it("uses Flash for Free digests and Personal Ask", () => {
-    expect(digestCapabilityFor(PLAN_LIMITS.free.digestModel)).toBe("cluster");
-    expect(askCapabilityFor(PLAN_LIMITS.personal.askModel)).toBe("cluster");
+  it("uses Flash for Uno digests and Plura Ask", () => {
+    expect(digestCapabilityFor(PLAN_LIMITS.uno.digestModel)).toBe("cluster");
+    expect(askCapabilityFor(PLAN_LIMITS.plura.askModel)).toBe("cluster");
   });
 
-  it("uses Pro routes for paid digests and Pro Ask", () => {
-    expect(digestCapabilityFor(PLAN_LIMITS.personal.digestModel)).toBe("digest");
-    expect(askCapabilityFor(PLAN_LIMITS.pro.askModel)).toBe("reason");
+  it("uses Omni routes for paid digests and Omni Ask", () => {
+    expect(digestCapabilityFor(PLAN_LIMITS.plura.digestModel)).toBe("digest");
+    expect(askCapabilityFor(PLAN_LIMITS.omni.askModel)).toBe("reason");
   });
 
   it("clamps alert settings to the active plan", () => {
-    expect(allowedBreaking("free", "everything")).toBe("off");
-    expect(allowedBreaking("personal", "everything")).toBe("important");
-    expect(allowedBreaking("pro", "everything")).toBe("everything");
+    expect(allowedBreaking("uno", "everything")).toBe("off");
+    expect(allowedBreaking("plura", "everything")).toBe("important");
+    expect(allowedBreaking("omni", "everything")).toBe("everything");
   });
 });
 
@@ -103,18 +103,18 @@ describe("decideAsk", () => {
   const now = new Date("2026-08-25T03:00:00.000Z");
 
   it("fails closed when the flag row is missing or off", () => {
-    expect(decideAsk({ flagOn: null, plan: "pro", usedToday: 0, lastAt: null, now })).toEqual({
+    expect(decideAsk({ flagOn: null, plan: "omni", usedToday: 0, lastAt: null, now })).toEqual({
       ok: false,
       reason: "disabled",
     });
-    expect(decideAsk({ flagOn: false, plan: "pro", usedToday: 0, lastAt: null, now })).toEqual({
+    expect(decideAsk({ flagOn: false, plan: "omni", usedToday: 0, lastAt: null, now })).toEqual({
       ok: false,
       reason: "disabled",
     });
   });
 
-  it("refuses Free", () => {
-    expect(decideAsk({ flagOn: true, plan: "free", usedToday: 0, lastAt: null, now })).toEqual({
+  it("refuses Uno", () => {
+    expect(decideAsk({ flagOn: true, plan: "uno", usedToday: 0, lastAt: null, now })).toEqual({
       ok: false,
       reason: "plan",
     });
@@ -124,8 +124,8 @@ describe("decideAsk", () => {
     expect(
       decideAsk({
         flagOn: true,
-        plan: "personal",
-        usedToday: PLAN_LIMITS.personal.asksPerDay,
+        plan: "plura",
+        usedToday: PLAN_LIMITS.plura.asksPerDay,
         lastAt: null,
         now,
       }),
@@ -134,15 +134,15 @@ describe("decideAsk", () => {
 
   it("enforces a cooldown between calls", () => {
     const lastAt = new Date(now.getTime() - ASK_COOLDOWN_MS / 2);
-    expect(decideAsk({ flagOn: true, plan: "personal", usedToday: 0, lastAt, now })).toEqual({
+    expect(decideAsk({ flagOn: true, plan: "plura", usedToday: 0, lastAt, now })).toEqual({
       ok: false,
       reason: "cooldown",
     });
   });
 
-  it("allows a Personal call under the cap after the cooldown", () => {
+  it("allows a Plura call under the cap after the cooldown", () => {
     const lastAt = new Date(now.getTime() - ASK_COOLDOWN_MS - 1);
-    expect(decideAsk({ flagOn: true, plan: "personal", usedToday: 0, lastAt, now })).toEqual({
+    expect(decideAsk({ flagOn: true, plan: "plura", usedToday: 0, lastAt, now })).toEqual({
       ok: true,
     });
   });

@@ -435,8 +435,8 @@ function UnitEconomicsPanel({ data }: { data: UnitEconomics }) {
         ) : null}
 
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          <PlanCard name="Personal · $14.99" data={data.plans.personal} complete={data.complete} />
-          <PlanCard name="Pro · $29.99" data={data.plans.pro} complete={data.complete} />
+          <PlanCard name="Plura · $14.99" data={data.plans.plura} complete={data.complete} />
+          <PlanCard name="Omni · $29.99" data={data.plans.omni} complete={data.complete} />
         </div>
       </Panel>
 

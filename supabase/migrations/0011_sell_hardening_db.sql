@@ -11,8 +11,8 @@ language sql
 immutable
 as $fn$
   select case p_plan
-    when 'pro' then null
-    when 'personal' then 15
+    when 'omni' then null
+    when 'plura' then 15
     else 3
   end;
 $fn$;
@@ -43,7 +43,7 @@ begin
     from public.subscriptions s
    where s.user_id = new.user_id;
 
-  cap := public.plan_topic_cap(coalesce(plan, 'free'));
+  cap := public.plan_topic_cap(coalesce(plan, 'uno'));
   if cap is null then
     return new;
   end if;

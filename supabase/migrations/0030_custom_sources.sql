@@ -109,11 +109,11 @@ begin
   select plan into user_plan from public.subscriptions where user_id = p_user_id;
 
   -- Must match PLAN_LIMITS.customSources in src/lib/plans.ts. An unknown or
-  -- missing plan is treated as free: a reader with no subscription row is not
+  -- missing plan is treated as uno: a reader with no subscription row is not
   -- a reader with unlimited crawlers.
-  cap := case coalesce(user_plan, 'free')
-           when 'pro'      then 25
-           when 'personal' then 5
+  cap := case coalesce(user_plan, 'uno')
+           when 'omni'      then 25
+           when 'plura' then 5
            else 0
          end;
 
@@ -168,7 +168,7 @@ security definer
 set search_path = public
 as $fn$
   with eligible as (
-    select p.id as user_id, coalesce(s.plan, 'free') as plan
+    select p.id as user_id, coalesce(s.plan, 'uno') as plan
       from public.profiles p
       join public.notification_preferences np on np.user_id = p.id and np.paused = false
       join auth.users au
@@ -196,7 +196,7 @@ as $fn$
   select
     s.id,
     count(distinct c.user_id)::integer,
-    count(distinct c.user_id) filter (where c.plan is distinct from 'free')::integer,
+    count(distinct c.user_id) filter (where c.plan is distinct from 'uno')::integer,
     (select count(distinct f.user_id)::integer from by_follow f where f.source_id = s.id)
   from public.sources s
   left join combined c on c.source_id = s.id

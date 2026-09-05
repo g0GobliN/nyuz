@@ -330,12 +330,12 @@ export const FOOTER_DEFAULT: Footer = {
  * page is the kind of mistake worth making impossible.
  */
 export const pricesSchema = z.object({
-  free: z.literal(0),
-  personal: z.number().min(0).max(999).multipleOf(0.01),
-  pro: z.number().min(0).max(999).multipleOf(0.01),
+  uno: z.literal(0),
+  plura: z.number().min(0).max(999).multipleOf(0.01),
+  omni: z.number().min(0).max(999).multipleOf(0.01),
   /** Annual totals. Zero means "no annual option shown". */
-  personalAnnual: z.number().min(0).max(9999).multipleOf(0.01),
-  proAnnual: z.number().min(0).max(9999).multipleOf(0.01),
+  pluraAnnual: z.number().min(0).max(9999).multipleOf(0.01),
+  omniAnnual: z.number().min(0).max(9999).multipleOf(0.01),
 });
 
 export type Prices = z.infer<typeof pricesSchema>;
@@ -349,11 +349,11 @@ export type Prices = z.infer<typeof pricesSchema>;
  * catalogue — $149.90 and $299.90, two months free against paying monthly.
  */
 export const PRICES_DEFAULT: Prices = {
-  free: 0,
-  personal: DEFAULT_PLAN_PRICES.personal,
-  pro: DEFAULT_PLAN_PRICES.pro,
-  personalAnnual: DEFAULT_ANNUAL_PRICES.personal,
-  proAnnual: DEFAULT_ANNUAL_PRICES.pro,
+  uno: 0,
+  plura: DEFAULT_PLAN_PRICES.plura,
+  omni: DEFAULT_PLAN_PRICES.omni,
+  pluraAnnual: DEFAULT_ANNUAL_PRICES.plura,
+  omniAnnual: DEFAULT_ANNUAL_PRICES.omni,
 };
 
 /* ---------------------------------------------------------------------- */

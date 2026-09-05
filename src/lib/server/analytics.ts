@@ -176,8 +176,8 @@ export const getOverview = createServerFn({ method: "GET" })
     ]);
 
     const { prices, overridden } = resolvePlanPrices(priceSetting.data?.value ?? null);
-    const paid = byPlan.personal + byPlan.pro;
-    const mrrEstimate = byPlan.personal * prices.personal + byPlan.pro * prices.pro;
+    const paid = byPlan.plura + byPlan.omni;
+    const mrrEstimate = byPlan.plura * prices.plura + byPlan.omni * prices.omni;
 
     const attempted =
       deliveriesByStatus.sent + deliveriesByStatus.failed + deliveriesByStatus.bounced;
@@ -232,7 +232,7 @@ type Filter = {
 };
 
 async function countByPlan(db: SupabaseClient<Database>): Promise<Record<PlanTier, number>> {
-  const tiers: PlanTier[] = ["free", "personal", "pro"];
+  const tiers: PlanTier[] = ["uno", "plura", "omni"];
   const counts = await Promise.all(
     tiers.map((tier) =>
       countRows(
@@ -247,9 +247,9 @@ async function countByPlan(db: SupabaseClient<Database>): Promise<Record<PlanTie
     ),
   );
   return {
-    free: counts[0] ?? 0,
-    personal: counts[1] ?? 0,
-    pro: counts[2] ?? 0,
+    uno: counts[0] ?? 0,
+    plura: counts[1] ?? 0,
+    omni: counts[2] ?? 0,
   };
 }
 

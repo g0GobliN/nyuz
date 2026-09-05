@@ -42,7 +42,7 @@ const CAPABILITIES: { key: AiCapability; label: string; blurb: string }[] = [
     key: "digest",
     label: "Digest",
     blurb:
-      "Writes why each selected story matters to one reader. Personal and Pro use this quality-sensitive route; Free uses the Flash route.",
+      "Writes why each selected story matters to one reader. Plura and Omni use this quality-sensitive route; Uno uses the Flash route.",
   },
   {
     key: "reason",

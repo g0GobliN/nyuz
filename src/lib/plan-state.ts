@@ -58,15 +58,15 @@ export function usePlan(): PlanState {
 
       // Falling back to the most restrictive plan on error is the safe
       // direction: it warns somebody who did not need warning, rather than
-      // silently letting a Free reader build a briefing that will be truncated.
+      // silently letting an Uno reader build a briefing that will be truncated.
       if (error || !data)
-        return { plan: "free", cancel_at_period_end: false, current_period_end: null };
+        return { plan: "uno", cancel_at_period_end: false, current_period_end: null };
       return data;
     },
   });
 
-  const plan: PlanTier = data?.plan ?? "free";
-  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+  const plan: PlanTier = data?.plan ?? "uno";
+  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.uno;
   const cancelsOn =
     data?.cancel_at_period_end && data.current_period_end
       ? new Date(data.current_period_end)

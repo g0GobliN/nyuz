@@ -94,7 +94,7 @@ export const listCustomSources = createServerFn({ method: "GET" })
 
     if (error) throw new AdminAuthError(`List custom sources: ${error.message}`, 500);
 
-    const plan = subscription?.plan ?? "free";
+    const plan = subscription?.plan ?? "uno";
     const sources = (rows ?? []).flatMap((row) => {
       const joined = row.sources as {
         name?: string;
@@ -183,7 +183,7 @@ export const followCustomSource = createServerFn({ method: "POST" })
           probeClaim === "rate"
             ? "You have checked several new feeds recently. Try again in an hour."
             : probeClaim === "plan"
-              ? "Adding your own sources is included on Personal and Pro."
+              ? "Adding your own sources is included on Plura and Omni."
               : "You are already at the source limit for your plan.";
         return { ok: false, reason, detail };
       }
@@ -221,7 +221,7 @@ export const followCustomSource = createServerFn({ method: "POST" })
         reason: "limit",
         detail:
           cap === 0
-            ? "Adding your own sources is included on Personal and Pro."
+            ? "Adding your own sources is included on Plura and Omni."
             : `You are following ${cap} sources, which is the limit on your plan.`,
       };
     }
@@ -358,5 +358,5 @@ async function planOf(db: Db, userId: string): Promise<PlanTier> {
     .select("plan")
     .eq("user_id", userId)
     .maybeSingle();
-  return data?.plan ?? "free";
+  return data?.plan ?? "uno";
 }

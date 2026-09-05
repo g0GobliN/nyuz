@@ -21,15 +21,15 @@ import { PLAN_LIMITS, PLAN_TIERS } from "@/lib/plans";
 const MIGRATION = readFileSync("supabase/migrations/0030_custom_sources.sql", "utf8");
 
 describe("custom source entitlements", () => {
-  it("gives free readers none", () => {
-    // plan2 §63: a free reader consumes the already-active shared network.
-    // Adding a source creates a new crawler, which free growth must not do.
-    expect(PLAN_LIMITS.free.customSources).toBe(0);
+  it("gives Uno readers none", () => {
+    // plan2 §63: an Uno reader consumes the already-active shared network.
+    // Adding a source creates a new crawler, which Uno growth must not do.
+    expect(PLAN_LIMITS.uno.customSources).toBe(0);
   });
 
   it("gives paid plans the caps plan2 §62 specifies", () => {
-    expect(PLAN_LIMITS.personal.customSources).toBe(5);
-    expect(PLAN_LIMITS.pro.customSources).toBe(25);
+    expect(PLAN_LIMITS.plura.customSources).toBe(5);
+    expect(PLAN_LIMITS.omni.customSources).toBe(25);
   });
 
   it("keeps every tier finite, unlike topics", () => {
@@ -39,7 +39,7 @@ describe("custom source entitlements", () => {
     for (const tier of PLAN_TIERS) {
       expect(Number.isFinite(PLAN_LIMITS[tier].customSources)).toBe(true);
     }
-    expect(PLAN_LIMITS.pro.topics).toBe(Infinity);
+    expect(PLAN_LIMITS.omni.topics).toBe(Infinity);
   });
 
   it("matches the caps the database actually enforces", () => {
@@ -50,15 +50,15 @@ describe("custom source entitlements", () => {
       MIGRATION.indexOf("end;", MIGRATION.indexOf("cap := case")),
     );
 
-    expect(claim).toContain(`when 'pro'      then ${PLAN_LIMITS.pro.customSources}`);
-    expect(claim).toContain(`when 'personal' then ${PLAN_LIMITS.personal.customSources}`);
-    expect(claim).toContain(`else ${PLAN_LIMITS.free.customSources}`);
+    expect(claim).toContain(`when 'omni'      then ${PLAN_LIMITS.omni.customSources}`);
+    expect(claim).toContain(`when 'plura' then ${PLAN_LIMITS.plura.customSources}`);
+    expect(claim).toContain(`else ${PLAN_LIMITS.uno.customSources}`);
   });
 
-  it("treats a missing subscription row as free in the database, not as unlimited", () => {
+  it("treats a missing subscription row as uno in the database, not as unlimited", () => {
     // A reader with no subscription row is not a reader with unlimited
-    // crawlers. `coalesce(user_plan, 'free')` is what makes that true.
-    expect(MIGRATION).toContain("coalesce(user_plan, 'free')");
+    // crawlers. `coalesce(user_plan, 'uno')` is what makes that true.
+    expect(MIGRATION).toContain("coalesce(user_plan, 'uno')");
   });
 
   it("has no INSERT policy on user_custom_sources", () => {

@@ -18,37 +18,37 @@ import { stripePriceMatches, type StripePrice } from "./api";
  */
 
 const env: PriceEnv = {
-  STRIPE_PRICE_PERSONAL_MONTHLY: "price_new_personal_m",
-  STRIPE_PRICE_PRO_MONTHLY: "price_new_pro_m",
-  STRIPE_PRICE_PERSONAL_MONTHLY_LEGACY: "price_old_personal_m",
-  STRIPE_PRICE_PRO_MONTHLY_LEGACY: "price_old_pro_m",
+  STRIPE_PRICE_PLURA_MONTHLY: "price_new_plura_m",
+  STRIPE_PRICE_OMNI_MONTHLY: "price_new_omni_m",
+  STRIPE_PRICE_PLURA_MONTHLY_LEGACY: "price_old_plura_m",
+  STRIPE_PRICE_OMNI_MONTHLY_LEGACY: "price_old_omni_m",
 };
 
 describe("grandfathered prices", () => {
   it("still grants the plan for a price that is no longer sold", () => {
-    // The subscriber on the old $7 price keeps Personal.
-    const resolved = resolvePrice("price_old_personal_m", 700, env);
-    expect(resolved?.plan).toBe("personal");
+    // The subscriber on the old $7 price keeps Plura.
+    const resolved = resolvePrice("price_old_plura_m", 700, env);
+    expect(resolved?.plan).toBe("plura");
     expect(resolved?.interval).toBe("month");
   });
 
   it("never offers a legacy price at checkout", () => {
     // Somebody signing up today gets the current price, not the old one.
-    expect(priceIdFor("personal", "month", env)).toBe("price_new_personal_m");
-    expect(priceIdFor("pro", "month", env)).toBe("price_new_pro_m");
+    expect(priceIdFor("plura", "month", env)).toBe("price_new_plura_m");
+    expect(priceIdFor("omni", "month", env)).toBe("price_new_omni_m");
   });
 
   it("keeps the label the charge actually carried, not the current one", () => {
     // The receipt says what was billed. A subscriber on the old price being
     // shown the new one would be a lie about their own invoice.
-    expect(resolvePrice("price_old_personal_m", 700, env)?.label).toBe("$7 / month");
-    expect(resolvePrice("price_new_personal_m", 1499, env)?.label).toBe("$14.99 / month");
+    expect(resolvePrice("price_old_plura_m", 700, env)?.label).toBe("$7 / month");
+    expect(resolvePrice("price_new_plura_m", 1499, env)?.label).toBe("$14.99 / month");
   });
 
   it("does not report a legacy-only catalogue as configured", () => {
     // Nothing here can start a checkout. Saying "configured" would turn a
     // misconfiguration into a silent one.
-    const legacyOnly: PriceEnv = { STRIPE_PRICE_PERSONAL_MONTHLY_LEGACY: "price_old" };
+    const legacyOnly: PriceEnv = { STRIPE_PRICE_PLURA_MONTHLY_LEGACY: "price_old" };
     expect(priceCatalogueConfigured(legacyOnly)).toBe(false);
     expect(priceCatalogueConfigured(env)).toBe(true);
   });
@@ -62,7 +62,7 @@ describe("grandfathered prices", () => {
   it("returns null rather than a wrong plan when an interval is unconfigured", () => {
     // Annual is not set in this env. Refusing is correct; falling back to the
     // monthly id would charge the wrong amount.
-    expect(priceIdFor("personal", "year", env)).toBeNull();
+    expect(priceIdFor("plura", "year", env)).toBeNull();
   });
 });
 

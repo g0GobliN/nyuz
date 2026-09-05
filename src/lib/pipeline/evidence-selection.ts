@@ -1,12 +1,12 @@
 /**
- * Adaptive evidence selection and deterministic deduplication — shadow mode only.
+ * Adaptive evidence selection and deterministic deduplication.
  *
  * This module ranks, selects, and deduplicates article evidence BEFORE it
- * reaches the analysis model. It is never used in production today — it only
- * computes what a reduced evidence set would look like and logs the comparison
- * against the full 12-article set.
+ * reaches the analysis model. It selects the smallest set that preserves
+ * all meaningful evidence, source attribution, conflicting claims, numbers,
+ * and quotes.
  *
- * See docs/track.md phase 9 for the shadow measurement framework.
+ * Shadow metrics are still recorded for observability.
  *
  * The goal is NOT to summarize with code. The goal is to transform repetitive
  * input into the smallest set that preserves all meaningful evidence, while
