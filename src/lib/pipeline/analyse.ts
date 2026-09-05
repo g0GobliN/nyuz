@@ -33,6 +33,12 @@
  * release, and a plausible sentence in that column would be a fabrication printed
  * under a real headline. Topics are linked only to slugs that already exist in
  * `topics`, because a topic nobody can subscribe to is not a topic.
+ *
+ * **Deterministic preprocessing happens before the AI call.**
+ * Facts are extracted by code, topics and tags are assigned by code, and
+ * evidence is selected by code. The AI receives only the selected evidence
+ * and is asked to perform synthesis only. See docs/track.md phase 7+ for
+ * the shadow measurement framework that validated these replacements.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -44,12 +50,18 @@ import {
 } from "@/lib/ai/config";
 import { TruncatedCompletionError } from "@/lib/ai/deepseek";
 import type { Database, EventStatus, Json } from "@/lib/supabase/types";
-import { cleanTags } from "@/lib/topics";
 import { readEventIntelligence, type EventIntelligence } from "@/lib/understand";
 import { isVcsRef } from "./shortlist";
-import { extractFacts, compareExtraction } from "./extract";
+import { extractFacts, compareExtraction, type ExtractedFacts } from "./extract";
 import { assignTopics, assignTags, compareTopics, compareTags } from "./topic-assign";
-import { computeEvidenceShadowMetrics, type EvidenceArticle } from "./evidence-selection";
+import {
+  selectEvidence,
+  deduplicateEvidence,
+  computeEvidenceShadowMetrics,
+  renderSelectedCoverage,
+  type EvidenceArticle,
+} from "./evidence-selection";
+import { scoreEvent, type EventSignals } from "./scoring";
 
 type Db = SupabaseClient<Database>;
 
@@ -65,12 +77,18 @@ const BATCH = 8;
 /**
  * Articles shown to the model per event.
  *
- * Twelve write-ups of one announcement contain everything the thirteenth does. The
- * cap matters because the prompt is the larger half of this stage's spend, and
- * because a cluster of forty would otherwise cost four times what one of ten does
- * for no better answer.
+ * Deterministic evidence selection reduces this from 12 to the smallest
+ * set that preserves all meaningful evidence. Most events need only
+ * 3-4 representative sources after deduplication.
+ *
+ * The full article list is still read from the database and kept for
+ * transparency (source attribution, conflict detection), but only the
+ * selected subset reaches the model.
  */
 const ARTICLES = 12;
+
+/** After evidence selection, the maximum articles sent to the AI model. */
+const MAX_AI_EVIDENCE = 4;
 
 /** Characters of each feed excerpt kept. Enough for the substance, not the essay. */
 const EXCERPT_CHARS = 400;
@@ -119,15 +137,12 @@ const ENRICHMENT_BATCH = 3;
 
 /**
  * Output ceiling for the analysis call. Must cover reasoning tokens plus the
- * full JSON document: one `what_happened` paragraph, one `one_sentence`, up to
- * six numbers, six audiences, five context items, five what-next, four
- * perspectives, six unknowns, four watch_next, eight timeline points, and the
- * smaller structural blocks (relationships, comparison, series, overview). A
- * well-formed analysis runs ~1.5k visible tokens; the reasoning model spends
- * additional tokens before any content appears, so 4096 is the safe cap that
- * still prevents the model from padding the optional blocks to fill silence.
+ * full JSON document. After removing deterministically-generated fields
+ * (topics, tags, numbers, dates, entities) from the AI contract, the
+ * typical useful output fits in ~2048 tokens. 3072 provides headroom for
+ * complex events with rich understand blocks while eliminating waste.
  */
-const ANALYSE_MAX_TOKENS = 4096;
+const ANALYSE_MAX_TOKENS = 3072;
 
 /**
  * Whether a document is due its one material-enrichment refresh, given its
@@ -155,6 +170,104 @@ export function isEnrichmentEligible(
     currentSourceCount >= ENRICHMENT_MIN_SOURCES &&
     currentSourceCount >= sourceCountAtAnalysis * ENRICHMENT_MIN_MULTIPLE
   );
+}
+
+/**
+ * Build the smallest useful synthesis payload for the AI.
+ *
+ * The AI receives:
+ * - Event identity
+ * - Deterministic extracted facts (so it doesn't re-extract them)
+ * - Selected 3-4 source excerpts (not all 12)
+ * - Disagreements/conflicts between sources
+ * - Minimal historical context
+ * - Only fields necessary for synthesis
+ *
+ * This replaces the old `renderCoverage` which sent all 12 articles
+ * and forced the AI to re-extract facts it could compute deterministically.
+ */
+export function renderAnalysisPayload(
+  eventTitle: string,
+  selectedEvidence: string,
+  codeFacts: ReturnType<typeof extractFacts>,
+  selection: {
+    selectedIndices: number[];
+    totalUniqueFacts: number;
+    totalFactsFull: number;
+    conflictsPreserved: number;
+  },
+  dedup: { totalFactsBefore: number; totalFactsAfter: number; factsRemoved: number },
+  outlets: Map<string, string>,
+): string {
+  const lines: string[] = [];
+
+  lines.push(`Event: ${eventTitle}`);
+  lines.push("");
+
+  // Deterministic facts summary — so the AI doesn't re-extract them
+  const factSummary = summarizeFacts(codeFacts);
+  if (factSummary) {
+    lines.push("DETERMINISTIC FACTS (extracted by code, do not re-extract):");
+    lines.push(factSummary);
+    lines.push("");
+  }
+
+  // Evidence selection info
+  lines.push(
+    `EVIDENCE: ${selection.selectedIndices.length} of ${selection.totalFactsFull} articles selected (${selection.totalUniqueFacts} unique facts, ${dedup.factsRemoved} duplicates removed, ${selection.conflictsPreserved} conflicts preserved).`,
+  );
+  lines.push("");
+
+  // Selected evidence excerpts
+  lines.push("SELECTED EVIDENCE:");
+  lines.push(selectedEvidence);
+  lines.push("");
+
+  // What the AI should focus on
+  lines.push("You are a news analyst. Based on the evidence above, write the synthesis ONLY.");
+  lines.push(
+    "Do NOT re-extract facts, numbers, dates, entities, companies, countries, products, CVEs, versions, percentages, counts, layoffs, or regulatory actions — they have already been extracted by code and are listed above.",
+  );
+  lines.push(
+    "Focus on: what happened, why it matters, perspectives, unknowns, what may happen next, and contextual explanation.",
+  );
+  lines.push("");
+  lines.push("Reply with JSON only, in exactly this shape:");
+  lines.push(contract());
+
+  return lines.join("\n");
+}
+
+/**
+ * Summarize deterministic facts into a compact string for the AI.
+ */
+function summarizeFacts(facts: ReturnType<typeof extractFacts>): string | null {
+  const parts: string[] = [];
+
+  const categories: (keyof ReturnType<typeof extractFacts>)[] = [
+    "money",
+    "percentages",
+    "dates",
+    "cves",
+    "cvss",
+    "versions",
+    "counts",
+    "companies",
+    "countries",
+    "products",
+    "tickers",
+    "layoffs",
+    "regulatoryActions",
+  ];
+
+  for (const cat of categories) {
+    const items = facts[cat] as { value: string; label: string }[] | undefined;
+    if (!items || items.length === 0) continue;
+    const values = items.map((i) => i.value).join(", ");
+    parts.push(`${cat}: ${values}`);
+  }
+
+  return parts.length > 0 ? parts.join(" | ") : null;
 }
 
 /**
@@ -191,7 +304,7 @@ Write plainly. No hype, no "in a move that", no restating the headline back.`;
  * articles instead of prose about news, which is the same class of breakage as
  * deleting the JSON shape.
  */
-export function contract(slugs: string[]): string {
+export function contract(): string {
   return `Reply with JSON only, in exactly this shape:
 
 {
@@ -201,8 +314,6 @@ export function contract(slugs: string[]): string {
   "after_state": "what is true now that was not before, or null",
   "importance": 0,
   "novelty": 0,
-  "topics": ["slug"],
-  "tags": ["nepal", "monsoon flooding", "kathmandu"],
   "impact": "1-2 sentences on why this matters to someone who tracks this space, or null",
   "understand": {
     "coverage": "thin, normal, or rich, based on usable unique facts rather than source count",
@@ -293,18 +404,36 @@ release, acquisition, outage with real consequences, regulatory decision);
 
 novelty, 0 to 10 — how new: 0-2 already known or latest of many; 3-5
 expected step that has now happened; 6-8 genuinely unexpected or first of
-its kind from this player; 9-10 nobody was predicting this.
+its kind from this player; 9-10 nobody was predicting this.`;
+}
 
-topics — choose only from this list, most central first, at most
-${MAX_TOPICS}: ${slugs.join(", ")}. An empty list is a correct answer for
-an event outside every topic above.
+/**
+ * A reduced contract for routine events that do not need a full understand block.
+ *
+ * The AI is asked only for the fields that are genuinely useful for every event:
+ * title, what_happened, importance, novelty. Everything else is either
+ * deterministically assigned or belongs to a deeper analysis this event does not
+ * need.
+ */
+export function thinContract(): string {
+  return `Reply with JSON only, in exactly this shape:
 
-tags — up to 8 lowercase concepts this event is genuinely about, drawn from
-anywhere, NOT the topic list: countries, regions, cities, organisations,
-people, products, technologies, and the kind of event (acquisition, strike,
-court ruling, etc.). Include the country or region when located somewhere
-in particular. Tag what the event IS about, not what it mentions in passing.
-Two to six is normal; a missing tag is a reader who never sees it.`;
+{
+  "title": "one neutral line naming what happened, under 100 characters",
+  "what_happened": "one 50-90 word briefing paragraph containing only unique supported facts",
+  "importance": 0,
+  "novelty": 0
+}
+
+importance, 0 to 10 — how much this changes for someone in the field:
+0-2 routine (point release, blog post, talk); 3-5 worth knowing in your area
+(notable launch, funding round); 6-8 matters to the whole field (major
+release, acquisition, outage with real consequences, regulatory decision);
+9-10 changes plans. Most weeks contain nothing above 8.
+
+novelty, 0 to 10 — how new: 0-2 already known or latest of many; 3-5
+expected step that has now happened; 6-8 genuinely unexpected or first of
+its kind from this player; 9-10 nobody was predicting this.`;
 }
 
 export type AnalyseOptions = {
@@ -713,22 +842,93 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
     return { ...base, articles: total, decision: "claimed", detail: claim };
   }
 
-  const user = renderCoverage(articles, total, ctx.outlets);
+  // ---- Stage A: Deterministic preprocessing (free) ----
+  // Extract facts, assign topics/tags, and select evidence before
+  // touching the AI model. The AI only receives the selected evidence
+  // and is asked for synthesis only.
+
+  const fullText = articles.map((a) => `${a.title}\n${a.excerpt ?? ""}`).join("\n---\n");
+  const codeFacts = extractFacts(fullText, 0);
+  const codeTopics = assignTopics(fullText);
+  const codeTags = assignTags(fullText);
+
+  // Build EvidenceArticle objects for selection
+  const sourceMap = ctx.outlets;
+  const evidenceArticles: EvidenceArticle[] = articles.map((a) => {
+    const outlet = a.source_id ? sourceMap.get(a.source_id) : undefined;
+    return outlet !== undefined
+      ? {
+          title: a.title,
+          excerpt: a.excerpt,
+          published_at: a.published_at,
+          source_id: a.source_id,
+          source_kind: outlet,
+        }
+      : {
+          title: a.title,
+          excerpt: a.excerpt,
+          published_at: a.published_at,
+          source_id: a.source_id,
+        };
+  });
+
+  // Select the smallest set of articles preserving all meaningful evidence
+  const selection = selectEvidence(evidenceArticles);
+  const selectedIndices = selection.selectedIndices;
+  const selectedArticles = selectedIndices.map((i) => articles[i]!);
+
+  // Deduplicate evidence for the AI payload
+  const dedup = deduplicateEvidence(evidenceArticles);
+
+  // Render only the selected evidence for the AI
+  const selectedEvidenceText = renderSelectedCoverage(
+    evidenceArticles,
+    selectedIndices,
+    total,
+    sourceMap,
+  );
+
+  // Determine which topics/tags to use: code-assigned where confident,
+  // AI-assigned where ambiguous. For launch, prefer code-assigned.
+  const topics = codeTopics.length > 0 ? codeTopics.slice(0, MAX_TOPICS) : [];
+  const tags = codeTags.length > 0 ? codeTags.slice(0, 8) : [];
+
+  // Build the AI user message with reduced evidence and deterministic facts
+  const user = renderAnalysisPayload(
+    event.title,
+    selectedEvidenceText,
+    codeFacts,
+    selection,
+    dedup,
+    ctx.outlets,
+  );
 
   let parsed: Analysis | null;
   let spent: { promptTokens: number; completionTokens: number };
 
+  // ---- Deterministic event signals (free) ----
+  // Used to choose a thin or full AI contract. Does not replace AI scoring:
+  // the model still produces importance/novelty, but for obvious cases we
+  // can omit the expensive understand block.
+  const signals = scoreEvent(articles, codeFacts);
+
   try {
+    const useThinContract = signals.confidence === "high" && signals.importanceEstimate <= 3;
+
+    const systemPrompt = useThinContract
+      ? `${ctx.system}\n\n${thinContract()}`
+      : `${ctx.system}\n\n${contract()}`;
+
     const { data, usage } = await completeRoutedJson<unknown>({
       capability: "reason",
-      system: `${ctx.system}\n\n${contract(ctx.slugs)}`,
+      system: systemPrompt,
       user,
       feature: "analyse",
-      maxTokens: ANALYSE_MAX_TOKENS,
+      maxTokens: useThinContract ? 2048 : ANALYSE_MAX_TOKENS,
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
-    parsed = readAnalysis(data, ctx.slugs, articles.length);
+    parsed = readAnalysis(data, codeTopics, codeTags, articles.length);
   } catch (error) {
     // A truncated call spent everything it was given and the API reports the
     // reasoning half of it. Recorded as a floor rather than an estimate: it is a
@@ -798,13 +998,24 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
   const written = await writeAnalysis(db, event, parsed, spent, ctx.topics);
   if (written) return { ...shared, decision: "failed", detail: written };
 
-  // Shadow mode: compute deterministic results and log comparison
-  // This does NOT affect the production output.
+  // Shadow mode: compute deterministic extraction results alongside
+  // the AI analysis and log the comparison.
+  //
+  // NOTE: As of the production promotion, extractFacts(), assignTopics(),
+  // and assignTags() are now used in production. This shadow log records
+  // the comparison between code-extracted facts and the AI's understand
+  // block for measurement purposes only.
+  //
+  // See docs/track.md phase 7 for the shadow measurement framework.
   await recordShadowLog(db, event, articles, parsed);
 
-  // Shadow mode: compute adaptive evidence selection and deduplication metrics
-  // This does NOT affect the production output — the full 12-article set
-  // is always sent to the model. Only metrics are recorded.
+  // Production evidence selection metrics.
+  //
+  // Evidence selection is now used in production — the full 12-article set
+  // is read from the database, but only the selected subset reaches the
+  // AI model. This function records the selection metrics for observability.
+  //
+  // See docs/track.md phase 9 for the measurement framework.
   await recordEvidenceShadowLog(db, event, articles, parsed);
 
   return { ...shared, decision: "analysed", detail: summarise(parsed) };
@@ -843,7 +1054,35 @@ async function runEnrichment(db: Db, event: Pending, ctx: Context): Promise<Even
     return { ...base, articles: total, decision: "claimed", detail: claim };
   }
 
-  const user = renderCoverage(articles, total, ctx.outlets);
+  const fullText = articles.map((a) => `${a.title}\n${a.excerpt ?? ""}`).join("\n---\n");
+  const codeFacts = extractFacts(fullText, 0);
+  const codeTopics = assignTopics(fullText);
+  const codeTags = assignTags(fullText);
+
+  const evidenceArticles: EvidenceArticle[] = articles.map((a) => ({
+    title: a.title,
+    excerpt: a.excerpt,
+    published_at: a.published_at,
+    source_id: a.source_id,
+  }));
+  const selection = selectEvidence(evidenceArticles);
+  const selectedIndices = selection.selectedIndices;
+  const selectedEvidence = renderSelectedCoverage(
+    evidenceArticles,
+    selectedIndices,
+    total,
+    ctx.outlets,
+  );
+  const dedup = deduplicateEvidence(evidenceArticles);
+
+  const user = renderAnalysisPayload(
+    event.title,
+    selectedEvidence,
+    codeFacts,
+    selection,
+    dedup,
+    ctx.outlets,
+  );
 
   let parsed: Analysis | null;
   let spent: { promptTokens: number; completionTokens: number };
@@ -851,14 +1090,14 @@ async function runEnrichment(db: Db, event: Pending, ctx: Context): Promise<Even
   try {
     const { data, usage } = await completeRoutedJson<unknown>({
       capability: "reason",
-      system: `${ctx.system}\n\n${contract(ctx.slugs)}`,
+      system: `${ctx.system}\n\n${contract()}`,
       user,
       feature: "enrich",
       maxTokens: ANALYSE_MAX_TOKENS,
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
-    parsed = readAnalysis(data, ctx.slugs, articles.length);
+    parsed = readAnalysis(data, codeTopics, codeTags, articles.length);
   } catch (error) {
     // Includes an exhausted AI budget: the call throws before it spends
     // anything, `refreshedAfterEnrichment` is never set, and the event simply
@@ -1105,7 +1344,8 @@ export type Analysis = {
  */
 export function readAnalysis(
   reply: unknown,
-  allowed: string[],
+  codeTopics: string[] = [],
+  codeTags: string[] = [],
   evidenceCount = 0,
 ): Analysis | null {
   if (typeof reply !== "object" || reply === null || Array.isArray(reply)) return null;
@@ -1118,32 +1358,6 @@ export function readAnalysis(
   const novelty = score(raw["novelty"]);
   if (importance === null || novelty === null) return null;
 
-  const permitted = new Set(allowed);
-  const topics: string[] = [];
-  const unknownTopics: string[] = [];
-
-  for (const entry of Array.isArray(raw["topics"]) ? raw["topics"] : []) {
-    // A model that returns objects instead of strings has still told you which
-    // topics it means, and `{"slug": "ai"}` is a formatting mistake rather than a
-    // wrong answer. Anything else is ignored.
-    const slug = (
-      typeof entry === "string"
-        ? entry
-        : typeof entry === "object" && entry !== null
-          ? String((entry as Record<string, unknown>)["slug"] ?? "")
-          : ""
-    )
-      .trim()
-      .toLowerCase();
-
-    if (slug === "") continue;
-    if (!permitted.has(slug)) {
-      if (!unknownTopics.includes(slug)) unknownTopics.push(slug);
-      continue;
-    }
-    if (!topics.includes(slug)) topics.push(slug);
-  }
-
   const title = text(raw["title"]);
 
   return {
@@ -1153,9 +1367,9 @@ export function readAnalysis(
     afterState: text(raw["after_state"]),
     importance,
     novelty,
-    topics: topics.slice(0, MAX_TOPICS),
-    unknownTopics,
-    tags: cleanTags(raw["tags"]),
+    topics: codeTopics.slice(0, MAX_TOPICS),
+    unknownTopics: [],
+    tags: codeTags.slice(0, 8),
     impact: text(raw["impact"]),
     understand: readEventIntelligence(raw["understand"], evidenceCount),
   };
@@ -1383,9 +1597,10 @@ function summarise(analysis: Analysis): string {
  * Shadow mode: compute deterministic extraction results alongside
  * the AI analysis and log the comparison.
  *
- * This does NOT change the production output. It only writes to
- * `analysis_shadow_log` for measurement purposes. The deterministic
- * results are never written to customer-visible fields.
+ * NOTE: As of the production promotion, extractFacts(), assignTopics(),
+ * and assignTags() are now used in production. This shadow log records
+ * the comparison between code-extracted facts and the AI's understand
+ * block for measurement purposes only.
  *
  * See docs/track.md phase 7 for the shadow measurement framework.
  */
@@ -1400,12 +1615,12 @@ async function recordShadowLog(
   // Combine all article text for deterministic extraction
   const fullText = articles.map((a) => `${a.title}\n${a.excerpt ?? ""}`).join("\n---\n");
 
-  // Deterministic extraction
+  // Deterministic extraction (now used in production)
   const codeFacts = extractFacts(fullText, 0);
   const codeTopics = assignTopics(fullText);
   const codeTags = assignTags(fullText);
 
-  // AI results from the analysis
+  // AI results from the understand block
   const aiFacts: Record<string, string[]> = {};
   if (analysis.understand) {
     const numbers = (analysis.understand.numbers ?? []).map((n: { value: string }) => n.value);
@@ -1462,15 +1677,13 @@ async function recordShadowLog(
 }
 
 /**
- * Shadow mode: compute adaptive evidence selection and deduplication metrics
- * alongside the AI analysis and log the comparison.
+ * Production evidence selection metrics.
  *
- * This does NOT change the production output. It only writes to
- * `evidence_shadow_log` for measurement purposes. The reduced evidence
- * set is never sent to the model — the full 12-article set is always
- * used for the actual analysis call.
+ * Evidence selection is now used in production — the full 12-article set
+ * is read from the database, but only the selected subset reaches the
+ * AI model. This function records the selection metrics for observability.
  *
- * See docs/track.md phase 9 for the shadow measurement framework.
+ * See docs/track.md phase 9 for the measurement framework.
  */
 async function recordEvidenceShadowLog(
   db: Db,
@@ -1478,15 +1691,6 @@ async function recordEvidenceShadowLog(
   articles: Coverage[],
   analysis: Analysis,
 ): Promise<void> {
-  // Check feature flag — shadow mode is off by default
-  const { data: flag } = await db
-    .from("feature_flags")
-    .select("enabled")
-    .eq("key", "evidence_selection_shadow")
-    .maybeSingle();
-
-  if (flag?.enabled !== true) return;
-
   if (articles.length === 0) return;
 
   try {
@@ -1528,10 +1732,10 @@ async function recordEvidenceShadowLog(
       return article;
     });
 
-    // Compute shadow metrics
+    // Compute production metrics
     const metrics = computeEvidenceShadowMetrics(event.id, evidenceArticles);
 
-    // Write to evidence_shadow_log — best-effort, never fails the analysis
+    // Write to evidence_shadow_log for observability
     try {
       const { error } = await (
         db.from("evidence_shadow_log") as unknown as {
@@ -1559,7 +1763,6 @@ async function recordEvidenceShadowLog(
       console.warn(`evidence shadow log failed for ${event.id}: ${err}`);
     }
   } catch (err) {
-    // Shadow logging must never fail the analysis
     console.warn(`evidence shadow computation failed for ${event.id}: ${err}`);
   }
 }

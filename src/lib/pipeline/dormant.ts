@@ -178,7 +178,7 @@ async function loadCandidates(db: Db, now: Date, limit: number): Promise<Candida
   const lastNudge = new Map<string, string>();
   const free = new Set(
     (subscriptions ?? [])
-      .filter((subscription) => subscription.plan === "free")
+      .filter((subscription) => subscription.plan === "uno")
       .map((s) => s.user_id),
   );
   for (const row of nudges ?? []) {
@@ -228,7 +228,7 @@ async function nudgeOne(
       decision: "skipped",
       detail:
         inactiveDays >= AUTO_PAUSE_DAYS
-          ? "would auto-pause inactive Free reader"
+          ? "would auto-pause inactive Uno reader"
           : "would send inactivity warning",
     };
   }

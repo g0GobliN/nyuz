@@ -15,7 +15,7 @@ create extension if not exists pg_trgm;
 -- Enums
 -- ---------------------------------------------------------------------------
 
-create type plan_tier          as enum ('free', 'personal', 'pro');
+create type plan_tier          as enum ('uno', 'plura', 'omni');
 create type source_kind        as enum ('company_blog', 'news', 'rss', 'github', 'research', 'product', 'other');
 create type source_pref        as enum ('normal', 'priority', 'muted');
 create type topic_importance   as enum ('everything', 'notable', 'only_major');
@@ -42,7 +42,7 @@ create table public.profiles (
 
 create table public.subscriptions (
   user_id            uuid primary key references public.profiles (id) on delete cascade,
-  plan               plan_tier   not null default 'free',
+  plan               plan_tier   not null default 'uno',
   status             text        not null default 'active',
   current_period_end timestamptz,
   updated_at         timestamptz not null default now()

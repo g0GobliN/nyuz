@@ -14,8 +14,8 @@ describe("computeUnitEconomics", () => {
       now: new Date("2026-08-31T00:00:00.000Z"),
       billing: [
         {
-          user_id: "personal-user",
-          plan: "personal",
+          user_id: "plura-user",
+          plan: "plura",
           currency: "usd",
           gross_cents: 14990,
           refunded_cents: 0,
@@ -26,8 +26,8 @@ describe("computeUnitEconomics", () => {
           livemode: true,
         },
         {
-          user_id: "pro-user",
-          plan: "pro",
+          user_id: "omni-user",
+          plan: "omni",
           currency: "usd",
           gross_cents: 2999,
           refunded_cents: 0,
@@ -39,21 +39,21 @@ describe("computeUnitEconomics", () => {
         },
       ],
       allTimeBilling: [
-        { user_id: "personal-user", livemode: true },
-        { user_id: "pro-user", livemode: true },
+        { user_id: "plura-user", livemode: true },
+        { user_id: "omni-user", livemode: true },
       ],
       ai: [
-        { user_id: "personal-user", plan: "personal", cost_microusd: 1_000_000 },
+        { user_id: "plura-user", plan: "plura", cost_microusd: 1_000_000 },
         { user_id: null, plan: null, cost_microusd: 2_000_000 },
       ],
       operatingCosts: costs,
     });
 
     expect(result.complete).toBe(true);
-    expect(result.plans.personal.recognizedRevenueUsd).toBeCloseTo(149.9 * (30 / 365));
-    expect(result.plans.personal.sharedAiUsd).toBe(1);
-    expect(result.plans.pro.sharedAiUsd).toBe(1);
-    expect(result.plans.personal.p95DirectAiUsd).toBe(1);
+    expect(result.plans.plura.recognizedRevenueUsd).toBeCloseTo(149.9 * (30 / 365));
+    expect(result.plans.plura.sharedAiUsd).toBe(1);
+    expect(result.plans.omni.sharedAiUsd).toBe(1);
+    expect(result.plans.plura.p95DirectAiUsd).toBe(1);
     expect(result.nextMilestone).toBe(10);
   });
 
@@ -70,6 +70,6 @@ describe("computeUnitEconomics", () => {
     expect(result.complete).toBe(false);
     expect(result.incompleteReasons.join(" ")).toContain("AI calls");
     expect(result.incompleteReasons.join(" ")).toContain("cloudflare");
-    expect(result.plans.personal.marginPct).toBeNull();
+    expect(result.plans.plura.marginPct).toBeNull();
   });
 });

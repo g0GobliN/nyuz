@@ -143,7 +143,7 @@ export const MATCH_CRON = "25,55 * * * *";
 export const DIGEST_CRON = "*/5 * * * *";
 
 /**
- * Inactivity warning, automatic Free pause, and retention purge, once a day.
+ * Inactivity warning, automatic Uno pause, and retention purge, once a day.
  *
  * Keys off `profiles.last_seen_at`, which the dashboard writes, not off an email
  * open pixel. Monday noon UTC is arbitrary and quiet: it is not a send_at the

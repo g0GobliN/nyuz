@@ -95,18 +95,18 @@ describe("pricesSchema", () => {
   it("accepts Stripe prices in whole cents", () => {
     expect(
       pricesSchema.parse({
-        free: 0,
-        personal: 14.99,
-        pro: 29.99,
-        personalAnnual: 149.9,
-        proAnnual: 299.9,
+        uno: 0,
+        plura: 14.99,
+        omni: 29.99,
+        pluraAnnual: 149.9,
+        omniAnnual: 299.9,
       }),
     ).toEqual({
-      free: 0,
-      personal: 14.99,
-      pro: 29.99,
-      personalAnnual: 149.9,
-      proAnnual: 299.9,
+      uno: 0,
+      plura: 14.99,
+      omni: 29.99,
+      pluraAnnual: 149.9,
+      omniAnnual: 299.9,
     });
   });
 

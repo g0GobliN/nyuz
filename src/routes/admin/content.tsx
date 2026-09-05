@@ -752,8 +752,8 @@ function PricesForm({ row }: { row: SettingRow | undefined }) {
   );
   const [acknowledged, setAcknowledged] = useState(false);
 
-  // `free` is absent from the editable keys because the schema pins it to 0.
-  const set = (k: Exclude<keyof Prices, "free">, raw: string) => {
+  // `uno` is absent from the editable keys because the schema pins it to 0.
+  const set = (k: Exclude<keyof Prices, "uno">, raw: string) => {
     const n = Math.round(Number(raw) * 100) / 100;
     setPrices({ ...prices, [k]: Number.isFinite(n) && n >= 0 ? n : 0 });
   };
@@ -764,7 +764,7 @@ function PricesForm({ row }: { row: SettingRow | undefined }) {
     <SettingForm
       settingKey="billing.prices"
       row={row}
-      note="Must match the Stripe catalogue: nyuz personal $14.99/mo and $149.90/yr, nyuz pro $29.99/mo and $299.90/yr. Checkout charges Stripe, not this form."
+      note="Must match the Stripe catalogue: nyuz plura $14.99/mo and $149.90/yr, nyuz omni $29.99/mo and $299.90/yr. Checkout charges Stripe, not this form."
       value={prices}
       defaults={PRICES_DEFAULT}
       onReset={() => {
@@ -774,57 +774,54 @@ function PricesForm({ row }: { row: SettingRow | undefined }) {
       blocked={acknowledged ? undefined : "Confirm billing already charges these amounts"}
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Personal, monthly">
+        <Field label="Plura, monthly">
           <input
             type="number"
             step="0.01"
             min={0}
             max={999}
-            value={prices.personal}
-            onChange={(e) => set("personal", e.target.value)}
+            value={prices.plura}
+            onChange={(e) => set("plura", e.target.value)}
             className={`${inputClass} tabular-nums`}
           />
         </Field>
-        <Field
-          label="Personal, annual total"
-          hint={annualHint(prices.personal, prices.personalAnnual)}
-        >
+        <Field label="Plura, annual total" hint={annualHint(prices.plura, prices.pluraAnnual)}>
           <input
             type="number"
             step="0.01"
             min={0}
             max={9999}
-            value={prices.personalAnnual}
-            onChange={(e) => set("personalAnnual", e.target.value)}
+            value={prices.pluraAnnual}
+            onChange={(e) => set("pluraAnnual", e.target.value)}
             className={`${inputClass} tabular-nums`}
           />
         </Field>
-        <Field label="Pro, monthly">
+        <Field label="Omni, monthly">
           <input
             type="number"
             step="0.01"
             min={0}
             max={999}
-            value={prices.pro}
-            onChange={(e) => set("pro", e.target.value)}
+            value={prices.omni}
+            onChange={(e) => set("omni", e.target.value)}
             className={`${inputClass} tabular-nums`}
           />
         </Field>
-        <Field label="Pro, annual total" hint={annualHint(prices.pro, prices.proAnnual)}>
+        <Field label="Omni, annual total" hint={annualHint(prices.omni, prices.omniAnnual)}>
           <input
             type="number"
             step="0.01"
             min={0}
             max={9999}
-            value={prices.proAnnual}
-            onChange={(e) => set("proAnnual", e.target.value)}
+            value={prices.omniAnnual}
+            onChange={(e) => set("omniAnnual", e.target.value)}
             className={`${inputClass} tabular-nums`}
           />
         </Field>
       </div>
 
       <p className="mt-4 max-w-2xl text-[12px] leading-relaxed text-muted-foreground">
-        Free is pinned to zero by the schema rather than left editable. The ceilings — $999 monthly,
+        Uno is pinned to zero by the schema rather than left editable. The ceilings — $999 monthly,
         $9,999 annual — are a fat-finger guard, not a business rule: a stray keystroke turning $7
         into $7,000 on a public pricing page is worth making impossible.
       </p>

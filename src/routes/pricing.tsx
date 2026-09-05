@@ -41,8 +41,8 @@ export const Route = createFileRoute("/pricing")({
  */
 type Plan = {
   name: string;
-  /** Which price to read. Free has no key because its price is pinned to zero. */
-  priceKey: "free" | "personal" | "pro";
+  /** Which price to read. Uno has no key because its price is pinned to zero. */
+  priceKey: "uno" | "plura" | "omni";
   tagline: string;
   features: string[];
   cta: string;
@@ -51,8 +51,8 @@ type Plan = {
 
 const PLANS: Plan[] = [
   {
-    name: "Free",
-    priceKey: "free",
+    name: "nyuz Uno",
+    priceKey: "uno",
     tagline: "See whether a briefing changes your morning.",
     features: [
       "3 topics and 3 priority sources",
@@ -64,39 +64,39 @@ const PLANS: Plan[] = [
     cta: "Start free",
   },
   {
-    name: "Personal",
-    priceKey: "personal",
+    name: "nyuz Plura",
+    priceKey: "plura",
     tagline: "A nyuz shaped around what you actually do.",
     features: [
       "15 topics and 15 priority sources",
       "Up to 30 stories per briefing",
       "Pro-quality daily briefing",
       "Custom delivery time",
-      `Important alerts, up to ${PLAN_LIMITS.personal.alertDailyCap} a day`,
+      `Important alerts, up to ${PLAN_LIMITS.plura.alertDailyCap} a day`,
       // "Custom instructions" was here. The stored note has had no consumer
       // since 0028 removed the per-reader digest prompt that was the only
       // thing reading it — `notification_preferences.instructions` is still
       // selected in digest.ts and then never used. Put this back the moment
       // something applies it again, and not before.
-      `Add ${PLAN_LIMITS.personal.customSources} of your own sources`,
+      `Add ${PLAN_LIMITS.plura.customSources} of your own sources`,
       "90-day history",
     ],
-    cta: "Start Personal",
+    cta: "Start Plura",
     popular: true,
   },
   {
-    name: "Pro",
-    priceKey: "pro",
+    name: "nyuz Omni",
+    priceKey: "omni",
     tagline: "For people whose job is knowing first.",
     features: [
       "Unlimited topics and priority sources",
       "Up to 50 stories per briefing",
       "Pro-quality daily briefing",
-      `Configurable alerts, up to ${PLAN_LIMITS.pro.alertDailyCap} a day`,
-      `Add ${PLAN_LIMITS.pro.customSources} of your own sources`,
+      `Configurable alerts, up to ${PLAN_LIMITS.omni.alertDailyCap} a day`,
+      `Add ${PLAN_LIMITS.omni.customSources} of your own sources`,
       "1-year history",
     ],
-    cta: "Start Pro",
+    cta: "Start Omni",
   },
 ];
 
@@ -108,7 +108,7 @@ const PLANS: Plan[] = [
  * year" on a paid plan.
  */
 function planPrice(key: Plan["priceKey"]): { monthly: number; annual: number | null } {
-  if (key === "free") return { monthly: 0, annual: null };
+  if (key === "uno") return { monthly: 0, annual: null };
   const monthly = DEFAULT_PLAN_PRICES[key];
   const annual = DEFAULT_ANNUAL_PRICES[key];
   return { monthly, annual };
@@ -121,7 +121,7 @@ function planPrice(key: Plan["priceKey"]): { monthly: number; annual: number | n
  * silence rather than a false discount.
  */
 function annualCaption(): string | null {
-  const savings = (["personal", "pro"] as const)
+  const savings = (["plura", "omni"] as const)
     .map((key) => {
       const { monthly, annual } = planPrice(key);
       if (monthly <= 0 || annual === null) return 0;
@@ -139,7 +139,7 @@ function annualCaption(): string | null {
 const FAQ = [
   {
     q: "Is there an article limit?",
-    a: "There is no monthly article quota. Each briefing has a maximum set by your plan and density: up to 18 on Free, 30 on Personal, or 50 on Pro. A quiet day can still be shorter.",
+    a: "There is no monthly article quota. Each briefing has a maximum set by your plan and density: up to 18 on Uno, 30 on Plura, or 50 on Omni. A quiet day can still be shorter.",
   },
   {
     q: "What happens on a quiet day?",
@@ -155,7 +155,7 @@ const FAQ = [
   },
   {
     q: "What are “sources of your own”?",
-    a: "Feeds nyuz isn't watching yet that you'd like it to — your local paper, a niche blog, a company's own updates. Personal includes 5 and Pro 25. If another reader has already asked for the same one, you simply share it.",
+    a: "Feeds nyuz isn't watching yet that you'd like it to — your local paper, a niche blog, a company's own updates. Plura includes 5 and Omni 25. If another reader has already asked for the same one, you simply share it.",
   },
   {
     q: "What language is my briefing in?",

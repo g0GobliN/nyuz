@@ -25,7 +25,7 @@ type Db = SupabaseClient<Database>;
 export const IMPORTANT_FLOOR = 6;
 
 /**
- * Personal's rolling 24-hour ceiling. `claim_alert` (0037) is authoritative;
+ * Plura's rolling 24-hour ceiling. `claim_alert` (0037) is authoritative;
  * this mirrors it so the UI can say how much room is left without a round trip.
  *
  * A ceiling rather than a ration. `IMPORTANT_FLOOR` is what keeps the number
@@ -157,7 +157,7 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
     db.from("subscriptions").select("plan").eq("user_id", options.userId).maybeSingle(),
   ]);
   if (error) throw new Error(`reading alert prefs: ${error.message}`);
-  const plan = subscription?.plan ?? "free";
+  const plan = subscription?.plan ?? "uno";
   const breaking = prefs ? allowedBreaking(plan, prefs.breaking) : "off";
   if (!prefs || prefs.paused || breaking === "off") {
     return { ...empty, skipped: options.hits.length };

@@ -22,35 +22,35 @@ export const Route = createFileRoute("/dashboard/billing")({
 
 const PLANS = [
   {
-    id: "free",
-    name: "Free",
+    id: "uno",
+    name: "nyuz Uno",
     monthly: 0,
     annual: 0,
-    ...PLAN_LIMITS.free,
+    ...PLAN_LIMITS.uno,
     features: ["Up to 18 stories", "3 priority sources", "Flash briefing", "No alerts"],
   },
   {
-    id: "personal",
-    name: "Personal",
-    monthly: DEFAULT_PLAN_PRICES.personal,
-    annual: DEFAULT_ANNUAL_PRICES.personal,
-    ...PLAN_LIMITS.personal,
+    id: "plura",
+    name: "nyuz Plura",
+    monthly: DEFAULT_PLAN_PRICES.plura,
+    annual: DEFAULT_ANNUAL_PRICES.plura,
+    ...PLAN_LIMITS.plura,
     features: [
       "Up to 30 stories",
       "15 priority sources",
-      `Important alerts, up to ${PLAN_LIMITS.personal.alertDailyCap} a day`,
+      `Important alerts, up to ${PLAN_LIMITS.plura.alertDailyCap} a day`,
     ],
   },
   {
-    id: "pro",
-    name: "Pro",
-    monthly: DEFAULT_PLAN_PRICES.pro,
-    annual: DEFAULT_ANNUAL_PRICES.pro,
-    ...PLAN_LIMITS.pro,
+    id: "omni",
+    name: "nyuz Omni",
+    monthly: DEFAULT_PLAN_PRICES.omni,
+    annual: DEFAULT_ANNUAL_PRICES.omni,
+    ...PLAN_LIMITS.omni,
     features: [
       "Up to 50 stories",
       "Unlimited priority sources",
-      `Configurable alerts, up to ${PLAN_LIMITS.pro.alertDailyCap} a day`,
+      `Configurable alerts, up to ${PLAN_LIMITS.omni.alertDailyCap} a day`,
     ],
   },
 ] as const;
@@ -95,8 +95,8 @@ function Billing() {
     }
   };
 
-  const upgrade = async (id: "personal" | "pro") => {
-    if (current === "free") {
+  const upgrade = async (id: "plura" | "omni") => {
+    if (current === "uno") {
       await goTo(id, () =>
         startCheckout({ data: { plan: id, interval: annual ? "year" : "month" } }),
       );
@@ -192,7 +192,7 @@ function Billing() {
                 year: "numeric",
               })}
             </span>
-            , then the account moves to Free. Changed your mind?{" "}
+            , then the account moves to Uno. Changed your mind?{" "}
             <button
               onClick={() => void manage()}
               disabled={busy !== null}
@@ -287,10 +287,10 @@ function Billing() {
                 // The free tier is not something to check out of. Leaving a paid
                 // plan happens in Stripe's portal, where the proration and the
                 // cancellation date are Stripe's problem rather than ours.
-                disabled={active || busy !== null || (p.id === "free" && current === "free")}
+                disabled={active || busy !== null || (p.id === "uno" && current === "uno")}
                 onClick={() => {
-                  if (p.id === "free") void manage();
-                  else void upgrade(p.id as "personal" | "pro");
+                  if (p.id === "uno") void manage();
+                  else void upgrade(p.id as "plura" | "omni");
                 }}
               >
                 {busy === p.id
@@ -309,10 +309,10 @@ function Billing() {
       {error ? <p className="mt-5 text-[12.5px] text-destructive">{error}</p> : null}
 
       <p className="mt-5 text-[12.5px] text-muted-foreground">
-        {current === "free"
+        {current === "uno"
           ? "Payment is handled by Stripe. Your plan updates once the payment clears, which can take a few seconds after you return."
           : "Cancelling, resuming and changing your card are all handled in Stripe's billing portal."}
-        {current !== "free" ? (
+        {current !== "uno" ? (
           <>
             {" "}
             <button
@@ -329,7 +329,7 @@ function Billing() {
       <section className="mt-10">
         <h2 className="text-[17px] font-medium tracking-tight">Invoices</h2>
         <p className="mt-4 rounded-2xl border border-hairline bg-surface px-5 py-8 text-[13.5px] leading-relaxed text-muted-foreground">
-          Receipts from Stripe will show here after a paid period. The free plan does not generate
+          Receipts from Stripe will show here after a paid period. The Uno plan does not generate
           one.
         </p>
       </section>

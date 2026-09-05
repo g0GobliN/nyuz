@@ -950,7 +950,7 @@ async function planFor(db: Db, userId: string): Promise<PlanTier> {
     .select("plan")
     .eq("user_id", userId)
     .maybeSingle();
-  return data?.plan ?? "free";
+  return data?.plan ?? "uno";
 }
 
 export function queuedChannels(
@@ -1224,7 +1224,7 @@ async function sendTelegramDelivery(
  * One OS notice for a briefing; one per story for an alert.
  *
  * `sendStoryPushes` raises a notification per story it is given, and this used
- * to hand it the entire digest — fifty stories on Pro at Deep density, per
+ * to hand it the entire digest — fifty stories on Omni at Deep density, per
  * device, at 07:30. The briefing is not the notification: it is in the email
  * and on the dashboard, and the notice exists to be worth opening. So a
  * briefing sends one notice naming its lead stories, and the reader taps

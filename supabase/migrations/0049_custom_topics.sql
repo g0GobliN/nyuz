@@ -283,7 +283,7 @@ security definer
 set search_path = public
 as $fn$
   with eligible as (
-    select p.id as user_id, coalesce(s.plan, 'free') as plan
+    select p.id as user_id, coalesce(s.plan, 'uno') as plan
       from public.profiles p
       join public.notification_preferences np on np.user_id = p.id and np.paused = false
       join auth.users au
@@ -294,7 +294,7 @@ as $fn$
   followed as (
     select ut.topic_id,
            count(distinct e.user_id)::integer as followers,
-           count(distinct e.user_id) filter (where e.plan is distinct from 'free')::integer
+           count(distinct e.user_id) filter (where e.plan is distinct from 'uno')::integer
              as paid_followers
       from public.user_topics ut
       join eligible e on e.user_id = ut.user_id

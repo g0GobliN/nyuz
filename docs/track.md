@@ -404,7 +404,7 @@ live reader, zero paying customers. The live database right now has:
 
 **Correction, checked further:** `admin_source_demand()` initially looked like it showed
 a paid interested user, which read as "there's a paying customer" — checked further and
-that's wrong. The one `plan = 'pro'` subscription row has no `stripe_customer_id` or
+that's wrong. The one `plan = 'omni'` subscription row has no `stripe_customer_id` or
 `stripe_subscription_id`, so it never went through checkout. Not a real subscriber.
 "Zero paying customers" from `status.md` still holds. Said here plainly because the
 wrong version of this was already said out loud once in this session.

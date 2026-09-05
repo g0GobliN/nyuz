@@ -41,7 +41,7 @@ describe("formatStoryTime", () => {
 
   it("omits the year within the current one and states it outside", () => {
     expect(formatStoryTime(at(2026, 1, 4, 6, 12).toISOString(), NOW)).not.toMatch(/2026/);
-    // A Pro plan keeps a year of history, so this boundary is reachable.
+    // An Omni plan keeps a year of history, so this boundary is reachable.
     expect(formatStoryTime(at(2025, 12, 30, 6, 12).toISOString(), NOW)).toMatch(/2025/);
   });
 

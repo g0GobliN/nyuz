@@ -61,7 +61,7 @@ as $fn$
     count(distinct ut.user_id)
       filter (
         where p.id is not null and np.user_id is not null and au.id is not null
-          and sub.plan is distinct from 'free'
+          and sub.plan is distinct from 'uno'
       )::integer
   from public.sources s
   left join public.source_topics st

@@ -308,7 +308,7 @@ export const deleteAccount = createServerFn({ method: "POST" })
       // billing_ledger deliberately survive with user_id set to null.
       const { error } = await actor.db.auth.admin.deleteUser(actor.id);
       if (error) {
-        // Billing is already stopped at this point, so the worst case is a Free
+        // Billing is already stopped at this point, so the worst case is a Uno
         // account that outlives its owner's intent — recoverable by retrying.
         console.error(`Deleting ${actor.id} failed after cancelling billing: ${error.message}`);
         return {

@@ -28,12 +28,12 @@ export function normalizeSubscriptionStatus(status: string | null): StripeSubscr
   }
 }
 
-/** Past-due is the deliberate Stripe retry grace period; terminal states are Free. */
+/** Past-due is the deliberate Stripe retry grace period; terminal states are Uno. */
 export function entitlementPlan(
-  purchasedPlan: Exclude<PlanTier, "free">,
+  purchasedPlan: Exclude<PlanTier, "uno">,
   status: string | null,
 ): PlanTier {
-  return PAID_STATUSES.has(normalizeSubscriptionStatus(status)) ? purchasedPlan : "free";
+  return PAID_STATUSES.has(normalizeSubscriptionStatus(status)) ? purchasedPlan : "uno";
 }
 
 export function canChangePaidSubscription(status: string | null): boolean {

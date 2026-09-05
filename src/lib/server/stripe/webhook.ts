@@ -197,7 +197,7 @@ async function currentSubscription(db: Db, userId: string): Promise<Subscription
   if (error) throw new Error(`Reading current plan: ${error.message}`);
   return (
     data ?? {
-      plan: "free",
+      plan: "uno",
       status: "active",
       stripe_subscription_id: null,
       retired_stripe_subscription_id: null,
@@ -401,7 +401,7 @@ async function onSubscriptionChanged(
     .eq("user_id", userId);
   if (error) throw new Error(`Applying subscription change: ${error.message}`);
 
-  if (cancelling && periodEnd && effectivePlan !== "free") {
+  if (cancelling && periodEnd && effectivePlan !== "uno") {
     await sendSubscriptionCancelled(
       db,
       userId,
@@ -412,7 +412,7 @@ async function onSubscriptionChanged(
   }
 
   // Only on the way up. A renewal is not news, and Stripe sends its own receipt.
-  if (effectivePlan !== "free" && previous.plan !== effectivePlan && periodEnd) {
+  if (effectivePlan !== "uno" && previous.plan !== effectivePlan && periodEnd) {
     await sendSubscriptionStarted(
       db,
       userId,
@@ -451,7 +451,7 @@ async function onSubscriptionDeleted(
   const { error } = await db
     .from("subscriptions")
     .update({
-      plan: "free",
+      plan: "uno",
       status: "canceled",
       current_period_end: null,
       stripe_subscription_id: null,

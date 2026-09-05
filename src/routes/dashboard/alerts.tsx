@@ -18,7 +18,7 @@ export const Route = createFileRoute("/dashboard/alerts")({
 function Alerts() {
   const { prefs, update } = usePrefs();
   const { plan } = usePlan();
-  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.free;
+  const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.uno;
   const effectiveBreaking = allowedBreaking(plan, prefs.breaking);
   const off = effectiveBreaking === "off";
   const alertsQ = useQuery({
@@ -72,7 +72,7 @@ function Alerts() {
                 }}
               >
                 {b === "important" ? "Only important" : b === "everything" ? "Everything" : "Off"}
-                {locked ? ` · ${b === "everything" ? "Pro" : "Paid"}` : ""}
+                {locked ? ` · ${b === "everything" ? "Omni" : "Paid"}` : ""}
               </Chip>
             );
           })}
@@ -110,6 +110,7 @@ function Alerts() {
                 <Link
                   to="/dashboard/story/$id"
                   params={{ id: alert.eventId }}
+                  search={{ from: "alerts" }}
                   className="block rounded-3xl border border-hairline bg-surface p-5 transition-colors hover:border-foreground/20"
                 >
                   <p className="text-[12px] tabular-nums text-muted-foreground">

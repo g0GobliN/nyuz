@@ -10,7 +10,7 @@
  * Columns with a DB default are optional on Insert. Nullable columns are `| null`.
  */
 
-export type PlanTier = "free" | "personal" | "pro";
+export type PlanTier = "uno" | "plura" | "omni";
 export type SourceKind =
   "company_blog" | "news" | "rss" | "github" | "research" | "product" | "other";
 export type SourcePref = "normal" | "priority" | "muted";

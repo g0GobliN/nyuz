@@ -41,7 +41,7 @@ describe("remainingImportantSlots", () => {
     // that enforces anything), PLAN_LIMITS (what the UI advertises) and
     // IMPORTANT_DAILY_CAP (what the pipeline reports as remaining). A drift
     // between them shows a reader a number the database will not honour.
-    expect(IMPORTANT_DAILY_CAP).toBe(PLAN_LIMITS.personal.alertDailyCap);
+    expect(IMPORTANT_DAILY_CAP).toBe(PLAN_LIMITS.plura.alertDailyCap);
   });
 
   it("does not ration a busy day into the next one", () => {

@@ -62,7 +62,7 @@ const listInput = z.object({
   page: z.number().int().min(0).optional().default(0),
   pageSize: z.number().int().min(1).max(100).optional().default(25),
   role: z.enum(["user", "admin", "superadmin"]).optional(),
-  plan: z.enum(["free", "personal", "pro"]).optional(),
+  plan: z.enum(["uno", "plura", "omni"]).optional(),
   bannedOnly: z.boolean().optional().default(false),
 });
 
@@ -113,7 +113,7 @@ export const listUsers = createServerFn({ method: "GET" })
         email: p.email,
         displayName: p.display_name,
         role: roleBy.get(p.id) ?? "user",
-        plan: sub?.plan ?? "free",
+        plan: sub?.plan ?? "uno",
         planStatus: sub?.status ?? "active",
         banned: bannedSet.has(p.id),
         onboarded: p.onboarded_at !== null,
@@ -188,7 +188,7 @@ export const getUserDetail = createServerFn({ method: "GET" })
       displayName: profile.data.display_name,
       timezone: profile.data.timezone,
       role: role.data?.role ?? "user",
-      plan: sub.data?.plan ?? "free",
+      plan: sub.data?.plan ?? "uno",
       planStatus: sub.data?.status ?? "active",
       currentPeriodEnd: sub.data?.current_period_end ?? null,
       onboardedAt: profile.data.onboarded_at,
@@ -376,7 +376,7 @@ export const setUserRole = createServerFn({ method: "POST" })
 
 const planInput = z.object({
   userId: z.string().uuid(),
-  plan: z.enum(["free", "personal", "pro"]),
+  plan: z.enum(["uno", "plura", "omni"]),
 });
 
 /**

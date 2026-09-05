@@ -1907,7 +1907,7 @@ There must be ONE canonical entitlement system.
 Avoid scattered:
 
 ```typescript
-if (plan === 'pro')
+if (plan === 'omni')
 ```
 
 logic.

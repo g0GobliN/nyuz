@@ -57,7 +57,12 @@ export function StoryCard({
         </span>
       </div>
 
-      <Link to="/dashboard/story/$id" params={{ id: story.id }} className="group mt-3 block">
+      <Link
+        to="/dashboard/story/$id"
+        params={{ id: story.id }}
+        search={{ from: "home" }}
+        className="group mt-3 block"
+      >
         <h2 className="text-[19px] font-medium leading-snug tracking-tight group-hover:underline group-hover:underline-offset-4 sm:text-[21px]">
           {story.title}
         </h2>
@@ -97,6 +102,7 @@ export function StoryCard({
         <Link
           to="/dashboard/story/$id"
           params={{ id: story.id }}
+          search={{ from: "home" }}
           className="rounded-full border border-border px-3.5 py-1.5 text-[12.5px] transition-colors hover:bg-muted"
         >
           Understand <span aria-hidden>→</span>

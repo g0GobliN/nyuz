@@ -29,7 +29,7 @@ import { DEFAULT_ANNUAL_PRICES, DEFAULT_PLAN_PRICES } from "@/lib/plans";
  */
 
 const checkoutInput = z.object({
-  plan: z.enum(["personal", "pro"]),
+  plan: z.enum(["plura", "omni"]),
   interval: z.enum(["month", "year"]),
 });
 

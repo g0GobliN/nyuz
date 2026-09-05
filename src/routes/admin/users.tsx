@@ -32,7 +32,7 @@ export const Route = createFileRoute("/admin/users")({ component: UsersPage });
 
 const PAGE_SIZE = 25;
 const ROLES: AdminRole[] = ["user", "admin", "superadmin"];
-const PLANS: PlanTier[] = ["free", "personal", "pro"];
+const PLANS: PlanTier[] = ["uno", "plura", "omni"];
 
 function UsersPage() {
   const [search, setSearch] = useState("");

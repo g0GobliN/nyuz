@@ -1,857 +1,938 @@
-You are now responsible for bringing Nyuz to a safe pre-launch state.
+You are acting as a principal/staff-level systems engineer with 20+ years of experience designing production SaaS systems, distributed pipelines, AI-assisted products, and cost-efficient infrastructure.
 
-Read this entire instruction before changing anything.
+You have full access to the Nyuz repository.
 
-# SOURCE OF TRUTH
+We already completed the investigation into why Nyuz is consuming too much AI budget. Do NOT repeat the same high-level audit unless you discover that an assumption below is wrong.
 
-There are currently two different cost-related plans in the repo/conversation:
+The goal now is to IMPLEMENT the safest, highest-impact cost optimizations in the real Nyuz pipeline.
 
-1. `docs/nyuz-cost-cutting.md`
+# PRIMARY GOAL
 
-   * This is the older optimization roadmap.
-   * It contains useful Tier 1–4 ideas such as Groq routing, caches, prompt optimization, batch clustering, etc.
-   * It is NOT authorization to implement every pending item now.
+Nyuz is currently in testing / early-launch stage.
 
-2. The newer P0 incident plan.
+I want to support roughly the first 100 users while spending only around:
 
-   * THIS supersedes the old roadmap for current implementation work.
-   * The goal is financial correctness and proven high-impact savings first.
+$10–20/month TOTAL on AI/infrastructure where realistically possible.
 
-The old `docs/nyuz-cost-cutting.md` should remain as a future optimization roadmap.
+Later, when Nyuz earns revenue, I should be able to scale mainly by upgrading providers/plans such as Cloudflare, Supabase, AI providers, etc., rather than redesigning the whole architecture again.
 
-DO NOT continue implementing its Tier 2/3/4 wishlist merely because items are marked pending.
+Therefore optimize for:
 
----
+1. Extremely low AI cost
+2. No meaningful reduction in news quality
+3. Deterministic programming wherever programming can do the job reliably
+4. AI only where semantic synthesis/reasoning genuinely adds value
+5. Shared work across users
+6. Strong caching and reuse
+7. Easy future scaling
+8. No fragile hacks
+9. No major unnecessary rewrite
 
-# CURRENT STRATEGY
+# IMPORTANT EXISTING FINDINGS
 
-We are NOT abandoning all previous cost-cutting work.
+From the previous repository audit, these systems already exist:
 
-We are doing this:
+* `extract.ts`
 
-## KEEP low-risk P0-aligned work
+  * deterministic fact extraction
+  * money
+  * percentages
+  * dates
+  * CVEs
+  * CVSS
+  * versions
+  * counts
+  * companies
+  * countries
+  * products
+  * tickers
+  * layoffs
+  * regulatory actions
+  * etc.
 
-Keep existing working implementations of:
+* `topic-assign.ts`
 
-* off-peak cron scheduling
-* source reclassification / demand-driven source collection
-* adaptive polling
-* sensible DB indexes
-* shared `event_impacts`
-* existing Worker cron consolidation
-* existing provider abstraction itself, if it existed before this work
+  * deterministic topic/tag assignment
+  * currently/shadow-mode validation
 
-Do not revert working low-risk infrastructure just because it was mentioned in the old document.
+* `evidence-selection.ts`
 
-## FREEZE / DEACTIVATE speculative optimization work for now
+  * evidence/article selection
+  * can reduce redundant coverage
+  * currently/shadow-mode
 
-Do NOT actively use or further develop:
+* `compareExtraction()`
 
-* Groq routing for clustering
-* provider migration
-* cluster-cache shortcut / `titleHash()` event attachment
-* Story Ask caching
-* digest caching
-* prompt optimization solely for cost
-* batch clustering
-* backlog priority queues
-* additional P1/P2/P3/P4 optimizations
+* `compareTopics()`
 
-These can be revisited AFTER P0 financial safety is working and measured.
+* `compareTags()`
 
-If database tables/infrastructure for these already exist, do not destroy them merely for cleanliness.
+The major architectural problem identified was:
 
-Dormant infrastructure costs almost nothing.
+Nyuz already computes many facts deterministically, but still asks AI to compute the same information again.
 
-Prefer disabling/reverting active application behavior rather than destructive DB cleanup.
+AI is currently doing BOTH:
 
----
+structured extraction + creative synthesis.
 
-# IMPORTANT RULE ABOUT MIGRATIONS
+That is wasteful.
 
-DO NOT blindly delete migration files that may already have been applied to Supabase.
+# TARGET ARCHITECTURE
 
-For migrations:
+Move Nyuz toward this pipeline:
 
-* `0058_cost_cutting.sql`
-* `0059_cluster_cache.sql`
-* `0060_multi_provider.sql`
-* `0061_query_optimization.sql`
-* `0062_ask_cache.sql`
+Raw articles
+↓
+deterministic preprocessing
+↓
+fact extraction
+↓
+duplicate/redundancy detection
+↓
+evidence selection
+↓
+deterministic topic/tag/scoring
+↓
+AI receives only the minimum high-value evidence
+↓
+AI performs synthesis only
+↓
+results cached/reused globally
+↓
+per-user personalization happens as cheaply as possible
 
-first classify each as:
-
-* definitely required by current P0
-* harmless dormant infrastructure
-* active behavior that should be reverted/deactivated
-* production state unknown
-
-If you cannot access production Supabase, say so.
-
-Do NOT pretend migration presence in Git proves it was applied to production.
-
-Do NOT pretend local `.env` proves Cloudflare production configuration.
-
-If a DB cleanup depends on knowing production state, give me READ-ONLY SQL to run manually instead of guessing.
-
----
-
-# DO NOT MAKE THESE PREVIOUS MISTAKES
-
-Do NOT confuse:
-
-`demand_driven_sources`
-
-with:
-
-`pre_analysis_demand_gate`
-
-They are different.
-
-`demand_driven_sources`
-= controls which sources are collected.
-
-`pre_analysis_demand_gate`
-= prevents paying to analyse an event when no eligible reader can receive it.
-
-Both matter independently.
-
-Also:
-
-Do NOT assume the `settle_ai_tokens` conflict is 5-arg vs 6-arg merely because those functions exist in migrations.
-
-The earlier production audit found an undocumented `p_id text` overload conflicting with the migration-backed UUID function.
-
-Since you cannot inspect live production unless actual DB access exists, do not drop any function signature based only on migration files.
+AI should be the last resort for semantic synthesis, not the default tool for every operation.
 
 ---
 
-# CURRENT P0 OBJECTIVE
+# TASK 1 — PROMOTE EVIDENCE SELECTION INTO PRODUCTION
 
-Make Nyuz safe to continue testing with roughly:
+Currently analysis may send up to ~12 articles even when many contain the same information.
 
-* total very-early-stage cost around $10–20/month where realistic
-* hard AI financial ceiling around $10/month
-* approximately 20M-token secondary fail-safe
-* expensive AI work driven by real reader demand
-* no spending money on stale old news
-* bounded custom-source financial liability
-* architecture remains upgrade-shaped, not rewrite-shaped
+Inspect `evidence-selection.ts` and all related call sites.
 
----
+Promote the existing selection logic into the actual analysis pipeline where safe.
 
-# P0-1 — FIX AI SETTLEMENT APPLICATION LOGIC
+Goal:
 
-Inspect the actual current code around:
+Instead of blindly sending 12 articles:
 
-`db.rpc("settle_ai_tokens", ...)`
+1. examine all available articles using deterministic logic
+2. identify which articles introduce unique facts/evidence
+3. remove redundant reporting
+4. preserve source diversity
+5. prefer higher-quality / more informative reporting
+6. normally send only around 3–4 representative sources to AI
 
-The important question is what happens when:
+Do NOT blindly enforce 3 articles if an important event genuinely needs more evidence.
 
-`error !== null`
+The selector should optimize for:
 
-Do NOT blame:
+* unique facts
+* outlet diversity
+* primary/authoritative sources where available
+* contradictory reporting
+* materially different perspectives
+* recency
+* useful context
 
-`if (!reservation) return`
+Do not send 10 articles saying essentially the same thing.
 
-That merely means there is no reservation to settle.
-
-The actual bug is if the RPC returns an error and the application ignores it.
-
-Fix the application-side settlement path so settlement failure cannot silently masquerade as success.
-
-At minimum:
-
-* structured error log
-* include reservation / usage ID
-* include capability/model where available
-* write `ops_status` or equivalent persistent operational error if that mechanism already exists
-* make failure visible to the pipeline/operator
-* do not silently continue as though usage settled successfully
-
-Do not redesign the whole AI budget architecture.
-
-Add targeted tests for settlement RPC failure.
+Keep the full list of source references in Nyuz for transparency even if the AI only reads a subset.
 
 ---
 
-# P0-2 — VERIFY AND REPAIR `settle_ai_tokens` DB CONFLICT
+# TASK 2 — MOVE STRUCTURED FACT EXTRACTION OUT OF AI
 
-Because you do not currently have live Supabase access, DO NOT guess which overload should be dropped.
+Inspect the current `analyse.ts`, `contract()`, prompts, response schema, and downstream dependencies.
 
-Create a READ-ONLY SQL verification script for me:
+Anything that can already be produced reliably by deterministic code should stop being requested from the AI.
 
-```sql
-select
-    n.nspname as schema_name,
-    p.proname as function_name,
-    pg_get_function_identity_arguments(p.oid) as identity_args,
-    pg_get_function_arguments(p.oid) as full_args,
-    pg_get_function_result(p.oid) as return_type
-from pg_proc p
-join pg_namespace n on n.oid = p.pronamespace
-where n.nspname = 'public'
-  and p.proname = 'settle_ai_tokens'
-order by identity_args;
-```
+Candidate fields include:
 
-Then tell me:
+* numbers
+* dates
+* entities
+* companies
+* countries
+* products
+* CVEs
+* versions
+* percentages
+* counts
+* layoffs
+* regulatory actions
+* obvious timeline information
+* deterministic topic/tag information
 
-* which signature current application code expects
-* what cleanup migration SHOULD be generated after I provide the live query output
+Use `extractFacts()` and existing infrastructure.
 
-Do NOT create/drop the production function yet unless live function signatures are actually available to you.
+Do NOT remove a field merely because deterministic extraction technically exists.
 
-The desired end state is:
+First verify:
 
-* one unambiguous authoritative settlement RPC compatible with current app code
-* no undocumented conflicting overload
-* migration history describes desired production state
+* extraction quality
+* downstream expectations
+* null behavior
+* edge cases
+* conflicts across sources
+* schema compatibility
 
----
+Where deterministic extraction is not sufficiently trustworthy, retain an AI fallback.
 
-# P0-3 — TARGETED SCHEMA DRIFT AUDIT
+Target philosophy:
 
-Do a targeted repo-side audit for drift-sensitive objects related to:
+CODE FIRST
+AI FALLBACK
 
-* AI reservations
-* AI settlement
-* cost accounting
-* claims
-* queue/job state
-* source processing
-* authentication/authorization
+not:
 
-Do NOT turn this into a broad architecture review.
-
-Where production state cannot be known, prepare read-only SQL checks for me.
-
-Do not silently assume Git migration state equals production state.
+AI FIRST
+CODE SHADOW MODE
 
 ---
 
-# P0-4 — ENABLE `pre_analysis_demand_gate`
+# TASK 3 — PROMOTE DETERMINISTIC TOPICS + TAGS
 
-Inspect the implementation of the existing gate.
+Inspect:
 
-Verify that it:
+`topic-assign.ts`
+`assignTopics()`
+`assignTags()`
+`compareTopics()`
+`compareTags()`
 
-* allows events with legitimate current reader demand
-* recognizes followed topics
-* recognizes eligible custom-source relationships
-* respects muted/paused/banned/ineligible reader states according to existing product semantics
-* fails closed if demand lookup itself fails
-* leaves no-demand events pending/deferred rather than analysing them anyway
-* allows a previously pending event to become eligible later when demand appears
+If shadow-mode results show acceptable quality, move topic/tag assignment into production.
 
-Add/verify tests for:
+Remove topics/tags from AI output where safe.
 
-1. demanded event -> analysis allowed
-2. no-demand event -> no AI analysis
-3. later demand appears -> event becomes eligible
-4. demand lookup failure -> no AI spend
-5. muted/paused/banned state follows current design
+Do not just delete AI classification without checking historical agreement.
 
-If you cannot query the live feature flag, give me exact SQL to run:
+If some ambiguous stories genuinely require semantic classification, design an inexpensive fallback.
 
-```sql
-select key, enabled
-from public.feature_flags
-where key in (
-  'pre_analysis_demand_gate',
-  'demand_driven_sources',
-  'adaptive_polling'
-);
-```
+For example:
 
-Do not mark the production flag enabled merely because a migration contains an UPDATE statement.
+deterministic confident result
+→ accept
+
+deterministic low-confidence result
+→ AI fallback
+
+Avoid AI classification for obvious cases.
 
 ---
 
-# P0-5 — KEEP DEMAND-DRIVEN SOURCES AND PRUNE CORE SAFELY
+# TASK 4 — BE CAREFUL WITH IMPORTANCE + NOVELTY
 
-Keep `demand_driven_sources`.
+The previous proposal suggested deterministic scoring.
 
-Review current source scheduling logic and `0058`.
+I agree with the direction but DO NOT simply use a naive formula and assume it is correct.
 
-Do NOT use nonexistent `sources.updated_at`.
+For example:
 
-Do not delete source records.
+many sources != automatically important
 
-Desired concept:
+A huge breaking story may initially have only one authoritative source.
 
-A source should be `core` only when Nyuz genuinely intends to monitor it regardless of current reader demand.
+Design deterministic scoring using multiple signals such as:
 
-Niche/topic-specific feeds should normally remain `demand`, even when currently active due to reader demand.
+* source count
+* source quality
+* core vs demand source
+* outlet diversity
+* primary source detection
+* recency
+* event type
+* user/topic demand
+* historical novelty
+* whether this is a material change from the previous known state
+* duplicate/rewrite ratio
+* unusual high-signal entities/actions
 
-Do NOT convert a demand source into `core` merely because someone currently follows it.
+Importance and novelty should be cheap, but they must not bury genuinely important breaking stories.
 
-Core is editorially unconditional.
+Use confidence ranges / guardrails where useful.
 
-Demand means conditional but active when justified.
+If deterministic confidence is low, allow escalation.
 
-Target a genuinely small core set, roughly <=25–30 and preferably fewer if coverage remains good.
-
-Since you cannot query production, provide read-only SQL for:
-
-```sql
-select coverage_mode, count(*)
-from public.sources
-group by coverage_mode
-order by coverage_mode;
-```
-
-and:
-
-```sql
-select *
-from public.sources
-where coverage_mode = 'core'
-order by id;
-```
-
-Do not guess current production counts.
+Do not optimize cost at the expense of Nyuz missing major news.
 
 ---
 
-# P0-6 — CLUSTER MAX TOKENS
+# TASK 5 — SPLIT ANALYSIS INTO DETERMINISTIC + AI SYNTHESIS
 
-Use the existing provider/model.
+Refactor the logical analysis pipeline into two conceptual stages.
 
-Do NOT switch to Groq now.
+## Stage A — deterministic/free
 
-Do NOT redesign clustering.
+Produce as much as reliably possible:
 
-Do NOT enable deterministic cluster skip.
+* extracted facts
+* entities
+* numbers
+* dates
+* topics
+* tags
+* basic scores
+* evidence selection
+* source diversity
+* known historical comparison
+* obvious before/after information
+* other mechanical fields
 
-Do NOT modify shortlist/Jaccard/event semantics.
+## Stage B — AI synthesis
 
-Set the cluster route output allowance to:
+The AI should primarily produce fields requiring human-like understanding, such as:
 
-`max_tokens = 1024`
+* `whatHappened`
+* concise one-sentence summary
+* nuanced impact
+* perspectives
+* genuinely unresolved unknowns
+* contextual explanation
+* what may happen next
+* what to watch
 
-initially.
+Review every field in the existing analysis JSON contract.
 
-IMPORTANT:
+For EACH field ask:
 
-Do this through the existing route/config mechanism.
+"Could normal programming generate this reliably?"
 
-Do not confuse the model name environment variable with the route's `max_tokens`.
+If yes:
+remove it from AI.
 
-Run representative clustering tests at 1024 and report:
+If no:
+keep it in synthesis.
 
-* successful calls
-* JSON validity
-* completion token distribution
-* `finish_reason`
-* `TruncatedCompletionError`
+Shrink both the system prompt and output contract accordingly.
+
+---
+
+# TASK 6 — REDUCE ANALYSIS INPUT
+
+AI should not receive the entire event/database object.
+
+Build the smallest useful synthesis payload.
+
+Prefer something similar to:
+
+* event identity
+* deterministic extracted facts
+* selected 3–4 source excerpts
+* disagreements/conflicts
+* minimal historical context
+* only fields necessary for synthesis
+
+Do NOT pass huge redundant JSON structures.
+
+Measure actual input token reduction.
+
+---
+
+# TASK 7 — REDUCE ANALYSIS OUTPUT
+
+Review current:
+
+`max_tokens`
+reasoning configuration
+JSON response size
+unused fields
+verbose instructions
+
+If analysis currently allows around 4096 output tokens but typical useful output can fit around ~1k–2k, reduce the limit safely.
+
+Do not arbitrarily set 2048 without checking worst-case valid outputs.
+
+We want enough headroom to avoid truncation while eliminating waste.
+
+Also investigate whether reasoning effort/model configuration can be lowered for simple events.
+
+---
+
+# TASK 8 — TWO-TIER EVENT ANALYSIS
+
+Not every event deserves expensive deep analysis.
+
+Create an analysis-depth strategy.
+
+Example concept:
+
+## LOW / ROUTINE EVENT
+
+For minor events:
+
+* title
+* what happened
+* topics/tags
+* basic facts
+* minimal Understand content
+
+Use deterministic processing + cheaper/smaller AI synthesis if AI is needed at all.
+
+## IMPORTANT EVENT
+
+For meaningful events:
+
+* richer synthesis
+* context
+* perspectives
+* unknowns
+* what-next
+* deeper Understand content
+
+## CRITICAL / COMPLEX EVENT
+
+For major or conflicting stories:
+
+* allow more evidence
+* stronger model/deeper reasoning if necessary
+
+Do NOT hardcode this blindly around one `importance >= 4` threshold.
+
+Design it around the actual Nyuz scoring and event model.
+
+The important principle is:
+
+simple news should be cheap;
+complex news earns expensive reasoning.
+
+---
+
+# TASK 9 — WHY-IT-MATTERS / IMPACT
+
+Inspect current `digest.ts` and the `impact`/`why_it_matters` AI calls.
+
+Determine how many separate AI calls are being made solely for short 1–2 sentence impact text.
+
+Try to eliminate unnecessary independent calls.
+
+Prefer, in this order:
+
+1. reuse event-level synthesis already generated
+2. deterministic generation where quality is acceptable
+3. cheap fallback model
+4. expensive AI only when genuinely necessary
+
+Do NOT make Nyuz sound robotic with generic templates such as:
+
+"Because X happened, this matters to Y."
+
+If templates are used, make them sufficiently rich and conditional.
+
+Start conservatively.
+
+Quality matters because `why_it_matters` is user-facing.
+
+---
+
+# TASK 10 — TRANSLATION
+
+Inspect `translate.ts`.
+
+Translation should be:
+
+* on demand where possible
+* cached globally where possible
+* reused for every user requesting the same event + language
+* supplied only the text that actually requires translation
+
+Do not repeatedly translate the same event for different users.
+
+Check database uniqueness/caching, ideally equivalent to:
+
+`event_id + language`
+
+Do not send large irrelevant objects to the translation model.
+
+Shorten translation system prompts while maintaining quality.
+
+---
+
+# TASK 11 — STORY ASK COST SAFETY
+
+Previous audit could not clearly trace Story Ask's actual AI call site.
+
+Find it.
+
+Audit the entire Story Ask request path.
+
+It MUST have:
+
+* authentication
+* plan entitlement check
+* per-user rate limiting
+* global safety cap
+* bounded context
+* bounded output tokens
+* AI usage ledger
+* cost attribution
+* reasonable abuse protection
+
+One user must NOT be able to burn the monthly Nyuz AI budget by repeatedly asking questions.
+
+Also verify failures/timeouts/retries cannot accidentally multiply AI calls.
+
+---
+
+# TASK 12 — CLUSTER AI REDUCTION
+
+Inspect the clustering pipeline.
+
+Current behavior reportedly uses an AI call when a shortlist exists.
+
+Add deterministic handling for obvious duplicate cases where safe.
+
+Potential deterministic signals:
+
+* normalized headline
+* same named entities
+* same company/product
+* exact key facts
+* date proximity
+* highly similar excerpts
+* SimHash / Jaccard
+* same announcement/action
+* source relation
+
+AI should mainly resolve ambiguous cluster membership.
+
+Do NOT weaken clustering accuracy merely to remove calls.
+
+False merges are worse than spending a tiny amount of AI.
+
+---
+
+# TASK 13 — GLOBAL REUSE ACROSS USERS
+
+This is extremely important.
+
+Nyuz should NOT analyse the same world event separately for every user.
+
+Confirm:
+
+collection
+→ clustering
+→ event analysis
+→ Understand generation
+→ translation where appropriate
+
+are shared globally whenever the content itself is identical.
+
+Per-user work should ideally be limited to things that are actually personal, such as:
+
+* matching
+* ranking
+* delivery
+* explicit Story Ask
+* genuinely personalized explanation
+
+If 100 users follow AI and the same Nvidia story appears:
+
+Nyuz should ideally analyse the Nvidia event ONCE,
+not 100 times.
+
+Trace the DB and pipeline and prove this behavior.
+
+Fix duplicate AI work if you find any.
+
+---
+
+# TASK 14 — CACHE / IDEMPOTENCY / RETRY AUDIT
+
+AI cost can also leak through retries.
+
+Audit:
+
+* job retries
+* worker crashes
+* queue retries
+* timeout retries
+* duplicate cron execution
+* concurrency races
+* failed DB writes after successful AI responses
+* repeated regeneration
+* translation duplication
+* analysis regeneration
+
+Every expensive AI operation should be as idempotent as reasonably possible.
+
+Prefer patterns like:
+
+claim job
+→ check existing result
+→ perform AI once
+→ persist result
+→ mark complete
+
+Ensure two workers cannot both spend money analysing the same event simultaneously.
+
+---
+
+# TASK 15 — AI USAGE LEDGER
+
+I want to know exactly where every cent goes.
+
+Inspect the existing AI usage ledger.
+
+Make sure we can see at least:
+
+* timestamp
+* feature
+* provider
+* model
+* event/user where applicable
+* input tokens
+* output tokens
+* reasoning tokens if exposed
+* cached tokens if exposed
+* estimated cost
+* success/failure
+* latency
+* retry count
+
+Feature names should clearly distinguish things such as:
+
+* clustering
+* event analysis
+* impact
+* translation
+* Story Ask
+* alerts
+* any other AI function
+
+Do not log private article/user content unnecessarily.
+
+---
+
+# TASK 16 — COST GUARDS
+
+Add reasonable cost protection.
+
+I want configuration for things such as:
+
+* per-user daily AI ceiling
+* per-plan limits
+* Story Ask limits
+* global daily/monthly emergency budget
+* per-feature guardrails
+* max output tokens
+* concurrency
 * retries
-* merge correctness
 
-If 1024 causes meaningful real truncation, report the evidence and recommend the smallest safe higher value.
+Important:
 
-Do not silently increase it.
+The global guard must fail gracefully.
 
-For now restore/leave digest and reason at their known-safe previous values.
+If an AI budget is reached, Nyuz should still continue:
 
-Do NOT optimize digest/reason token limits in this P0.
+* ingestion
+* deterministic extraction
+* clustering where possible
+* browsing existing analysed stories
+* scheduled system work that doesn't require AI
 
----
-
-# P0-7 — HTTP 402 RESERVATION RELEASE
-
-Find `isDefinitelyUnbilledAiError` or equivalent.
-
-Add HTTP:
-
-`402 Payment Required`
-
-to the definitely-unbilled path.
-
-Expected behavior:
-
-Provider returns 402
--> provider did not perform billable model work
--> internal AI reservation is released
--> no artificial budget usage remains for an hour
--> the actual provider failure still surfaces correctly
-
-Add tests proving this.
-
-Do not treat uncertain failures like 5xx/timeouts as definitely unbilled.
-
-Remain conservative for ambiguous failures.
+It should not completely break the application.
 
 ---
 
-# P0-8 — BUDGET CONFIGURATION
+# TASK 17 — MODEL ROUTING
 
-Desired production configuration:
+After reducing AI workload, review model routing.
 
-`AI_MONTHLY_COST_USD = 10`
+Do NOT automatically move everything to the cheapest model.
 
-`AI_MONTHLY_TOKEN_BUDGET = 20000000`
+Use the cheapest model that meets the quality requirement.
 
-The $10 ceiling is the main financial safety rail.
+Potential routing philosophy:
 
-20M tokens is a secondary runaway-loop fail-safe and should not stop the product before the dollar cap.
+deterministic
+→ no model
 
-Do NOT rely silently on:
+simple ambiguity
+→ cheap/fast model
 
-`DEFAULT_AI_MONTHLY_TOKEN_BUDGET = 500000`
+normal synthesis
+→ capable mid-tier model
 
-in production.
+rare complex/critical event
+→ strongest model
 
-Repo-side work:
+Story Ask
+→ based on plan + complexity + limits
 
-* document expected production variables
-* warn loudly through existing health/admin mechanisms if production is using the 500k fallback unintentionally
-* do not expose secrets
+The architecture must make provider/model changes easy through configuration.
 
-Because local `.env` does NOT prove Cloudflare production config, give me exact manual Cloudflare steps/variables to configure.
-
-Do not claim production is configured until I confirm it.
-
----
-
-# P0-9 — CUSTOM SOURCE FINANCIAL LIMITS
-
-Keep global source reuse.
-
-If 10 users subscribe to the same canonical feed, Nyuz should process that source once globally.
-
-But individual accounts must not activate unlimited distinct custom feeds.
-
-Server-side limits:
-
-Free: 0
-Personal: 5
-Pro: 25
-
-Inspect all relevant paths:
-
-* create
-* update
-* re-enable
-* direct API
-* RPC
-* import path if one exists
-
-Count canonical DISTINCT ACTIVE custom sources according to existing semantics.
-
-Do not rely only on frontend checks.
-
-Add tests proving:
-
-* Free cannot add one
-* Personal succeeds through 5 and fails at 6
-* Pro succeeds through 25 and fails at 26
-* direct API/RPC bypass fails
-* duplicate canonical source does not incorrectly multiply global pipeline work
-
-Do not redesign the custom-source subsystem.
+I do NOT want to redesign Nyuz when changing DeepSeek → Groq → Cloudflare → another provider later.
 
 ---
 
-# P0-10 — STALE BACKLOG BANKRUPTCY
+# TASK 18 — OBSERVABILITY BEFORE/AFTER
 
-Do NOT blindly drain old backlog.
+Before modifying behavior, establish the current baseline from the AI ledger/logs if possible.
 
-The goal is economic bankruptcy on stale processing work, not data destruction.
+Then after the implementation compare:
 
-Implement the smallest safe mechanism so old unprocessed articles do not keep competing for expensive clustering.
+* AI calls/event
+* input tokens/event
+* output tokens/event
+* reasoning tokens/event
+* cost/event
+* clustering cost
+* analysis cost
+* translation cost
+* Story Ask cost
+* total cost/day
+* total AI calls/day
 
-Use approximately:
+I want hard numbers.
 
-7 days
+The previous estimate suggested 60–75% token reduction.
 
-as the initial stale threshold unless current schema semantics strongly require something else.
-
-Desired behavior:
-
-* recent demanded content gets priority
-* recent useful content remains eligible
-* old unclustered news with no active reason does not consume AI budget
-* stale pending events with no current demand remain unanalysed
-* historical rows can remain in DB if useful
-* no destructive mass deletion
-
-Prefer:
-
-* skipped/deferred/stale state where existing schema supports it
-* filtering them out of expensive candidate selection
-* reversible behavior
-
-Before changing selection logic, add a read-only/admin calculation for:
-
-* unclustered <24h
-* unclustered 1–3d
-* unclustered 3–7d
-* unclustered >7d
-* pending events by age
-* pending events with demand
-
-Do not process the old backlog just to make counters look clean.
+Do NOT claim that result unless measurements support it.
 
 ---
 
-# P0-11 — STUCK `analysing` EVENTS
+# TASK 19 — QUALITY VALIDATION
 
-Investigate the stale `analysing` event logic.
+Cost savings mean nothing if Nyuz quality drops badly.
 
-Earlier audit found approximately 146 events stuck because general `last_updated_at` may be refreshed when new articles attach to an event.
+Use existing shadow comparison infrastructure wherever possible.
 
-Determine whether reclaim age is incorrectly tied to general event updates rather than a dedicated analysis claim time.
+Compare old vs new for a representative sample:
 
-Safety requirement:
+* simple news
+* breaking news
+* multi-source event
+* one-source event
+* conflicting reports
+* acquisition
+* security vulnerability
+* product release
+* regulatory news
+* funding
+* geopolitical story
+* minor routine update
 
-DO NOT accidentally perform duplicate analyses.
+Check:
 
-If this can be corrected with a small safe change, implement and test it.
+* factual accuracy
+* missing facts
+* false extraction
+* topic accuracy
+* tag accuracy
+* importance accuracy
+* clustering accuracy
+* quality of `whatHappened`
+* Understand quality
+* important source coverage
 
-If it requires a meaningful schema/queue redesign, leave it for P1 and clearly report why.
-
-Do not invent a complex queue system now.
-
----
-
-# OLD COST-CUTTING WORK — WHAT TO DO WITH IT
-
-Review these existing accidental/old-roadmap changes:
-
-## Groq / migration 0060
-
-For now:
-
-* do not route production clustering to Groq
-* do not add additional Groq work
-* revert Groq-specific application cost/routing behavior if it changed existing DeepSeek-only behavior
-* preserve generic provider abstraction if it pre-existed and is harmless
-
-If `0060` DB objects already exist, leave dormant infrastructure unless removal is required for correctness.
-
-Do not create destructive cleanup just for tidiness.
-
-## Cluster cache / migration 0059
-
-Do not use a title-hash shortcut that directly attaches articles to existing events during P0.
-
-It changes clustering correctness semantics for relatively small savings.
-
-Disable/revert ACTIVE `titleHash()` shortcut/cache behavior.
-
-If the table/RPC already exists, it can remain dormant.
-
-Do not drop it unless required.
-
-## Story Ask cache / migration 0062
-
-Story Ask is not a major current cost driver.
-
-Remove/deactivate newly-added Ask caching application behavior for now.
-
-If `0062` is definitely not applied anywhere and is uncommitted/new, it can be removed from the working branch.
-
-If application state is uncertain, report it instead of guessing.
-
-## Digest cache / migration 0061
-
-Remove/deactivate newly-added digest caching application behavior for now.
-
-Do not drop harmless DB infrastructure simply because it is unused.
-
-## Prompt optimization
-
-If prompts were changed solely because of the old roadmap and there are no before/after quality tests, restore the prior known-good prompts.
-
-Do not sacrifice news quality to save tiny prompt costs.
-
-## Query indexes
-
-Keep sensible indexes that are low risk and benefit actual queries.
-
-Do not remove useful indexes merely because the old roadmap created them.
+If a deterministic method is materially worse, retain an AI fallback.
 
 ---
 
-# DO NOT DO
+# TASK 20 — DO NOT DESTROY EXISTING FEATURES
 
-Do NOT:
+Before editing, trace downstream consumers.
 
-* migrate clustering to Groq now
-* add another AI provider
-* enable deterministic_cluster_skip
-* loosen clustering thresholds
-* rewrite clustering
-* batch clustering
-* add embeddings
-* add vector DB
-* add microservices
-* add queues
-* optimize Story Ask
-* optimize digest generation
-* optimize translation
-* change event_impacts semantics
-* rewrite matching
-* upgrade Cloudflare
-* upgrade Supabase
-* raise the $10 AI ceiling
-* blindly process stale backlog
-* perform destructive DB cleanup without verified production state
-* claim production facts from local `.env`
-* claim migrations are applied because files exist
-* claim feature flags are enabled because a migration says UPDATE
-* create another broad architecture review
+Nyuz currently has features such as:
+
+* Briefings
+* Read
+* Understand
+* Alerts
+* Scoring
+* Topics
+* custom topics
+* translations
+* Story Ask
+* source attribution
+* plan limits
+* user preferences
+
+Do not remove fields that the frontend or other pipeline stages expect without migrating their consumers.
+
+Maintain backward compatibility where reasonable.
+
+Do not leave partially dead architecture behind.
 
 ---
 
-# TESTING STANDARD
+# IMPLEMENTATION APPROACH
 
-After repo-side P0 work:
+Do NOT make one huge blind rewrite.
 
-Run:
+Implement this carefully in stages.
 
-* typecheck
-* lint
-* complete existing test suite
-* targeted new tests for changed paths
+Recommended order:
 
-Specifically prove:
+1. baseline current usage
+2. evidence selection
+3. deterministic topics/tags
+4. deterministic fact extraction in production
+5. shrink AI analysis contract
+6. shrink evidence payload
+7. reduce output limits
+8. tiered analysis
+9. remove redundant impact AI calls
+10. translation optimization
+11. clustering optimization
+12. Story Ask guards
+13. idempotency/retry protection
+14. global/per-user cost guards
+15. validate quality
+16. measure cost again
 
-### Settlement
-
-* RPC error is detected
-* settlement failure is loud
-* success records actual usage correctly at application level
-
-### Demand gate
-
-* demanded event allowed
-* no-demand event rejected/deferred
-* later demand works
-* lookup failure fails closed
-
-### Cluster
-
-* 1024 works on representative cases
-* JSON valid
-* truncation measured
-* retries sane
-
-### HTTP 402
-
-* reservation released
-* failure surfaces
-
-### Custom source limits
-
-* Free 0
-* Personal 5
-* Pro 25
-* direct bypass rejected
-
-### Backlog
-
-* stale content excluded from expensive work
-* recent demanded content unaffected
-
-### Stuck analysing
-
-* no duplicate model spending
-
-Do not claim production DB behavior is tested by unit tests alone.
+You can adjust this order if repository dependencies require it.
 
 ---
 
-# MANUAL ACTIONS FOR ME
+# TESTING
 
-At the end, provide a separate section:
+For every change:
 
-# MANUAL ACTIONS FOR VISHAL
+* run existing tests
+* add missing unit tests
+* add integration tests where necessary
+* test failure cases
+* test null/missing values
+* test single-source events
+* test multi-source events
+* test highly duplicated coverage
+* test contradictory sources
+* test retries
+* test concurrent workers
+* test AI provider failure
+* test budget guard behavior
 
-Include only things I actually need to do manually.
+Do not leave tests skipped merely to make the suite green.
 
-For Supabase, give exact SQL.
+---
+
+# IMPORTANT ECONOMIC TARGET
+
+Our goal is NOT to prove an arbitrary estimate.
+
+Our goal is to make Nyuz genuinely cheap enough for an early solo-founder launch.
+
+Approximately:
+
+first ~100 users
+→ ideally ~$10–20/month operating AI spend during testing/light usage
+
+If that exact number is not realistic, tell me based on measured usage.
+
+Do not fake economics.
+
+Calculate expected costs from actual pipeline behavior after the optimization.
+
+Also tell me approximately:
+
+* cost per event
+* cost per active free user/month
+* cost per active paid user/month
+* cost for 100 users
+* cost for 1,000 users
+* biggest remaining cost driver
 
 Separate:
 
-## READ-ONLY verification SQL
-
-from:
-
-## MUTATING SQL
-
-Never mix them.
-
-For any mutating SQL:
-
-* make it transactional/idempotent where practical
-* explain exactly what it changes
-* warn me before DROP/DELETE/destructive operations
-
-For Cloudflare tell me exactly which variables need to be set:
-
-* `AI_MONTHLY_COST_USD=10`
-* `AI_MONTHLY_TOKEN_BUDGET=20000000`
-
-If other existing variables must change, list them.
-
-Do not expose secrets.
+AI cost
+database
+Cloudflare/hosting
+email
+third-party services
+other infrastructure
 
 ---
 
-# DOCUMENTATION
+# FUTURE SCALABILITY REQUIREMENT
 
-Update `docs/nyuz-cost-cutting.md` only AFTER P0 implementation state is known.
+Design this so if Nyuz grows, scaling mostly means:
 
-Do NOT mark old roadmap items complete merely because infrastructure exists.
+upgrade provider plan
+increase worker capacity
+increase DB capacity
+increase queue capacity
+increase AI budget
 
-Restructure status conceptually as:
+NOT:
 
-## Active P0 safety work
+rewrite the application.
 
-what is required now
-
-## Completed low-risk optimizations
-
-off-peak, source demand, adaptive polling, etc.
-
-## Frozen future optimizations
-
-Groq
-cluster cache
-Ask cache
-digest cache
-batch clustering
-priority queue
-additional prompt optimization
-
-Keep useful future ideas in the document.
-
-Do not delete the roadmap.
+Do not over-engineer for 1 million users today, but do not introduce architecture that obviously prevents scaling.
 
 ---
 
-# FINAL RESPONSE FORMAT
+# FINAL OUTPUT I WANT FROM YOU
 
-Return:
+After implementation, give me a detailed report:
 
-# NYUZ P0 IMPLEMENTATION RESULT
+## 1. What you changed
 
-## 1. Repo changes made
+File-by-file.
 
-Exact files and what changed.
+## 2. Why
 
-## 2. Old-plan cleanup
+Explain the architectural reasoning.
 
-For each of:
+## 3. AI calls before vs after
 
-* Groq
-* cluster cache
-* Story Ask cache
-* digest cache
-* prompt optimization
-* query indexes
+Show exact pipeline differences.
 
-state:
+## 4. Token usage before vs after
 
-KEEP
-DEACTIVATED
-REVERTED
-DORMANT
-NEEDS PRODUCTION VERIFICATION
+Use measured values where available.
 
-and why.
+## 5. Estimated monthly cost
 
-## 3. Settlement safety
+For:
 
-* application error handling fixed?
-* live DB signature verification still required?
-* exact read-only SQL for me?
+* 1 active user
+* 10 users
+* 100 users
+* 1,000 users
 
-## 4. Demand safety
+Do not assume costs scale perfectly linearly because global event analysis should be shared.
 
-* pre-analysis gate implementation verified?
-* production flag verification required?
-* source scheduling state?
+## 6. Quality impact
 
-## 5. AI budget safety
+What became deterministic?
 
-* $10 ceiling code/config state
-* 20M token state
-* HTTP 402 state
+What still uses AI?
 
-## 6. Cluster safety
+Where do fallbacks exist?
 
-* max_tokens
-* provider
-* test results
-* truncation behavior
+## 7. Remaining risks
 
-## 7. Custom source protection
+Especially cases where optimization could miss important news or reduce synthesis quality.
 
-* exact limits
-* enforcement points
-* tests
+## 8. Remaining expensive paths
 
-## 8. Backlog
+Rank them from most expensive to least expensive.
 
-* stale policy
-* expected avoided work
-* data deletion: yes/no
+## 9. Tests
 
-## 9. Stuck analysing events
+Tell me exactly what was tested and results.
 
-* root cause
-* fix or deferred
-* duplicate-spend protection
+## 10. Launch verdict
 
-## 10. Tests
+Tell me whether the architecture is now safe enough to launch Nyuz to the first ~100 users without unexpectedly burning AI budget.
 
-* typecheck
-* lint
-* complete test count
-* targeted test count/failures
+Be critical.
 
-## 11. Manual actions for me
-
-Exact Supabase read-only SQL first.
-
-Then, only where proven necessary, exact mutation SQL.
-
-Then Cloudflare configuration.
-
-## 12. What is intentionally deferred
-
-List all old roadmap optimizations frozen until after P0 measurement.
-
-## 13. Launch status
-
-End with exactly one:
-
-SAFE TO CONTINUE TESTING
-
-NOT SAFE YET
-
-SAFE FOR EARLY PAID USERS
-
-Do not say SAFE FOR EARLY PAID USERS until settlement accounting and actual production financial limits are verified.
+If something is still dangerous, say so.
 
 ---
 
-# ENGINEERING PRIORITY
+# NON-NEGOTIABLE PRINCIPLE
 
-The order is:
+Do not make Nyuz worse just to make it cheap.
 
-1. Financial accounting correctness
-2. Prevent unnecessary analysis spend
-3. Prevent unnecessary source work
-4. Bound user-created financial liability
-5. Ignore economically useless stale work
-6. Only then optimize models/caches/providers
+The ideal architecture is:
 
-Do not chase $0.50 savings while the system that measures and caps spending is unreliable.
+**programming handles predictable work,
+AI handles intelligence,
+and the same intelligence is reused as many times as possible.**
 
-The architecture should remain simple.
-
-When Nyuz grows, scaling should mostly mean increasing Cloudflare/Supabase/AI/worker capacity — not rewriting the product.
+Start by tracing the exact current production call graph and usage ledger, then implement the changes rather than giving me another theoretical optimization report.

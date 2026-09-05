@@ -32,9 +32,9 @@ type Db = SupabaseClient<Database>;
 
 export type Recipient = { email: string; name: string };
 
-/** `free` has no receipt to send, so the label type excludes it by construction. */
-export function planLabel(plan: "personal" | "pro"): PlanLabel {
-  return plan === "pro" ? "Pro" : "Personal";
+/** `uno` has no receipt to send, so the label type excludes it by construction. */
+export function planLabel(plan: "plura" | "omni"): PlanLabel {
+  return plan === "omni" ? "Omni" : "Plura";
 }
 
 /**
@@ -142,7 +142,7 @@ export async function sendBriefingsPaused(
 export async function sendSubscriptionStarted(
   db: Db,
   userId: string,
-  details: { plan: "personal" | "pro"; priceLabel: string; renewsOn: Date },
+  details: { plan: "plura" | "omni"; priceLabel: string; renewsOn: Date },
   env?: EmailEnv,
 ): Promise<boolean> {
   const recipient = await findRecipient(db, userId);
@@ -167,7 +167,7 @@ export async function sendSubscriptionStarted(
 export async function sendSubscriptionCancelled(
   db: Db,
   userId: string,
-  details: { plan: "personal" | "pro"; accessUntil: Date },
+  details: { plan: "plura" | "omni"; accessUntil: Date },
   env?: EmailEnv,
 ): Promise<boolean> {
   const recipient = await findRecipient(db, userId);
@@ -189,7 +189,7 @@ export async function sendSubscriptionCancelled(
 export async function sendPaymentFailed(
   db: Db,
   userId: string,
-  details: { plan: "personal" | "pro"; retryOn: Date },
+  details: { plan: "plura" | "omni"; retryOn: Date },
   env?: EmailEnv,
 ): Promise<boolean> {
   const recipient = await findRecipient(db, userId);

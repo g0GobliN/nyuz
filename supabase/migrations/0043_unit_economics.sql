@@ -11,7 +11,7 @@ create table public.billing_ledger (
   charge_id text primary key,
   invoice_id text not null,
   user_id uuid references public.profiles(id) on delete set null,
-  plan plan_tier not null check (plan <> 'free'),
+  plan plan_tier not null check (plan <> 'uno'),
   interval text not null check (interval in ('month', 'year')),
   price_id text not null,
   currency text not null,

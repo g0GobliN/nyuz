@@ -85,7 +85,7 @@ export const loadPreferences = createServerFn({ method: "GET" })
     const stored: Partial<Prefs> = notifications.data
       ? notificationRowToPrefs(notifications.data)
       : {};
-    const plan = subscription.data?.plan ?? "free";
+    const plan = subscription.data?.plan ?? "uno";
 
     return {
       ...DEFAULT_PREFS,
@@ -218,7 +218,7 @@ async function replaceExclusions(actor: Actor, terms: string[]): Promise<void> {
 /**
  * How many canonical topic rows one reader may create in a day.
  *
- * NOT a product limit — the plan cap is, and this sits far above it: Personal
+ * NOT a product limit — the plan cap is, and this sits far above it: Plura
  * allows fifteen topics at once, so nobody legitimately creates thirty in a
  * day. It exists because the plan cap bounds how many topics a reader HOLDS
  * and nothing bounded how many they could CREATE by adding and removing in a
@@ -257,7 +257,7 @@ async function replaceTopics(actor: Actor, labels: string[]): Promise<boolean> {
   const { db, id: userId } = actor;
 
   const plan = await planFor(actor);
-  const limit = PLAN_LIMITS[plan]?.topics ?? PLAN_LIMITS.free.topics;
+  const limit = PLAN_LIMITS[plan]?.topics ?? PLAN_LIMITS.uno.topics;
   const { kept, refused } = keepUsableTopics(labels);
 
   // Refusals are logged rather than thrown. A malformed entry in a list of ten
@@ -401,5 +401,5 @@ async function planFor(actor: Actor) {
     .select("plan")
     .eq("user_id", actor.id)
     .maybeSingle();
-  return data?.plan ?? "free";
+  return data?.plan ?? "uno";
 }

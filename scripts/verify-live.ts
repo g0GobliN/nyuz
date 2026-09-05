@@ -377,7 +377,7 @@ main(async () => {
       .select("plan")
       .eq("user_id", reader.id)
       .maybeSingle();
-    const tier = plan?.plan ?? "free";
+    const tier = plan?.plan ?? "uno";
     say(`  test reader is on: ${tier}`);
 
     if (!write) {
@@ -390,7 +390,7 @@ main(async () => {
       if (error) {
         bad("claim_custom_source runs", error.message);
       } else {
-        const expected = tier === "free" ? "limit" : "ok";
+        const expected = tier === "uno" ? "limit" : "ok";
         check(
           `claim_custom_source returns '${expected}' for a ${tier} reader`,
           result === expected || result === "exists",
@@ -580,17 +580,17 @@ main(async () => {
   /* ------------------------------------------------------------------ */
 
   const proc = globalThis.process?.env ?? {};
-  const live = ["STRIPE_PRICE_PERSONAL_MONTHLY", "STRIPE_PRICE_PRO_MONTHLY"].map(
+  const live = ["STRIPE_PRICE_PLURA_MONTHLY", "STRIPE_PRICE_OMNI_MONTHLY"].map(
     (k) => [k, proc[k]] as const,
   );
   for (const [key, value] of live) {
     say(`  ${key}: ${value ? `${value.slice(0, 12)}…` : "(unset)"}`);
   }
   const legacySet = [
-    "STRIPE_PRICE_PERSONAL_MONTHLY_LEGACY",
-    "STRIPE_PRICE_PERSONAL_ANNUAL_LEGACY",
-    "STRIPE_PRICE_PRO_MONTHLY_LEGACY",
-    "STRIPE_PRICE_PRO_ANNUAL_LEGACY",
+    "STRIPE_PRICE_PLURA_MONTHLY_LEGACY",
+    "STRIPE_PRICE_PLURA_ANNUAL_LEGACY",
+    "STRIPE_PRICE_OMNI_MONTHLY_LEGACY",
+    "STRIPE_PRICE_OMNI_ANNUAL_LEGACY",
   ].filter((k) => proc[k]);
   check(
     "no legacy price ids configured — no repricing has happened",

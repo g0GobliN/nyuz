@@ -1,8 +1,22 @@
-import { createFileRoute, Link, useCanGoBack, useRouter } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Link,
+  useCanGoBack,
+  useNavigate,
+  useRouter,
+} from "@tanstack/react-router";
 import { humanError } from "@/lib/errors";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Bookmark, ExternalLink, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bookmark,
+  ExternalLink,
+  Sparkles,
+  ThumbsDown,
+  ThumbsUp,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard/shell";
 import { LogoLoader, PanelLoading } from "@/components/loading";
 import { formatStoryTime } from "@/lib/story-time";
@@ -10,6 +24,8 @@ import { Button } from "@/components/kit";
 import { useFeedback } from "@/lib/feedback-store";
 import { useReadTracking } from "@/lib/use-engagement";
 import { usePlan } from "@/lib/plan-state";
+import type { QueueItem, ReadingQueue } from "@/lib/reading-queue";
+import { asQueueSource, useReadingQueue, type QueueSource } from "@/lib/use-reading-queue";
 import { loadStory, askStory } from "@/lib/server/briefing";
 import { getLaunchFlags } from "@/lib/server/settings";
 import type { Story } from "@/lib/story";
@@ -34,6 +50,18 @@ import {
 
 export const Route = createFileRoute("/dashboard/story/$id")({
   component: StoryDetail,
+  /**
+   * Which list the reader is working through, so the page can offer them the
+   * next story in it rather than sending them back to fetch it themselves.
+   *
+   * Anything unrecognised falls away instead of erroring. This is a convenience
+   * layered on top of the story; a hand-edited or truncated URL should still
+   * open the story, just without a pager.
+   */
+  validateSearch: (search: Record<string, unknown>): { from?: QueueSource } => {
+    const from = asQueueSource(search["from"]);
+    return from ? { from } : {};
+  },
   head: ({ params }) => ({
     meta: [{ title: params.id ? "Understand — nyuz" : "nyuz" }],
   }),
@@ -105,10 +133,64 @@ function StoryDetail() {
   const reachedEnd = useRef(false);
   useReadTracking(story?.id, reachedEnd);
 
+  // Paging to the next story is a param change, not a remount, so the flag has
+  // to be cleared per story or everything after the first would be recorded as
+  // read to the end. Declared after `useReadTracking` because effect cleanups
+  // all run before setups: the story being left is still flushed with the value
+  // it actually earned.
+  useEffect(() => {
+    reachedEnd.current = false;
+  }, [id]);
+
   const { asksPerDay, loading: planLoading } = usePlan();
   const { state, vote, toggleSaved } = useFeedback();
   const saved = story ? state.saved.includes(story.id) : false;
   const current = story ? state.votes[story.id] : undefined;
+
+  const from = Route.useSearch().from ?? "home";
+  const queue = useReadingQueue(from, story?.id, state);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
+  /**
+   * Moves to another story in the same list.
+   *
+   * `replace` rather than a push, for two reasons. It keeps "Back to your nyuz"
+   * meaning the list even after a reader has paged through ten stories; pushing
+   * would leave nine stories stacked behind them and turn one press into nine.
+   * And it gives the browser's own back button that same meaning, which is what
+   * someone working down a briefing actually wants from it.
+   *
+   * The scroll is explicit and waits for the navigation: nothing unmounts on a
+   * param change, so without it the next story opens already scrolled to
+   * wherever the last one was left.
+   */
+  const open = useCallback(
+    (nextId: string) => {
+      void navigate({
+        to: "/dashboard/story/$id",
+        params: { id: nextId },
+        search: { from },
+        replace: true,
+      }).then(() => window.scrollTo({ top: 0, behavior: "auto" }));
+    },
+    [navigate, from],
+  );
+
+  // The next story is the one thing a reader working down a list is most likely
+  // to ask for. Fetching it while they are still on this one is most of the
+  // difference between paging through a briefing and navigating a site.
+  const nextId = queue.next?.id;
+  useEffect(() => {
+    if (!nextId) return;
+    void queryClient.prefetchQuery({
+      queryKey: ["briefing", "story", nextId],
+      queryFn: () => loadStory({ data: { id: nextId } }),
+      staleTime: 60_000,
+    });
+  }, [queryClient, nextId]);
+
+  useStoryShortcuts(queue, open);
 
   const flagsQ = useQuery({
     queryKey: ["launch", "flags"],
@@ -138,7 +220,10 @@ function StoryDetail() {
 
   return (
     <DashboardShell title="Understand">
-      <BackToFeed />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <BackToFeed />
+        <QueueControls queue={queue} onOpen={open} />
+      </div>
 
       <article className="mt-6 animate-rise">
         <div className="grid gap-10 lg:grid-cols-[1fr_260px]">
@@ -179,6 +264,8 @@ function StoryDetail() {
             {askEnabled && !planLoading && asksPerDay > 0 ? (
               <AskPanel eventId={story.id} dailyLimit={asksPerDay} />
             ) : null}
+
+            <QueuePager queue={queue} onOpen={open} />
           </div>
 
           <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
@@ -294,6 +381,188 @@ function StoryDetail() {
         </div>
       </article>
     </DashboardShell>
+  );
+}
+
+/**
+ * Left and right arrows -- and j/k, for anyone whose hands already live there --
+ * walk the list without the reader reaching for anything.
+ *
+ * Keys typed into a field are left alone so Ask nyuz still works, and any
+ * modifier hands the key straight back to the browser: someone pressing Alt+Left
+ * means "go back", and would be badly served by a story change instead.
+ */
+function useStoryShortcuts(queue: ReadingQueue, open: (id: string) => void) {
+  const { prev, next } = queue;
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+
+      const target = event.target as HTMLElement | null;
+      if (target?.isContentEditable) return;
+      if (target && /^(input|textarea|select)$/i.test(target.tagName)) return;
+
+      const forward = event.key === "ArrowRight" || event.key === "j";
+      const back = event.key === "ArrowLeft" || event.key === "k";
+      if (forward && next) {
+        event.preventDefault();
+        open(next.id);
+      } else if (back && prev) {
+        event.preventDefault();
+        open(prev.id);
+      }
+    }
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [prev, next, open]);
+}
+
+/**
+ * "3 of 12" and two arrows, beside the back link.
+ *
+ * Up here as well as at the foot because a reader who has decided this story is
+ * not for them wants the way on before they have read it, not only after.
+ * Renders nothing when there is no list to walk -- a shared link, or a story
+ * reached from search.
+ */
+function QueueControls({ queue, onOpen }: { queue: ReadingQueue; onOpen: (id: string) => void }) {
+  if (queue.total < 2) return null;
+
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="text-[12px] tabular-nums text-muted-foreground">
+        {queue.position} of {queue.total}
+      </span>
+      <div className="flex items-center gap-1">
+        <StepButton direction="prev" target={queue.prev} onOpen={onOpen} />
+        <StepButton direction="next" target={queue.next} onOpen={onOpen} />
+      </div>
+    </div>
+  );
+}
+
+function StepButton({
+  direction,
+  target,
+  onOpen,
+}: {
+  direction: "prev" | "next";
+  target: QueueItem | null;
+  onOpen: (id: string) => void;
+}) {
+  const label = direction === "prev" ? "Previous story" : "Next story";
+
+  return (
+    <button
+      type="button"
+      disabled={!target}
+      aria-label={label}
+      title={target ? `${label}: ${target.title}` : label}
+      onClick={() => {
+        if (target) onOpen(target.id);
+      }}
+      className={cn(
+        "inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors",
+        target
+          ? "cursor-pointer border-border hover:bg-muted"
+          : "cursor-not-allowed border-hairline text-muted-foreground/40",
+      )}
+    >
+      {direction === "prev" ? (
+        <ArrowLeft className="h-4 w-4" />
+      ) : (
+        <ArrowRight className="h-4 w-4" />
+      )}
+    </button>
+  );
+}
+
+/**
+ * The end of the story, and the way on to the next one.
+ *
+ * Headlines rather than bare arrows: the question at the foot of a story is
+ * whether the next one is worth the time, and nobody can answer that from a
+ * chevron. Next holds the right-hand column whether or not there is a Previous,
+ * so it does not move under the reader as they work down the list.
+ */
+function QueuePager({ queue, onOpen }: { queue: ReadingQueue; onOpen: (id: string) => void }) {
+  if (queue.total < 2) return null;
+
+  return (
+    <nav aria-label="More in this list" className="border-t border-hairline pt-7">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-[12px] text-muted-foreground">
+        <span className="tabular-nums">
+          {queue.position} of {queue.total} in {queue.label}
+        </span>
+        <span className="hidden sm:inline">
+          <Key>{"\u2190"}</Key> and <Key>{"\u2192"}</Key> move between stories
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {queue.prev ? (
+          <PagerCard direction="prev" target={queue.prev} onOpen={onOpen} />
+        ) : (
+          <span className="hidden sm:block" />
+        )}
+        {queue.next ? (
+          <PagerCard direction="next" target={queue.next} onOpen={onOpen} />
+        ) : (
+          <div className="rounded-2xl border border-dashed border-border p-5 sm:text-right">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">The end</p>
+            <p className="mt-2 text-[13.5px] leading-relaxed text-muted-foreground">
+              That was the last of {queue.label}.
+            </p>
+          </div>
+        )}
+      </div>
+    </nav>
+  );
+}
+
+function PagerCard({
+  direction,
+  target,
+  onOpen,
+}: {
+  direction: "prev" | "next";
+  target: QueueItem;
+  onOpen: (id: string) => void;
+}) {
+  const isNext = direction === "next";
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(target.id)}
+      className={cn(
+        "group cursor-pointer rounded-2xl border border-hairline bg-surface p-5 text-left transition-colors hover:border-foreground/20",
+        isNext && "sm:text-right",
+      )}
+    >
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.16em] text-muted-foreground",
+          isNext && "sm:flex-row-reverse",
+        )}
+      >
+        {isNext ? <ArrowRight className="h-3.5 w-3.5" /> : <ArrowLeft className="h-3.5 w-3.5" />}
+        {isNext ? "Next" : "Previous"}
+      </span>
+      <span className="mt-2 line-clamp-2 block text-[15px] font-medium leading-snug group-hover:underline group-hover:underline-offset-4">
+        {target.title}
+      </span>
+    </button>
+  );
+}
+
+function Key({ children }: { children: string }) {
+  return (
+    <kbd className="rounded border border-border px-1.5 py-0.5 font-sans text-[11px]">
+      {children}
+    </kbd>
   );
 }
 

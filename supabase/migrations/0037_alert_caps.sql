@@ -56,12 +56,12 @@ begin
   select s.plan into plan
     from public.subscriptions s
    where s.user_id = p_user_id;
-  plan := coalesce(plan, 'free');
+  plan := coalesce(plan, 'uno');
 
-  if plan = 'free' then
+  if plan = 'uno' then
     return 'plan';
-  elsif plan = 'personal' then
-    -- Unchanged: Personal alerts only on what it would be a problem to miss.
+  elsif plan = 'plura' then
+    -- Unchanged: Plura alerts only on what it would be a problem to miss.
     -- This floor, not the cap, is what keeps the daily count near zero.
     if p_importance < 6 then
       return 'importance';

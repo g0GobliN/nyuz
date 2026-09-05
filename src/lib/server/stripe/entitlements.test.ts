@@ -8,23 +8,23 @@ import {
 
 describe("Stripe entitlement status", () => {
   it.each(["active", "trialing", "past_due"])("grants paid access for %s", (status) => {
-    expect(entitlementPlan("pro", status)).toBe("pro");
+    expect(entitlementPlan("omni", status)).toBe("omni");
     expect(canChangePaidSubscription(status)).toBe(true);
   });
 
   it.each(["unpaid", "incomplete", "incomplete_expired", "canceled", "paused"])(
     "revokes paid access for %s",
     (status) => {
-      expect(entitlementPlan("personal", status)).toBe("free");
+      expect(entitlementPlan("plura", status)).toBe("uno");
       expect(canChangePaidSubscription(status)).toBe(false);
       expect(canEnterPaymentGrace(status)).toBe(false);
     },
   );
 
   it("restores access when payment recovers", () => {
-    expect(entitlementPlan("personal", "past_due")).toBe("personal");
-    expect(entitlementPlan("personal", "unpaid")).toBe("free");
-    expect(entitlementPlan("personal", "active")).toBe("personal");
+    expect(entitlementPlan("plura", "past_due")).toBe("plura");
+    expect(entitlementPlan("plura", "unpaid")).toBe("uno");
+    expect(entitlementPlan("plura", "active")).toBe("plura");
   });
 
   it.each(["active", "trialing", "past_due"])("permits payment retry grace from %s", (status) => {

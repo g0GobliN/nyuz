@@ -26,20 +26,20 @@ const ALL: Email[] = [
   subscriptionStartedEmail({
     name: "Sam",
     baseUrl: BASE,
-    plan: "Personal",
+    plan: "Plura",
     priceLabel: "$7 / month",
     renewsOn: new Date("2026-09-03T00:00:00Z"),
   }),
   subscriptionCancelledEmail({
     name: "Sam",
     baseUrl: BASE,
-    plan: "Pro",
+    plan: "Omni",
     accessUntil: new Date("2026-09-03T00:00:00Z"),
   }),
   paymentFailedEmail({
     name: "Sam",
     baseUrl: BASE,
-    plan: "Personal",
+    plan: "Plura",
     retryOn: new Date("2026-09-03T00:00:00Z"),
   }),
   briefingsPausedEmail({ name: "Sam", baseUrl: BASE }),
@@ -161,7 +161,7 @@ describe("unsubscribe", () => {
   it("is absent from a receipt, which the reader cannot opt out of", () => {
     const email = subscriptionStartedEmail({
       baseUrl: BASE,
-      plan: "Personal",
+      plan: "Plura",
       priceLabel: "$7 / month",
       renewsOn: new Date("2026-09-03T00:00:00Z"),
     });
@@ -231,23 +231,23 @@ describe("billing copy", () => {
   it("states the renewal date and the price it will charge", () => {
     const email = subscriptionStartedEmail({
       baseUrl: BASE,
-      plan: "Pro",
+      plan: "Omni",
       priceLabel: "$150 / year",
       renewsOn: new Date("2027-08-23T00:00:00Z"),
     });
     expect(email.html).toContain("$150 / year");
     expect(email.html).toContain("23 August 2027");
-    expect(email.subject).toContain("Pro");
+    expect(email.subject).toContain("Omni");
   });
 
   it("tells a cancelling reader when access actually ends", () => {
     const email = subscriptionCancelledEmail({
       baseUrl: BASE,
-      plan: "Personal",
+      plan: "Plura",
       accessUntil: new Date("2026-09-03T00:00:00Z"),
     });
     expect(email.html).toContain("3 September 2026");
     // Cancelling is not deletion, and the mail has to say so.
-    expect(email.text).toContain("Free");
+    expect(email.text).toContain("Uno");
   });
 });
