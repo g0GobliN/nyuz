@@ -110,6 +110,7 @@ function Alerts() {
                 <Link
                   to="/dashboard/story/$id"
                   params={{ id: alert.eventId }}
+                  search={{ from: "alerts" }}
                   className="block rounded-3xl border border-hairline bg-surface p-5 transition-colors hover:border-foreground/20"
                 >
                   <p className="text-[12px] tabular-nums text-muted-foreground">
