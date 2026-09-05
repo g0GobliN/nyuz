@@ -1,9 +1,12 @@
 /**
- * DeepSeek V4 rate card effective 31 August 2026.
+ * Rate cards for all AI providers.
  *
  * The result is snapshotted beside measured tokens, so a later price change
  * does not rewrite historical cost. Unknown providers/models return null and
  * make unit economics incomplete instead of silently pretending to cost zero.
+ *
+ * DeepSeek defines peak as weekdays 01:00–04:00 and 06:00–10:00 UTC.
+ * Groq does not have peak/off-peak pricing — always uses the base rate.
  */
 
 type UsageCostInput = {
@@ -20,11 +23,18 @@ type Rates = { cachedInput: number; uncachedInput: number; output: number };
 const PEAK_RATES: Record<string, Rates> = {
   "deepseek-v4-flash": { cachedInput: 0.014, uncachedInput: 0.44, output: 1.32 },
   "deepseek-v4-pro": { cachedInput: 0.044, uncachedInput: 1.32, output: 3.96 },
+  "llama-3.1-8b": { cachedInput: 0.05, uncachedInput: 0.05, output: 0.08 },
 };
+
+const PROVIDER_PEAK = new Set(["deepseek"]);
 
 function rateFor(model: string): Rates | null {
   const key = Object.keys(PEAK_RATES).find((candidate) => model.startsWith(candidate));
   return key ? (PEAK_RATES[key] ?? null) : null;
+}
+
+function isPeakProvider(provider: string): boolean {
+  return PROVIDER_PEAK.has(provider);
 }
 
 /** DeepSeek defines peak as weekdays 01:00–04:00 and 06:00–10:00 UTC. */
@@ -64,7 +74,6 @@ export function aiCostCeilingMicrousd(input: {
   promptTokens: number;
   completionTokens: number;
 }): number | null {
-  if (input.provider !== "deepseek") return null;
   const peak = rateFor(input.model);
   if (!peak) return null;
 
@@ -75,11 +84,11 @@ export function aiCostCeilingMicrousd(input: {
 }
 
 export function aiCostMicrousd(input: UsageCostInput): number | null {
-  if (input.provider !== "deepseek") return null;
   const peak = rateFor(input.model);
   if (!peak) return null;
 
-  const multiplier = isDeepSeekPeak(input.at ?? new Date()) ? 1 : 0.5;
+  const multiplier =
+    isPeakProvider(input.provider) && isDeepSeekPeak(input.at ?? new Date()) ? 1 : 0.5;
   const prompt = Math.max(0, input.promptTokens);
   const cached = Math.min(prompt, Math.max(0, input.cachedPromptTokens));
   const uncached = prompt - cached;

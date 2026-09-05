@@ -160,11 +160,15 @@ export async function cluster(db: Db, options: ClusterOptions = {}): Promise<Clu
   // evidence for whether acting was right.
   const skipOn = shadowOn && (await loadSkipFlag(db));
   const outcomes: ArticleOutcome[] = [];
+  // Stamped on every decision row this invocation writes, so one run can be
+  // read back whole later (0057). `describeCluster`'s per-run agreement line
+  // goes to a log that is gone by morning; this survives it.
+  const runId = crypto.randomUUID();
 
   // Sequential, on purpose. See the module comment: concurrency here produces
   // duplicate events for one story rather than a faster correct answer.
   for (const article of articles) {
-    outcomes.push(await runOne(db, article, options, shadowOn, skipOn));
+    outcomes.push(await runOne(db, article, options, shadowOn, skipOn, runId));
   }
 
   const decidable = outcomes.filter((o) => o.shadowAgreed !== null);
@@ -251,11 +255,17 @@ type Unclustered = { id: string; title: string; published_at: string | null };
  * front of the queue first is what lets a burst of coverage converge in one run.
  * The consequence is that a long backlog is worked through from the wrong end, so
  * `articleIds` exists for driving it deliberately.
+ *
+ * Stale filter: articles older than 7 days without current demand are excluded
+ * from clustering candidate selection to prevent unnecessary AI budget consumption.
+ * They remain in the DB as historical data and may be retried when demand reappears.
  */
 async function selectArticles(db: Db, options: ClusterOptions): Promise<Unclustered[]> {
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60_000).toISOString();
   let query = db
     .from("articles")
     .select("id, title, published_at")
+    .gt("published_at", sevenDaysAgo)
     .is("event_id", null)
     .or(
       `clustering_deferred_until.is.null,clustering_deferred_until.lte.${(options.now ?? new Date()).toISOString()}`,
@@ -277,6 +287,7 @@ async function runOne(
   options: ClusterOptions,
   shadowOn: boolean,
   skipOn: boolean,
+  runId: string,
 ): Promise<ArticleOutcome> {
   const base = {
     articleId: article.id,
@@ -296,6 +307,11 @@ async function runOne(
     }
     return discardRef(db, article);
   }
+
+  // The title-hash cluster cache (0059) is deliberately not consulted. Attaching
+  // an article to an event on a title match alone changes clustering correctness
+  // semantics for a small saving, which P0 is not willing to trade. The table and
+  // its RPCs stay in the database, dormant, so this can be revisited after P0.
 
   let candidates: Candidate[];
   try {
@@ -332,13 +348,15 @@ async function runOne(
 
   let matched: Candidate[];
   let usage: { promptTokens: number; completionTokens: number };
+  let usageId: string | null = null;
   let skipped = false;
 
   if (skipOn && shadow !== null && shadow.verdict === "different") {
     // Only skip on confident "different" verdicts. "same" verdicts still
-    // require the model — shadow agreement on "same" is lower (60% in audit)
-    // and a wrong merge misinforms every reader. "different" at 100% agreement
-    // only creates an extra event, which costs one analysis, not misinformation.
+    // require the model — shadow agreement on "same" is lower (3 of 5 in the
+    // 2026-09-05 audit) and a wrong merge misinforms every reader. "different"
+    // agreed 93 of 93, and being wrong there only creates an extra event, which
+    // costs one analysis rather than misinformation.
     matched = [];
     usage = { promptTokens: 0, completionTokens: 0 };
     skipped = true;
@@ -347,6 +365,7 @@ async function runOne(
       const decided = await ask(article, candidates, options);
       matched = decided.matched;
       usage = decided.usage;
+      usageId = decided.usageId ?? null;
     } catch (error) {
       const retryAt = aiCapacityRetryAt(error, options.now ?? new Date());
       if (retryAt !== null) {
@@ -388,13 +407,6 @@ async function runOne(
           : matched.length === 1 && matched[0]?.id === shadow.matchedId,
   };
 
-  // Persisted so the promotion decision has evidence across runs rather than
-  // a number in a log that is gone by morning (0033). Only when there was a
-  // real comparison to record.
-  if (options.dryRun !== true && shadowResult.shadowAgreed !== null && shadow !== null) {
-    await recordShadow(db, article, candidates.length, shadow, matched, shadowResult.shadowAgreed);
-  }
-
   if (options.dryRun === true) {
     const names = matched.map((c) => `"${c.title.slice(0, 60)}"`).join(", ");
     return {
@@ -411,37 +423,50 @@ async function runOne(
   // event for the same story costs a whole analysis and breaks the property this
   // product is priced on.
   const existing = matched.find((c) => c.event_id !== null);
-  if (existing?.event_id) {
-    return { ...(await attach(db, article, existing, spent)), ...shadowResult };
+  const outcome: ArticleOutcome = existing?.event_id
+    ? { ...(await attach(db, article, existing, spent)), ...shadowResult }
+    : matched.length === 0
+      ? {
+          ...(await createEvent(
+            db,
+            article,
+            [],
+            "shortlisted, but no match",
+            "pending",
+            spent.candidates,
+          )),
+          ...spent,
+          ...shadowResult,
+        }
+      : {
+          ...(await createEvent(
+            db,
+            article,
+            matched,
+            "grouped with matched coverage",
+            "pending",
+            spent.candidates,
+          )),
+          ...spent,
+          ...shadowResult,
+        };
+
+  // Written after the decision rather than before it, so the row carries what
+  // stage 3 actually did and not merely what it was about to do. Every
+  // shortlisted article gets a row while shadow mode is on — including the
+  // ambiguous ones, which are the denominator 0033 was missing (0057).
+
+  if (shadow !== null) {
+    await recordShadow(db, article, candidates.length, shadow, matched, shadowResult.shadowAgreed, {
+      runId,
+      modelCalled: !skipped,
+      bypassReason: skipped ? "deterministic:different" : null,
+      usageId,
+      decision: outcome.decision,
+    });
   }
 
-  if (matched.length === 0) {
-    return {
-      ...(await createEvent(
-        db,
-        article,
-        [],
-        "shortlisted, but no match",
-        "pending",
-        spent.candidates,
-      )),
-      ...spent,
-      ...shadowResult,
-    };
-  }
-
-  return {
-    ...(await createEvent(
-      db,
-      article,
-      matched,
-      "grouped with matched coverage",
-      "pending",
-      spent.candidates,
-    )),
-    ...spent,
-    ...shadowResult,
-  };
+  return outcome;
 }
 
 /** One model call: this headline against that shortlist. */
@@ -449,10 +474,14 @@ async function ask(
   article: Unclustered,
   candidates: Candidate[],
   options: ClusterOptions,
-): Promise<{ matched: Candidate[]; usage: { promptTokens: number; completionTokens: number } }> {
+): Promise<{
+  matched: Candidate[];
+  usage: { promptTokens: number; completionTokens: number };
+  usageId: string | null;
+}> {
   const numbered = candidates.map((c, i) => `${i + 1}. ${c.title}`).join("\n");
 
-  const { data, usage } = await completeRoutedJson<Verdict>({
+  const { data, usage, usageId } = await completeRoutedJson<Verdict>({
     capability: "cluster",
     system: SYSTEM,
     user: `New headline:\n${article.title}\n\nCandidates:\n${numbered}`,
@@ -463,6 +492,7 @@ async function ask(
   return {
     matched: readVerdict(data, candidates),
     usage: { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens },
+    usageId,
   };
 }
 
@@ -495,8 +525,19 @@ export function readVerdict(data: Verdict, candidates: Candidate[]): Candidate[]
 }
 
 /**
- * Records what the deterministic layer would have decided against what the
- * model did (0033).
+ * Records what stage 3 did with one article (0033, widened by 0057).
+ *
+ * **A row per shortlisted article, not per confident verdict.** The original
+ * rule wrote only where `agreed` was non-null, which excluded every `ambiguous`
+ * verdict — so the table held the numerator of the deterministic layer's
+ * success rate and none of its denominator. Read that way the layer looked
+ * confident on 94.9% of calls; measured against the real call count on
+ * 2026-09-05 it was confident on 11.1%. A promotion decision taken from the
+ * first number would have been taken from a number that does not exist.
+ *
+ * `usageId` links to the `ai_usage_ledger` row that priced the call rather than
+ * copying its tokens here. One accounting system, joined — two would drift, and
+ * the ledger is the one the monthly ceiling counts.
  *
  * Best-effort and never fatal: this is measurement, and losing a measurement
  * row must not cost an article its clustering. The failure is logged so a
@@ -509,7 +550,14 @@ async function recordShadow(
   candidates: number,
   shadow: { verdict: ConfidenceVerdict; matchedId: string | null },
   matched: Candidate[],
-  agreed: boolean,
+  agreed: boolean | null,
+  extra: {
+    runId: string;
+    modelCalled: boolean;
+    bypassReason: string | null;
+    usageId: string | null;
+    decision: ArticleOutcome["decision"];
+  },
 ): Promise<void> {
   const { error } = await db.from("cluster_shadow_log").insert({
     article_id: article.id,
@@ -519,6 +567,11 @@ async function recordShadow(
     shadow_matched_id: shadow.matchedId,
     model_matched_id: matched[0]?.id ?? null,
     agreed,
+    run_id: extra.runId,
+    model_called: extra.modelCalled,
+    bypass_reason: extra.bypassReason,
+    usage_id: extra.usageId,
+    decision: extra.decision,
   });
   if (error) console.warn(`recording cluster shadow for ${article.id}: ${error.message}`);
 }

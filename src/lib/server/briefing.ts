@@ -621,6 +621,10 @@ export const askStory = createServerFn({ method: "POST" })
       .filter((line) => line.length > 0)
       .join("\n");
 
+    // The Story Ask cache (0062) is deliberately not consulted. Ask is not a
+    // material cost driver at this stage; the table and RPCs stay dormant in the
+    // database so it can be switched back on after P0.
+
     try {
       const capability = askCapabilityFor(limits.askModel);
       if (capability === null) {

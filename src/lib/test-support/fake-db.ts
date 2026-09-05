@@ -266,6 +266,11 @@ class FakeQuery implements PromiseLike<{
     return this;
   }
 
+  gt(column: string, value: unknown): this {
+    this.filters.push((row) => compare(row[column], "gt", value));
+    return this;
+  }
+
   gte(column: string, value: unknown): this {
     this.filters.push((row) => compare(row[column], "gte", value));
     return this;

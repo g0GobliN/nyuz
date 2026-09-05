@@ -41,16 +41,16 @@ describe("triggers.crons", () => {
 
 describe("stageForMinute", () => {
   it("keeps the offsets the separate schedules fired on", () => {
-    expect(stageForMinute(tuesday(9, 10))).toBe("cluster");
-    expect(stageForMinute(tuesday(9, 40))).toBe("cluster");
-    expect(stageForMinute(tuesday(9, 20))).toBe("analyse");
-    expect(stageForMinute(tuesday(9, 50))).toBe("analyse");
+    expect(stageForMinute(tuesday(9, 4))).toBe("cluster");
+    expect(stageForMinute(tuesday(9, 34))).toBe("cluster");
+    expect(stageForMinute(tuesday(9, 47))).toBe("analyse");
+    expect(stageForMinute(tuesday(9, 53))).toBe("analyse");
     expect(stageForMinute(tuesday(9, 25))).toBe("match");
     expect(stageForMinute(tuesday(9, 55))).toBe("match");
   });
 
-  it("orders clustering before analysis before matching within the half hour", () => {
-    const order = [10, 20, 25].map((m) => stageForMinute(tuesday(9, m)));
+  it("orders clustering before analysis before matching within the hour", () => {
+    const order = [4, 47, 25].map((m) => stageForMinute(tuesday(9, m)));
     expect(order).toEqual(["cluster", "analyse", "match"]);
   });
 
