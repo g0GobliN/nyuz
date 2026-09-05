@@ -107,7 +107,7 @@ export const INGEST_CRON = "*/15 * * * *";
  * past the half hour is a few minutes after an ingest run, and half as often,
  * which also keeps the two from competing for the same invocation's budget.
  */
-export const CLUSTER_CRON = "10,40 * * * *";
+export const CLUSTER_CRON = "4,34 * * * *";
 
 /**
  * Analysis runs after clustering, on the same reasoning.
@@ -118,7 +118,7 @@ export const CLUSTER_CRON = "10,40 * * * *";
  * still costs nothing — but the analysis would have been written from one outlet's
  * account of the story when three were available.
  */
-export const ANALYSE_CRON = "20,50 * * * *";
+export const ANALYSE_CRON = "47,53 * * * *";
 
 /**
  * Matching runs last in the chain, and is the only schedule with no budget note.
@@ -158,7 +158,7 @@ export const DORMANT_CRON = "0 12 * * *";
  * nothing to do is the exception rather than the rule — the single exception
  * being minute 0, which exists for a nudge that runs once a week.
  */
-export const STAGES_CRON = "0,10,20,25,40,50,55 * * * *";
+export const STAGES_CRON = "0,4,25,34,47,53,55 * * * *";
 
 type SharedStage = "cluster" | "analyse" | "match" | "dormant";
 
@@ -171,8 +171,8 @@ type SharedStage = "cluster" | "analyse" | "match" | "dormant";
  */
 export function stageForMinute(scheduledFor: Date): SharedStage | null {
   const minute = scheduledFor.getUTCMinutes();
-  if (minute === 10 || minute === 40) return "cluster";
-  if (minute === 20 || minute === 50) return "analyse";
+  if (minute === 4 || minute === 34) return "cluster";
+  if (minute === 47 || minute === 53) return "analyse";
   if (minute === 25 || minute === 55) return "match";
   // Noon UTC daily, as DORMANT_CRON said. The other 23 minute-zero firings are
   // deliberately nothing at all.

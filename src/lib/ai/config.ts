@@ -87,7 +87,7 @@ function secretsDefault(): SecretBag {
 }
 
 const ENV_FALLBACK: Record<ModelTier, { model: string; maxTokens: number }> = {
-  cluster: { model: "deepseek-v4-flash", maxTokens: 4096 },
+  cluster: { model: "deepseek-v4-flash", maxTokens: 1024 },
   digest: { model: "deepseek-v4-pro", maxTokens: 8192 },
   reason: { model: "deepseek-v4-pro", maxTokens: 16384 },
 };
@@ -255,13 +255,16 @@ export async function completeRouted(opts: RoutedOptions): Promise<RoutedResult>
  */
 export async function completeRoutedJson<T>(
   opts: RoutedOptions,
-): Promise<{ data: T; usage: CompleteResult; route: ResolvedRoute }> {
+): Promise<{ data: T; usage: CompleteResult; route: ResolvedRoute; usageId: string | null }> {
   const { route, call } = await prepare(opts);
   const reservation = await reserveUsage(opts, route, call, true);
   try {
     const { data, usage } = await completeJson<T>(call);
     await settleUsage(opts, reservation, usage, route);
-    return { data, usage, route };
+    // The ledger row id goes back to the caller so a stage can join its own
+    // decision to the spend that bought it (0057) instead of copying token
+    // counts into a second table that will eventually disagree with this one.
+    return { data, usage, route, usageId: reservation };
   } catch (error) {
     const usage = completionUsageFromError(error);
     if (usage) await settleUsage(opts, reservation, usage, route);
@@ -316,12 +319,17 @@ export function aiCapacityRetryAt(error: unknown, now = new Date()): Date | null
 
 export function isDefinitelyUnbilledAiError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
-  if (/Missing .*API_KEY|invalid api key|authentication|unauthorized/i.test(message)) return true;
+  if (
+    /Missing .*API_KEY|invalid api key|authentication|unauthorized|402 Payment Required/i.test(
+      message,
+    )
+  )
+    return true;
   const status =
     error && typeof error === "object" && "status" in error
       ? Number((error as { status?: unknown }).status)
       : Number.NaN;
-  return [400, 401, 403, 404, 422, 429].includes(status);
+  return [400, 401, 402, 403, 404, 422, 429].includes(status);
 }
 
 // Re-exported so existing callers keep one import site for AI budgeting even
@@ -500,9 +508,18 @@ async function settleUsage(
     }),
     p_feature: opts.feature,
   });
-  // The provider call already succeeded. Keep the reservation as a conservative
-  // charge and surface the accounting failure without breaking the product.
-  if (error) console.error(`settling AI budget: ${error.message}`);
+  if (error) {
+    await recordOps(db, "ai:settle:error", "error", {
+      reservation,
+      capability: route.capability,
+      model: route.model,
+      feature: opts.feature,
+    });
+    console.error(
+      `settle_ai_tokens error for reservation=${reservation} capability=${route.capability} feature=${opts.feature}: ${error.message}`,
+    );
+    throw new Error(`AI settlement failed: ${error.message}`);
+  }
 }
 
 async function releaseUnusedReservation(

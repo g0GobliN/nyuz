@@ -217,6 +217,9 @@ export type PollingTier = "hot" | "normal" | "low" | "cold" | "paused";
  * model did (0033). Measurement only — nothing reads it to make a decision.
  * No RLS policies: service-role only, unreachable from a browser.
  */
+export type ClusterDecision =
+  "attached" | "created" | "alone" | "ignored" | "skipped" | "deferred" | "failed";
+
 export type ClusterShadowLog = {
   id: number;
   article_id: string;
@@ -228,6 +231,18 @@ export type ClusterShadowLog = {
   /** Null when the shadow verdict was ambiguous — nothing to compare. */
   agreed: boolean | null;
   created_at: string;
+  /**
+   * The `ai_usage_ledger` row that priced this decision (0057). Null when no
+   * model was called. Tokens and cost are read through this rather than copied,
+   * so there is one accounting system rather than two that can disagree.
+   */
+  usage_id: string | null;
+  model_called: boolean;
+  decision: ClusterDecision | null;
+  /** Why the model was skipped. Null whenever it was called. */
+  bypass_reason: string | null;
+  /** Groups the rows written by one `cluster()` invocation. */
+  run_id: string | null;
 };
 
 /**
@@ -316,6 +331,15 @@ export type AiUsageLedger = {
   cached_prompt_tokens: number;
   completion_tokens: number;
   cost_microusd: number | null;
+  /**
+   * What the reservation authorised, priced at the worst reasonable rate (0044).
+   *
+   * Both ceilings count `coalesce(cost_microusd, estimated_cost_microusd, 0)`,
+   * so this is what an in-flight call contributes to the monthly cap until it
+   * settles. `void_stale_ai_reservations` (0047) zeroes it for calls that never
+   * settled and recorded no usage.
+   */
+  estimated_cost_microusd: number | null;
   reserved_tokens: number;
   created_at: string;
   /** Which of the six call sites paid for this row (0053). Pre-launch rows are 'unknown'. */
@@ -854,6 +878,7 @@ export type Database = {
         | "cached_prompt_tokens"
         | "completion_tokens"
         | "cost_microusd"
+        | "estimated_cost_microusd"
         | "reserved_tokens"
         | "created_at"
         | "feature"
@@ -889,6 +914,45 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      /* Cost-cutting caches (0059, 0061, 0062). Service-role only: every one
+         is `security definer` with execute revoked from anon and authenticated. */
+      /** Title-hash -> event id, or null on a miss. Skips a cluster model call. */
+      cluster_cache_lookup: {
+        Args: { p_title_hash: string };
+        Returns: string | null;
+      };
+      cluster_cache_insert: {
+        Args: { p_title_hash: string; p_event_id: string };
+        Returns: undefined;
+      };
+      /** Cached digest id when the matched-event hash is unchanged, else null. */
+      digest_cache_lookup: {
+        Args: { p_user_id: string; p_slot: string; p_event_ids_hash: string };
+        Returns: string | null;
+      };
+      digest_cache_insert: {
+        Args: {
+          p_user_id: string;
+          p_slot: string;
+          p_event_ids_hash: string;
+          p_digest_id: string;
+        };
+        Returns: undefined;
+      };
+      /** Cached Story Ask answer, or null on a miss. */
+      ask_cache_lookup: {
+        Args: { p_event_id: string; p_question_hash: string };
+        Returns: string | null;
+      };
+      ask_cache_insert: {
+        Args: {
+          p_event_id: string;
+          p_question_hash: string;
+          p_answer: string;
+          p_model: string;
+        };
+        Returns: undefined;
+      };
       /**
        * Not granted to anon or authenticated. Callable only with the
        * service-role key, after the caller's role has been checked in app code.

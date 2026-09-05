@@ -170,6 +170,15 @@ const unrelated = (): Row => ({
 
 beforeEach(() => {
   vi.resetModules();
+  // `resetModules` clears the module registry but not the mock registry, so a
+  // `doMock` from an earlier test would still apply to the next dynamic import.
+  // `withDoublesForDifferent` replaces `shortlist` and `verdictFor` wholesale,
+  // and leaking those into "the free paths stay free" gives an article with no
+  // headline tokens a two-candidate shortlist — which is how a test asserting
+  // zero model calls sees one.
+  vi.doUnmock("@/lib/pipeline/shortlist");
+  vi.doUnmock("@/lib/pipeline/confidence");
+  vi.doUnmock("@/lib/ai/config");
 });
 
 describe("with deterministic_cluster_skip OFF, Flash decides everything", () => {
@@ -289,6 +298,145 @@ describe("the skip path exists and works, and is not switched on", () => {
 
     expect(report.outcomes[0]?.shadowVerdict).toBe("ambiguous");
     expect(spy.flashCalls).toBe(1);
+  });
+});
+
+/**
+ * 0057. The promotion decision needs a rate, and a rate needs a denominator.
+ *
+ * Before 0057 a row was written only where `agreed` was non-null, so every
+ * ambiguous verdict — the ones that would still cost a call — was absent. On
+ * 2026-09-05 the live table held 98 rows against 884 real clustering calls, and
+ * read alone it said the deterministic layer was confident on 94.9% of calls
+ * when the true figure was 11.1%. These tests pin the fix: a row per shortlisted
+ * article, whatever happened.
+ */
+describe("every shortlisted article is on the record", () => {
+  it("records the ambiguous verdicts that make up the denominator", async () => {
+    const { cluster } = await withDoubles();
+    const db = new FakeDb(
+      tables({ v2: true, skip: false }, [
+        twin(),
+        { ...twin({ id: "near", title: "OpenAI on California AI safety, explained" }) },
+      ]),
+    );
+
+    await cluster(db as never, { now: NOW });
+
+    const logged = db.rows("cluster_shadow_log");
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toMatchObject({
+      shadow_verdict: "ambiguous",
+      // The model was called and paid for, which is exactly why this row has to
+      // exist: it is one unit of the cost a bypass would have to beat.
+      model_called: true,
+      bypass_reason: null,
+      agreed: null,
+    });
+  });
+
+  it("stamps the decision the article actually received, not the verdict alone", async () => {
+    const { cluster } = await withDoubles();
+    const db = new FakeDb(tables({ v2: true, skip: false }, [twin(), unrelated()]));
+
+    await cluster(db as never, { now: NOW });
+
+    expect(db.rows("cluster_shadow_log")[0]).toMatchObject({
+      decision: "attached",
+      model_called: true,
+    });
+  });
+
+  it("groups a run under one run_id so it can be read back whole", async () => {
+    const { cluster } = await withDoubles();
+    const db = new FakeDb(tables({ v2: true, skip: false }, [twin(), unrelated()]));
+
+    await cluster(db as never, { now: NOW });
+
+    const runId = db.rows("cluster_shadow_log")[0]?.["run_id"];
+    expect(typeof runId).toBe("string");
+    expect(runId).not.toBe("");
+  });
+
+  it("writes nothing when shadow mode is off, so the flag still means something", async () => {
+    const { cluster } = await withDoubles();
+    const db = new FakeDb(tables({ v2: false, skip: false }, [twin(), unrelated()]));
+
+    await cluster(db as never, { now: NOW });
+
+    expect(db.rows("cluster_shadow_log")).toHaveLength(0);
+  });
+});
+
+/**
+ * The asymmetry this whole stage is built around: a wrongly split event costs
+ * one extra analysis, a wrongly merged event misinforms every reader who gets
+ * it. Every test here is about the second kind.
+ */
+describe("false merges", () => {
+  it("never bypasses the model on a 'same' verdict, even with skip on", async () => {
+    // The measured agreement on 'same' is 3 of 5. Acting on that would merge two
+    // unrelated stories two times in five, so the skip path must not touch it
+    // however confident the deterministic layer claims to be.
+    const { spy, cluster } = await withDoubles();
+    const db = new FakeDb(tables({ v2: true, skip: true }, [twin(), unrelated()]));
+
+    await cluster(db as never, { now: NOW });
+
+    expect(spy.flashCalls).toBe(1);
+    expect(db.rows("cluster_shadow_log")[0]).toMatchObject({
+      shadow_verdict: "same",
+      model_called: true,
+      bypass_reason: null,
+    });
+  });
+
+  it("a bypassed article starts its own event and joins nothing", async () => {
+    // The failure mode of the 'different' fast path has to stay the cheap one.
+    // If a skipped article could still be attached to something, a wrong verdict
+    // would merge rather than split, and the safety argument would be void.
+    const { spy, cluster } = await withDoublesForDifferent();
+    const db = new FakeDb(tables({ v2: true, skip: true }, [twin(), unrelated()]));
+
+    const report = await cluster(db as never, { now: NOW });
+
+    expect(spy.flashCalls).toBe(0);
+    expect(report.aiSkipped).toBe(1);
+    const fresh = db.rows("articles").find((a) => a["id"] === "fresh");
+    expect(fresh?.["event_id"]).not.toBe("event-twin");
+    expect(fresh?.["event_id"]).not.toBe("event-other");
+    expect(report.outcomes[0]?.decision).toBe("alone");
+  });
+
+  it("records a bypass with its reason, so a skipped call is auditable", async () => {
+    const { cluster } = await withDoublesForDifferent();
+    const db = new FakeDb(tables({ v2: true, skip: true }, [twin(), unrelated()]));
+
+    await cluster(db as never, { now: NOW });
+
+    expect(db.rows("cluster_shadow_log")[0]).toMatchObject({
+      shadow_verdict: "different",
+      model_called: false,
+      bypass_reason: "deterministic:different",
+      // No model ran, so there is no ledger row and nothing to compare against.
+      usage_id: null,
+      agreed: null,
+    });
+  });
+
+  it("two plausible candidates are ambiguous, never a coin-flip merge", async () => {
+    // `verdictFor` refuses to pick when more than one candidate looks confidently
+    // the same, because attaching to the wrong one of two is a false merge that
+    // no later stage can detect. Asserted directly: the unit that would have to
+    // be wrong for the fast path to corrupt an event.
+    const { verdictFor } = await import("./confidence");
+    const verdict = verdictFor("Nvidia agrees $13 billion Hugging Face acquisition", [
+      { id: "a", title: "Nvidia agrees $13 billion Hugging Face acquisition" },
+      { id: "b", title: "Nvidia agrees $13 billion Hugging Face acquisition" },
+    ]);
+
+    expect(verdict.verdict).toBe("ambiguous");
+    expect(verdict.matchedId).toBeNull();
   });
 });
 

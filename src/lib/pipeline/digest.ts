@@ -446,6 +446,10 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   const already = await alreadyBriefed(db, due.user_id);
   const picked = selectItems(matches, already, cap);
 
+  // The digest cache (0061) is deliberately not consulted. Skipping generation on
+  // an unchanged event set is a P1 optimization; the table and RPCs stay dormant
+  // in the database so it can be switched back on after P0.
+
   if (picked.length === 0) {
     if (options.dryRun !== true) {
       await finish(db, due.digest_id, "skipped", 0, 0);
