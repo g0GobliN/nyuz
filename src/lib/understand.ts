@@ -446,7 +446,7 @@ function claimText<T>(items: T[], textOf: (item: T) => string, claimed: string[]
  * validators above, and a graph edge or a chart point is not prose that can
  * quietly restate a sentence.
  */
-function dedupeAcrossSections(
+export function dedupeAcrossSections(
   intel: Omit<EventIntelligence, "version" | "coverage">,
 ): Omit<EventIntelligence, "version" | "coverage"> {
   const claimed: string[] = [intel.oneSentence];
