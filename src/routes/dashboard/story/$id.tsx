@@ -206,13 +206,25 @@ function StoryDetail() {
                 {sourceCountLabel(story.understand?.analysisMeta, story.sources)}
                 <span aria-hidden> · </span>
                 {understandMinutes([
-                  ...intelligenceText(story.understand ?? legacyEventIntelligence({ what: story.what, sources: story.sourceList })),
-                  ...(story.personalization?.explanation ? [story.personalization.explanation] : []),
-                ])} understand
+                  ...intelligenceText(
+                    story.understand ??
+                      legacyEventIntelligence({ what: story.what, sources: story.sourceList }),
+                  ),
+                  ...(story.personalization?.explanation
+                    ? [story.personalization.explanation]
+                    : []),
+                ])}{" "}
+                understand
               </p>
             </div>
 
-            <EditorialBody article={article} story={story} onReachEnd={() => { reachedEnd.current = true; }} />
+            <EditorialBody
+              article={article}
+              story={story}
+              onReachEnd={() => {
+                reachedEnd.current = true;
+              }}
+            />
 
             {askEnabled && !planLoading && asksPerDay > 0 ? (
               <AskPanel eventId={story.id} dailyLimit={asksPerDay} />
@@ -785,7 +797,8 @@ function EditorialBody({
     <div className="xl:grid xl:grid-cols-[minmax(0,40rem)_minmax(0,14rem)] xl:gap-8">
       <div className="min-w-0 space-y-8">
         <p className="text-[14.5px] leading-[1.5] tracking-[-0.01em] sm:text-[19px] sm:leading-[1.65]">
-          {story.understand?.oneSentence ?? legacyEventIntelligence({ what: story.what, sources: story.sourceList }).oneSentence}
+          {story.understand?.oneSentence ??
+            legacyEventIntelligence({ what: story.what, sources: story.sourceList }).oneSentence}
         </p>
 
         {story.understand?.relationships ? (
@@ -797,7 +810,9 @@ function EditorialBody({
             <BlockHeading>What changed</BlockHeading>
             <div className="mt-3 grid gap-5 sm:grid-cols-2 sm:gap-8">
               <div className="border-t border-hairline pt-3">
-                <p className="text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">Before</p>
+                <p className="text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Before
+                </p>
                 <p className="mt-1.5 text-[14.5px] leading-relaxed">{change.before}</p>
               </div>
               <div className="border-t border-signal pt-3">
@@ -859,7 +874,13 @@ function EditorialBody({
   );
 }
 
-function ArticleBlock({ block, story }: { block: import("@/lib/editorial").ArticleBlock; story: Story }) {
+function ArticleBlock({
+  block,
+  story,
+}: {
+  block: import("@/lib/editorial").ArticleBlock;
+  story: Story;
+}) {
   return (
     <p className="text-[14.5px] leading-relaxed">
       {block.content}
@@ -877,7 +898,13 @@ function MarginNote({ note, story }: { note: import("@/lib/editorial").MarginNot
   );
 }
 
-function EndMatter({ article, story }: { article: ReturnType<typeof composeArticle>; story: Story }) {
+function EndMatter({
+  article,
+  story,
+}: {
+  article: ReturnType<typeof composeArticle>;
+  story: Story;
+}) {
   return (
     <div className="rounded-2xl border border-hairline bg-surface p-5">
       <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
@@ -888,10 +915,7 @@ function EndMatter({ article, story }: { article: ReturnType<typeof composeArtic
       </p>
       <ul className="mt-4 space-y-2.5">
         {story.sourceList.map((s) => (
-          <li
-            key={s.url ?? s.name}
-            className="flex items-center justify-between gap-3 text-[13px]"
-          >
+          <li key={s.url ?? s.name} className="flex items-center justify-between gap-3 text-[13px]">
             {s.url ? (
               <a
                 href={s.url}
@@ -908,20 +932,20 @@ function EndMatter({ article, story }: { article: ReturnType<typeof composeArtic
                 <span className="truncate">{s.name}</span>
               </span>
             )}
-            <span className="shrink-0 tabular-nums text-[12px] text-muted-foreground">
-              {s.at}
-            </span>
+            <span className="shrink-0 tabular-nums text-[12px] text-muted-foreground">{s.at}</span>
           </li>
         ))}
       </ul>
       {article.endMatter.citations.length > 0 && (
         <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">
-          {article.endMatter.citations.length} citation{article.endMatter.citations.length !== 1 ? "s" : ""} across {article.endMatter.sourceCount} source{article.endMatter.sourceCount !== 1 ? "s" : ""}.
+          {article.endMatter.citations.length} citation
+          {article.endMatter.citations.length !== 1 ? "s" : ""} across{" "}
+          {article.endMatter.sourceCount} source{article.endMatter.sourceCount !== 1 ? "s" : ""}.
         </p>
       )}
       <p className="mt-2 text-[11.5px] leading-relaxed text-muted-foreground">
-        nyuz is not the source. This explanation is generated — open the reporting before
-        acting on it.
+        nyuz is not the source. This explanation is generated — open the reporting before acting on
+        it.
       </p>
     </div>
   );
