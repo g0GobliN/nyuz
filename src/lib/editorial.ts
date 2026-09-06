@@ -81,7 +81,9 @@ function evidenceFor(item: { evidence?: number[] }): number[] {
   return item.evidence ?? [];
 }
 
-function marginNotesFor(intelligence: EventIntelligence, sourceNames: string[]): MarginNote[] {
+type DedupedIntelligence = Omit<EventIntelligence, "version" | "coverage">;
+
+function marginNotesFor(intelligence: DedupedIntelligence, sourceNames: string[]): MarginNote[] {
   const notes: MarginNote[] = [];
   for (const ref of intelligence.numbers.flatMap((n) => n.evidence)) {
     const name = sourceNames[ref - 1];
@@ -103,7 +105,7 @@ function marginNotesFor(intelligence: EventIntelligence, sourceNames: string[]):
   return notes;
 }
 
-function endMatterFrom(intelligence: EventIntelligence, sourceNames: string[]): EndMatter {
+function endMatterFrom(intelligence: DedupedIntelligence, sourceNames: string[]): EndMatter {
   const citations: Citation[] = [];
   const seen = new Set<number>();
   for (const item of [
@@ -129,7 +131,7 @@ function endMatterFrom(intelligence: EventIntelligence, sourceNames: string[]): 
   return { citations, sourceCount: sourceNames.length };
 }
 
-function buildSections(intelligence: EventIntelligence): ArticleSection[] {
+function buildSections(intelligence: DedupedIntelligence): ArticleSection[] {
   const sections: ArticleSection[] = [];
 
   if (intelligence.oneSentence) {

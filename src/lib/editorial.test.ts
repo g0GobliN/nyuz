@@ -83,7 +83,7 @@ describe("composeArticle", () => {
     const article = composeArticle(story, makeAudience);
     const chartBlock = article.sections.find((s) => s.heading === "By the numbers");
     expect(chartBlock).toBeDefined();
-    expect(chartBlock!.blocks[0].type).toBe("chart");
+    expect(chartBlock!.blocks[0]?.type).toBe("chart");
   });
 
   it("includes newDevelopments as paragraph blocks", () => {
@@ -95,7 +95,7 @@ describe("composeArticle", () => {
     const article = composeArticle(story, makeAudience);
     const section = article.sections.find((s) => s.heading === "What changed");
     expect(section).toBeDefined();
-    expect(section!.blocks[0].type).toBe("paragraph");
+    expect(section!.blocks[0]?.type).toBe("paragraph");
   });
 
   it("includes audiences as audience blocks", () => {
@@ -145,7 +145,7 @@ describe("composeArticle", () => {
     const article = composeArticle(story, makeAudience);
     const section = article.sections.find((s) => s.heading === "Before and after");
     expect(section).toBeDefined();
-    expect(section!.blocks[0].type).toBe("comparison");
+    expect(section!.blocks[0]?.type).toBe("comparison");
   });
 
   it("includes series as chart blocks", () => {
@@ -181,8 +181,8 @@ describe("composeArticle", () => {
           {
             topic: "Revenue",
             reports: [
-              { text: "Up", evidence: [1], kind: "reported" },
-              { text: "Down", evidence: [2], kind: "reported" },
+              { text: "Up", evidence: [1] },
+              { text: "Down", evidence: [2] },
             ],
           },
         ],
@@ -230,7 +230,7 @@ describe("composeArticle", () => {
   it("includes watchNext as whatNext blocks", () => {
     const story = makeStory({
       understand: makeIntelligence({
-        watchNext: [{ label: "Next", detail: "Details", evidence: [1], kind: "reported" }],
+        watchNext: [{ label: "Next", detail: "Details", evidence: [1] }],
       }),
     });
     const article = composeArticle(story, makeAudience);
@@ -290,9 +290,7 @@ describe("composeArticle", () => {
   });
 
   it("handles story without understand field", () => {
-    const story = makeStory({
-      understand: undefined as import("@/lib/understand").EventIntelligence | undefined,
-    });
+    const story = makeStory();
     const article = composeArticle(story, makeAudience);
     expect(article).toBeDefined();
   });
@@ -508,8 +506,8 @@ describe("composeArticle", () => {
     const story = makeStory({
       understand: makeIntelligence({
         watchNext: [
-          { label: "A", detail: "d1", evidence: [1], kind: "reported" },
-          { label: "B", detail: "d2", evidence: [2], kind: "reported" },
+          { label: "A", detail: "d1", evidence: [1] },
+          { label: "B", detail: "d2", evidence: [2] },
         ],
       }),
     });
