@@ -1,10 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Bell, Mail, MessageCircle, Pause, Phone, Play } from "lucide-react";
+import { Check, Bell, Mail, MessageCircle, Pause, Phone, Play, Share2 } from "lucide-react";
 import { useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
 import { DensityDial } from "@/components/density-dial";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { LANGUAGES } from "@/lib/languages";
 import { useAuth } from "@/lib/auth";
 import { notifyBriefingsPaused } from "@/lib/server/account";
@@ -14,7 +21,14 @@ import {
   getTelegramStatus,
 } from "@/lib/server/telegram/account";
 import { getPushStatus } from "@/lib/server/push/account";
-import { disablePush, enablePush, pushSupported } from "@/lib/push/client";
+import {
+  disablePush,
+  enablePush,
+  isIOS,
+  isStandalone,
+  notificationsAvailable,
+  pushSupported,
+} from "@/lib/push/client";
 import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 import { usePlan } from "@/lib/plan-state";
@@ -46,6 +60,7 @@ function Delivery() {
   const email = useAuth().user?.email ?? "";
   const [saved, setSaved] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
+  const [showIosSetup, setShowIosSetup] = useState(false);
   const queryClient = useQueryClient();
   const telegramQ = useQuery({
     queryKey: ["telegram", "status"],
@@ -79,6 +94,10 @@ function Delivery() {
     const key = pushQ.data?.publicKey;
     if (!key || !pushQ.data?.configured) {
       setPushError("Notifications are not configured on this instance.");
+      return false;
+    }
+    if (isIOS() && !isStandalone()) {
+      setShowIosSetup(true);
       return false;
     }
     const result = await enablePush(key);
@@ -250,9 +269,9 @@ function Delivery() {
                   error={pushError}
                   needsPermission={
                     prefs.channels.push &&
-                    pushSupported() &&
                     Boolean(pushQ.data?.configured) &&
-                    !pushQ.data?.subscribed
+                    !pushQ.data?.subscribed &&
+                    (pushSupported() || (isIOS() && !isStandalone()))
                   }
                   onAllow={() => void subscribe()}
                 />
@@ -338,6 +357,49 @@ function Delivery() {
           <DensityDial value={prefs.density} onChange={(v) => touch({ density: v })} />
         </Panel>
       </div>
+
+      <Dialog open={showIosSetup} onOpenChange={setShowIosSetup}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Enable notifications on iPhone</DialogTitle>
+            <div className="mt-4 space-y-4 text-left text-[13px] text-muted-foreground">
+              <p>Add Nyuz to your Home Screen first. You only need to do this once.</p>
+              <ol className="space-y-3">
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal/15 text-[11px] font-semibold text-signal">
+                    1
+                  </span>
+                  <span className="pt-0.5">Tap Share</span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal/15 text-[11px] font-semibold text-signal">
+                    2
+                  </span>
+                  <span className="pt-0.5">Tap "Add to Home Screen"</span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal/15 text-[11px] font-semibold text-signal">
+                    3
+                  </span>
+                  <span className="pt-0.5">Open Nyuz from your Home Screen</span>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal/15 text-[11px] font-semibold text-signal">
+                    4
+                  </span>
+                  <span className="pt-0.5">Enable notifications</span>
+                </li>
+              </ol>
+              <p className="pt-1">Email and Telegram notifications work without this setup.</p>
+            </div>
+          </DialogHeader>
+          <div className="mt-6 flex justify-end">
+            <Button variant="primary" size="sm" onClick={() => setShowIosSetup(false)}>
+              Got it
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardShell>
   );
 }
@@ -369,14 +431,23 @@ function telegramDetail(
 }
 
 function pushDetail(
-  status: { configured: boolean; subscribed: boolean } | undefined,
+  status: { configured: boolean; subscribed: boolean; count: number } | undefined,
   on: boolean,
 ): string {
-  if (!pushSupported()) return "This browser cannot show notifications.";
+  if (!pushSupported()) {
+    if (isIOS() && !isStandalone()) {
+      return "Push notifications require adding Nyuz to your Home Screen. Use email or Telegram until then.";
+    }
+    if (isIOS() && isStandalone()) {
+      return "Push notifications are not available on this iOS version. Use email or Telegram instead.";
+    }
+    return "This browser cannot show notifications. Use email or Telegram instead.";
+  }
   if (!status) return "One notice per story. Dismiss just clears the notice.";
   if (!status.configured) return "Not available on this instance yet";
   if (on && status.subscribed) {
-    return "On · one notice per story. Dismissing does not remove it from your dashboard.";
+    const devices = status.count === 1 ? "1 device" : `${status.count} devices`;
+    return `On · ${devices} subscribed. One notice per story. Dismissing does not remove it from your dashboard.`;
   }
   if (on) return "Turned on · allow notifications when the browser asks.";
   return "One notice per story. Tap to read, dismiss the rest. Your dashboard still has everything.";
@@ -395,7 +466,7 @@ function PushConnect({
     <div className="space-y-2.5">
       {needsPermission ? (
         <Button variant="outline" size="sm" onClick={onAllow}>
-          Allow notifications
+          Enable notifications
         </Button>
       ) : null}
       <p className="text-[12.5px] text-muted-foreground">
