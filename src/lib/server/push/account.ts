@@ -15,6 +15,8 @@ export type PushStatus = {
   configured: boolean;
   publicKey: string | null;
   subscribed: boolean;
+  /** Number of active subscriptions for this user. */
+  count: number;
 };
 
 export const getPushStatus = createServerFn({ method: "GET" })
@@ -30,6 +32,7 @@ export const getPushStatus = createServerFn({ method: "GET" })
       configured: configured && Boolean(publicKey),
       publicKey,
       subscribed: (count ?? 0) > 0,
+      count: count ?? 0,
     };
   });
 
@@ -38,7 +41,7 @@ export const savePushSubscription = createServerFn({ method: "POST" })
   .validator((input: unknown) => subInput.parse(input))
   .handler(async ({ context, data }): Promise<PushStatus> => {
     if (!pushConfigured()) {
-      return { configured: false, publicKey: null, subscribed: false };
+      return { configured: false, publicKey: null, subscribed: false, count: 0 };
     }
     const { error } = await context.actor.db.from("push_subscriptions").upsert(
       {
@@ -50,10 +53,15 @@ export const savePushSubscription = createServerFn({ method: "POST" })
       { onConflict: "endpoint" },
     );
     if (error) throw new Error(error.message);
+    const { count } = await context.actor.db
+      .from("push_subscriptions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", context.actor.id);
     return {
       configured: true,
       publicKey: vapidPublicKey(),
       subscribed: true,
+      count: count ?? 1,
     };
   });
 

@@ -47,17 +47,10 @@ import {
   type RelationshipMap as RelationshipMapType,
   type WatchItem,
 } from "@/lib/understand";
+import { composeArticle } from "@/lib/editorial";
 
 export const Route = createFileRoute("/dashboard/story/$id")({
   component: StoryDetail,
-  /**
-   * Which list the reader is working through, so the page can offer them the
-   * next story in it rather than sending them back to fetch it themselves.
-   *
-   * Anything unrecognised falls away instead of erroring. This is a convenience
-   * layered on top of the story; a hand-edited or truncated URL should still
-   * open the story, just without a pager.
-   */
   validateSearch: (search: Record<string, unknown>): { from?: QueueSource } => {
     const from = asQueueSource(search["from"]);
     return from ? { from } : {};
@@ -73,23 +66,6 @@ const PROMPTS = [
   "What should I do about it this week?",
 ];
 
-/**
- * Returns the reader to the list they came from, at the place they left it.
- *
- * This was a `<Link to="/dashboard">`, and a link pushes a new history entry.
- * A push has no earlier position to restore, so it always lands at the top of
- * the feed: someone working down the list was thrown back to the first card
- * every time they finished a story, and had to scroll past everything they had
- * already read to reach the next one. Stepping back through history instead
- * returns to the entry they actually left, which is the one the router has a
- * saved scroll position for.
- *
- * It also stops assuming the feed is where they came from — Alerts and History
- * link to stories too, and the old link dropped those readers on the home feed.
- *
- * A reader who opened the story cold (a shared link, a new tab) has nothing
- * behind them, so they still get a real link to the feed.
- */
 function BackToFeed({ className }: { className?: string }) {
   const router = useRouter();
   const canGoBack = useCanGoBack();
@@ -127,17 +103,9 @@ function StoryDetail() {
   });
   const story = storyQ.data;
 
-  // Whether the reader got to the bottom of the explanation. A ref rather than
-  // state: nothing on screen changes when it flips, and a re-render on scroll
-  // would be a cost paid on every story for no visible benefit.
   const reachedEnd = useRef(false);
   useReadTracking(story?.id, reachedEnd);
 
-  // Paging to the next story is a param change, not a remount, so the flag has
-  // to be cleared per story or everything after the first would be recorded as
-  // read to the end. Declared after `useReadTracking` because effect cleanups
-  // all run before setups: the story being left is still flushed with the value
-  // it actually earned.
   useEffect(() => {
     reachedEnd.current = false;
   }, [id]);
@@ -152,19 +120,6 @@ function StoryDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  /**
-   * Moves to another story in the same list.
-   *
-   * `replace` rather than a push, for two reasons. It keeps "Back to your nyuz"
-   * meaning the list even after a reader has paged through ten stories; pushing
-   * would leave nine stories stacked behind them and turn one press into nine.
-   * And it gives the browser's own back button that same meaning, which is what
-   * someone working down a briefing actually wants from it.
-   *
-   * The scroll is explicit and waits for the navigation: nothing unmounts on a
-   * param change, so without it the next story opens already scrolled to
-   * wherever the last one was left.
-   */
   const open = useCallback(
     (nextId: string) => {
       void navigate({
@@ -177,9 +132,6 @@ function StoryDetail() {
     [navigate, from],
   );
 
-  // The next story is the one thing a reader working down a list is most likely
-  // to ask for. Fetching it while they are still on this one is most of the
-  // difference between paging through a briefing and navigating a site.
   const nextId = queue.next?.id;
   useEffect(() => {
     if (!nextId) return;
@@ -216,7 +168,11 @@ function StoryDetail() {
     );
   }
 
-  const intelligence = eventIntelligence(story);
+  const article = composeArticle(story, {
+    audience: "reader",
+    implication: "",
+    evidence: [],
+  });
 
   return (
     <DashboardShell title="Understand">
@@ -226,7 +182,7 @@ function StoryDetail() {
       </div>
 
       <article className="mt-6 animate-rise">
-        <div className="grid gap-10 lg:grid-cols-[1fr_260px]">
+        <div className="grid gap-10 xl:grid-cols-[minmax(0,40rem)_minmax(0,14rem)]">
           <div className="min-w-0 space-y-9">
             <div>
               <div className="flex flex-wrap items-center gap-3">
@@ -247,19 +203,16 @@ function StoryDetail() {
               <p className="mt-4 text-[13px] text-muted-foreground">
                 {story.org}
                 <span aria-hidden> · </span>
-                {sourceCountLabel(intelligence.analysisMeta, story.sources)}
+                {sourceCountLabel(story.understand?.analysisMeta, story.sources)}
                 <span aria-hidden> · </span>
-                {understandTime(story, intelligence)} understand
+                {understandMinutes([
+                  ...intelligenceText(story.understand ?? legacyEventIntelligence({ what: story.what, sources: story.sourceList })),
+                  ...(story.personalization?.explanation ? [story.personalization.explanation] : []),
+                ])} understand
               </p>
             </div>
 
-            <UnderstandBody
-              story={story}
-              intelligence={intelligence}
-              onReachEnd={() => {
-                reachedEnd.current = true;
-              }}
-            />
+            <EditorialBody article={article} story={story} onReachEnd={() => { reachedEnd.current = true; }} />
 
             {askEnabled && !planLoading && asksPerDay > 0 ? (
               <AskPanel eventId={story.id} dailyLimit={asksPerDay} />
@@ -268,7 +221,7 @@ function StoryDetail() {
             <QueuePager queue={queue} onOpen={open} />
           </div>
 
-          <aside className="space-y-4 lg:sticky lg:top-24 lg:self-start">
+          <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
             <div className="rounded-2xl border border-hairline bg-surface p-5">
               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 Scoring
@@ -297,46 +250,7 @@ function StoryDetail() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-hairline bg-surface p-5">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                {intelligence.analysisMeta &&
-                intelligence.analysisMeta.sourceCountAtAnalysis !== story.sources
-                  ? sourceCountLabel(intelligence.analysisMeta, story.sources)
-                  : `Based on ${sourceCountLabel(intelligence.analysisMeta, story.sources)}`}
-              </p>
-              <ul className="mt-4 space-y-2.5">
-                {story.sourceList.map((s) => (
-                  <li
-                    key={s.url ?? s.name}
-                    className="flex items-center justify-between gap-3 text-[13px]"
-                  >
-                    {s.url ? (
-                      <a
-                        href={s.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex min-w-0 items-center gap-2 hover:underline"
-                      >
-                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{s.name}</span>
-                      </a>
-                    ) : (
-                      <span className="flex min-w-0 items-center gap-2">
-                        <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{s.name}</span>
-                      </span>
-                    )}
-                    <span className="shrink-0 tabular-nums text-[12px] text-muted-foreground">
-                      {s.at}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">
-                nyuz is not the source. This explanation is generated — open the reporting before
-                acting on it.
-              </p>
-            </div>
+            <EndMatter article={article} story={story} />
 
             <div className="rounded-2xl border border-hairline bg-surface p-5">
               <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
@@ -384,14 +298,6 @@ function StoryDetail() {
   );
 }
 
-/**
- * Left and right arrows -- and j/k, for anyone whose hands already live there --
- * walk the list without the reader reaching for anything.
- *
- * Keys typed into a field are left alone so Ask nyuz still works, and any
- * modifier hands the key straight back to the browser: someone pressing Alt+Left
- * means "go back", and would be badly served by a story change instead.
- */
 function useStoryShortcuts(queue: ReadingQueue, open: (id: string) => void) {
   const { prev, next } = queue;
 
@@ -419,14 +325,6 @@ function useStoryShortcuts(queue: ReadingQueue, open: (id: string) => void) {
   }, [prev, next, open]);
 }
 
-/**
- * "3 of 12" and two arrows, beside the back link.
- *
- * Up here as well as at the foot because a reader who has decided this story is
- * not for them wants the way on before they have read it, not only after.
- * Renders nothing when there is no list to walk -- a shared link, or a story
- * reached from search.
- */
 function QueueControls({ queue, onOpen }: { queue: ReadingQueue; onOpen: (id: string) => void }) {
   if (queue.total < 2) return null;
 
@@ -479,14 +377,6 @@ function StepButton({
   );
 }
 
-/**
- * The end of the story, and the way on to the next one.
- *
- * Headlines rather than bare arrows: the question at the foot of a story is
- * whether the next one is worth the time, and nobody can answer that from a
- * chevron. Next holds the right-hand column whether or not there is a Previous,
- * so it does not move under the reader as they work down the list.
- */
 function QueuePager({ queue, onOpen }: { queue: ReadingQueue; onOpen: (id: string) => void }) {
   if (queue.total < 2) return null;
 
@@ -566,14 +456,6 @@ function Key({ children }: { children: string }) {
   );
 }
 
-/**
- * Marks the bottom of the explanation as read once it scrolls into view.
- *
- * An IntersectionObserver rather than a scroll handler: it fires once, costs
- * nothing while the page sits still, and does not need throttling. `rootMargin`
- * pulls the trigger up slightly so finishing the last block counts, without
- * requiring the reader to scroll past it into whitespace.
- */
 function EndOfStory({ onReach }: { onReach: () => void }) {
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -597,18 +479,12 @@ function EndOfStory({ onReach }: { onReach: () => void }) {
   return <div ref={ref} aria-hidden className="h-px" />;
 }
 
-/** Structured intelligence for the event, or an evidence-aware fallback. */
 function eventIntelligence(story: Story): EventIntelligence {
   return (
     story.understand ?? legacyEventIntelligence({ what: story.what, sources: story.sourceList })
   );
 }
 
-/**
- * How the event developed, from the analysed stages when they exist and the
- * publication record otherwise — collapsed either way, so three pieces from one
- * outlet do not read as three stages.
- */
 function timelinePoints(story: Story, intelligence: EventIntelligence) {
   return eventTimeline(
     intelligence,
@@ -634,7 +510,6 @@ function understandTime(story: Story, intelligence: EventIntelligence) {
   ]);
 }
 
-/** Two states the evidence gives comparable values for, side by side. */
 function ComparisonTable({ comparison, story }: { comparison: Comparison; story: Story }) {
   return (
     <section>
@@ -669,11 +544,6 @@ function ComparisonTable({ comparison, story }: { comparison: Comparison; story:
   );
 }
 
-/**
- * Bars for comparable quantities, a line for a trend. Both are drawn from the
- * numbers the analysis reported — SVG and CSS rather than a charting library,
- * because a dozen points does not justify the bundle.
- */
 function NumericChart({ series, story }: { series: NumericSeries; story: Story }) {
   const max = Math.max(...series.points.map((point) => point.value));
   const min = Math.min(0, ...series.points.map((point) => point.value));
@@ -734,7 +604,6 @@ function NumericChart({ series, story }: { series: NumericSeries; story: Story }
   );
 }
 
-/** Several things announced together, listed rather than narrated. */
 function StructuredOverview({ items, story }: { items: OverviewItem[]; story: Story }) {
   return (
     <section>
@@ -759,12 +628,6 @@ function StructuredOverview({ items, story }: { items: OverviewItem[]; story: St
   );
 }
 
-/**
- * The event's structure as a small map, not a sentence with arrows — one row
- * per edge, node labels resolved from the graph. Only rendered at all when
- * `relationshipsOf` decided the event has a genuine multi-entity shape worth
- * drawing, so this never repeats a fact the summary already gave in prose.
- */
 function ThePicture({
   relationships,
   story,
@@ -801,7 +664,6 @@ function ThePicture({
   );
 }
 
-/** A real audience and the practical implication for them, grouped rather than narrated. */
 function AudienceList({ audiences, story }: { audiences: Audience[]; story: Story }) {
   return (
     <section>
@@ -821,7 +683,6 @@ function AudienceList({ audiences, story }: { audiences: Audience[]; story: Stor
   );
 }
 
-/** A genuine, sourced difference in framing — only ever rendered for two or more. */
 function PerspectiveList({ perspectives, story }: { perspectives: Perspective[]; story: Story }) {
   return (
     <section>
@@ -843,7 +704,6 @@ function PerspectiveList({ perspectives, story }: { perspectives: Perspective[];
   );
 }
 
-/** A specific, checkable reason to come back to this event. */
 function WatchNextList({ items, story }: { items: WatchItem[]; story: Story }) {
   return (
     <section>
@@ -863,10 +723,6 @@ function WatchNextList({ items, story }: { items: WatchItem[]; story: Story }) {
   );
 }
 
-/**
- * How many outlets stand behind a fact, shown only past three. Counted by outlet
- * rather than by article, so syndication does not read as confirmation.
- */
 function Corroboration({ refs, story }: { refs: number[]; story: Story }) {
   const outlets = corroboration(
     refs,
@@ -902,201 +758,171 @@ function BlockHeading({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * The explanation itself: a run of blocks at the old article's reading measure.
- * Every block is conditional — a block appears only when the event's evidence
- * actually supports it, so a thin event renders three blocks and a rich one
- * renders eight without either looking unfinished.
+ * The editorial margin body: a two-column grid where the main content
+ * lives in the left column and margin notes populate the right column
+ * at the `xl` breakpoint and above. Below `xl`, margin notes render
+ * inline within the content flow.
  */
-function UnderstandBody({
+function EditorialBody({
+  article,
   story,
-  intelligence,
   onReachEnd,
 }: {
+  article: ReturnType<typeof composeArticle>;
   story: Story;
-  intelligence: EventIntelligence;
   onReachEnd: () => void;
 }) {
   const change = deriveChange(
     story.before,
     story.after,
-    intelligence.newDevelopments,
-    intelligence.oneSentence,
+    article.blocks
+      .filter((b) => b.type === "paragraph")
+      .map((b) => ({ text: b.content, evidence: b.evidence, kind: "reported" as const })),
+    story.understand?.oneSentence ?? "",
   );
-  const timeline = timelinePoints(story, intelligence);
 
   return (
-    <div className="max-w-[40rem] space-y-8">
-      <p className="text-[14.5px] leading-[1.5] tracking-[-0.01em] sm:text-[19px] sm:leading-[1.65]">
-        {intelligence.oneSentence}
+    <div className="xl:grid xl:grid-cols-[minmax(0,40rem)_minmax(0,14rem)] xl:gap-8">
+      <div className="min-w-0 space-y-8">
+        <p className="text-[14.5px] leading-[1.5] tracking-[-0.01em] sm:text-[19px] sm:leading-[1.65]">
+          {story.understand?.oneSentence ?? legacyEventIntelligence({ what: story.what, sources: story.sourceList }).oneSentence}
+        </p>
+
+        {story.understand?.relationships ? (
+          <ThePicture relationships={story.understand.relationships} story={story} />
+        ) : null}
+
+        {change?.mode === "before_now" ? (
+          <section>
+            <BlockHeading>What changed</BlockHeading>
+            <div className="mt-3 grid gap-5 sm:grid-cols-2 sm:gap-8">
+              <div className="border-t border-hairline pt-3">
+                <p className="text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">Before</p>
+                <p className="mt-1.5 text-[14.5px] leading-relaxed">{change.before}</p>
+              </div>
+              <div className="border-t border-signal pt-3">
+                <p className="text-[10.5px] uppercase tracking-[0.16em] text-signal">Now</p>
+                <p className="mt-1.5 text-[14.5px] leading-relaxed">{change.now}</p>
+              </div>
+            </div>
+          </section>
+        ) : change?.mode === "new" ? (
+          <section>
+            <BlockHeading>New in this announcement</BlockHeading>
+            <ul className="mt-3 space-y-2.5 text-[15px] leading-relaxed">
+              {change.items.map((item) => (
+                <li key={item.text}>
+                  {item.text}
+                  <EvidenceRefs refs={item.evidence} story={story} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {article.sections.map((section, index) => (
+          <section key={index}>
+            {section.heading ? <BlockHeading>{section.heading}</BlockHeading> : null}
+            <div className="mt-3 space-y-3.5">
+              {section.blocks.map((block, bIndex) => (
+                <ArticleBlock key={`${index}-${bIndex}`} block={block} story={story} />
+              ))}
+            </div>
+            {section.marginNotes.length > 0 ? (
+              <div className="xl:hidden mt-3 space-y-2">
+                {section.marginNotes.map((note, nIndex) => (
+                  <MarginNote key={`${index}-${nIndex}`} note={note} story={story} />
+                ))}
+              </div>
+            ) : null}
+          </section>
+        ))}
+
+        {story.personalization ? (
+          <div className="rounded-3xl border border-signal/30 bg-surface p-6">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal">
+              {story.personalization.heading}
+            </h2>
+            <p className="mt-3 text-[15px] leading-relaxed">{story.personalization.explanation}</p>
+          </div>
+        ) : null}
+
+        <EndOfStory onReach={onReachEnd} />
+      </div>
+
+      <aside className="hidden xl:block xl:space-y-6">
+        {article.marginNotes.map((note, index) => (
+          <MarginNote key={index} note={note} story={story} />
+        ))}
+      </aside>
+    </div>
+  );
+}
+
+function ArticleBlock({ block, story }: { block: import("@/lib/editorial").ArticleBlock; story: Story }) {
+  return (
+    <p className="text-[14.5px] leading-relaxed">
+      {block.content}
+      <EvidenceRefs refs={block.evidence} story={story} />
+    </p>
+  );
+}
+
+function MarginNote({ note, story }: { note: import("@/lib/editorial").MarginNote; story: Story }) {
+  return (
+    <div className="rounded-lg border border-hairline bg-surface-2 p-3 text-[12px] leading-relaxed text-muted-foreground">
+      <span className="font-medium text-foreground">{note.text}</span>
+      <EvidenceRefs refs={note.evidence} story={story} />
+    </div>
+  );
+}
+
+function EndMatter({ article, story }: { article: ReturnType<typeof composeArticle>; story: Story }) {
+  return (
+    <div className="rounded-2xl border border-hairline bg-surface p-5">
+      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+        {story.understand?.analysisMeta &&
+        story.understand.analysisMeta.sourceCountAtAnalysis !== story.sources
+          ? sourceCountLabel(story.understand.analysisMeta, story.sources)
+          : `Based on ${sourceCountLabel(story.understand?.analysisMeta, story.sources)}`}
       </p>
-
-      {intelligence.relationships ? (
-        <ThePicture relationships={intelligence.relationships} story={story} />
-      ) : null}
-
-      {change?.mode === "before_now" ? (
-        <section>
-          <BlockHeading>What changed</BlockHeading>
-          <div className="mt-3 grid gap-5 sm:grid-cols-2 sm:gap-8">
-            <div className="border-t border-hairline pt-3">
-              <p className="text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
-                Before
-              </p>
-              <p className="mt-1.5 text-[14.5px] leading-relaxed">{change.before}</p>
-            </div>
-            <div className="border-t border-signal pt-3">
-              <p className="text-[10.5px] uppercase tracking-[0.16em] text-signal">Now</p>
-              <p className="mt-1.5 text-[14.5px] leading-relaxed">{change.now}</p>
-            </div>
-          </div>
-        </section>
-      ) : change?.mode === "new" ? (
-        <section>
-          <BlockHeading>New in this announcement</BlockHeading>
-          <ul className="mt-3 space-y-2.5 text-[15px] leading-relaxed">
-            {change.items.map((item) => (
-              <li key={item.text}>
-                {item.text}
-                <EvidenceRefs refs={item.evidence} story={story} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {intelligence.numbers.length > 0 ? (
-        <section className="border-y border-hairline py-5">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3">
-            {intelligence.numbers.map((item) => (
-              <div key={`${item.value}-${item.label}`}>
-                <p className="font-serif text-[26px] leading-none">
-                  {item.value}
-                  <EvidenceRefs refs={item.evidence} story={story} />
-                </p>
-                <p className="mt-1.5 text-[12px] text-muted-foreground">{item.label}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {intelligence.audiences.length > 0 ? (
-        <AudienceList audiences={intelligence.audiences} story={story} />
-      ) : null}
-
-      {intelligence.context.length > 0 ? (
-        <section>
-          <BlockHeading>Context</BlockHeading>
-          <div className="mt-3 space-y-3.5 text-[15px] leading-relaxed">
-            {intelligence.context.map((item) => (
-              <p key={item.text}>
-                {item.text}
-                <EvidenceRefs refs={item.evidence} story={story} />
-              </p>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {intelligence.overview.length > 0 ? (
-        <StructuredOverview items={intelligence.overview} story={story} />
-      ) : null}
-
-      {intelligence.comparison ? (
-        <ComparisonTable comparison={intelligence.comparison} story={story} />
-      ) : null}
-
-      {intelligence.series ? <NumericChart series={intelligence.series} story={story} /> : null}
-
-      {intelligence.whatNext.length > 0 ? (
-        <section>
-          <BlockHeading>What happens next</BlockHeading>
-          <ul className="mt-3 space-y-2.5 text-[15px] leading-relaxed">
-            {intelligence.whatNext.map((item) => (
-              <li key={item.text}>
-                {item.text}
-                <EvidenceRefs refs={item.evidence} story={story} />
-                <Corroboration refs={item.evidence} story={story} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {intelligence.conflicts.length > 0 ? (
-        <section className="border-l-2 border-border pl-5">
-          <BlockHeading>Reports differ</BlockHeading>
-          <div className="mt-3 space-y-4">
-            {intelligence.conflicts.map((conflict) => (
-              <div key={conflict.topic}>
-                <p className="text-[14px] font-medium">{conflict.topic}</p>
-                <ul className="mt-1.5 space-y-1.5 text-[13.5px] leading-relaxed text-muted-foreground">
-                  {conflict.reports.map((report) => (
-                    <li key={report.text}>
-                      {report.text}
-                      <EvidenceRefs refs={report.evidence} story={story} />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        </section>
-      ) : null}
-
-      {intelligence.perspectives.length > 0 ? (
-        <PerspectiveList perspectives={intelligence.perspectives} story={story} />
-      ) : null}
-
-      {intelligence.unknowns.length > 0 ? (
-        <section>
-          <BlockHeading>Still unknown</BlockHeading>
-          <ul className="mt-3 space-y-1.5 text-[14.5px] leading-relaxed text-muted-foreground">
-            {intelligence.unknowns.map((unknown) => (
-              <li key={unknown}>— {unknown}</li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {intelligence.watchNext.length > 0 ? (
-        <WatchNextList items={intelligence.watchNext} story={story} />
-      ) : null}
-
-      {story.personalization ? (
-        <div className="rounded-3xl border border-signal/30 bg-surface p-6">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal">
-            {story.personalization.heading}
-          </h2>
-          <p className="mt-3 text-[15px] leading-relaxed">{story.personalization.explanation}</p>
-        </div>
-      ) : null}
-
-      {timeline.length > 0 ? (
-        <section>
-          <BlockHeading>How this event formed</BlockHeading>
-          <ol className="relative mt-4 space-y-4 pl-6">
-            <span className="absolute bottom-2 left-[4px] top-2 w-px bg-border" />
-            {timeline.map((item, index) => (
-              <li key={`${item.when}-${item.what}`} className="relative">
-                <span
-                  className="absolute -left-6 top-[7px] h-[7px] w-[7px] rounded-full"
-                  style={{
-                    background: index === timeline.length - 1 ? "var(--signal)" : "var(--border)",
-                  }}
-                />
-                <p className="text-[12px] tabular-nums text-muted-foreground">{item.when}</p>
-                <p className="mt-0.5 text-[14.5px]">
-                  {item.what}
-                  <EvidenceRefs refs={item.evidence} story={story} />
-                </p>
-              </li>
-            ))}
-          </ol>
-        </section>
-      ) : null}
-
-      <EndOfStory onReach={onReachEnd} />
+      <ul className="mt-4 space-y-2.5">
+        {story.sourceList.map((s) => (
+          <li
+            key={s.url ?? s.name}
+            className="flex items-center justify-between gap-3 text-[13px]"
+          >
+            {s.url ? (
+              <a
+                href={s.url}
+                target="_blank"
+                rel="noreferrer"
+                className="flex min-w-0 items-center gap-2 hover:underline"
+              >
+                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{s.name}</span>
+              </a>
+            ) : (
+              <span className="flex min-w-0 items-center gap-2">
+                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{s.name}</span>
+              </span>
+            )}
+            <span className="shrink-0 tabular-nums text-[12px] text-muted-foreground">
+              {s.at}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {article.endMatter.citations.length > 0 && (
+        <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">
+          {article.endMatter.citations.length} citation{article.endMatter.citations.length !== 1 ? "s" : ""} across {article.endMatter.sourceCount} source{article.endMatter.sourceCount !== 1 ? "s" : ""}.
+        </p>
+      )}
+      <p className="mt-2 text-[11.5px] leading-relaxed text-muted-foreground">
+        nyuz is not the source. This explanation is generated — open the reporting before
+        acting on it.
+      </p>
     </div>
   );
 }

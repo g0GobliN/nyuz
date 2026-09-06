@@ -60,8 +60,8 @@ const NAV_FOOT = [
  * Staff-only destinations.
  *
  * Both were previously reachable by every signed-in customer. Pipeline shows
- * internal queue depths and per-event scoring, and Console is the admin panel —
- * neither belongs in a subscriber's sidebar.
+ * internal queue depths and per-event scoring, and Console is the admin panel
+ * — neither belongs in a subscriber's sidebar.
  *
  * Hiding them is cosmetic, not protective: the security boundary is `adminOnly`
  * in src/lib/server/guard.ts, which re-reads the role from the database on every
@@ -149,9 +149,34 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
     if (!prefs.channels.push) return;
     const key = import.meta.env["VITE_VAPID_PUBLIC_KEY"];
     if (typeof key !== "string" || !key) return;
-    void refreshPush(key).catch(() => {
-      // A stale subscription is retried the next time they open Delivery.
-    });
+
+    const refresh = () => {
+      void refreshPush(key).catch(() => {});
+    };
+
+    // Initial refresh on mount so a newly-enabled or rotated subscription
+    // is picked up before the user does anything else.
+    refresh();
+
+    // Refresh when the user returns to the tab — the main moment a
+    // silently-rotated endpoint can be caught without polling.
+    const onFocus = () => refresh();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    // Fallback: once per day, in case the endpoint rotated while the tab
+    // was open and the user never backgrounded it. This is one cheap
+    // upsert per device per day, not 1 440 of them.
+    const fallback = setInterval(refresh, 86_400_000);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      clearInterval(fallback);
+    };
   }, [prefs.channels.push]);
 
   if (closed) return <MaintenanceScreen />;
