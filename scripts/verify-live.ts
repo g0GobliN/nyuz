@@ -233,6 +233,8 @@ main(async () => {
       ["recompute_polling_tiers", {}],
       ["claim_custom_source", { p_user_id: NIL_UUID, p_source_id: NIL_UUID }],
       ["purge_expired_corpus", { p_limit: 0 }],
+      ["purge_expired_digests", { p_limit: 0 }],
+      ["history_months", { p_user: NIL_UUID }],
       ["claim_alert", { p_user_id: NIL_UUID, p_event_id: NIL_UUID, p_importance: 10 }],
       ["pending_events_with_demand", { p_limit: 1 }],
       ["release_ai_reservation", { p_id: NIL_UUID }],

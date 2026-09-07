@@ -101,6 +101,16 @@ export type Subscription = {
   retired_stripe_subscription_id: string | null;
   /** Short lease preventing two simultaneous first-checkout sessions (0045). */
   checkout_started_at: string | null;
+  /**
+   * Downgrade grace (0067). Written by the `subscriptions_history_grace`
+   * trigger, never by application code — every plan change is an UPDATE on this
+   * table, so the database is the one place the rule cannot be forgotten.
+   *
+   * Both null for anyone who has never downgraded. They delay deletion only:
+   * access is always `history_window_start()`, which reads the current plan.
+   */
+  history_grace_until: string | null;
+  history_grace_days: number | null;
 };
 
 /**
@@ -730,6 +740,8 @@ export type Database = {
         | "stripe_event_created_at"
         | "retired_stripe_subscription_id"
         | "checkout_started_at"
+        | "history_grace_until"
+        | "history_grace_days"
       >;
       stripe_events: Table<StripeEvent, "received_at" | "processing_started_at" | "processed_at">;
       notification_preferences: Table<
@@ -1284,6 +1296,26 @@ export type Database = {
       purge_expired_digests: {
         Args: { p_limit?: number };
         Returns: number;
+      };
+      /** The canonical history access boundary (0067). */
+      history_window_start: {
+        Args: { p_user: string };
+        Returns: string;
+      };
+      /**
+       * Month metadata for the History page (0067). The one call allowed to see
+       * past the window, and the reason it may is that it returns no content.
+       */
+      history_months: {
+        Args: { p_user: string };
+        Returns: {
+          month_key: string;
+          starts_at: string;
+          ends_at: string;
+          available: number;
+          locked_newest_at: string | null;
+          locked_oldest_at: string | null;
+        }[];
       };
       purge_expired_corpus: {
         Args: { p_limit?: number };

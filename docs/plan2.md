@@ -2301,6 +2301,9 @@ Analysis should preserve current bounded-failure philosophy.
 
 # 72. RETENTION
 
+> Product history retention is done — see **docs/history-retention.md** (0067). The
+> operational items below are separate and still open.
+
 Review retention for:
 
 * raw ingestion payloads

@@ -55,11 +55,13 @@ function Briefing() {
     queryFn: () => loadSavedStories(),
     staleTime: 60_000,
   });
-  // Only used to name the day on screen. Same key and staleTime as the History
-  // page, so arriving from there costs no extra request.
+  // Only used to name the day on screen. History is fetched a month at a time
+  // now, so the digest id goes with the request: the server resolves which
+  // month that briefing falls in — and returns nothing at all if the reader's
+  // plan no longer reaches it.
   const historyQ = useQuery({
-    queryKey: ["briefing", "history"],
-    queryFn: () => loadHistory(),
+    queryKey: ["briefing", "history", "digest", digest ?? ""],
+    queryFn: () => loadHistory({ data: digest ? { digestId: digest } : {} }),
     staleTime: 60_000,
     enabled: Boolean(digest),
   });

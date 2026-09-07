@@ -395,6 +395,11 @@ cause. Fixing nothing about it is fine; being surprised by it three times is not
 
 ### The thing this turned up
 
+> **Fixed in `0067_history_entitlement.sql`.** Entitlement, downgrade grace, purge and
+> the month-based History page are documented in
+> **[history-retention.md](history-retention.md)** — the canonical page. The section
+> below is kept as the original finding and its cost argument, which still holds.
+
 **Retention is not enforced anywhere. It is a query filter.**
 
 [`briefing.ts:296`](../src/lib/server/briefing.ts#L296) computes `since` from
