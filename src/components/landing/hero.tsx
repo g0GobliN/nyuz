@@ -1,7 +1,6 @@
-import { Link } from "@tanstack/react-router";
-import { ArrowRight, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { LinkButton, Chip } from "@/components/kit";
+import { Chip } from "@/components/kit";
 import { BriefingPreview } from "@/components/briefing-preview";
 import { STORIES } from "@/lib/sample-data";
 
@@ -201,17 +200,11 @@ export function InterestDemo() {
             </Chip>
           ))}
         </div>
-        <div className="mt-8 flex flex-wrap items-center gap-3">
-          <LinkButton to="/onboarding" size="md">
-            Build my nyuz <ArrowRight className="h-4 w-4" />
-          </LinkButton>
-          <Link
-            to="/how-it-works"
-            className="text-[13.5px] text-muted-foreground hover:text-foreground"
-          >
-            See how it works
-          </Link>
-        </div>
+        {/* No call to action here on purpose. The hero directly above this
+            section already carries "Build my nyuz" and "See how it works", and
+            repeating them a screen later asks the same question twice rather
+            than making the answer easier. What this section is for is the demo
+            beside it: tap a topic, watch the briefing change. */}
       </div>
 
       <div
