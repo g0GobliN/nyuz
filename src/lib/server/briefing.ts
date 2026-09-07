@@ -16,6 +16,14 @@ import {
   decideAsk,
 } from "@/lib/plans";
 import { judgeStoryQuestion } from "@/lib/ask-scope";
+import { defaultMonthKey, describeMonth, type HistoryMonth } from "@/lib/history-window";
+import {
+  digestInWindow,
+  historyWindowStart,
+  readHistoryDays,
+  readHistoryMonths,
+  storyVisible,
+} from "./history";
 import { asPercent, clockOf, importanceBand, type Story } from "@/lib/story";
 import { intelligenceText, readEventIntelligence } from "@/lib/understand";
 import { aiRateLimit } from "./rate-limit";
@@ -293,32 +301,103 @@ export type HistoryDay = {
 };
 
 export type HistoryFeed = {
+  /** Days of the one month in `month`, never the whole retention window. */
   days: HistoryDay[];
+  /** Every month with rows, readable or merely retained. Newest first. */
+  months: HistoryMonth[];
+  /** Which month `days` belongs to, or null when there is no history at all. */
+  month: string | null;
   retentionDays: number;
   retention: string;
+  plan: PlanTier;
+  /** Set only while a downgrade's 30-day grace is still running. */
+  graceUntil: string | null;
 };
 
+/**
+ * One month of history, plus the shape of the whole archive.
+ *
+ * ---------------------------------------------------------------------------
+ * Why a month at a time
+ * ---------------------------------------------------------------------------
+ *
+ * The previous version asked for `retentionDays + 5` rows, which is 370 for an
+ * Omni reader: a year of briefings and their headlines fetched on every visit
+ * so that the page could render one long scroll of them. Months are the
+ * navigation now, and only the selected one is read.
+ *
+ * ---------------------------------------------------------------------------
+ * Where each part of the answer comes from
+ * ---------------------------------------------------------------------------
+ *
+ * The window is `history_window_start()` — the same function the digests policy
+ * calls, asked for here because a server function runs with the service-role
+ * client and RLS does not apply to it (see `./history`).
+ *
+ * The month list is the one call permitted to look past that window, and it
+ * returns counts and bounds only. That is what lets a reader who downgraded
+ * yesterday see "August 2026 · Locked" instead of an archive that appears to
+ * have been deleted — while the days, headlines and stories of August stay
+ * exactly as unreachable as the plan says they are.
+ *
+ * Month bounds arrive already resolved in the reader's own timezone, so the
+ * range scan below needs no date arithmetic and cannot disagree with the month
+ * heading it is rendered under.
+ */
 export const loadHistory = createServerFn({ method: "GET" })
   .middleware([signedInOnly])
-  .handler(async ({ context }): Promise<HistoryFeed> => {
+  .validator((input: unknown) =>
+    parseInput(
+      z.object({
+        month: z
+          .string()
+          .regex(/^\d{4}-\d{2}$/)
+          .optional(),
+        digestId: z.string().uuid().optional(),
+      }),
+      input ?? {},
+    ),
+  )
+  .handler(async ({ context, data }): Promise<HistoryFeed> => {
     const { actor } = context;
-    const plan = await planOf(actor.db, actor.id);
+    const [{ plan, graceUntil }, windowStart, zone] = await Promise.all([
+      planStateOf(actor.db, actor.id),
+      historyWindowStart(actor.db, actor.id),
+      timezoneOf(actor.db, actor.id),
+    ]);
     const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.uno;
-    const since = new Date(Date.now() - limits.retentionDays * 86_400_000).toISOString();
 
-    const { data, error } = await actor.db
-      .from("digests")
-      .select("digest_id, scheduled_for, status, item_count")
-      .eq("user_id", actor.id)
-      .eq("kind", "briefing")
-      .in("status", ["ready", "sent", "skipped"])
-      .gte("scheduled_for", since)
-      .order("scheduled_for", { ascending: false })
-      .limit(Math.min(400, limits.retentionDays + 5));
+    const bounds = await readHistoryMonths(actor.db, actor.id);
+    const now = new Date();
+    const months = bounds.map((facts) => describeMonth(facts, now));
 
-    if (error) throw new Error(`reading history: ${error.message}`);
+    // Opening a specific briefing (History → "Open briefing") names the digest
+    // rather than the month, and an out-of-window id resolves to nothing here
+    // exactly as it does in `loadDigestStories`.
+    let wanted = data.month ?? null;
+    if (!wanted && data.digestId) {
+      const digest = await digestInWindow(actor.db, actor.id, data.digestId, windowStart);
+      const at = digest ? Date.parse(digest.scheduled_for) : NaN;
+      if (!Number.isNaN(at)) {
+        wanted =
+          bounds.find((b) => at >= Date.parse(b.startsAt) && at < Date.parse(b.endsAt))?.monthKey ??
+          null;
+      }
+    }
 
-    const rows = data ?? [];
+    const selected =
+      bounds.find((b) => b.monthKey === wanted) ??
+      bounds.find((b) => b.monthKey === defaultMonthKey(months)) ??
+      null;
+
+    const rows = selected
+      ? await readHistoryDays(actor.db, actor.id, {
+          startsAt: selected.startsAt,
+          endsAt: selected.endsAt,
+          windowStart,
+        })
+      : [];
+
     const headlines = await headlinesFor(
       actor.db,
       rows.filter((r) => r.item_count > 0).map((r) => r.digest_id),
@@ -329,15 +408,23 @@ export const loadHistory = createServerFn({ method: "GET" })
       return {
         digestId: row.digest_id,
         iso: row.scheduled_for,
-        date: at.toLocaleDateString(undefined, { month: "long", day: "numeric" }),
-        weekday: at.toLocaleDateString(undefined, { weekday: "long" }),
+        date: at.toLocaleDateString(undefined, { month: "long", day: "numeric", timeZone: zone }),
+        weekday: at.toLocaleDateString(undefined, { weekday: "long", timeZone: zone }),
         count: row.item_count,
         headline: headlines.get(row.digest_id) ?? "Nothing important for your nyuz",
         skipped: row.status === "skipped" || row.item_count === 0,
       };
     });
 
-    return { days, retentionDays: limits.retentionDays, retention: limits.retention };
+    return {
+      days,
+      months,
+      month: selected?.monthKey ?? null,
+      retentionDays: limits.retentionDays,
+      retention: limits.retention,
+      plan,
+      graceUntil,
+    };
   });
 
 export const loadDigestStories = createServerFn({ method: "GET" })
@@ -348,13 +435,11 @@ export const loadDigestStories = createServerFn({ method: "GET" })
   .handler(async ({ context, data }): Promise<Story[]> => {
     const { actor } = context;
     if (data.digestId) {
-      const { data: row, error } = await actor.db
-        .from("digests")
-        .select("digest_id")
-        .eq("digest_id", data.digestId)
-        .eq("user_id", actor.id)
-        .maybeSingle();
-      if (error) throw new Error(`reading digest: ${error.message}`);
+      // Owning the digest is not enough. A reader who has dropped to Uno still
+      // owns every briefing Plura sent them, and this is the route their old
+      // bookmarks and back button go through.
+      const windowStart = await historyWindowStart(actor.db, actor.id);
+      const row = await digestInWindow(actor.db, actor.id, data.digestId, windowStart);
       if (!row) return [];
       return storiesFromDigest(actor.db, row.digest_id);
     }
@@ -382,7 +467,11 @@ export const searchStories = createServerFn({ method: "GET" })
   .handler(async ({ context, data }): Promise<Story[]> => {
     const term = data.q.trim();
     if (term.length < 2) return [];
-    const stories = await loadMatchedStories(context.actor.db, context.actor.id, 80);
+    // Search is a view of the archive, so it ends where the archive ends.
+    // Unbounded, it was the widest of the three ways round the window: no id to
+    // guess, no link to keep — just a common word and every match ever made.
+    const windowStart = await historyWindowStart(context.actor.db, context.actor.id);
+    const stories = await loadMatchedStories(context.actor.db, context.actor.id, 80, windowStart);
     const needle = term.toLowerCase();
     return stories.filter(
       (s) =>
@@ -400,7 +489,14 @@ export const loadStory = createServerFn({ method: "GET" })
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data.id)) {
       return null;
     }
-    const stories = await storiesFromEventIds(context.actor.db, context.actor.id, [data.id]);
+    // A uuid in the address bar is the last way into expired personal history:
+    // the digest is gated, search is gated, and this used to hydrate any event
+    // in the corpus for anyone who asked. Saved stories are the deliberate
+    // exception — a bookmark outlives the window.
+    const { actor } = context;
+    const windowStart = await historyWindowStart(actor.db, actor.id);
+    if (!(await storyVisible(actor.db, actor.id, data.id, windowStart))) return null;
+    const stories = await storiesFromEventIds(actor.db, actor.id, [data.id]);
     return stories[0] ?? null;
   });
 
@@ -903,6 +999,51 @@ async function planOf(db: Db, userId: string): Promise<PlanTier> {
   return data?.plan ?? "uno";
 }
 
+/**
+ * Plan plus the downgrade grace deadline, for the History page's copy.
+ *
+ * Only the deadline is exposed, never `history_grace_days`: the page needs to
+ * say "until 7 October", and how far back the rows physically reach is a purge
+ * detail rather than an entitlement the reader has.
+ */
+async function planStateOf(
+  db: Db,
+  userId: string,
+): Promise<{ plan: PlanTier; graceUntil: string | null }> {
+  const { data } = await db
+    .from("subscriptions")
+    .select("plan, history_grace_until")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const until = data?.history_grace_until ?? null;
+  const running = until !== null && Date.parse(until) > Date.now();
+  return { plan: data?.plan ?? "uno", graceUntil: running ? until : null };
+}
+
+/**
+ * The reader's own timezone, for day labels.
+ *
+ * `history_months` buckets months in this zone, so formatting the days in the
+ * server's zone instead would put "September 1" under an August heading for
+ * anyone west of UTC. An unrecognised zone falls back rather than throwing —
+ * a stale IANA name should cost a reader correct labels, not their archive.
+ */
+async function timezoneOf(db: Db, userId: string): Promise<string> {
+  const { data } = await db
+    .from("notification_preferences")
+    .select("timezone")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const zone = data?.timezone?.trim();
+  if (!zone) return "UTC";
+  try {
+    new Intl.DateTimeFormat(undefined, { timeZone: zone }).format(new Date());
+    return zone;
+  } catch {
+    return "UTC";
+  }
+}
+
 async function headlinesFor(db: Db, digestIds: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (digestIds.length === 0) return out;
@@ -933,13 +1074,27 @@ async function storiesFromDigest(db: Db, digestId: string): Promise<Story[]> {
   return stories.map((s) => ({ ...s, why: why.get(s.id) ?? s.why }));
 }
 
-async function loadMatchedStories(db: Db, userId: string, limit: number): Promise<Story[]> {
-  const { data, error } = await db
+/**
+ * This reader's matches, most relevant first.
+ *
+ * `since` is optional because the home feed is a view of now — today's matches,
+ * bounded by the pipeline rather than by a plan — while search is a view of the
+ * archive and must stop where the archive stops. Passing the window in rather
+ * than deriving it here keeps the boundary a single value fetched once per
+ * request, from the same function RLS uses.
+ */
+async function loadMatchedStories(
+  db: Db,
+  userId: string,
+  limit: number,
+  since?: string,
+): Promise<Story[]> {
+  let query = db
     .from("user_events")
     .select("event_id, relevance, matched_at")
-    .eq("user_id", userId)
-    .order("relevance", { ascending: false })
-    .limit(limit);
+    .eq("user_id", userId);
+  if (since) query = query.gte("matched_at", since);
+  const { data, error } = await query.order("relevance", { ascending: false }).limit(limit);
   if (error) throw new Error(`reading user_events: ${error.message}`);
   const rows = data ?? [];
   const stories = await hydrateEvents(

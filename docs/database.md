@@ -29,6 +29,7 @@ Postgres via Supabase. Migrations are applied in numeric order.
 | `0043_unit_economics.sql`                | Service-only Stripe/operating-cost ledgers and per-call AI USD snapshots for the admin cost dashboard                                                                                        |
 | `0044_ai_cost_ceiling.sql`               | Atomic global monthly AI dollar ceiling alongside the token ceiling                                                                                                                          |
 | `0045_launch_blocker_repair.sql`         | Idempotent 0042 drift repair; ordered Stripe lifecycle, demand-aware selection, capacity deferral, delivery leases, transactional alerts and operational status                              |
+| `0067_history_entitlement.sql`           | `history_window_start()` on the digests policy, downgrade grace, `history_months()`, grace-aware purge, `user_events` pruning, corpus 400→420 days — see [history-retention.md](history-retention.md) |
 
 ---
 
@@ -81,8 +82,8 @@ however convenient it looks at the time.
 
 | Table          | Notes                                                              |
 | -------------- | ------------------------------------------------------------------ |
-| `user_events`  | Match results plus durable `briefed_at` deduplication              |
-| `digests`      | One per user per scheduled slot. `skipped` is a real success state |
+| `user_events`  | Match results plus durable `briefed_at` deduplication. Pruned on the plan window (0067) |
+| `digests`      | One per user per scheduled slot. `skipped` is a real success state. **Readable only inside `history_window_start()`** (0067) |
 | `digest_items` | `why_it_matters` — the only per-user generated text                |
 | `deliveries`   | Per channel, with attempts and retry                               |
 

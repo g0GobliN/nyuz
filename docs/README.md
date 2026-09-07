@@ -32,6 +32,7 @@ describes a dashboard that is not.
 | Page                              | What it covers                                                                  |
 | --------------------------------- | ------------------------------------------------------------------------------- |
 | [Database](database.md)           | Tables, enums, row-level security, and the reasoning behind the policies        |
+| [History and retention](history-retention.md) | Plan windows, downgrade grace, purge, and how the archive is bounded |
 | [Admin console](admin-console.md) | Analytics, user management, bans, blog, feature flags, audit log                |
 | [Site content](site-content.md)   | How marketing copy is edited without a deploy, and what deliberately cannot be  |
 | [AI providers](ai-providers.md)   | Model routing, swapping provider, and why keys are not in the database          |

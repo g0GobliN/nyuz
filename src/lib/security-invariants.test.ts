@@ -238,6 +238,11 @@ describe("expensive functions are not callable from a browser", () => {
     "claim_custom_source",
     "claim_source_probe",
     "purge_expired_corpus",
+    "purge_expired_digests",
+    // Looks past the entitlement window by design (0067). Only the server may
+    // ask it anything; a browser that could call it would have a way to
+    // enumerate months it is not allowed to read.
+    "history_months",
     "pending_events_with_demand",
     "release_ai_reservation",
     "claim_subscription_checkout",
