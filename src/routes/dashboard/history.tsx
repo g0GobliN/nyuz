@@ -131,6 +131,7 @@ function HistoryPage() {
                       </p>
                       <Link
                         to="/dashboard/briefing"
+                        search={{ digest: d.digestId }}
                         className="mt-3 inline-block text-[12.5px] text-muted-foreground hover:text-foreground"
                       >
                         Open briefing

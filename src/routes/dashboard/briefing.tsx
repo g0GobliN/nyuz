@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Bookmark, Mail, MessageCircle } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -8,10 +8,21 @@ import { PanelLoading } from "@/components/loading";
 import { Chip, LinkButton } from "@/components/kit";
 import { useDisplayName } from "@/lib/auth";
 import { usePrefs } from "@/lib/prefs-store";
-import { loadDigestStories, loadSavedStories } from "@/lib/server/briefing";
+import { loadDigestStories, loadHistory, loadSavedStories } from "@/lib/server/briefing";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const Route = createFileRoute("/dashboard/briefing")({
   component: Briefing,
+  // `digest` is how History opens one particular day. Without it this page only
+  // knew how to fetch the latest digest, so every row in the archive led back
+  // to today's briefing whichever one you clicked. Anything that is not a uuid
+  // is dropped rather than forwarded — the server would refuse it anyway, and
+  // falling back to the latest briefing is the harmless reading of a typo.
+  validateSearch: (search: Record<string, unknown>): { digest?: string } => {
+    const digest = search["digest"];
+    return typeof digest === "string" && UUID.test(digest) ? { digest } : {};
+  },
   head: () => ({ meta: [{ title: "My briefing — nyuz" }] }),
 });
 
@@ -21,6 +32,7 @@ function Briefing() {
   const { prefs } = usePrefs();
   const who = useDisplayName(prefs.name);
   const [tab, setTab] = useState<Tab>("today");
+  const digest = Route.useSearch().digest;
 
   const pretty = useMemo(() => {
     const [rawH, rawM] = prefs.time.split(":");
@@ -32,8 +44,10 @@ function Briefing() {
   }, [prefs.time]);
 
   const todayQ = useQuery({
-    queryKey: ["briefing", "today"],
-    queryFn: () => loadDigestStories({ data: {} }),
+    // The id belongs in the key: two different days must not share one cache
+    // entry, or the second one you open shows the first one's stories.
+    queryKey: ["briefing", "today", digest ?? "latest"],
+    queryFn: () => loadDigestStories({ data: digest ? { digestId: digest } : {} }),
     staleTime: 60_000,
   });
   const savedQ = useQuery({
@@ -41,6 +55,15 @@ function Briefing() {
     queryFn: () => loadSavedStories(),
     staleTime: 60_000,
   });
+  // Only used to name the day on screen. Same key and staleTime as the History
+  // page, so arriving from there costs no extra request.
+  const historyQ = useQuery({
+    queryKey: ["briefing", "history"],
+    queryFn: () => loadHistory(),
+    staleTime: 60_000,
+    enabled: Boolean(digest),
+  });
+  const day = historyQ.data?.days.find((d) => d.digestId === digest);
 
   const today = todayQ.data ?? [];
   const saved = savedQ.data ?? [];
@@ -53,14 +76,27 @@ function Briefing() {
   return (
     <DashboardShell title="My briefing">
       <PageHeader
-        eyebrow="Delivered"
+        eyebrow={day ? `Delivered · ${day.date}` : "Delivered"}
         title="Exactly what landed in your inbox."
         sub="This is the briefing as your channels received it. Nothing here was reordered for the web."
-      />
+      >
+        {/* Says out loud that this is not today's briefing, and offers the way
+            back. An older digest that looks identical to the current one is how
+            somebody ends up acting on week-old news. */}
+        {digest ? (
+          <Link
+            to="/dashboard/briefing"
+            search={{}}
+            className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Back to the latest briefing
+          </Link>
+        ) : null}
+      </PageHeader>
 
       <div className="mb-7 flex flex-wrap items-center gap-2">
         <Chip active={tab === "today"} onClick={() => setTab("today")}>
-          Today · {today.length}
+          {day ? day.weekday : "Today"} · {today.length}
         </Chip>
         <Chip active={tab === "saved"} onClick={() => setTab("saved")}>
           <Bookmark className="mr-1 inline h-3 w-3" />
@@ -99,6 +135,16 @@ function Briefing() {
           action={
             <LinkButton to="/dashboard" variant="outline" size="sm">
               Back to today
+            </LinkButton>
+          }
+        />
+      ) : digest ? (
+        <EmptyState
+          title={day ? `No briefing on ${day.date}.` : "No briefing that day."}
+          body="Nothing crossed the threshold you had set. We would rather send nothing than fill the space."
+          action={
+            <LinkButton to="/dashboard/history" variant="outline" size="sm">
+              Back to history
             </LinkButton>
           }
         />

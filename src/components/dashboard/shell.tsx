@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Logo } from "@/components/landing/nav";
 import { PanelLoading } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -333,6 +333,15 @@ function AccountMenu({ initial, staff, name }: { initial: string; staff: boolean
           </>
         ) : null}
 
+        {/* History sits seventh in the mobile tab bar, which scrolls sideways
+            with no scrollbar — on a phone it is off the right edge and, as far
+            as anyone can tell, not in the product at all. The account menu is
+            the one navigation that is fully visible at every width. */}
+        <DropdownMenuItem asChild>
+          <Link to="/dashboard/history">
+            <History /> History
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link to="/dashboard/settings">
             <Settings /> Settings
@@ -424,8 +433,19 @@ function MobileItem({
   exact?: boolean;
 }) {
   const active = useActive(to, exact);
+  const ref = useRef<HTMLAnchorElement>(null);
+
+  // The bar is wider than a phone and scrolls sideways, so the tab you are on
+  // is often off-screen — the bar then highlights nothing and reads as if the
+  // page you are looking at is not one of its destinations. Pull the active one
+  // into view instead, which also puts its neighbours where they can be found.
+  useEffect(() => {
+    if (active) ref.current?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [active]);
+
   return (
     <Link
+      ref={ref}
       to={to}
       className={cn(
         "flex flex-col items-center gap-1 px-4 py-2.5 text-[10.5px] transition-colors shrink-0",
