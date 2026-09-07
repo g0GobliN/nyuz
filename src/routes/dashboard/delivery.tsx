@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Bell, Mail, MessageCircle, Pause, Phone, Play, Share2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
 import { DensityDial } from "@/components/density-dial";
@@ -24,9 +24,10 @@ import { getPushStatus } from "@/lib/server/push/account";
 import {
   disablePush,
   enablePush,
-  isIOS,
-  isStandalone,
-  notificationsAvailable,
+  pushBlock,
+  pushBlockMessage,
+  pushDiagnostics,
+  pushPermission,
   pushSupported,
 } from "@/lib/push/client";
 import { usePrefs } from "@/lib/prefs-store";
@@ -61,6 +62,11 @@ function Delivery() {
   const [saved, setSaved] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
   const [showIosSetup, setShowIosSetup] = useState(false);
+  // The capability checks only mean something in a browser. Reading them
+  // during the server render would print "cannot show notifications" into the
+  // HTML of a device that can, so the row waits one paint for the truth.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const queryClient = useQueryClient();
   const telegramQ = useQuery({
     queryKey: ["telegram", "status"],
@@ -96,13 +102,19 @@ function Delivery() {
       setPushError("Notifications are not configured on this instance.");
       return false;
     }
-    if (isIOS() && !isStandalone()) {
+    // The only branch that is an instruction rather than an error: iOS exposes
+    // the push APIs to Home Screen web apps only, so show the install steps.
+    if (pushBlock() === "ios-needs-install") {
       setShowIosSetup(true);
       return false;
     }
+    // No await before this point: enablePush asks for permission immediately,
+    // and the tap on the toggle is the gesture that request needs.
     const result = await enablePush(key);
     if (!result.ok) {
-      setPushError(result.error ?? "Could not enable notifications.");
+      setPushError(result.error);
+      if (import.meta.env.DEV && result.detail)
+        console.error("[push]", result.reason, result.detail);
       return false;
     }
     void queryClient.invalidateQueries({ queryKey: ["push", "status"] });
@@ -261,19 +273,21 @@ function Delivery() {
             <Channel
               icon={Bell}
               label="Notifications"
-              detail={pushDetail(pushQ.data, prefs.channels.push)}
+              detail={pushDetail(pushQ.data, prefs.channels.push, mounted)}
               on={prefs.channels.push}
               onToggle={() => void togglePush()}
               extra={
                 <PushConnect
                   error={pushError}
                   needsPermission={
+                    mounted &&
                     prefs.channels.push &&
                     Boolean(pushQ.data?.configured) &&
                     !pushQ.data?.subscribed &&
-                    (pushSupported() || (isIOS() && !isStandalone()))
+                    (pushSupported() || pushBlock() === "ios-needs-install")
                   }
                   onAllow={() => void subscribe()}
+                  diagnostics={mounted && showPushDiagnostics()}
                 />
               }
             />
@@ -430,37 +444,68 @@ function telegramDetail(
   return "Short form. Connect below, then turn this on.";
 }
 
+const IDLE_DETAIL =
+  "One notice per story. Tap to read, dismiss the rest. Your dashboard still has everything.";
+
+/**
+ * The one line under "Notifications", which has to be honest about seven
+ * different situations. The old copy collapsed all of them into an iOS version
+ * complaint, which was wrong on every modern iPhone.
+ */
 function pushDetail(
   status: { configured: boolean; subscribed: boolean; count: number } | undefined,
   on: boolean,
+  mounted: boolean,
 ): string {
-  if (!pushSupported()) {
-    if (isIOS() && !isStandalone()) {
-      return "Push notifications require adding Nyuz to your Home Screen. Use email or Telegram until then.";
-    }
-    if (isIOS() && isStandalone()) {
-      return "Push notifications are not available on this iOS version. Use email or Telegram instead.";
-    }
-    return "This browser cannot show notifications. Use email or Telegram instead.";
+  if (!mounted) return IDLE_DETAIL;
+
+  const block = pushBlock();
+  if (block === "ios-needs-install") {
+    return "Add Nyuz to your Home Screen to turn these on. Use email or Telegram until then.";
   }
+  if (block) return pushBlockMessage(block);
+
   if (!status) return "One notice per story. Dismiss just clears the notice.";
   if (!status.configured) return "Not available on this instance yet";
+
+  const permission = pushPermission();
+  if (permission === "denied") {
+    return "Blocked in your device settings. Allow notifications for Nyuz there, then turn this on.";
+  }
   if (on && status.subscribed) {
     const devices = status.count === 1 ? "1 device" : `${status.count} devices`;
     return `On · ${devices} subscribed. One notice per story. Dismissing does not remove it from your dashboard.`;
   }
+  if (on && permission === "granted") {
+    return "Allowed, but this device is not registered yet. Tap Enable notifications to finish.";
+  }
   if (on) return "Turned on · allow notifications when the browser asks.";
-  return "One notice per story. Tap to read, dismiss the rest. Your dashboard still has everything.";
+  return IDLE_DETAIL;
+}
+
+/**
+ * Whether to print the raw capability values under the row.
+ *
+ * Temporary, for the iOS push investigation: on in development, and on any
+ * build when the page is opened with `?pushdebug=1`, so the values can be read
+ * off the phone that produced them.
+ */
+function showPushDiagnostics(): boolean {
+  if (import.meta.env.DEV) return true;
+  if (typeof window === "undefined") return false;
+  return new URLSearchParams(window.location.search).has("pushdebug");
 }
 
 function PushConnect({
   error,
   needsPermission,
   onAllow,
+  diagnostics,
 }: {
   error: string | null;
   needsPermission: boolean;
   onAllow: () => void;
+  diagnostics: boolean;
 }) {
   return (
     <div className="space-y-2.5">
@@ -473,7 +518,27 @@ function PushConnect({
         {error ??
           "Clearing a notice only clears the notice. Come back here, or Home, to read the rest."}
       </p>
+      {diagnostics ? <PushDiagnostics /> : null}
     </div>
+  );
+}
+
+function PushDiagnostics() {
+  const values = pushDiagnostics();
+  return (
+    <details className="rounded-xl border border-hairline bg-surface-2 px-3 py-2">
+      <summary className="cursor-pointer text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+        Push diagnostics
+      </summary>
+      <dl className="mt-2 space-y-1">
+        {Object.entries(values).map(([key, value]) => (
+          <div key={key} className="flex gap-2 text-[11px] leading-relaxed">
+            <dt className="shrink-0 text-muted-foreground">{key}</dt>
+            <dd className="break-all font-mono">{String(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </details>
   );
 }
 
