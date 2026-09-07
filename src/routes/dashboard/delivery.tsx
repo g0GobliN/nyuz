@@ -12,7 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { LANGUAGES } from "@/lib/languages";
 import { useAuth } from "@/lib/auth";
 import { notifyBriefingsPaused } from "@/lib/server/account";
 import {
@@ -349,23 +348,16 @@ function Delivery() {
           </div>
         </Panel>
 
-        <Panel title="Language">
-          <div className="flex flex-wrap gap-2">
-            {LANGUAGES.map((language) => (
-              <Chip
-                key={language.tag}
-                active={prefs.language === language.tag}
-                onClick={() => touch({ language: language.tag })}
-              >
-                {language.endonym}
-              </Chip>
-            ))}
-          </div>
-          <p className="mt-3 text-[12.5px] leading-relaxed text-muted-foreground">
-            The language your stories are written in. Sources stay in their own language and every
-            story links to the original. This does not change the language of the app itself.
-          </p>
-        </Panel>
+        {/* The Language panel is hidden for now. Story language is a content
+            preference, not a delivery one, and it will come back under
+            Content/Preferences rather than here.
+
+            Hiding is deliberate and UI-only: `prefs.language` is untouched, so
+            stored values stay exactly as they are and the translation pipeline
+            keeps reading them. Nothing writes the field while this is hidden,
+            which leaves new readers on the `en` default from
+            CANONICAL_LANGUAGE. The panel markup is in git history at the commit
+            that removed it. */}
 
         <Panel title="Density">
           <DensityDial value={prefs.density} onChange={(v) => touch({ density: v })} />
