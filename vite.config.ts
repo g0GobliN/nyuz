@@ -33,6 +33,13 @@ export default defineConfig({
           // secrets still on it. The deploy workflow ships to this name.
           name: "nyuz",
 
+          // `AI_MONTHLY_TOKEN_BUDGET` and `AI_MONTHLY_COST_USD` are set as plain
+          // Worker variables in the Cloudflare dashboard (see docs/deployment.md),
+          // not declared here — they need to change without a redeploy. Without
+          // `keep_vars`, `wrangler deploy` treats the config's variable set as
+          // authoritative and wipes dashboard-only vars it doesn't know about.
+          keep_vars: true,
+
           // Must match INGEST_CRON, DIGEST_CRON and STAGES_CRON in
           // src/lib/pipeline/cron.ts, which dispatches on the schedule string
           // and, for STAGES_CRON, on the minute. A mismatch is a cron that fires

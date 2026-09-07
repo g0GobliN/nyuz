@@ -119,6 +119,14 @@ Set the four recurring Stripe Price ids, `AI_MONTHLY_TOKEN_BUDGET=20000000` and
 `AI_MONTHLY_COST_USD=10` as Worker variables. The second is the ceiling that actually
 bounds the invoice — the token budget bounds a runaway loop, not a bill.
 
+Both are set once, in the dashboard, and never in `wrangler.json` or GitHub. Neither
+name appears in this repo's Wrangler config on purpose: `vite.config.ts` sets
+`cloudflare.wrangler.keep_vars = true`, so `wrangler deploy` leaves dashboard-managed
+plain-text variables alone instead of wiping anything not declared in the generated
+config. Raising a budget after a spend spike, or lowering one during an incident, is a
+dashboard edit — it takes effect on the next request and survives the next merge to
+`main` without a redeploy.
+
 **Do not deploy with the shipped default of `500000`.** That number is a fail-safe for a
 missing binding, not a production capacity: measured against the current prompts and rate
 card, a Flash clustering call settles at ~849 tokens and a Pro analysis at ~7,448, so $10 of
