@@ -157,6 +157,45 @@ describe("sendStoryPushes accounting", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("sends every story to every subscribed device", async () => {
+    // The account side of the multi-device fix: one row per browser only helps
+    // if delivery actually visits all of them. Three devices, two stories, and
+    // each device has to be asked for both — a fan-out that quietly stopped at
+    // the first subscription would leave the other phones silent while the
+    // delivery still recorded as sent.
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const second: StoryPush = { ...STORY, title: "Another thing", tag: "digest-2" };
+
+    const result = await sendStoryPushes({
+      subscriptions: subs(3),
+      stories: [STORY, second],
+      env: VAPID,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    const visited = fetchMock.mock.calls.map(([input]) => String(input));
+    for (const sub of subs(3)) {
+      expect(visited.filter((url) => url === sub.endpoint)).toHaveLength(2);
+    }
+  });
+
+  it("retires only the device that is gone", async () => {
+    // A 410 from one phone must not take the other devices' rows with it: the
+    // caller deletes exactly the ids returned here.
+    vi.stubGlobal("fetch", respondPerDevice([201, 410, 201]));
+
+    const result = await sendStoryPushes({
+      subscriptions: subs(3),
+      stories: [STORY],
+      env: VAPID,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.dropIds).toEqual(["sub-1"]);
+  });
+
   it("bounds each request with a timeout signal", async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);

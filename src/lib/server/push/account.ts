@@ -11,11 +11,19 @@ const subInput = z.object({
   }),
 });
 
+/**
+ * What the account knows about push. Deliberately says nothing about the
+ * current browser.
+ *
+ * `count` is informational — it is the number of devices, and no device can
+ * read its own state out of it. Whether notifications are on *here* comes from
+ * `getDeviceSubscription()` in src/lib/push/client.ts, which asks this
+ * browser's own PushManager.
+ */
 export type PushStatus = {
   configured: boolean;
   publicKey: string | null;
-  subscribed: boolean;
-  /** Number of active subscriptions for this user. */
+  /** Devices subscribed on this account. Informational; never a toggle state. */
   count: number;
 };
 
@@ -31,17 +39,22 @@ export const getPushStatus = createServerFn({ method: "GET" })
     return {
       configured: configured && Boolean(publicKey),
       publicKey,
-      subscribed: (count ?? 0) > 0,
       count: count ?? 0,
     };
   });
 
+/**
+ * Adds this device's endpoint to the account, leaving every other device be.
+ *
+ * The upsert conflicts on `endpoint`, not on `user_id`: one row per browser,
+ * so a phone registering does not overwrite the desktop that registered first.
+ */
 export const savePushSubscription = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
   .validator((input: unknown) => subInput.parse(input))
   .handler(async ({ context, data }): Promise<PushStatus> => {
     if (!pushConfigured()) {
-      return { configured: false, publicKey: null, subscribed: false, count: 0 };
+      return { configured: false, publicKey: null, count: 0 };
     }
     const { error } = await context.actor.db.from("push_subscriptions").upsert(
       {
@@ -60,22 +73,33 @@ export const savePushSubscription = createServerFn({ method: "POST" })
     return {
       configured: true,
       publicKey: vapidPublicKey(),
-      subscribed: true,
       count: count ?? 1,
     };
   });
 
+/**
+ * Removes one device's endpoint.
+ *
+ * The endpoint is required. It used to be optional, and an absent one meant
+ * "delete every subscription on this account" — which is what the Delivery
+ * toggle sent whenever the current browser had nothing to unsubscribe, so
+ * turning notifications off on a phone that had never subscribed silently
+ * unsubscribed the desktop too. Signing off every device is a real thing to
+ * want, but it is a separate, explicit action, not the fallback branch of a
+ * per-device toggle.
+ */
 export const deletePushSubscription = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
-  .validator((input: unknown) =>
-    z.object({ endpoint: z.string().max(2048).optional() }).parse(input ?? {}),
-  )
-  .handler(async ({ context, data }): Promise<{ ok: true }> => {
-    let query = context.actor.db
+  .validator((input: unknown) => z.object({ endpoint: z.string().max(2048) }).parse(input))
+  .handler(async ({ context, data }): Promise<{ ok: true; count: number }> => {
+    await context.actor.db
       .from("push_subscriptions")
       .delete()
+      .eq("user_id", context.actor.id)
+      .eq("endpoint", data.endpoint);
+    const { count } = await context.actor.db
+      .from("push_subscriptions")
+      .select("id", { count: "exact", head: true })
       .eq("user_id", context.actor.id);
-    if (data.endpoint) query = query.eq("endpoint", data.endpoint);
-    await query;
-    return { ok: true };
+    return { ok: true, count: count ?? 0 };
   });

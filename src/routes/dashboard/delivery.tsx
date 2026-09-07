@@ -24,12 +24,14 @@ import { getPushStatus } from "@/lib/server/push/account";
 import {
   disablePush,
   enablePush,
+  isDeviceSubscribed,
   pushBlock,
   pushBlockMessage,
   pushDiagnostics,
   pushPermission,
   pushSupported,
 } from "@/lib/push/client";
+import { pushDetail, pushRowState } from "@/lib/push/device-state";
 import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 import { usePlan } from "@/lib/plan-state";
@@ -63,10 +65,23 @@ function Delivery() {
     queryKey: ["telegram", "status"],
     queryFn: () => getTelegramStatus(),
   });
+  // What the *account* knows: how many devices are subscribed. Informational.
   const pushQ = useQuery({
     queryKey: ["push", "status"],
     queryFn: () => getPushStatus(),
   });
+  // What *this browser* knows: whether it holds a PushSubscription of its own.
+  // This, and only this, is what the toggle shows. The account count cannot
+  // answer it — every browser gets its own endpoint, so a subscribed desktop
+  // used to render a brand new phone as already on, leaving no way to register
+  // the phone at all.
+  const deviceQ = useQuery({
+    queryKey: ["push", "device"],
+    queryFn: () => isDeviceSubscribed(),
+    enabled: mounted,
+    initialData: false,
+  });
+  const deviceOn = mounted && deviceQ.data === true;
 
   const touch = (p: Parameters<typeof update>[0]) => {
     update(p);
@@ -80,11 +95,11 @@ function Delivery() {
     });
 
   /**
-   * Asks the browser and stores the endpoint. Separate from the toggle because
-   * the pref can already be on with no subscription behind it: onboarding sets
-   * the channel without a browser prompt, and permission can also be revoked
-   * from site settings. In both cases the toggle already reads "on", so without
-   * a way to subscribe on its own the only route through is off and on again.
+   * Asks the browser and stores this device's endpoint. Separate from the
+   * toggle because the account channel can already be on with nothing behind
+   * it *here*: onboarding sets the channel without a browser prompt, another
+   * device may be the one that registered, and permission can be revoked from
+   * site settings.
    */
   const subscribe = async (): Promise<boolean> => {
     setPushError(null);
@@ -109,18 +124,40 @@ function Delivery() {
       return false;
     }
     void queryClient.invalidateQueries({ queryKey: ["push", "status"] });
+    void queryClient.invalidateQueries({ queryKey: ["push", "device"] });
     return true;
   };
 
+  /**
+   * Turns notifications on or off for this browser, and no other.
+   *
+   * Two pieces of state move here and they are not the same piece.
+   * `prefs.channels.push` is an account preference — it decides whether the
+   * pipeline queues a push delivery at all — while the subscription is per
+   * device. So switching off unsubscribes this browser and clears the account
+   * channel only once the last device is gone: a desktop has to keep receiving
+   * briefings after a phone opts out. Switching on sets the channel, because a
+   * device asking for notifications is asking for the channel too.
+   */
   const togglePush = async () => {
     setPushError(null);
-    if (prefs.channels.push) {
+    if (deviceOn) {
       await disablePush();
-      touch({ channels: { ...prefs.channels, push: false } });
-      void queryClient.invalidateQueries({ queryKey: ["push", "status"] });
+      void queryClient.invalidateQueries({ queryKey: ["push", "device"] });
+      const status = await queryClient
+        .fetchQuery({ queryKey: ["push", "status"], queryFn: () => getPushStatus() })
+        .catch(() => null);
+      if ((status?.count ?? 0) === 0 && prefs.channels.push) {
+        touch({ channels: { ...prefs.channels, push: false } });
+      } else {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 1600);
+      }
       return;
     }
-    if (await subscribe()) touch({ channels: { ...prefs.channels, push: true } });
+    if (await subscribe()) {
+      if (!prefs.channels.push) touch({ channels: { ...prefs.channels, push: true } });
+    }
   };
 
   /**
@@ -257,17 +294,21 @@ function Delivery() {
             <Channel
               icon={Bell}
               label="Notifications"
-              detail={pushDetail(pushQ.data, prefs.channels.push, mounted)}
-              on={prefs.channels.push}
+              detail={
+                mounted
+                  ? pushDetail(pushRowState(pushQ.data, deviceOn))
+                  : "One notice per story. Tap to read, dismiss the rest. Your dashboard still has everything."
+              }
+              on={deviceOn}
               onToggle={() => void togglePush()}
               extra={
                 <PushConnect
                   error={pushError}
                   needsPermission={
                     mounted &&
+                    !deviceOn &&
                     prefs.channels.push &&
                     Boolean(pushQ.data?.configured) &&
-                    !pushQ.data?.subscribed &&
                     (pushSupported() || pushBlock() === "ios-needs-install")
                   }
                   onAllow={() => void subscribe()}
@@ -419,45 +460,6 @@ function telegramDetail(
   }
   if (on) return "Turned on · connect below to start receiving";
   return "Short form. Connect below, then turn this on.";
-}
-
-const IDLE_DETAIL =
-  "One notice per story. Tap to read, dismiss the rest. Your dashboard still has everything.";
-
-/**
- * The one line under "Notifications", which has to be honest about seven
- * different situations. The old copy collapsed all of them into an iOS version
- * complaint, which was wrong on every modern iPhone.
- */
-function pushDetail(
-  status: { configured: boolean; subscribed: boolean; count: number } | undefined,
-  on: boolean,
-  mounted: boolean,
-): string {
-  if (!mounted) return IDLE_DETAIL;
-
-  const block = pushBlock();
-  if (block === "ios-needs-install") {
-    return "Add Nyuz to your Home Screen to turn these on. Use email or Telegram until then.";
-  }
-  if (block) return pushBlockMessage(block);
-
-  if (!status) return "One notice per story. Dismiss just clears the notice.";
-  if (!status.configured) return "Not available on this instance yet";
-
-  const permission = pushPermission();
-  if (permission === "denied") {
-    return "Blocked in your device settings. Allow notifications for Nyuz there, then turn this on.";
-  }
-  if (on && status.subscribed) {
-    const devices = status.count === 1 ? "1 device" : `${status.count} devices`;
-    return `On · ${devices} subscribed. One notice per story. Dismissing does not remove it from your dashboard.`;
-  }
-  if (on && permission === "granted") {
-    return "Allowed, but this device is not registered yet. Tap Enable notifications to finish.";
-  }
-  if (on) return "Turned on · allow notifications when the browser asks.";
-  return IDLE_DETAIL;
 }
 
 /**

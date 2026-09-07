@@ -146,12 +146,13 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
   }, []);
 
   useEffect(() => {
-    if (!prefs.channels.push) return;
-    const key = import.meta.env["VITE_VAPID_PUBLIC_KEY"];
-    if (typeof key !== "string" || !key) return;
-
+    // Not gated on `prefs.channels.push`. That preference belongs to the
+    // account, so gating on it both skipped devices that are subscribed while
+    // the channel is off and ran on devices that never subscribed. refreshPush
+    // reads this browser's own subscription and does nothing when there is
+    // none, which is the per-device question being asked here.
     const refresh = () => {
-      void refreshPush(key).catch(() => {});
+      void refreshPush().catch(() => {});
     };
 
     // Initial refresh on mount so a newly-enabled or rotated subscription
@@ -177,7 +178,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
       document.removeEventListener("visibilitychange", onVisibility);
       clearInterval(fallback);
     };
-  }, [prefs.channels.push]);
+  }, []);
 
   if (closed) return <MaintenanceScreen />;
 

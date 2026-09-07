@@ -278,39 +278,69 @@ export async function enablePush(publicKey: string): Promise<EnablePushResult> {
   return { ok: true };
 }
 
-export async function disablePush(): Promise<void> {
-  if (!pushSupported()) {
-    await deletePushSubscription({ data: {} });
-    return;
-  }
+/**
+ * Whether this browser holds a push subscription of its own.
+ *
+ * The only honest answer to "are notifications on here". The account's
+ * subscription count says nothing about this device, because every browser
+ * gets its own endpoint — reading the count instead is what made a phone show
+ * the toggle already on because a desktop had subscribed, leaving no way to
+ * register the phone at all.
+ *
+ * Deliberately does not register the service worker: this runs on every
+ * Delivery render and only reports. It reads an existing registration or
+ * answers null.
+ */
+export async function getDeviceSubscription(): Promise<PushSubscription | null> {
+  if (!pushSupported()) return null;
   const ready = await navigator.serviceWorker.ready.catch(() => null);
-  const sub = await ready?.pushManager.getSubscription().catch(() => null);
-  const endpoint = sub?.endpoint;
-  await sub?.unsubscribe().catch(() => false);
-  await deletePushSubscription({ data: endpoint ? { endpoint } : {} });
+  if (!ready) return null;
+  return (await ready.pushManager.getSubscription().catch(() => null)) ?? null;
+}
+
+export async function isDeviceSubscribed(): Promise<boolean> {
+  return (await getDeviceSubscription()) !== null;
 }
 
 /**
- * Refresh the stored endpoint when the reader already allowed notifications.
+ * Unsubscribes this browser, and only this browser.
+ *
+ * The endpoint is the whole point. Sending none used to be the fallback
+ * whenever this device had nothing to unsubscribe, and the server read a
+ * missing endpoint as "every row for this user" — so tapping the toggle off on
+ * a phone that had never subscribed deleted the desktop's subscription. A
+ * device with no subscription now has nothing to delete, which is the truth.
+ */
+export async function disablePush(): Promise<void> {
+  const sub = await getDeviceSubscription();
+  if (!sub) return;
+  const { endpoint } = sub;
+  await sub.unsubscribe().catch(() => false);
+  await deletePushSubscription({ data: { endpoint } });
+}
+
+/**
+ * Re-save this device's existing endpoint.
  *
  * Runs on every dashboard visit so that if the browser rotated the
  * push endpoint (which happens after browser updates or long idle
  * periods), the server always has a current subscription. Without
  * this, a device that silently rotated its endpoint stops receiving
  * notifications and the server keeps sending to a dead endpoint.
+ *
+ * A device with no subscription is left alone: "not subscribed here" is a
+ * per-device state the reader chose, not a gap to repair.
  */
-export async function refreshPush(publicKey: string): Promise<void> {
+export async function refreshPush(): Promise<void> {
   if (!pushSupported() || Notification.permission !== "granted") return;
   const reg = await getServiceWorkerRegistration();
   if (!reg) return;
   const ready = await navigator.serviceWorker.ready;
-  let sub = await ready.pushManager.getSubscription();
-  if (!sub) {
-    sub = await ready.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
-    });
-  }
+  // Refresh only. Subscribing here would silently re-enable a device the
+  // reader had just turned off — permission stays granted after an
+  // unsubscribe, so the toggle would come back on by itself on the next visit.
+  const sub = await ready.pushManager.getSubscription();
+  if (!sub) return;
   const json = sub.toJSON();
   const endpoint = json.endpoint;
   const p256dhBuf = sub.getKey("p256dh");
