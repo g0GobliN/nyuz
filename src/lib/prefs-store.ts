@@ -3,23 +3,15 @@ import { useAuth } from "@/lib/auth";
 import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
 import { startFirstBriefing } from "@/lib/server/briefing";
 import { loadPreferences, savePreferences, type PrefsInput } from "@/lib/server/preferences";
+import { detectTimezone, toTimezone } from "@/lib/timezones";
 
 export { DEFAULT_PREFS, type Prefs };
 
 /**
- * The visitor's actual timezone, or UTC if the browser will not say.
- *
- * Never called during render — only from the hydration effect — because it
- * returns a different answer on the server than in the browser, which is the
- * definition of a hydration mismatch.
+ * `detectTimezone` returns a different answer on the server than in the
+ * browser, so it is only ever called from the hydration effect — calling it
+ * during render is the definition of a hydration mismatch.
  */
-function detectTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
 
 /**
  * Bumped to v2 when the prototype fixtures came out of `DEFAULT_PREFS`.
@@ -78,13 +70,18 @@ export function usePrefs() {
 
   useEffect(() => {
     const local = readLocal();
-    setPrefs({
+    const merged = {
       ...DEFAULT_PREFS,
       // First visit: adopt the browser's timezone so the schedule step opens on
       // the right one instead of making everybody correct UTC by hand.
       ...(local ?? { timezone: detectTimezone() }),
       channels: { ...DEFAULT_PREFS.channels, ...local?.channels },
-    });
+    };
+    // A stored zone is kept whenever the runtime can still schedule in it,
+    // including legacy aliases like Asia/Calcutta. Only a value that would
+    // make `nextSlot` return null is replaced, and it falls back to where the
+    // reader actually is rather than to UTC.
+    setPrefs({ ...merged, timezone: toTimezone(merged.timezone, detectTimezone()) });
     setHydrated(true);
   }, []);
 

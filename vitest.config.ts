@@ -15,5 +15,19 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    /**
+     * The cost-safety and budget-gate suites call `vi.resetModules()` per test
+     * and then dynamically re-import the module graph under test, which is the
+     * only honest way to assert on what a fresh module does before its first
+     * provider call. That costs seconds, not milliseconds, and it lands close
+     * enough to the 5s default that which file tips over depends on machine
+     * load — `npm run test` passed while `npm run ci`, running straight after a
+     * typecheck and a lint, failed a different file each time.
+     *
+     * Raising the ceiling does not weaken an assertion; every one of these
+     * tests still fails on a wrong answer, just not on a slow machine. A test
+     * that genuinely hangs still fails, 30s later.
+     */
+    testTimeout: 30_000,
   },
 });

@@ -7,6 +7,7 @@ import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
 import { notificationRowToPrefs, prefsToNotificationRow } from "@/lib/preferences-map";
 import { keepUsableExclusions } from "@/lib/exclusions";
 import { MAX_TOPIC_LABEL } from "@/lib/topics";
+import { isSupportedTimezone } from "@/lib/timezones";
 import { backfill } from "@/lib/pipeline/backfill";
 
 /**
@@ -33,7 +34,11 @@ const prefsInput = z.object({
     .string()
     .regex(/^\d{2}:\d{2}$/)
     .optional(),
-  timezone: z.string().max(64).optional(),
+  // Constrained to zones the runtime can actually do arithmetic in. A free
+  // string here is a briefing that silently never sends, because `nextSlot`
+  // returns null for a zone `Intl` cannot resolve. Legacy aliases still pass,
+  // so nobody's stored value is rejected on their next save.
+  timezone: z.string().max(64).refine(isSupportedTimezone).optional(),
   days: z.array(z.string().max(3)).max(7).optional(),
   channels: z
     .object({ email: z.boolean(), telegram: z.boolean(), whatsapp: z.boolean(), push: z.boolean() })

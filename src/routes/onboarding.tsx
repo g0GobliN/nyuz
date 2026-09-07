@@ -7,6 +7,7 @@ import { Logo } from "@/components/landing/nav";
 import { LogoLoader } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DensityDial } from "@/components/density-dial";
+import { TimezoneSelect } from "@/components/timezone-select";
 import { PageLoading } from "@/components/loading";
 import { useAuth } from "@/lib/auth";
 import { usePlan } from "@/lib/plan-state";
@@ -33,15 +34,6 @@ export const Route = createFileRoute("/onboarding")({
 });
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const ZONES = [
-  "Asia/Tokyo",
-  "Asia/Kathmandu",
-  "Asia/Singapore",
-  "Europe/London",
-  "Europe/Berlin",
-  "America/New_York",
-  "America/Los_Angeles",
-];
 
 const STEP_TITLES = [
   "What do you want to know about?",
@@ -324,18 +316,12 @@ function StepSchedule({ draft, patch }: StepProps) {
           <label htmlFor="tz" className="text-[13px] text-muted-foreground">
             Timezone
           </label>
-          <select
+          <TimezoneSelect
             id="tz"
             value={draft.timezone}
-            onChange={(e) => patch({ timezone: e.target.value })}
-            className="mt-2 h-12 w-full rounded-2xl border border-input bg-surface px-4 text-[16px] outline-none focus:border-signal md:text-[14.5px]"
-          >
-            {ZONES.map((z) => (
-              <option key={z} value={z}>
-                {z}
-              </option>
-            ))}
-          </select>
+            onChange={(timezone) => patch({ timezone })}
+            className="bg-surface"
+          />
         </div>
       </div>
 

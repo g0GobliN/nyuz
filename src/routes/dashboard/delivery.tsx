@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
 import { DensityDial } from "@/components/density-dial";
+import { TimezoneSelect } from "@/components/timezone-select";
 import {
   Dialog,
   DialogContent,
@@ -40,15 +41,6 @@ export const Route = createFileRoute("/dashboard/delivery")({
 });
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const ZONES = [
-  "Asia/Tokyo",
-  "Asia/Kathmandu",
-  "Asia/Singapore",
-  "Europe/London",
-  "Europe/Berlin",
-  "America/New_York",
-  "America/Los_Angeles",
-];
 
 function Delivery() {
   const { prefs, update } = usePrefs();
@@ -221,18 +213,11 @@ function Delivery() {
               <label htmlFor="tz" className="text-[13px] text-muted-foreground">
                 Timezone
               </label>
-              <select
+              <TimezoneSelect
                 id="tz"
                 value={prefs.timezone}
-                onChange={(e) => touch({ timezone: e.target.value })}
-                className="mt-2 h-12 w-full rounded-2xl border border-input bg-background px-4 text-[16px] outline-none focus:border-signal md:text-[14.5px]"
-              >
-                {ZONES.map((z) => (
-                  <option key={z} value={z}>
-                    {z}
-                  </option>
-                ))}
-              </select>
+                onChange={(timezone) => touch({ timezone })}
+              />
             </div>
           </div>
 
