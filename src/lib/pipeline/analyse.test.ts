@@ -194,6 +194,7 @@ const outlets = new Map([
 
 /** The shape `analyse.ts` reads out of `articles`, spelled out so the test is typed. */
 type Row = {
+  id: string;
   title: string;
   excerpt: string | null;
   published_at: string | null;
@@ -201,6 +202,7 @@ type Row = {
 };
 
 const article = (over: Partial<Row> = {}): Row => ({
+  id: "test-article-id",
   title: "OpenAI opposes SB 1047",
   excerpt: "The company wrote to the governor.",
   published_at: "2026-08-21T09:00:00.000Z",
