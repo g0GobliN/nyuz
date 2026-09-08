@@ -789,6 +789,7 @@ type Context = {
 };
 
 type Coverage = {
+  id: string;
   title: string;
   excerpt: string | null;
   published_at: string | null;
@@ -1211,7 +1212,7 @@ async function readCoverage(
 ): Promise<{ articles: Coverage[]; total: number; error: string | null }> {
   const { data, error, count } = await db
     .from("articles")
-    .select("title, excerpt, published_at, source_id", { count: "exact" })
+    .select("id, title, excerpt, published_at, source_id", { count: "exact" })
     .eq("event_id", eventId)
     .order("published_at", { ascending: true, nullsFirst: false })
     .limit(options.articleLimit ?? ARTICLES);
