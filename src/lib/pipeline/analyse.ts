@@ -62,6 +62,7 @@ import {
   type EvidenceArticle,
 } from "./evidence-selection";
 import { scoreEvent, type EventSignals } from "./scoring";
+import { LIVE_LANE_DENOMINATOR, LIVE_LANE_NUMERATOR, LIVE_QUEUE_HOURS } from "./freshness";
 
 type Db = SupabaseClient<Database>;
 
@@ -654,8 +655,15 @@ async function selectEvents(db: Db, options: AnalyseOptions): Promise<Pending[]>
       .maybeSingle();
 
     if (flag?.enabled === true) {
+      // The lane parameters are passed rather than left to the SQL defaults for
+      // the reason 0044's cost arguments are: a ceiling the console can show but
+      // not change is worse than no ceiling, and a window TypeScript believes in
+      // while the database uses another is worse than either. One set of numbers,
+      // in `freshness.ts`, sent explicitly.
       const { data, error } = await db.rpc("pending_events_with_demand", {
         p_limit: options.limit ?? BATCH,
+        p_live_hours: LIVE_QUEUE_HOURS,
+        p_live_share: LIVE_LANE_NUMERATOR / LIVE_LANE_DENOMINATOR,
       });
       if (!error) return data ?? [];
       console.warn(`demand-aware event selection: ${error.message} — using legacy selector`);

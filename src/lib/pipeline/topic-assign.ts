@@ -397,8 +397,31 @@ const TAG_KEYWORDS: Record<string, string[]> = {
 /**
  * Deterministically assign topics to an event based on its text content.
  *
- * Uses keyword matching against the TOPIC_POOL. For each topic, checks
- * if any of its associated keywords appear in the normalised text.
+ * Uses keyword matching against the TOPIC_POOL. For each topic, counts how many
+ * of its associated keywords the normalised text actually mentions.
+ *
+ * ---------------------------------------------------------------------------
+ * Why `mentions` and not `includes`
+ * ---------------------------------------------------------------------------
+ *
+ * This used to be `normalised.includes(keyword)`, plain substring containment,
+ * and the keyword lists contain two-letter entries: `ts` for TypeScript, `ai`
+ * for AI, `un` for World. Substring containment finds `ts` inside "releases",
+ * "protests" and "data centers", `ai` inside "chair", "said" and "maintain",
+ * and `un` inside "under". Measured against 126 live events on 2026-09-08, that
+ * labelled an anime round-up as Next.js and Economy, the Eiffel Tower closing
+ * as AI and Developer tools, and a food-safety story as TypeScript.
+ *
+ * That was already wrong where these labels are shown to readers. It became
+ * load-bearing when 0068 made the same function decide what nyuz pays to
+ * analyse: at those rates 74% of everything ingested reaches some reader, which
+ * is the "analyse the whole internet" outcome the demand gate exists to prevent.
+ *
+ * `mentions` from topics.ts is the word-boundary test the rest of the product
+ * already matches on — exact-word for terms under three characters, word-start
+ * otherwise, containment for unspaced scripts. Using it here means the
+ * classifier, the matcher and the reader's own interests all agree on what it
+ * means for a text to be about something.
  *
  * Returns topics sorted by confidence (number of keyword matches).
  */
@@ -412,7 +435,7 @@ export function assignTopics(text: string): string[] {
 
     let score = 0;
     for (const keyword of keywords) {
-      if (normalised.includes(keyword.toLowerCase())) {
+      if (mentions(normalised, keyword.toLowerCase())) {
         score++;
       }
     }
@@ -441,7 +464,8 @@ export function assignTags(text: string): string[] {
 
   for (const [tag, keywords] of Object.entries(TAG_KEYWORDS)) {
     for (const keyword of keywords) {
-      if (normalised.includes(keyword.toLowerCase())) {
+      // Word boundaries, for the reason `assignTopics` documents at length.
+      if (mentions(normalised, keyword.toLowerCase())) {
         if (!seen.has(tag)) {
           seen.add(tag);
           tags.push(tag);

@@ -18,6 +18,7 @@ import { sendBriefingsPaused, sendDormant } from "@/lib/server/email/lifecycle";
 import { siteUrl, type EmailEnv } from "@/lib/server/email/send";
 import { unsubscribeUrl } from "@/lib/server/email/unsubscribe";
 import type { Database } from "@/lib/supabase/types";
+import { CANDIDATE_EXPIRY_DAYS } from "./freshness";
 
 type Db = SupabaseClient<Database>;
 
@@ -53,6 +54,8 @@ export type DormantReport = {
   skipped: number;
   failed: number;
   purged: number;
+  /** Unbriefed matches marked ineligible by age (0068). Marked, not deleted. */
+  expired: number;
   outcomes: DormantOutcome[];
 };
 
@@ -105,6 +108,7 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
     outcomes.push(await nudgeOne(db, candidate, options, now));
   }
   let purged = 0;
+  let expired = 0;
   if (options.dryRun !== true) {
     const { data, error } = await db.rpc("purge_expired_digests", { p_limit: 500 });
     if (error) console.error(`purging expired digests: ${error.message}`);
@@ -115,6 +119,20 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
     });
     if (corpusError) console.error(`purging expired corpus: ${corpusError.message}`);
     else purged += corpus ?? 0;
+
+    // Briefing candidates that aged out without ever being sent (0068). Counted
+    // separately from `purged` because nothing is destroyed here — the rows keep
+    // recording that this reader matched this event, which dedupe and analytics
+    // read; they simply stop being eligible for a future briefing. A failure is
+    // logged and swallowed for the same reason the purges above are: a sweep
+    // that could not run is a reason to look at the sweep, not a reason to fail
+    // the daily nudge that shares its cron.
+    const { data: staleMatches, error: expiryError } = await db.rpc("expire_stale_user_events", {
+      p_days: CANDIDATE_EXPIRY_DAYS,
+      p_limit: 5000,
+    });
+    if (expiryError) console.error(`expiring stale briefing candidates: ${expiryError.message}`);
+    else expired = staleMatches ?? 0;
   }
 
   return {
@@ -126,6 +144,7 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
     skipped: outcomes.filter((o) => o.decision === "skipped").length,
     failed: outcomes.filter((o) => o.decision === "failed").length,
     purged,
+    expired,
     outcomes,
   };
 }
@@ -298,6 +317,7 @@ export function describeDormant(report: DormantReport): string {
   );
   return (
     `dormant: ${report.considered} due, ${report.sent} warned, ${report.paused} paused, ` +
-    `${report.skipped} skipped, ${report.failed} failed, ${report.purged} expired rows purged, ${seconds}s`
+    `${report.skipped} skipped, ${report.failed} failed, ${report.purged} expired rows purged, ` +
+    `${report.expired} stale candidates retired, ${seconds}s`
   );
 }

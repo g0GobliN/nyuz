@@ -473,6 +473,12 @@ export type EventRow = {
    * once per event and read by every reader, never rendered.
    */
   tags: string[];
+  /**
+   * When `classify.ts` last decided what this event is about (0068). Null means
+   * "not looked at yet" — stamped even when nothing matched, so an event about
+   * no followed subject is not re-examined for ever.
+   */
+  classified_at: string | null;
 };
 
 export type Article = {
@@ -490,6 +496,20 @@ export type Article = {
 };
 
 export type EventTopic = { event_id: string; topic_id: string; confidence: number };
+
+/**
+ * What an event is probably about, decided from headlines before anyone pays to
+ * understand it (0068). Deliberately a separate table from `event_topics`: that
+ * one is the analysis pass's conclusion and is what a reader is matched on and
+ * what a story page renders, this one is a cheap deterministic guess used only
+ * to decide whether that conclusion is worth buying.
+ */
+export type EventTopicCandidate = {
+  event_id: string;
+  topic_id: string;
+  confidence: number;
+  created_at: string;
+};
 
 /**
  * Global source→topic map, added in 0018. Written by admin/pipeline only —
@@ -520,6 +540,13 @@ export type UserEvent = {
   engaged_at: string | null;
   /** Durable deduplication marker; digest history may be purged independently. */
   briefed_at: string | null;
+  /**
+   * Set when this match was never briefed and has aged past every cadence's
+   * window (0068). A mark, not a delete — the row still records that this
+   * reader matched this event, which dedupe and analytics both read. Rows with
+   * this set are never picked for a future briefing.
+   */
+  expired_at: string | null;
 };
 
 export type Digest = {
@@ -803,6 +830,7 @@ export type Database = {
         | "understand"
         | "analysis_deferred_until"
         | "tags"
+        | "classified_at"
       >;
       articles: Table<
         Article,
@@ -816,6 +844,7 @@ export type Database = {
         | "clustering_deferred_until"
       >;
       event_topics: Table<EventTopic, "confidence">;
+      event_topic_candidates: Table<EventTopicCandidate, "confidence" | "created_at">;
       event_impacts: Table<
         EventImpact,
         | "status"
@@ -854,6 +883,7 @@ export type Database = {
         | "reached_end"
         | "engaged_at"
         | "briefed_at"
+        | "expired_at"
       >;
       digests: Table<
         Digest,
@@ -1133,14 +1163,33 @@ export type Database = {
         Args: { p_event_ids: string[] };
         Returns: { event_id: string; has_demand: boolean }[];
       };
+      /**
+       * Two-lane analysis queue (0068). A fixed share of every batch is
+       * reserved for events inside `p_live_hours`, so a historical backlog can
+       * never occupy more than its slice however large it grows.
+       */
       pending_events_with_demand: {
-        Args: { p_limit?: number };
+        Args: { p_limit?: number; p_live_hours?: number; p_live_share?: number };
         Returns: {
           id: string;
           title: string;
           status: EventStatus;
           analysis_tokens: number;
         }[];
+      };
+      /** One event's demand, as the single predicate the queue inlines (0068). */
+      event_has_demand: {
+        Args: { p_event_id: string };
+        Returns: boolean;
+      };
+      /**
+       * Marks unbriefed matches too old for any cadence's window as ineligible
+       * (0068). Marks, never deletes: `user_events` is the record of what
+       * reached whom. Returns the number of rows expired.
+       */
+      expire_stale_user_events: {
+        Args: { p_days?: number; p_limit?: number };
+        Returns: number;
       };
       increment_post_view: {
         Args: { p_slug: string };

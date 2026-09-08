@@ -28,11 +28,11 @@
  * Clustering and analysis have different shapes to ingestion: they cost model
  * tokens, so they want their own budget and their own failure story. What they
  * cannot have is their own trigger. Cloudflare registers **three Cron Triggers
- * per Worker**, on the free plan and on paid alike, and the pipeline has six
- * stages — declaring six is not an error at deploy, it simply leaves three of
+ * per Worker**, on the free plan and on paid alike, and the pipeline has seven
+ * stages — declaring seven is not an error at deploy, it simply leaves four of
  * them unregistered, and the first anyone hears of it is empty briefings.
  *
- * So ingestion and digest keep a trigger each, and the remaining four stages
+ * So ingestion and digest keep a trigger each, and the remaining five stages
  * share `STAGES_CRON` and are told apart by the minute they fire on. Those are
  * the same minutes the separate schedules used, so the spacing between the
  * stages is unchanged and each one is still its own invocation with its own
@@ -47,6 +47,7 @@ import type { PushEnv } from "@/lib/server/push/send";
 import { analyse, describeAnalysis, type AnalysisReport } from "./analyse";
 import { cluster, describeCluster, type ClusterReport } from "./cluster";
 import { describeDigest, digest, type DigestReport } from "./digest";
+import { classify, describeClassify, type ClassifyReport } from "./classify";
 import { describeDormant, dormant, type DormantReport } from "./dormant";
 import { ingest, type IngestReport } from "./ingest";
 import { describeMatch, match, type MatchReport } from "./match";
@@ -95,6 +96,18 @@ const CLUSTER_LIMIT = 12;
  */
 const ANALYSE_LIMIT = 6;
 
+/**
+ * Events classified per scheduled invocation.
+ *
+ * An order of magnitude above the model stages, because this one costs nothing:
+ * two queries and some string matching over the topic taxonomy. It has to be
+ * large. Classification is what decides which events analysis is allowed to
+ * see, so a classifier running slower than clustering would become the new
+ * bottleneck and would starve analysis of fresh candidates in exactly the way
+ * `pre_analysis_demand_gate` did — see `classify.ts` for that failure.
+ */
+const CLASSIFY_LIMIT_PER_RUN = 200;
+
 /** The schedules this handler knows. Must match `triggers.crons` in vite.config.ts. */
 export const INGEST_CRON = "*/15 * * * *";
 
@@ -119,6 +132,18 @@ export const CLUSTER_CRON = "4,34 * * * *";
  * account of the story when three were available.
  */
 export const ANALYSE_CRON = "47,53 * * * *";
+
+/**
+ * Classification runs between clustering and analysis, and costs nothing.
+ *
+ * Placed after `CLUSTER_CRON` and before `ANALYSE_CRON` because that is the
+ * order the data needs: an event has to exist before it can be labelled, and it
+ * has to be labelled before the demand gate can tell whether understanding it is
+ * worth paying for. Twice an hour, on the same half-hourly rhythm as the stages
+ * either side of it, so an event clustered at :04 is labelled at :10 and can be
+ * analysed at :47 in the same hour rather than the next one.
+ */
+export const CLASSIFY_CRON = "10,40 * * * *";
 
 /**
  * Matching runs last in the chain, and is the only schedule with no budget note.
@@ -158,9 +183,9 @@ export const DORMANT_CRON = "0 12 * * *";
  * nothing to do is the exception rather than the rule — the single exception
  * being minute 0, which exists for a nudge that runs once a week.
  */
-export const STAGES_CRON = "0,4,25,34,47,53,55 * * * *";
+export const STAGES_CRON = "0,4,10,25,34,40,47,53,55 * * * *";
 
-type SharedStage = "cluster" | "analyse" | "match" | "dormant";
+type SharedStage = "cluster" | "classify" | "analyse" | "match" | "dormant";
 
 /**
  * Which stage a `STAGES_CRON` invocation is for, or null when the answer is
@@ -172,6 +197,7 @@ type SharedStage = "cluster" | "analyse" | "match" | "dormant";
 export function stageForMinute(scheduledFor: Date): SharedStage | null {
   const minute = scheduledFor.getUTCMinutes();
   if (minute === 4 || minute === 34) return "cluster";
+  if (minute === 10 || minute === 40) return "classify";
   if (minute === 47 || minute === 53) return "analyse";
   if (minute === 25 || minute === 55) return "match";
   // Noon UTC daily, as DORMANT_CRON said. The other 23 minute-zero firings are
@@ -185,6 +211,7 @@ export function stageForMinute(scheduledFor: Date): SharedStage | null {
 export type ScheduledResult =
   | { stage: "ingest"; report: IngestReport }
   | { stage: "cluster"; report: ClusterReport }
+  | { stage: "classify"; report: ClassifyReport }
   | { stage: "analyse"; report: AnalysisReport }
   | { stage: "match"; report: MatchReport }
   | { stage: "digest"; report: DigestReport }
@@ -217,6 +244,15 @@ async function runCluster(env: Env): Promise<ScheduledResult> {
     ...(env ? { secrets: env as Record<string, string | undefined> } : {}),
   });
   return { stage: "cluster", report };
+}
+
+/**
+ * The one shared stage that takes no `secrets` bag, because it calls no model.
+ * If that argument ever appears here, something has gone wrong with the design.
+ */
+async function runClassify(env: Env): Promise<ScheduledResult> {
+  const report = await classify(createAdminClient(env), { limit: CLASSIFY_LIMIT_PER_RUN });
+  return { stage: "classify", report };
 }
 
 async function runAnalyse(env: Env): Promise<ScheduledResult> {
@@ -285,6 +321,7 @@ async function reapStaleReservations(env: Env): Promise<void> {
 async function runShared(stage: SharedStage, env: Env): Promise<ScheduledResult> {
   if (stage === "cluster" || stage === "analyse") await reapStaleReservations(env);
   if (stage === "cluster") return runCluster(env);
+  if (stage === "classify") return runClassify(env);
   if (stage === "analyse") return runAnalyse(env);
   if (stage === "match") return runMatch(env);
   return runDormant(env);
@@ -313,12 +350,13 @@ export async function runScheduled(
   }
 
   // The per-stage schedules are no longer registered triggers, but they stay
-  // dispatchable: `npm run cron:test -- "10,40 * * * *"` has to force clustering
+  // dispatchable: `npm run cron:test -- "4,34 * * * *"` has to force clustering
   // rather than depend on the minute the operator happened to run it.
   if (cron === CLUSTER_CRON || cron === ANALYSE_CRON) {
     await reapStaleReservations(env);
     return cron === CLUSTER_CRON ? runCluster(env) : runAnalyse(env);
   }
+  if (cron === CLASSIFY_CRON) return runClassify(env);
   if (cron === MATCH_CRON) return runMatch(env);
   if (cron === DORMANT_CRON) return runDormant(env);
 
@@ -356,6 +394,7 @@ export function describe(result: ScheduledResult): string {
     return `${line}\n${failures.map((f) => `  ${f.eventId}: ${f.detail}`).join("\n")}`;
   }
 
+  if (result.stage === "classify") return describeClassify(result.report);
   if (result.stage === "match") return describeMatch(result.report);
   if (result.stage === "digest") return describeDigest(result.report);
   if (result.stage === "dormant") return describeDormant(result.report);

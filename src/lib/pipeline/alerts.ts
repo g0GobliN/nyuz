@@ -18,6 +18,7 @@ import type { PushEnv } from "@/lib/server/push/send";
 import type { BreakingMode, Database } from "@/lib/supabase/types";
 import { allowedBreaking } from "@/lib/plans";
 import { flushDeliveries, queuedChannels, deliveryTargets } from "./digest";
+import { FLASH_POLICY, ageHours } from "./freshness";
 
 type Db = SupabaseClient<Database>;
 
@@ -81,7 +82,18 @@ export const ALERT_BURST = 3;
 export const ALERT_BURST_WINDOW_MINUTES = 45;
 export const ALERT_DAILY_SAFETY_CAP = 25;
 
-export type AlertHit = { eventId: string; importance: number };
+export type AlertHit = {
+  eventId: string;
+  importance: number;
+  /**
+   * When the world saw the event, from `events.first_seen_at`.
+   *
+   * Required rather than optional, and null-able rather than absent, because
+   * "we do not know when this happened" has to be a decision this module makes
+   * and not a field a caller can forget. An undated event is not breaking.
+   */
+  eventAt: string | null;
+};
 
 /**
  * Which of this run's qualifying hits go out now.
@@ -139,6 +151,24 @@ export function shouldAlert(breaking: BreakingMode, importance: number): boolean
   return importance >= IMPORTANT_FLOOR;
 }
 
+/**
+ * Whether an event is recent enough to interrupt someone's day.
+ *
+ * An alert had no age bound at all until now: `shouldAlert` asked only about
+ * importance, and the pacing caps only about volume. That is survivable while
+ * the pipeline is current and indefensible when it is not — after the September
+ * stall, the first analysis run to catch up would have pushed five-day-old
+ * stories to phones as breaking news, because the moment an event is *analysed*
+ * is the moment it becomes alertable and nothing looked at when it happened.
+ *
+ * `FLASH_POLICY` is twelve hours preferred and twenty-four hard. Past that the
+ * next scheduled briefing is the honest channel: an important old story is a
+ * briefing item, never an interruption.
+ */
+export function withinFlashWindow(eventAt: string | null, now: Date): boolean {
+  return ageHours(eventAt, now) <= FLASH_POLICY.maxHours;
+}
+
 export function remainingImportantSlots(alreadyToday: number): number {
   return Math.max(0, IMPORTANT_DAILY_CAP - alreadyToday);
 }
@@ -147,6 +177,13 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
   const now = options.now ?? new Date();
   const empty: AlertReport = { considered: options.hits.length, queued: 0, sent: 0, skipped: 0 };
   if (options.hits.length === 0) return empty;
+
+  // Age first, before any preference read or provider call. A stale hit is not
+  // a cheaper alert, it is not an alert — and the event stays in `user_events`,
+  // so the reader still gets it in their next briefing if it is still worth
+  // their time by then.
+  const hits = options.hits.filter((hit) => withinFlashWindow(hit.eventAt, now));
+  if (hits.length === 0) return { ...empty, skipped: options.hits.length };
 
   const [{ data: prefs, error }, { data: subscription }] = await Promise.all([
     db
@@ -175,7 +212,7 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
   const toQueue = queuedChannels(prefs.channels, await deliveryTargets(db, options.userId));
   if (toQueue.length === 0) return { ...empty, skipped: options.hits.length };
 
-  const admitted = options.hits.filter((h) => shouldAlert(breaking, h.importance));
+  const admitted = hits.filter((h) => shouldAlert(breaking, h.importance));
   if (admitted.length === 0) return { ...empty, skipped: options.hits.length };
 
   const known = await alreadyAlerted(

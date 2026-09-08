@@ -43,15 +43,21 @@ describe("stageForMinute", () => {
   it("keeps the offsets the separate schedules fired on", () => {
     expect(stageForMinute(tuesday(9, 4))).toBe("cluster");
     expect(stageForMinute(tuesday(9, 34))).toBe("cluster");
+    expect(stageForMinute(tuesday(9, 10))).toBe("classify");
+    expect(stageForMinute(tuesday(9, 40))).toBe("classify");
     expect(stageForMinute(tuesday(9, 47))).toBe("analyse");
     expect(stageForMinute(tuesday(9, 53))).toBe("analyse");
     expect(stageForMinute(tuesday(9, 25))).toBe("match");
     expect(stageForMinute(tuesday(9, 55))).toBe("match");
   });
 
-  it("orders clustering before analysis before matching within the hour", () => {
-    const order = [4, 47, 25].map((m) => stageForMinute(tuesday(9, m)));
-    expect(order).toEqual(["cluster", "analyse", "match"]);
+  it("orders the chain correctly within the hour", () => {
+    // The order is the data dependency, not a preference: an event must exist
+    // before it can be labelled, be labelled before the demand gate can say
+    // whether understanding it is worth paying for, and be understood before it
+    // has an importance to compare against a reader's threshold.
+    const order = [4, 10, 47, 25].map((m) => stageForMinute(tuesday(9, m)));
+    expect(order).toEqual(["cluster", "classify", "analyse", "match"]);
   });
 
   it("checks inactive Uno readers daily at noon", () => {
