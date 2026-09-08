@@ -48,6 +48,7 @@ import {
   type WatchItem,
 } from "@/lib/understand";
 import { composeArticle } from "@/lib/editorial";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/dashboard/story/$id")({
   component: StoryDetail,
@@ -755,9 +756,18 @@ function EvidenceRefs({ refs, story }: { refs: number[]; story: Story }) {
     .filter((name): name is string => Boolean(name));
   if (names.length === 0) return null;
   return (
-    <sup className="ml-1 text-[10px] font-normal text-muted-foreground" title={names.join(", ")}>
-      [{refs.join(", ")}]
-    </sup>
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <sup className="ml-1 text-[10px] font-normal text-muted-foreground cursor-help">
+            [{refs.join(", ")}]
+          </sup>
+        </TooltipTrigger>
+        <TooltipContent side="top" align="center" className="max-w-[18rem] text-[11px] leading-snug">
+          {names.join(", ")}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
