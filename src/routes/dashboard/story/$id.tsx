@@ -763,7 +763,11 @@ function EvidenceRefs({ refs, story }: { refs: number[]; story: Story }) {
             [{refs.join(", ")}]
           </sup>
         </TooltipTrigger>
-        <TooltipContent side="top" align="center" className="max-w-[18rem] text-[11px] leading-snug">
+        <TooltipContent
+          side="top"
+          align="center"
+          className="max-w-[18rem] text-[11px] leading-snug"
+        >
           {names.join(", ")}
         </TooltipContent>
       </Tooltip>

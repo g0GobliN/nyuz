@@ -140,10 +140,12 @@ const ENRICHMENT_BATCH = 3;
  * Output ceiling for the analysis call. Must cover reasoning tokens plus the
  * full JSON document. After removing deterministically-generated fields
  * (topics, tags, numbers, dates, entities) from the AI contract, the
- * typical useful output fits in ~2048 tokens. 3072 provides headroom for
+ * typical useful output fits in ~2048 tokens. 4096 provides headroom for
  * complex events with rich understand blocks while eliminating waste.
+ * Raised from 3072 because deepseek-v4-pro reasoning tokens alone can
+ * exceed 2048, causing TruncatedCompletionError with empty content.
  */
-const ANALYSE_MAX_TOKENS = 3072;
+const ANALYSE_MAX_TOKENS = 4096;
 
 /**
  * Whether a document is due its one material-enrichment refresh, given its
@@ -932,7 +934,7 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
       system: systemPrompt,
       user,
       feature: "analyse",
-      maxTokens: useThinContract ? 2048 : ANALYSE_MAX_TOKENS,
+      maxTokens: useThinContract ? 4096 : ANALYSE_MAX_TOKENS,
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
@@ -1659,7 +1661,7 @@ async function recordShadowLog(
   try {
     const { error } = await db.from("analysis_shadow_log").insert({
       event_id: event.id,
-      article_id: articles[0]?.source_id ?? null,
+      article_id: articles[0]?.id ?? null,
       article_title: articles[0]?.title ?? event.title,
       code_facts: JSON.stringify(
         Object.fromEntries(
