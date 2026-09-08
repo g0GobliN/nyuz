@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ConsoleHeader,
@@ -16,7 +16,7 @@ import {
   useConfirm,
   useConsoleMutation,
 } from "@/components/admin/shell";
-import { Button, Chip } from "@/components/kit";
+import { Button, Chip, buttonClass } from "@/components/kit";
 import {
   type AiCreditView,
   type AiSpend,
@@ -29,6 +29,8 @@ import {
   listAiTopups,
   saveOperatingCosts,
 } from "@/lib/server/cost-intelligence";
+import { getAiStatus } from "@/lib/server/ai-status";
+import { type AiRuntimeStatus } from "@/lib/server/ai-status";
 import { SPEND_WINDOW_LABELS } from "@/lib/ai/credit";
 import {
   COST_PROVIDERS,
@@ -36,25 +38,15 @@ import {
   type PlanEconomics,
   type UnitEconomics,
 } from "@/lib/unit-economics";
+import { AlertTriangle, ArrowRight, Wrench } from "lucide-react";
 
 export const Route = createFileRoute("/admin/cost")({ component: CostPage });
 
 const WINDOWS = [7, 30, 90] as const;
 
-/**
- * What the pipeline costs, counted (docs/plan2.md phase 10).
- *
- * Every number on this page is a row count or a sum of recorded spend. There
- * is no "estimated saving" and no projected monthly bill: the honest version
- * of either needs to know what work that never happened *would* have cost,
- * and this project does not display figures nobody computed.
- *
- * The flags panel is at the top rather than the bottom because without it
- * every number below is ambiguous — a low skip count could mean the gate is
- * working well or simply switched off.
- */
 function CostPage() {
   const [days, setDays] = useState<number>(30);
+  const [showOverhead, setShowOverhead] = useState(false);
 
   const cost = useQuery({
     queryKey: ["admin", "cost", days],
@@ -66,18 +58,20 @@ function CostPage() {
     queryFn: () => getUnitEconomics({ data: { days } }),
     staleTime: 60_000,
   });
-  // Not windowed: the ceiling resets on the calendar month, so a 7- or 90-day
-  // view of it would answer a question nobody is asking.
   const spend = useQuery({
     queryKey: ["admin", "ai-spend"],
     queryFn: () => getAiSpend(),
     staleTime: 60_000,
   });
-  // Not windowed either: a prepaid balance is a running total, not a period.
   const creditView = useQuery({
     queryKey: ["admin", "ai-credit"],
     queryFn: () => getAiCredit(),
     staleTime: 60_000,
+  });
+  const aiStatus = useQuery({
+    queryKey: ["admin", "ai-status"],
+    queryFn: () => getAiStatus(),
+    staleTime: 30_000,
   });
 
   const data = cost.data;
@@ -86,21 +80,24 @@ function CostPage() {
     <>
       <ConsoleHeader
         title="Cost"
-        sub="What the pipeline is spending, and what the demand-driven work measurably changed. Everything here is counted from rows — there are no projections on this page, and no figure appears that nobody computed."
+        sub="What the pipeline is spending, and what the demand-driven work measurably changed. Everything here is counted from rows."
       />
+
+      {aiStatus.data ? <AiStatusCard data={aiStatus.data} /> : null}
+      {aiStatus.data ? <AiRuntimeCard data={aiStatus.data} /> : null}
 
       <ErrorNote error={cost.error} />
       <ErrorNote error={unit.error} />
       <ErrorNote error={spend.error} />
       <ErrorNote error={creditView.error} />
 
-      {creditView.data ? <AiCreditPanel data={creditView.data} /> : null}
+      {creditView.data ? <ProviderCreditCard data={creditView.data} /> : null}
 
       {!creditView.isLoading && creditView.data === null ? (
         <Panel className="mb-5">
           <p className="text-[13.5px] leading-relaxed text-signal">
             Apply migration 0048 to record credit top-ups and see the balance, burn rate and spend
-            by window. Until then the ledger measures spend but nothing measures what was paid in.
+            by window.
           </p>
         </Panel>
       ) : null}
@@ -121,198 +118,240 @@ function CostPage() {
         <Panel>
           <p className="text-[13.5px] leading-relaxed text-signal">
             Apply migration 0043 to start measuring per-plan revenue, Stripe fees, refunds, AI spend
-            and operating costs. No margin is guessed before the ledgers exist.
+            and operating costs.
           </p>
         </Panel>
       ) : null}
 
-      {unit.data ? <UnitEconomicsPanel data={unit.data} /> : null}
+      {unit.data ? (
+        <UnitEconomicsPanel
+          data={unit.data}
+          showOverhead={showOverhead}
+          setShowOverhead={setShowOverhead}
+        />
+      ) : null}
 
       {!cost.isLoading && data === null ? (
         <Panel>
           <p className="text-[13.5px] leading-relaxed text-signal">
             <code className="font-mono">admin_cost_intelligence()</code> is not in this database.
-            Apply migration 0035 to see these numbers. Nothing is estimated in its absence.
+            Apply migration 0035 to see these numbers.
           </p>
         </Panel>
       ) : null}
 
-      {data ? (
-        <div className="space-y-5">
-          <Panel title="What is switched on">
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(data.flags).map(([key, enabled]) => (
-                <Pill key={key} tone={enabled ? "signal" : "outline"}>
-                  {key} · {enabled ? "on" : "off"}
-                </Pill>
-              ))}
-            </div>
-            <p className="mt-3 text-[11.5px] leading-relaxed text-muted-foreground">
-              Read this first. A low skip count means one thing when the gate is on and something
-              entirely different when it is off.
-            </p>
-          </Panel>
+      {data ? <AdvancedDiagnostics data={data} /> : null}
 
-          <Panel title="Sources">
-            <StatGrid>
-              <Stat label="Active" value={formatNumber(data.sources.active)} />
-              <Stat
-                label="Core"
-                value={formatNumber(data.sources.core)}
-                hint="Collected regardless of demand"
-              />
-              <Stat
-                label="Demand"
-                value={formatNumber(data.sources.demand)}
-                hint="Collected because somebody wants them"
-              />
-              <Stat
-                label="No demand"
-                value={formatNumber(data.sources.no_demand)}
-                hint="Past the grace period"
-              />
-            </StatGrid>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Pill tone="outline">hot {data.sources.hot}</Pill>
-              <Pill tone="outline">normal {data.sources.normal}</Pill>
-              <Pill tone="outline">low {data.sources.low}</Pill>
-              <Pill tone="outline">cold {data.sources.cold}</Pill>
-              <Pill tone="outline">paused {data.sources.paused_tier}</Pill>
-            </div>
-          </Panel>
+      {creditView.data ? <SpendByWindow data={creditView.data} /> : null}
+      {data ? <SpendByFeature data={data} /> : null}
 
-          <Panel title="Events and analysis">
-            <StatGrid>
-              <Stat label="Analysed" value={formatNumber(data.events.analysed)} />
-              <Stat
-                label="Awaiting"
-                value={formatNumber(data.events.awaiting)}
-                hint="Pending, not lost"
-              />
-              <Stat label="Analysis tokens" value={formatNumber(data.events.analysis_tokens)} />
-              <Stat
-                label="Tokens per event"
-                value={
-                  data.events.tokens_per_event === null
-                    ? "—"
-                    : formatNumber(data.events.tokens_per_event)
-                }
-                hint="Measured mean, charged once each"
-              />
-            </StatGrid>
-            <p className="mt-3 text-[11.5px] leading-relaxed text-muted-foreground">
-              {formatNumber(data.articles.unclustered)} articles are still unclustered, of{" "}
-              {formatNumber(data.articles.total)} stored.
-            </p>
-          </Panel>
-
-          <Panel title="Shared impacts">
-            <StatGrid>
-              <Stat label="Written" value={formatNumber(data.impacts.complete)} />
-              <Stat label="Failed" value={formatNumber(data.impacts.failed)} />
-              <Stat label="Tokens" value={formatNumber(data.impacts.tokens)} />
-              <Stat
-                label="Briefing appearances"
-                value={formatNumber(data.digest_items_total)}
-                hint="Served by the impacts above"
-              />
-            </StatGrid>
-            <p className="mt-3 text-[11.5px] leading-relaxed text-muted-foreground">
-              Before phase 2 each of those appearances was its own model call. Now they are served
-              by {formatNumber(data.impacts.complete)} shared explanations
-              {data.impacts.complete > 0 && data.digest_items_total > 0
-                ? ` — ${(data.digest_items_total / data.impacts.complete).toFixed(1)} appearances per explanation`
-                : ""}
-              .
-            </p>
-          </Panel>
-
-          <Panel title="Translation">
-            <StatGrid>
-              <Stat label="Cached" value={formatNumber(data.translations.complete)} />
-              <Stat label="Languages" value={formatNumber(data.translations.languages)} />
-              <Stat label="Failed" value={formatNumber(data.translations.failed)} />
-              <Stat label="Tokens" value={formatNumber(data.translations.tokens)} />
-            </StatGrid>
-            <p className="mt-3 text-[11.5px] leading-relaxed text-muted-foreground">
-              One row per event per language, however many readers see it.
-            </p>
-          </Panel>
-
-          <Panel title="Cluster v2 agreement">
-            {data.cluster_shadow.decided === 0 ? (
-              <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-                Not measured yet. Nothing has been clustered with shadow mode on in this window, so
-                there is no agreement rate to report — and no basis for enabling the skip.
-              </p>
-            ) : (
-              <>
-                <StatGrid>
-                  <Stat
-                    label="Same — agreed"
-                    value={`${data.cluster_shadow.same_agreed}/${data.cluster_shadow.same_decided}`}
-                    hint="Wrong here merges unrelated stories"
-                  />
-                  <Stat
-                    label="Different — agreed"
-                    value={`${data.cluster_shadow.diff_agreed}/${data.cluster_shadow.diff_decided}`}
-                    hint="Wrong here splits one story"
-                  />
-                  <Stat label="Decided" value={formatNumber(data.cluster_shadow.decided)} />
-                  <Stat label="Agreed" value={formatNumber(data.cluster_shadow.agreed)} />
-                </StatGrid>
-                <p className="mt-3 text-[11.5px] leading-relaxed text-muted-foreground">
-                  Split deliberately: a wrong &ldquo;different&rdquo; costs one extra analysis and
-                  shows up as a duplicate. A wrong &ldquo;same&rdquo; merges two unrelated stories
-                  and is invisible to the reader who receives it. The two need different standards
-                  of proof before the skip goes on.
-                </p>
-              </>
-            )}
-          </Panel>
-
-          <Panel title={`AI ledger · last ${data.window_days} days`}>
-            {Object.keys(data.ai_usage).length === 0 ? (
-              <p className="text-[13.5px] text-muted-foreground">
-                No recorded usage in this window.
-              </p>
-            ) : (
-              <StatGrid>
-                {Object.entries(data.ai_usage).map(([capability, tokens]) => (
-                  <Stat key={capability} label={capability} value={formatNumber(tokens)} />
-                ))}
-              </StatGrid>
-            )}
-          </Panel>
-        </div>
-      ) : null}
+      <TopupSection />
     </>
   );
 }
 
-const PROVIDER_LABELS: Record<CostProvider, string> = {
-  cloudflare: "Cloudflare",
-  supabase: "Supabase",
-  resend: "Resend / email",
-  domain: "Domain",
-  other: "Other",
-};
+function AiStatusCard({ data }: { data: AiRuntimeStatus }) {
+  const isBlocked = data.status === "blocked";
+  const isWarning = data.status === "warning" || data.status === "near_limit";
+  const progressPct = Math.min(data.usage.usedPct, 100);
 
-function usd(value: number | null): string {
-  return value === null
-    ? "—"
-    : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
+  return (
+    <div className="mb-5">
+      <Panel
+        title="AI status"
+        note="Derived from the same checks as the pipeline's reserve_ai_tokens."
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <span
+            className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-semibold capitalize ${
+              isBlocked
+                ? "bg-signal/10 text-signal"
+                : isWarning
+                  ? "bg-yellow-500/10 text-yellow-500"
+                  : "bg-emerald-500/10 text-emerald-500"
+            }`}
+          >
+            {data.status.replace("_", " ")}
+          </span>
+          {data.action ? (
+            // Deep-links to the control that clears the blocker. It used to be
+            // an inert button next to prose naming an environment variable,
+            // which was both a dead end and — since the budgets moved into the
+            // database — the wrong instruction.
+            <Link
+              to="/admin/ai-runtime"
+              search={data.action.settingKey ? { setting: data.action.settingKey } : {}}
+              className={buttonClass("outline", "sm")}
+            >
+              {data.action.label}
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          ) : null}
+        </div>
+
+        {data.blocker.kind !== "none" && (
+          <div className="mt-2 flex items-start gap-2 text-[12.5px] text-muted-foreground">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
+            <span>{data.blockerLabel}</span>
+          </div>
+        )}
+
+        <div className="mt-3">
+          <div className="flex items-center justify-between text-[11.5px] text-muted-foreground">
+            <span>Monthly spend</span>
+            <span>{data.usage.usedPct.toFixed(1)}%</span>
+          </div>
+          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                progressPct >= 90
+                  ? "bg-signal"
+                  : progressPct >= 70
+                    ? "bg-yellow-500"
+                    : "bg-emerald-500"
+              }`}
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <div className="mt-1 flex justify-between text-[10.5px] text-muted-foreground">
+            <span>0%</span>
+            <span className="text-yellow-500">70%</span>
+            <span className="text-signal">90%</span>
+            <span>100%</span>
+          </div>
+        </div>
+      </Panel>
+    </div>
+  );
 }
 
 /**
- * Month-to-date AI spend against the ceiling that stops the pipeline.
+ * The way in to the controls, sitting directly under the numbers they set.
  *
- * The projection is the point of the panel. A balance answers "how much have I
- * spent", which is reassuring right up until it isn't; the projection answers
- * "does this month finish", which is the question whose answer can still be
- * acted on. So the warning tone keys off the forecast crossing the ceiling, not
- * off the percentage used — 40% on the 4th is worse than 80% on the 28th.
+ * Deliberately here rather than only in the sidebar. Someone looking at a
+ * ceiling they want to change is looking at this page, and a limit shown with no
+ * visible way to alter it is what sent people to edit Cloudflare variables by
+ * hand in the first place. The source chips are the other half: they answer
+ * "will editing this actually change anything, or am I looking at a value some
+ * other environment is supplying?" before the operator clicks through.
  */
+function AiRuntimeCard({ data }: { data: AiRuntimeStatus }) {
+  return (
+    <div className="mb-5">
+      <Panel
+        title="AI runtime controls"
+        note="Budgets, token ceilings and switches, stored in the database and read by both the local pipeline and the deployed Worker."
+      >
+        <div className="mt-4 flex flex-wrap items-end justify-between gap-5">
+          <dl className="flex flex-wrap gap-x-10 gap-y-4">
+            <LimitSummary
+              label="Monthly AI budget"
+              value={`$${data.usage.ceilingUsd.toFixed(2)}`}
+              source={data.ceilingSource}
+              settingKey="ai.monthly_cost_usd"
+            />
+            <LimitSummary
+              label="Monthly token budget"
+              value={formatNumber(data.usage.tokensBudget)}
+              source={data.tokenBudgetSource}
+              settingKey="ai.monthly_token_budget"
+            />
+            <LimitSummary
+              label="AI kill switch"
+              value={data.usage.killSwitchOn ? "On" : "Off"}
+              source="database"
+              settingKey="flag.ai_kill_switch"
+            />
+          </dl>
+
+          <Link to="/admin/ai-runtime" search={{}} className={buttonClass("primary", "sm")}>
+            <Wrench className="h-3.5 w-3.5" />
+            Manage AI runtime
+          </Link>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function LimitSummary({
+  label,
+  value,
+  source,
+  settingKey,
+}: {
+  label: string;
+  value: string;
+  source: AiRuntimeStatus["ceilingSource"];
+  settingKey: string;
+}) {
+  return (
+    <div>
+      <dt className="text-[11.5px] text-muted-foreground">{label}</dt>
+      <dd className="mt-1 font-serif text-[22px] leading-none tabular-nums">{value}</dd>
+      <Link
+        to="/admin/ai-runtime"
+        search={{ setting: settingKey }}
+        className="mt-2 inline-block text-[11px] text-muted-foreground underline-offset-4 hover:underline"
+      >
+        {source === "database"
+          ? "Source: DB"
+          : source === "environment"
+            ? "Source: environment fallback — set an admin value"
+            : "Source: default — set an admin value"}
+      </Link>
+    </div>
+  );
+}
+
+function ProviderCreditCard({ data }: { data: AiCreditView }) {
+  const { credit } = data;
+  const runway =
+    credit.daysRemaining === null
+      ? "Not measured yet"
+      : credit.daysRemaining < 1
+        ? "Under a day"
+        : `${credit.daysRemaining.toFixed(credit.daysRemaining < 10 ? 1 : 0)} days`;
+
+  return (
+    <div className="mb-5">
+      <Panel
+        title="Provider credit"
+        note={`${credit.toppedUpUsd > 0 ? `${credit.spentUsd} of ${credit.toppedUpUsd} used` : "No top-up recorded yet"} · ${runway} runway`}
+      >
+        <StatGrid>
+          <Stat
+            label="Remaining"
+            value={credit.topups === 0 ? "—" : `$${credit.remainingUsd.toFixed(2)}`}
+            hint={credit.daysRemaining !== null ? `${credit.daysRemaining} days` : "Not measured"}
+          />
+          <Stat
+            label="Burn"
+            value={credit.burnUsdPerDay === null ? "—" : `$${credit.burnUsdPerDay.toFixed(2)}/day`}
+            hint="Trailing 7 days"
+          />
+          <Stat
+            label="In flight"
+            value={`$${credit.inFlightUsd.toFixed(2)}`}
+            hint="Reserved at estimate"
+          />
+          <Stat
+            label="Topped up"
+            value={`$${credit.toppedUpUsd.toFixed(2)}`}
+            hint={`${credit.topups} top-ups`}
+          />
+        </StatGrid>
+
+        {credit.status === "exhausted" && (
+          <div className="mt-3">
+            <Pill tone="signal">Credit exhausted — top up</Pill>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
 function AiSpendPanel({ data }: { data: AiSpend }) {
   const willExhaust = data.exhaustionDate !== null;
   const exhausted = data.spentUsd >= data.ceilingUsd;
@@ -321,27 +360,23 @@ function AiSpendPanel({ data }: { data: AiSpend }) {
     <div className="mb-5">
       <Panel
         title="AI spend · this month"
-        note="The pipeline refuses new model calls once the ceiling is reached, so this is the number that decides whether briefings keep being produced. Set it with AI_MONTHLY_COST_USD."
+        note={`${data.usedPct.toFixed(1)}% of the ${data.ceilingUsd > 0 ? `$${data.ceilingUsd.toFixed(2)}` : "default"} ceiling`}
       >
         <StatGrid>
           <Stat
             label="Spent"
-            value={usd(data.spentUsd)}
-            hint={
-              data.ceilingResolved
-                ? `${data.usedPct.toFixed(1)}% of the ${usd(data.ceilingUsd)} ceiling`
-                : `${data.usedPct.toFixed(1)}% of the built-in ${usd(data.ceilingUsd)} default`
-            }
+            value={`$${data.spentUsd.toFixed(2)}`}
+            hint={exhausted ? "Ceiling reached" : `${data.usedPct.toFixed(1)}% used`}
           />
           <Stat
             label="Projected month end"
-            value={usd(data.projectedUsd)}
+            value={data.projectedUsd !== null ? `$${data.projectedUsd.toFixed(2)}` : "—"}
             hint={
               exhausted
-                ? "Ceiling reached — model calls are being refused"
+                ? "Model calls refused"
                 : willExhaust
-                  ? `Ceiling reached ${new Date(data.exhaustionDate as string).toLocaleDateString()}`
-                  : "Stays inside the ceiling at the current rate"
+                  ? `Ceiling ${new Date(data.exhaustionDate as string).toLocaleDateString()}`
+                  : "Inside ceiling"
             }
             estimate
           />
@@ -352,27 +387,21 @@ function AiSpendPanel({ data }: { data: AiSpend }) {
           />
           <Stat
             label="In flight"
-            value={usd(data.inFlightUsd)}
-            hint="Reserved at estimate, not yet settled"
+            value={`$${data.inFlightUsd.toFixed(2)}`}
+            hint="Reserved at estimate"
           />
         </StatGrid>
-
         {exhausted || willExhaust || data.unpricedCalls > 0 || !data.ceilingResolved ? (
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             {exhausted ? (
-              <Pill tone="signal">Ceiling reached — raise AI_MONTHLY_COST_USD to resume</Pill>
-            ) : willExhaust ? (
-              <Pill tone="signal">On track to stop before month end</Pill>
+              <Pill tone="signal">Ceiling reached — adjust the monthly AI budget</Pill>
             ) : null}
+            {willExhaust ? <Pill tone="signal">On track to stop before month end</Pill> : null}
             {!data.ceilingResolved ? (
-              <Pill tone="outline">
-                AI_MONTHLY_COST_USD not readable here — showing the built-in default
-              </Pill>
+              <Pill tone="outline">Using built-in default ceiling — set one in AI runtime</Pill>
             ) : null}
             {data.unpricedCalls > 0 ? (
-              <Pill tone="outline">
-                {formatNumber(data.unpricedCalls)} calls have no rate card — spend is understated
-              </Pill>
+              <Pill tone="outline">{formatNumber(data.unpricedCalls)} calls unpriced</Pill>
             ) : null}
           </div>
         ) : null}
@@ -381,7 +410,15 @@ function AiSpendPanel({ data }: { data: AiSpend }) {
   );
 }
 
-function UnitEconomicsPanel({ data }: { data: UnitEconomics }) {
+function UnitEconomicsPanel({
+  data,
+  showOverhead,
+  setShowOverhead,
+}: {
+  data: UnitEconomics;
+  showOverhead: boolean;
+  setShowOverhead: (v: boolean) => void;
+}) {
   const initial = useMemo(
     () =>
       Object.fromEntries(
@@ -405,20 +442,76 @@ function UnitEconomicsPanel({ data }: { data: UnitEconomics }) {
     save.mutate({ data: { costs: cents } });
   };
 
+  if (data.payingCustomersAllTime === 0) {
+    return (
+      <div className="mb-5">
+        <Panel title="Unit economics">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[13.5px] text-muted-foreground">No paying customers yet.</p>
+              <p className="text-[12px] text-muted-foreground">
+                Detailed unit economics will appear once revenue exists.
+              </p>
+            </div>
+            <div className="flex items-center gap-4 text-[12px]">
+              <span>
+                Shared AI: <strong>${data.sharedAiUsd.toFixed(2)}</strong>
+              </span>
+              <span>
+                Overhead: <strong>${data.overheadMonthlyUsd.toFixed(2)}</strong>
+              </span>
+              <Button size="sm" variant="outline" onClick={() => setShowOverhead(!showOverhead)}>
+                <Wrench className="mr-1 h-3 w-3" />
+                Configure overhead
+              </Button>
+            </div>
+          </div>
+
+          {showOverhead && (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              {COST_PROVIDERS.map((provider) => (
+                <Field key={provider} label={provider}>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-[18px] text-[13px] text-muted-foreground">
+                      $
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={costs[provider]}
+                      onChange={(event) =>
+                        setCosts((current) => ({ ...current, [provider]: event.target.value }))
+                      }
+                      className={`${inputClass} pl-7`}
+                    />
+                  </div>
+                </Field>
+              ))}
+              <div className="flex items-end pb-1">
+                <Button onClick={submit} disabled={save.isPending} size="sm">
+                  {save.isPending ? "Saving…" : "Save"}
+                </Button>
+              </div>
+              {save.isSuccess ? (
+                <span className="text-[12px] text-muted-foreground">Saved</span>
+              ) : null}
+              <ErrorNote error={save.error} />
+            </div>
+          )}
+        </Panel>
+      </div>
+    );
+  }
+
   return (
     <div className="mb-5 space-y-5">
-      <Panel
-        title={`Unit economics · last ${data.windowDays} days`}
-        note="Revenue, refunds and Stripe fees are prorated over each subscription's service period. Annual sales therefore appear as earned monthly value, not a one-day windfall."
-      >
+      <Panel title={`Unit economics · last ${data.windowDays} days`}>
         <StatGrid>
           <Stat label="Paying customers" value={formatNumber(data.payingCustomersAllTime)} />
-          <Stat
-            label="Next evidence check"
-            value={data.nextMilestone ? `${data.nextMilestone} customers` : "100 reached"}
-          />
-          <Stat label="Monthly overhead" value={usd(data.overheadMonthlyUsd)} />
-          <Stat label="Shared AI in window" value={usd(data.sharedAiUsd)} />
+          <Stat label="Monthly overhead" value={`$${data.overheadMonthlyUsd.toFixed(2)}`} />
+          <Stat label="Shared AI in window" value={`$${data.sharedAiUsd.toFixed(2)}`} />
         </StatGrid>
 
         {!data.complete ? (
@@ -442,11 +535,11 @@ function UnitEconomicsPanel({ data }: { data: UnitEconomics }) {
 
       <Panel
         title="Actual monthly overhead"
-        note="Enter the monthly equivalent from each real invoice. For a $10 annual domain, enter $0.83. Zero is valid for a free plan; blank means unknown and keeps margin hidden."
+        note="Enter the monthly equivalent from each real invoice."
       >
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {COST_PROVIDERS.map((provider) => (
-            <Field key={provider} label={PROVIDER_LABELS[provider]}>
+            <Field key={provider} label={provider}>
               <div className="relative">
                 <span className="absolute left-3.5 top-[18px] text-[13px] text-muted-foreground">
                   $
@@ -467,13 +560,306 @@ function UnitEconomicsPanel({ data }: { data: UnitEconomics }) {
           ))}
         </div>
         <div className="mt-4 flex items-center gap-3">
-          <Button onClick={submit} disabled={save.isPending}>
+          <Button onClick={submit} disabled={save.isPending} size="sm">
             {save.isPending ? "Saving…" : "Save overhead"}
           </Button>
           {save.isSuccess ? <span className="text-[12px] text-muted-foreground">Saved</span> : null}
         </div>
         <ErrorNote error={save.error} />
       </Panel>
+    </div>
+  );
+}
+
+function AdvancedDiagnostics({
+  data,
+}: {
+  data: Awaited<ReturnType<typeof getCostIntelligence>> | null;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (!data) return null;
+
+  return (
+    <div className="mb-5">
+      <Panel
+        title="Advanced diagnostics"
+        note={`${Object.keys(data.ai_usage).length > 0 ? `${Object.values(data.ai_usage).reduce((a, b) => a + b, 0)} tokens across features` : "No usage recorded"} · ${data.sources.active} sources active`}
+      >
+        {!open ? (
+          <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+            Show diagnostics
+          </Button>
+        ) : (
+          <div className="space-y-5">
+            <div>
+              <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Sources
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                <Pill tone="outline">active {data.sources.active}</Pill>
+                <Pill tone="outline">core {data.sources.core}</Pill>
+                <Pill tone="outline">demand {data.sources.demand}</Pill>
+                <Pill tone="outline">no demand {data.sources.no_demand}</Pill>
+                <Pill tone="outline">hot {data.sources.hot}</Pill>
+                <Pill tone="outline">normal {data.sources.normal}</Pill>
+                <Pill tone="outline">low {data.sources.low}</Pill>
+                <Pill tone="outline">cold {data.sources.cold}</Pill>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Events
+              </h4>
+              <StatGrid>
+                <Stat label="Analysed" value={formatNumber(data.events.analysed)} />
+                <Stat label="Awaiting" value={formatNumber(data.events.awaiting)} />
+                <Stat label="Analysis tokens" value={formatNumber(data.events.analysis_tokens)} />
+              </StatGrid>
+              {data.articles.unclustered > 0 && (
+                <p className="mt-2 text-[12px] text-muted-foreground">
+                  {formatNumber(data.articles.unclustered)} of {formatNumber(data.articles.total)}{" "}
+                  articles unclustered
+                </p>
+              )}
+            </div>
+
+            <div>
+              <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Shared impacts
+              </h4>
+              <StatGrid>
+                <Stat label="Written" value={formatNumber(data.impacts.complete)} />
+                <Stat label="Failed" value={formatNumber(data.impacts.failed)} />
+                <Stat label="Tokens" value={formatNumber(data.impacts.tokens)} />
+                <Stat label="Briefing appearances" value={formatNumber(data.digest_items_total)} />
+              </StatGrid>
+            </div>
+
+            <div>
+              <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Translation
+              </h4>
+              <StatGrid>
+                <Stat label="Cached" value={formatNumber(data.translations.complete)} />
+                <Stat label="Languages" value={formatNumber(data.translations.languages)} />
+                <Stat label="Failed" value={formatNumber(data.translations.failed)} />
+                <Stat label="Tokens" value={formatNumber(data.translations.tokens)} />
+              </StatGrid>
+            </div>
+
+            <div>
+              <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Cluster v2 agreement
+              </h4>
+              {data.cluster_shadow.decided === 0 ? (
+                <p className="text-[12px] text-muted-foreground">Not measured yet.</p>
+              ) : (
+                <StatGrid>
+                  <Stat
+                    label="Same agreed"
+                    value={`${data.cluster_shadow.same_agreed}/${data.cluster_shadow.same_decided}`}
+                  />
+                  <Stat
+                    label="Diff agreed"
+                    value={`${data.cluster_shadow.diff_agreed}/${data.cluster_shadow.diff_decided}`}
+                  />
+                  <Stat label="Decided" value={formatNumber(data.cluster_shadow.decided)} />
+                </StatGrid>
+              )}
+            </div>
+
+            <div>
+              <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                Flags
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(data.flags).map(([key, enabled]) => (
+                  <Pill key={key} tone={enabled ? "signal" : "outline"}>
+                    {key} · {enabled ? "on" : "off"}
+                  </Pill>
+                ))}
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
+                Collapse
+              </Button>
+            </div>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+function SpendByFeature({
+  data,
+}: {
+  data: Awaited<ReturnType<typeof getCostIntelligence>> | null;
+}) {
+  const featureLabels: Record<string, string> = {
+    analyse: "Analyse",
+    reason: "Reason",
+    digest: "Digest",
+    cluster: "Cluster",
+    ask: "Ask",
+    translation: "Translation",
+  };
+
+  if (!data) return null;
+
+  const entries = Object.entries(data.ai_usage);
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="mb-5">
+      <Panel title="Spend by feature" note="Dollar spend first, tokens and calls as secondary.">
+        <StatGrid>
+          {entries.map(([feature, tokens]) => (
+            <Stat
+              key={feature}
+              label={featureLabels[feature] ?? feature}
+              value={formatNumber(tokens)}
+              hint={`${tokens.toLocaleString()} tokens`}
+            />
+          ))}
+        </StatGrid>
+      </Panel>
+    </div>
+  );
+}
+
+function SpendByWindow({ data }: { data: AiCreditView }) {
+  const { windows } = data;
+  if (windows.length === 0) return null;
+
+  return (
+    <div className="mb-5">
+      <Panel title="Spend by window" note="The same ledger, sliced by how recently it was spent.">
+        <StatGrid>
+          {windows.map((w) => (
+            <Stat
+              key={w.key}
+              label={SPEND_WINDOW_LABELS[w.key]}
+              value={`$${w.spentUsd.toFixed(2)}`}
+              hint={`${formatNumber(w.calls)} calls · ${formatNumber(w.tokens)} tokens`}
+            />
+          ))}
+        </StatGrid>
+      </Panel>
+    </div>
+  );
+}
+
+function TopupSection() {
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const confirm = useConfirm();
+  const add = useConsoleMutation(addAiTopup, [
+    ["admin", "ai-credit"],
+    ["admin", "ai-topups"],
+  ]);
+  const topups = useQuery({
+    queryKey: ["admin", "ai-topups"],
+    queryFn: () => listAiTopups(),
+    staleTime: 60_000,
+  });
+  const remove = useConsoleMutation(deleteAiTopup, [
+    ["admin", "ai-credit"],
+    ["admin", "ai-topups"],
+  ]);
+
+  const submit = () => {
+    if (!/^\d{1,6}(\.\d{1,6})?$/.test(amount.trim())) return;
+    add.mutate({ data: { amountUsd: amount.trim(), note: note.trim() || undefined } });
+    setAmount("");
+    setNote("");
+  };
+
+  return (
+    <div className="mb-5 space-y-5">
+      <Panel
+        title="Record a top-up"
+        note="Enter what the provider actually charged you. A $5 purchase is 5."
+      >
+        <div className="grid gap-4 sm:grid-cols-[160px_1fr_auto] sm:items-end">
+          <Field label="Amount">
+            <div className="relative">
+              <span className="absolute left-3.5 top-[18px] text-[13px] text-muted-foreground">
+                $
+              </span>
+              <input
+                inputMode="decimal"
+                placeholder="5.00"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                className={`${inputClass} pl-7`}
+              />
+            </div>
+          </Field>
+          <Field label="Note (optional)">
+            <input
+              placeholder="DeepSeek top-up"
+              maxLength={200}
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              className={inputClass}
+            />
+          </Field>
+          <div className="pb-1">
+            <Button onClick={submit} disabled={add.isPending || amount.trim() === ""} size="sm">
+              {add.isPending ? "Recording…" : "Record top-up"}
+            </Button>
+          </div>
+        </div>
+        <ErrorNote error={add.error} />
+      </Panel>
+
+      {topups.data && topups.data.length > 0 ? (
+        <Panel title="Top-up history">
+          <ul className="divide-y divide-hairline">
+            {topups.data.map((row) => (
+              <li key={row.id} className="flex flex-wrap items-center gap-3 py-3 first:pt-0">
+                <span className="font-serif text-[18px] tabular-nums">
+                  {usd(row.amount_microusd / 1_000_000)}
+                </span>
+                <span className="text-[12.5px] text-muted-foreground">
+                  {formatDateTime(row.occurred_at)}
+                </span>
+                {row.note ? <span className="text-[12.5px] text-signal">{row.note}</span> : null}
+                <span className="ml-auto flex items-center gap-2">
+                  {confirm.is(row.id) ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="signal"
+                        disabled={remove.isPending}
+                        onClick={() => {
+                          remove.mutate({ data: { id: row.id } });
+                          confirm.clear();
+                        }}
+                      >
+                        Remove
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={confirm.clear}>
+                        Cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => confirm.ask(row.id)}>
+                      Remove
+                    </Button>
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <ErrorNote error={remove.error} />
+        </Panel>
+      ) : null}
     </div>
   );
 }
@@ -517,231 +903,16 @@ function PlanCard({
   );
 }
 
-/**
- * The prepaid balance, and the date it runs out.
- *
- * Placed above month-to-date spend because it answers the earlier question. The
- * monthly ceiling asks "does this month finish"; the balance asks "do I need to
- * buy more credit", and no answer to the first is worth much when the provider
- * account is empty. Both stay on the page: the ceiling is what refuses a call
- * locally, the balance is what the provider refuses on.
- *
- * The runway, not the remaining dollars, carries the warning tone. "$3.20 left"
- * reads as fine and is fine at ten cents a day; at two dollars a day it is a
- * weekend away from stopping the pipeline, and only the rate can tell them apart.
- */
-function AiCreditPanel({ data }: { data: AiCreditView }) {
-  const { credit, windows } = data;
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
-  const add = useConsoleMutation(addAiTopup, [
-    ["admin", "ai-credit"],
-    ["admin", "ai-topups"],
-  ]);
+const PROVIDER_LABELS: Record<CostProvider, string> = {
+  cloudflare: "Cloudflare",
+  supabase: "Supabase",
+  resend: "Resend / email",
+  domain: "Domain",
+  other: "Other",
+};
 
-  const submit = () => {
-    if (!/^\d{1,6}(\.\d{1,6})?$/.test(amount.trim())) return;
-    add.mutate({ data: { amountUsd: amount.trim(), note: note.trim() || undefined } });
-    setAmount("");
-    setNote("");
-  };
-
-  const runway =
-    credit.daysRemaining === null
-      ? "Not measured yet"
-      : credit.daysRemaining < 1
-        ? "Under a day"
-        : `${credit.daysRemaining.toFixed(credit.daysRemaining < 10 ? 1 : 0)} days`;
-
-  return (
-    <div className="mb-5 space-y-5">
-      <Panel
-        title="AI credit · balance"
-        note="What you have topped up, minus what the pipeline has spent since. Every figure is counted from the ledger; the runway is the one projection here and it is withheld until there is an hour of history behind it."
-      >
-        <StatGrid>
-          <Stat
-            label="Remaining"
-            value={credit.topups === 0 ? "—" : usd(credit.remainingUsd)}
-            hint={
-              credit.topups === 0
-                ? "No top-up recorded yet"
-                : `${usd(credit.spentUsd)} of ${usd(credit.toppedUpUsd)} used`
-            }
-          />
-          <Stat
-            label="Runs out in"
-            value={runway}
-            hint={
-              credit.runsOutAt
-                ? `Around ${new Date(credit.runsOutAt).toLocaleDateString()}`
-                : credit.burnUsdPerDay === 0
-                  ? "Nothing spent in the last 7 days"
-                  : "Needs an hour of history"
-            }
-            estimate={credit.runsOutAt !== null}
-          />
-          <Stat
-            label="Burn"
-            value={credit.burnUsdPerDay === null ? "—" : `${usd(credit.burnUsdPerDay)}/day`}
-            hint="Measured over the last 7 days"
-          />
-          <Stat
-            label="In flight"
-            value={usd(credit.inFlightUsd)}
-            hint="Reserved at estimate, not yet settled"
-          />
-        </StatGrid>
-
-        {credit.status !== "ok" || credit.unfundedSpentUsd > 0 || credit.unpricedCalls > 0 ? (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {credit.status === "exhausted" ? (
-              <Pill tone="signal">Credit spent — top up before the provider refuses calls</Pill>
-            ) : null}
-            {credit.status === "low" ? (
-              <Pill tone="signal">Running low — recharge soon</Pill>
-            ) : null}
-            {credit.status === "unrecorded" ? (
-              <Pill tone="outline">
-                No top-up recorded — add one below to start tracking the balance
-              </Pill>
-            ) : null}
-            {credit.unfundedSpentUsd > 0 ? (
-              <Pill tone="outline">
-                {usd(credit.unfundedSpentUsd)} spent before the first top-up, not counted here
-              </Pill>
-            ) : null}
-            {credit.unpricedCalls > 0 ? (
-              <Pill tone="outline">
-                {formatNumber(credit.unpricedCalls)} calls have no rate card — spend is understated
-              </Pill>
-            ) : null}
-          </div>
-        ) : null}
-      </Panel>
-
-      {/* Absent when the window aggregate failed. An empty grid would read as
-          "nothing spent", which is a different claim from "not measured". */}
-      {windows.length > 0 ? (
-        <Panel
-          title="Spend by window"
-          note="The same ledger, sliced by how recently it was spent. Settled figures are measured token counts; in-flight is what open reservations authorized."
-        >
-          <StatGrid>
-            {windows.map((w) => (
-              <Stat
-                key={w.key}
-                label={SPEND_WINDOW_LABELS[w.key]}
-                value={usd(w.spentUsd)}
-                hint={`${formatNumber(w.calls)} calls · ${formatNumber(w.tokens)} tokens`}
-              />
-            ))}
-          </StatGrid>
-        </Panel>
-      ) : null}
-
-      <Panel
-        title="Record a top-up"
-        note="Enter what the provider actually charged you, not the balance it advertised. A $5 purchase is 5."
-      >
-        <div className="grid gap-4 sm:grid-cols-[160px_1fr_auto] sm:items-end">
-          <Field label="Amount">
-            <div className="relative">
-              <span className="absolute left-3.5 top-[18px] text-[13px] text-muted-foreground">
-                $
-              </span>
-              <input
-                inputMode="decimal"
-                placeholder="5.00"
-                value={amount}
-                onChange={(event) => setAmount(event.target.value)}
-                className={`${inputClass} pl-7`}
-              />
-            </div>
-          </Field>
-          <Field label="Note (optional)">
-            <input
-              placeholder="DeepSeek top-up"
-              maxLength={200}
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              className={inputClass}
-            />
-          </Field>
-          <div className="pb-1">
-            <Button onClick={submit} disabled={add.isPending || amount.trim() === ""}>
-              {add.isPending ? "Recording…" : "Record top-up"}
-            </Button>
-          </div>
-        </div>
-        <ErrorNote error={add.error} />
-      </Panel>
-
-      <TopupHistory />
-    </div>
-  );
-}
-
-/**
- * Every deposit, most recent first.
- *
- * Deleting is a hard delete rather than a reversing entry: this table records
- * what was paid, and a mistyped amount was never paid. The audit log keeps it.
- */
-function TopupHistory() {
-  const confirm = useConfirm();
-  const topups = useQuery({
-    queryKey: ["admin", "ai-topups"],
-    queryFn: () => listAiTopups(),
-    staleTime: 60_000,
-  });
-  const remove = useConsoleMutation(deleteAiTopup, [
-    ["admin", "ai-credit"],
-    ["admin", "ai-topups"],
-  ]);
-
-  if (!topups.data || topups.data.length === 0) return null;
-
-  return (
-    <Panel title="Top-up history">
-      <ul className="divide-y divide-hairline">
-        {topups.data.map((row) => (
-          <li key={row.id} className="flex flex-wrap items-center gap-3 py-3 first:pt-0">
-            <span className="font-serif text-[18px] tabular-nums">
-              {usd(row.amount_microusd / 1_000_000)}
-            </span>
-            <span className="text-[12.5px] text-muted-foreground">
-              {formatDateTime(row.occurred_at)}
-            </span>
-            {row.note ? <span className="text-[12.5px] text-signal">{row.note}</span> : null}
-            <span className="ml-auto flex items-center gap-2">
-              {confirm.is(row.id) ? (
-                <>
-                  <Button
-                    size="sm"
-                    variant="signal"
-                    disabled={remove.isPending}
-                    onClick={() => {
-                      remove.mutate({ data: { id: row.id } });
-                      confirm.clear();
-                    }}
-                  >
-                    Remove
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={confirm.clear}>
-                    Cancel
-                  </Button>
-                </>
-              ) : (
-                <Button size="sm" variant="outline" onClick={() => confirm.ask(row.id)}>
-                  Remove
-                </Button>
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <ErrorNote error={remove.error} />
-    </Panel>
-  );
+function usd(value: number | null): string {
+  return value === null
+    ? "—"
+    : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 }

@@ -115,17 +115,26 @@ npx wrangler secret put EMAIL_UNSUBSCRIBE_SECRET --name nyuz
 npx wrangler secret put HEALTHCHECK_TOKEN --name nyuz
 ```
 
-Set the four recurring Stripe Price ids, `AI_MONTHLY_TOKEN_BUDGET=20000000` and
-`AI_MONTHLY_COST_USD=10` as Worker variables. The second is the ceiling that actually
-bounds the invoice — the token budget bounds a runaway loop, not a bill.
+Set the four recurring Stripe Price ids as Worker variables.
 
-Both are set once, in the dashboard, and never in `wrangler.json` or GitHub. Neither
-name appears in this repo's Wrangler config on purpose: `vite.config.ts` sets
-`cloudflare.wrangler.keep_vars = true`, so `wrangler deploy` leaves dashboard-managed
-plain-text variables alone instead of wiping anything not declared in the generated
-config. Raising a budget after a spend spike, or lowering one during an incident, is a
-dashboard edit — it takes effect on the next request and survives the next merge to
-`main` without a redeploy.
+**The two AI ceilings are no longer environment configuration.** Since migration 0056
+they live in `ai_runtime_config` and are edited at **`/admin` → AI runtime**, which both
+the deployed Worker and `npm run pipeline` read. That is the point of the table: the
+Worker and the local pipeline read different environments, so a ceiling that lived in
+both could disagree indefinitely with nothing reporting it.
+
+`AI_MONTHLY_TOKEN_BUDGET=20000000` and `AI_MONTHLY_COST_USD=10` remain useful as
+**bootstrap values only** — they are what a deployment runs on before anyone opens the
+console, and they are ignored the moment an admin value is saved. Set them once if you
+want a sane starting point; do not treat them as the place to tune. The AI runtime page
+shows, per setting, whether the value in force came from the database, the environment
+or the built-in default, so there is never a question about which one is live.
+
+Anything set as a dashboard variable is set once and never in `wrangler.json` or GitHub.
+Those names do not appear in this repo's Wrangler config on purpose: `vite.config.ts`
+sets `cloudflare.wrangler.keep_vars = true`, so `wrangler deploy` leaves
+dashboard-managed plain-text variables alone instead of wiping anything not declared in
+the generated config.
 
 **Do not deploy with the shipped default of `500000`.** That number is a fail-safe for a
 missing binding, not a production capacity: measured against the current prompts and rate
@@ -234,9 +243,12 @@ Before enabling payments, reconcile the pre-fix pipeline backlog once:
 - [ ] Workers Paid enabled, or production traces prove SSR and every cron stay within Free CPU limits
 - [ ] Migrations applied to the target project
 - [ ] Secrets set for every active AI provider and the service role
-- [ ] Resend and Stripe secrets, four Stripe Price ids, and both AI ceilings set
-      (`AI_MONTHLY_TOKEN_BUDGET=20000000`, `AI_MONTHLY_COST_USD=10`) — the shipped default
-      token budget of `500000` is a fail-safe and will stop the pipeline mid-month
+- [ ] Resend and Stripe secrets and four Stripe Price ids set
+- [ ] Migration 0056 applied, then both AI ceilings set in `/admin` → AI runtime
+      (monthly AI budget $10, monthly token budget 20,000,000). The shipped default
+      token budget of `500000` is a fail-safe and will stop the pipeline mid-month.
+      Check the source chip on each reads "DB" — "environment fallback" means the
+      value is coming from one runtime's env and the two may drift
 - [ ] Per-model daily caps confirmed in `/admin` or `site_settings`
       (`ai.daily_flash_cap_microusd`, `ai.daily_pro_cap_microusd`; defaults $1/day and $5/day)
 - [ ] `EMAIL_UNSUBSCRIBE_SECRET` and `HEALTHCHECK_TOKEN` set as Worker secrets;
@@ -244,7 +256,7 @@ Before enabling payments, reconcile the pre-fix pipeline backlog once:
 - [ ] Supabase Site URL, recovery redirect, OAuth callbacks, SMTP and auth rate/CAPTCHA
       controls configured for `https://nyuz.app`
 - [ ] `/admin/cost` checked after the first 48 hours: the projected month-end figure must sit
-      under `AI_MONTHLY_COST_USD`, or the pipeline will stop partway through the month.
+      under the monthly AI budget, or the pipeline will stop partway through the month.
       Reduce active sources or raise the ceiling — do not leave a projection that overruns
 - [ ] Stripe uses live mode; four active recurring USD prices are exactly $14.99/$149.90 and $29.99/$299.90;
       all documented webhook events enabled; webhook endpoint, refund sync and customer portal tested end to end

@@ -206,8 +206,10 @@ export function allowedBreaking<T extends "important" | "everything" | "off">(
 /** Quiet gap so a loop cannot drain the reason tier. Follow-ups should still feel instant. */
 export const ASK_COOLDOWN_MS = 8_000;
 
-/** Reasoning plus a short answer. The route default is far larger than Ask needs. */
-export const ASK_MAX_TOKENS = 4096;
+// The Ask ceiling moved to `ai.ask_max_tokens` (0056) so it can be tuned without
+// a deploy; its default and bounds live in src/lib/ai/runtime-config.ts. Not
+// re-exported from here as a constant, because a second copy nothing reads is
+// the kind of dead weight that later reads as a bug.
 
 export type AskDecision =
   { ok: true } | { ok: false; reason: "disabled" | "plan" | "quota" | "cooldown" };

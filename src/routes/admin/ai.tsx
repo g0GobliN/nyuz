@@ -97,7 +97,7 @@ function AiPage() {
             note={
               data.usage.budgetTokens > 0
                 ? `${formatNumber(data.usage.monthTokens)} of ${formatNumber(data.usage.budgetTokens)} tokens used or reserved. Calls stop before crossing the configured ceiling.`
-                : "AI_MONTHLY_TOKEN_BUDGET is not configured, so the ledger records calls but does not enforce a global ceiling."
+                : "No monthly token budget is in force, so the ledger records calls but does not enforce a global ceiling. Set one in AI runtime."
             }
           >
             <div className="grid gap-3 sm:grid-cols-4">

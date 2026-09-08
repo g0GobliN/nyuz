@@ -706,6 +706,14 @@ export type SiteSetting = {
   updated_at: string;
 };
 
+export type AiRuntimeConfigRow = {
+  key: string;
+  value: Json;
+  changed_by: string | null;
+  changed_at: string;
+  note: string;
+};
+
 export type FeatureFlag = {
   key: string;
   label: string;
@@ -945,6 +953,7 @@ export type Database = {
       ai_model_routes: Table<AiModelRoute, "max_tokens" | "temperature" | "updated_at">;
       ai_prompts: Table<AiPrompt, "system_prompt" | "updated_at">;
       site_settings: Table<SiteSetting, "value" | "updated_by" | "updated_at">;
+      ai_runtime_config: Table<AiRuntimeConfigRow, "changed_by" | "changed_at" | "note">;
       feature_flags: Table<
         FeatureFlag,
         "label" | "description" | "enabled" | "rollout_percent" | "updated_by" | "updated_at"

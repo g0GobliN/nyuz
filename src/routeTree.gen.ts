@@ -21,6 +21,7 @@ import { Route as SupportRouteImport } from './routes/support'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminAccessRouteImport } from './routes/admin/access'
 import { Route as AdminAiRouteImport } from './routes/admin/ai'
+import { Route as AdminAiRuntimeRouteImport } from './routes/admin/ai-runtime'
 import { Route as AdminAuditRouteImport } from './routes/admin/audit'
 import { Route as AdminBlogRouteImport } from './routes/admin/blog'
 import { Route as AdminContentRouteImport } from './routes/admin/content'
@@ -100,6 +101,11 @@ const AdminAccessRoute = AdminAccessRouteImport.update({
 const AdminAiRoute = AdminAiRouteImport.update({
   id: '/ai',
   path: '/ai',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAiRuntimeRoute = AdminAiRuntimeRouteImport.update({
+  id: '/ai-runtime',
+  path: '/ai-runtime',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminAuditRoute = AdminAuditRouteImport.update({
@@ -215,6 +221,7 @@ export interface FileRoutesByFullPath {
   '/support': typeof SupportRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/ai': typeof AdminAiRoute
+  '/admin/ai-runtime': typeof AdminAiRuntimeRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/content': typeof AdminContentRoute
@@ -247,6 +254,7 @@ export interface FileRoutesByTo {
   '/support': typeof SupportRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/ai': typeof AdminAiRoute
+  '/admin/ai-runtime': typeof AdminAiRuntimeRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/content': typeof AdminContentRoute
@@ -282,6 +290,7 @@ export interface FileRoutesById {
   '/support': typeof SupportRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/ai': typeof AdminAiRoute
+  '/admin/ai-runtime': typeof AdminAiRuntimeRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/blog': typeof AdminBlogRoute
   '/admin/content': typeof AdminContentRoute
@@ -318,6 +327,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/admin/access'
     | '/admin/ai'
+    | '/admin/ai-runtime'
     | '/admin/audit'
     | '/admin/blog'
     | '/admin/content'
@@ -350,6 +360,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/admin/access'
     | '/admin/ai'
+    | '/admin/ai-runtime'
     | '/admin/audit'
     | '/admin/blog'
     | '/admin/content'
@@ -384,6 +395,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/admin/access'
     | '/admin/ai'
+    | '/admin/ai-runtime'
     | '/admin/audit'
     | '/admin/blog'
     | '/admin/content'
@@ -506,6 +518,13 @@ declare module '@tanstack/react-router' {
       path: '/ai'
       fullPath: '/admin/ai'
       preLoaderRoute: typeof AdminAiRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/ai-runtime': {
+      id: '/admin/ai-runtime'
+      path: '/ai-runtime'
+      fullPath: '/admin/ai-runtime'
+      preLoaderRoute: typeof AdminAiRuntimeRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/audit': {
@@ -654,6 +673,7 @@ declare module '@tanstack/react-router' {
 interface AdminRouteChildren {
   AdminAccessRoute: typeof AdminAccessRoute
   AdminAiRoute: typeof AdminAiRoute
+  AdminAiRuntimeRoute: typeof AdminAiRuntimeRoute
   AdminAuditRoute: typeof AdminAuditRoute
   AdminBlogRoute: typeof AdminBlogRoute
   AdminContentRoute: typeof AdminContentRoute
@@ -666,6 +686,7 @@ interface AdminRouteChildren {
 const AdminRouteChildren: AdminRouteChildren = {
   AdminAccessRoute: AdminAccessRoute,
   AdminAiRoute: AdminAiRoute,
+  AdminAiRuntimeRoute: AdminAiRuntimeRoute,
   AdminAuditRoute: AdminAuditRoute,
   AdminBlogRoute: AdminBlogRoute,
   AdminContentRoute: AdminContentRoute,

@@ -430,16 +430,29 @@ describe("launch cost and privacy boundaries", () => {
     expect(budget).toContain("MIN_AI_MONTHLY_TOKEN_BUDGET = 10_000");
     expect(budget).toMatch(/if \(!Number\.isFinite\(value\) \|\| value < floor\) return null/);
 
+    // 0056 moved both ceilings into `ai_runtime_config`, so the resolution that
+    // used to happen inline in config.ts now happens in runtime-config.ts. The
+    // invariant is unchanged and is asserted in its new home: the floors and the
+    // built-in defaults are the last two links of the precedence chain, so a
+    // deployment that configures nothing anywhere still meters.
+    const runtime = readFileSync("src/lib/ai/runtime-config.ts", "utf8");
+    expect(runtime).toContain("DEFAULT_AI_MONTHLY_TOKEN_BUDGET");
+    expect(runtime).toContain("DEFAULT_AI_MONTHLY_COST_USD");
+    expect(runtime).toContain("MIN_AI_MONTHLY_COST_USD");
+    expect(runtime).toContain("MIN_AI_MONTHLY_TOKEN_BUDGET");
+    // The code default is always the final candidate, so `picked` can never be
+    // left unset and metering can never be off.
+    expect(runtime).toMatch(/\{ value: spec\.codeDefault, source: "default" as const \}/);
+
+    // And an out-of-range ceiling must still stop the pipeline rather than be
+    // rounded into one. Silently promoting a mistyped 0.10 to the $1 floor would
+    // spend ten times what was asked for; promoting it to the $10 default, a
+    // hundred times. Both are the failure the floors exist to prevent.
     const config = readFileSync("src/lib/ai/config.ts", "utf8");
-    // An unset binding still falls back to the built-in default rather than
-    // turning metering off; a set-but-unusable one refuses loudly.
-    expect(config).toContain("DEFAULT_AI_MONTHLY_TOKEN_BUDGET");
-    expect(config).toContain("DEFAULT_AI_MONTHLY_COST_USD");
-    expect(config).toMatch(/configuredCeiling\(configured, MIN_AI_MONTHLY_TOKEN_BUDGET\)/);
-    expect(config).toMatch(/configuredCeiling\(configuredCost, MIN_AI_MONTHLY_COST_USD\)/);
-    expect(config).toContain("AI_MONTHLY_TOKEN_BUDGET must be a token count of at least");
-    expect(config).toContain("AI_MONTHLY_COST_USD must be a dollar amount of at least");
-    expect(config).not.toContain("if (!configured) return null");
+    expect(config).toContain('refuseInvalidCeiling(runtime, "ai.monthly_token_budget"');
+    expect(config).toContain('refuseInvalidCeiling(runtime, "ai.monthly_cost_usd"');
+    expect(config).toContain("Refusing to run:");
+    expect(runtime).not.toMatch(/return \{ value: spec\.min, clamped: true \}/);
   });
 
   it("caps spend in money as well as tokens, and refuses on either ceiling", () => {

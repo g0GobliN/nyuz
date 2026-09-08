@@ -2,13 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { adminOnly, audit } from "@/lib/server/guard";
-import {
-  configuredCeiling,
-  DEFAULT_AI_MONTHLY_COST_USD,
-  MICROUSD_PER_USD,
-  MIN_AI_MONTHLY_COST_USD,
-} from "@/lib/ai/budget";
-import { ambientEnv } from "@/lib/runtime-env";
+import { MICROUSD_PER_USD } from "@/lib/ai/budget";
+import { loadAiRuntimeConfig } from "@/lib/ai/runtime-config";
 import {
   computeAiCredit,
   SPEND_WINDOW_KEYS,
@@ -122,10 +117,14 @@ export type AiSpend = {
   /** When the projection crosses the ceiling, if it does within this month. */
   exhaustionDate: string | null;
   /**
-   * False when `AI_MONTHLY_COST_USD` could not be read here and the built-in
-   * default is being displayed instead. The Worker reserving tokens reads the
-   * same variable from its own env, so an unresolved read means the page cannot
-   * prove which ceiling is enforced — and must say so rather than assert one.
+   * False when no ceiling is configured anywhere and the built-in fail-safe
+   * default is what is being displayed.
+   *
+   * The caveat this used to carry — that the page could not prove which ceiling
+   * the Worker was enforcing, because each runtime read its own environment —
+   * no longer applies once a value is stored in `ai_runtime_config` (0056). Both
+   * runtimes resolve through the same table, so a `true` here now means the page
+   * and the reserve path agree by construction rather than by coincidence.
    */
   ceilingResolved: boolean;
 };
@@ -138,18 +137,19 @@ export const getAiSpend = createServerFn({ method: "GET" })
     const row = Array.isArray(data) ? data[0] : null;
     if (!row) return null;
 
-    // `ambientEnv()`, never a bare `process.env`: on Workers that binding does
-    // not exist at all, and a bare reference is a ReferenceError that would take
-    // the console page down rather than degrade it. Same reasoning as
-    // `createAdminClient` and `readEnv` in email/send.ts.
-    // A value below the floor is treated as unset, so `configuredCeiling` stays
-    // false and the page says the built-in default is in force — rather than
-    // reporting a typo'd $0.10 as the operator's deliberate ceiling.
-    const resolved = configuredCeiling(
-      ambientEnv()["AI_MONTHLY_COST_USD"],
-      MIN_AI_MONTHLY_COST_USD,
-    );
-    const ceilingUsd = resolved ?? DEFAULT_AI_MONTHLY_COST_USD;
+    // Same resolver as the reserve path, so the ceiling this page projects burn
+    // against is the ceiling that will actually stop the pipeline (0056). It used
+    // to read `AI_MONTHLY_COST_USD` from the console's own environment, which on
+    // Cloudflare is not the environment `npm run pipeline` reads.
+    //
+    // `ceilingResolved` still means "the operator set this deliberately" rather
+    // than "the built-in fail-safe is in force" — it is now true for a database
+    // row as well as an env var, since both are deliberate acts, and false only
+    // when nothing is configured anywhere.
+    const runtime = await loadAiRuntimeConfig(context.actor.db);
+    const ceilingUsd = runtime.monthlyCostUsd;
+    const resolved =
+      runtime.resolved["ai.monthly_cost_usd"].source === "default" ? null : ceilingUsd;
 
     const spentUsd = row.spent_microusd / 1_000_000;
     const now = new Date();

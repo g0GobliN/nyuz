@@ -4,11 +4,7 @@ import { z } from "zod";
 import { adminOnly, audit, superadminOnly, AdminAuthError } from "@/lib/server/guard";
 import { invalidateRouteCache } from "@/lib/ai/config";
 import { ambientEnv } from "@/lib/runtime-env";
-import {
-  configuredCeiling,
-  DEFAULT_AI_MONTHLY_TOKEN_BUDGET,
-  MIN_AI_MONTHLY_TOKEN_BUDGET,
-} from "@/lib/ai/budget";
+import { loadAiRuntimeConfig } from "@/lib/ai/runtime-config";
 import type { AiCapability } from "@/lib/supabase/types";
 
 /**
@@ -117,12 +113,10 @@ export const getAiConfig = createServerFn({ method: "GET" })
       reservedTokens += row.reserved_tokens;
       byCapability[row.capability] += tokens;
     }
-    // Falls back rather than showing NaN: an unparseable or typo'd binding must
-    // not make the console's budget bar unreadable. The pipeline refuses to run
-    // on the same value — see completeRouted in ai/config.ts.
-    const budgetTokens =
-      configuredCeiling(ambientEnv()["AI_MONTHLY_TOKEN_BUDGET"], MIN_AI_MONTHLY_TOKEN_BUDGET) ??
-      DEFAULT_AI_MONTHLY_TOKEN_BUDGET;
+    // The resolver clamps to the bounds in runtime-config.ts and falls back
+    // through env to the code default, so this can no longer be NaN and no
+    // longer disagrees with the ceiling the reserve path enforces (0056).
+    const { monthlyTokenBudget: budgetTokens } = await loadAiRuntimeConfig(db);
 
     return {
       providers: (providers.data ?? []).map((p) => ({

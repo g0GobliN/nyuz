@@ -80,6 +80,16 @@ export type CompleteOptions = {
   /** Must cover reasoning plus output. Do not size this to the expected answer. */
   maxTokens?: number;
   temperature?: number;
+  /**
+   * How much hidden reasoning to ask for, when the operator has chosen a value.
+   *
+   * Absent means "send nothing", which is not the same as sending a default:
+   * a provider that has never heard of `reasoning_effort` rejects the whole
+   * request rather than ignoring the field, so an unset knob must not put it on
+   * the wire. `completeRouted` only passes this through when the console has
+   * been moved off "default", so the pre-0056 request shape is byte-identical.
+   */
+  reasoningEffort?: "minimal" | "low" | "medium" | "high";
   env?: AiEnv;
   signal?: AbortSignal;
 };
@@ -118,6 +128,9 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
       model,
       max_tokens: maxTokens,
       ...(opts.temperature !== undefined && { temperature: opts.temperature }),
+      // Not in the SDK's request type for every model, but accepted on the wire
+      // by the reasoning models this routes to. Spread in only when set.
+      ...(opts.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
       messages: [
         ...(opts.system ? [{ role: "system" as const, content: opts.system }] : []),
         { role: "user" as const, content: opts.user },
