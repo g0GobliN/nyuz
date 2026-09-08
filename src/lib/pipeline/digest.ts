@@ -66,6 +66,7 @@ import type {
 } from "@/lib/supabase/types";
 import { hourInZone, nextSlot } from "./schedule";
 import { policyFor, rankIntoLanes } from "./freshness";
+import { loadAiRuntimeConfig } from "@/lib/ai/runtime-config";
 
 type Db = SupabaseClient<Database>;
 
@@ -703,6 +704,10 @@ async function resolveImpacts(
     return { ready, tokens: 0 };
   }
 
+  // Resolved once for the whole backfill rather than per chunk, so every chunk
+  // of one run is generated under the same ceiling (0056). Was a literal 8192.
+  const { digestMaxTokens } = await loadAiRuntimeConfig(db, options.secrets);
+
   let tokens = 0;
   for (let offset = 0; offset < needsBackfill.length; offset += WHY_CHUNK_SIZE) {
     const chunk = needsBackfill.slice(offset, offset + WHY_CHUNK_SIZE);
@@ -715,7 +720,7 @@ async function resolveImpacts(
         capability: "digest",
         system: `${IMPACT_PROMPT}\n\n${impactContract()}`,
         user: renderImpactBrief(claimed),
-        maxTokens: 8192,
+        maxTokens: digestMaxTokens,
         feature: "impact",
         ...(options.secrets ? { secrets: options.secrets } : {}),
       });

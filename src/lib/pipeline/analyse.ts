@@ -63,15 +63,20 @@ import {
 } from "./evidence-selection";
 import { scoreEvent, type EventSignals } from "./scoring";
 import { LIVE_LANE_DENOMINATOR, LIVE_LANE_NUMERATOR, LIVE_QUEUE_HOURS } from "./freshness";
+import { loadAiRuntimeConfig } from "@/lib/ai/runtime-config";
 
 type Db = SupabaseClient<Database>;
 
 /**
- * Events per run.
+ * Events per run, when the operator has not set one.
  *
  * Small because each one is a call to the strongest configured model. The backlog
  * is drained deliberately with `npm run pipeline -- analyse --limit N`, not by a
  * schedule that could run up a bill while nobody is watching.
+ *
+ * Since 0056 this is only the floor of the precedence chain: `ai.analysis_batch_size`
+ * in the console wins, then `ANALYSE_BATCH_SIZE`, then this. It stays here as the
+ * value `runtime-config.ts` names as the code default, so the two cannot drift.
  */
 const BATCH = 8;
 
@@ -137,15 +142,23 @@ const ENRICHMENT_SCAN = 50;
 const ENRICHMENT_BATCH = 3;
 
 /**
- * Output ceiling for the analysis call. Must cover reasoning tokens plus the
- * full JSON document. After removing deterministically-generated fields
- * (topics, tags, numbers, dates, entities) from the AI contract, the
- * typical useful output fits in ~2048 tokens. 4096 provides headroom for
- * complex events with rich understand blocks while eliminating waste.
- * Raised from 3072 because deepseek-v4-pro reasoning tokens alone can
- * exceed 2048, causing TruncatedCompletionError with empty content.
+ * The analysis output ceiling moved to `ai.analyse_max_tokens` in 0056 and now
+ * arrives on `Context.maxTokens`. Its reasoning, which is why the default is
+ * 4096 and not less, is recorded on the setting in `src/lib/ai/runtime-config.ts`:
+ * the ceiling must cover reasoning tokens plus the full JSON document, and
+ * deepseek-v4-pro reasoning alone can exceed 2048 — below which the call returns
+ * empty content and a `TruncatedCompletionError` rather than a short answer.
  */
-const ANALYSE_MAX_TOKENS = 4096;
+
+/**
+ * The thin-contract ceiling.
+ *
+ * Left as a literal rather than made configurable: it is not a spending knob but
+ * a property of the shorter contract, which asks for strictly less JSON than the
+ * full one. Tying it to the configurable ceiling would let a raised budget
+ * silently buy longer thin analyses, which is not what raising a budget means.
+ */
+const THIN_CONTRACT_MAX_TOKENS = 4096;
 
 /**
  * Whether a document is due its one material-enrichment refresh, given its
@@ -500,7 +513,13 @@ export type AnalysisReport = {
 
 export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<AnalysisReport> {
   const startedAt = (options.now ?? new Date()).toISOString();
-  const events = await selectEvents(db, options);
+
+  // Resolved once, before anything is selected: the batch size decides how much
+  // this run may spend, and the ceiling decides how much each call may. Both are
+  // operator settings since 0056, and both must be the same number for every
+  // event in the batch — see `Context.maxTokens`.
+  const runtime = await loadAiRuntimeConfig(db, options.secrets);
+  const events = await selectEvents(db, options, runtime.analysisBatchSize);
 
   // Read once per run, not once per event: the topic vocabulary is fifteen rows
   // that change when somebody edits a migration, and the outlet names are sixty-
@@ -517,7 +536,15 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
   // a time, and an operator watching the output can stop it.
   for (const event of events) {
     outcomes.push(
-      await runOne(db, event, { options, topics, outlets, slugs, system, demand: hasDemand }),
+      await runOne(db, event, {
+        options,
+        topics,
+        outlets,
+        slugs,
+        system,
+        demand: hasDemand,
+        maxTokens: runtime.analyseMaxTokens,
+      }),
     );
   }
 
@@ -546,6 +573,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
             slugs,
             system,
             demand: hasDemand,
+            maxTokens: runtime.analyseMaxTokens,
           }),
         );
       }
@@ -636,7 +664,7 @@ type Pending = {
  * fail again — a cluster of thirty CI notifications has nothing to analyse — and a
  * schedule that retried it every half hour would spend real money doing so.
  */
-async function selectEvents(db: Db, options: AnalyseOptions): Promise<Pending[]> {
+async function selectEvents(db: Db, options: AnalyseOptions, batch: number): Promise<Pending[]> {
   const ids = options.eventIds;
   const columns = "id, title, status, analysis_tokens";
 
@@ -663,7 +691,7 @@ async function selectEvents(db: Db, options: AnalyseOptions): Promise<Pending[]>
       // while the database uses another is worse than either. One set of numbers,
       // in `freshness.ts`, sent explicitly.
       const { data, error } = await db.rpc("pending_events_with_demand", {
-        p_limit: options.limit ?? BATCH,
+        p_limit: options.limit ?? batch,
         p_live_hours: LIVE_QUEUE_HOURS,
         p_live_share: LIVE_LANE_NUMERATOR / LIVE_LANE_DENOMINATOR,
       });
@@ -683,7 +711,7 @@ async function selectEvents(db: Db, options: AnalyseOptions): Promise<Pending[]>
     .in("status", states)
     .or(`analysis_deferred_until.is.null,analysis_deferred_until.lte.${now}`)
     .order("first_seen_at", { ascending: false })
-    .limit(options.limit ?? BATCH);
+    .limit(options.limit ?? batch);
 
   if (error) throw new Error(`selecting events: ${error.message}`);
   return data ?? [];
@@ -786,6 +814,13 @@ type Context = {
   system: string;
   /** Demand check result. See loadDemand. */
   demand: DemandResult;
+  /**
+   * The analysis output ceiling in force for this run, resolved once in
+   * `analyse()` rather than per event. Reading it per call would make a save
+   * mid-run change the ceiling between two events of the same batch, so a batch
+   * could report two different ceilings for the same work.
+   */
+  maxTokens: number;
 };
 
 type Coverage = {
@@ -935,7 +970,7 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
       system: systemPrompt,
       user,
       feature: "analyse",
-      maxTokens: useThinContract ? 4096 : ANALYSE_MAX_TOKENS,
+      maxTokens: useThinContract ? THIN_CONTRACT_MAX_TOKENS : ctx.maxTokens,
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
@@ -1104,7 +1139,7 @@ async function runEnrichment(db: Db, event: Pending, ctx: Context): Promise<Even
       system: `${ctx.system}\n\n${contract()}`,
       user,
       feature: "enrich",
-      maxTokens: ANALYSE_MAX_TOKENS,
+      maxTokens: ctx.maxTokens,
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };

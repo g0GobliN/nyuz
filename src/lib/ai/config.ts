@@ -13,14 +13,8 @@ import {
 } from "@/lib/ai/deepseek";
 import { aiCostCeilingMicrousd, aiCostMicrousd } from "@/lib/ai/cost";
 import { dailyCapsMicrousd } from "@/lib/ai/launch-flags";
-import {
-  configuredCeiling,
-  DEFAULT_AI_MONTHLY_COST_USD,
-  DEFAULT_AI_MONTHLY_TOKEN_BUDGET,
-  MICROUSD_PER_USD,
-  MIN_AI_MONTHLY_COST_USD,
-  MIN_AI_MONTHLY_TOKEN_BUDGET,
-} from "@/lib/ai/budget";
+import { MICROUSD_PER_USD } from "@/lib/ai/budget";
+import { loadAiRuntimeConfig, type AiRuntimeConfig } from "@/lib/ai/runtime-config";
 
 /**
  * Runtime AI routing.
@@ -73,6 +67,13 @@ export type ResolvedRoute = {
   source: RouteSource;
   /** Set when the route resolved but its secret is missing, so callers can say why. */
   missingSecret: boolean;
+  /**
+   * Why the env fallback was taken, when it was. Carried on the route rather
+   * than logged at the point of the decision so `prepare` can name the actual
+   * cause when `ai.provider_fallback` is off — "no route row" and "secret
+   * missing" need different fixes, and by then the branch that knew is gone.
+   */
+  fallbackReason?: string;
 };
 
 /**
@@ -92,10 +93,34 @@ const ENV_FALLBACK: Record<ModelTier, { model: string; maxTokens: number }> = {
   reason: { model: "deepseek-v4-pro", maxTokens: 16384 },
 };
 
-function envRoute(capability: ModelTier, secrets: SecretBag): ResolvedRoute {
+/**
+ * Raised when a route is unusable and the operator has turned provider fallback
+ * off.
+ *
+ * The default is to fall back, because a news product that stops producing news
+ * because a settings table hiccuped is a worse failure than one running slightly
+ * stale config. But that default also means a provider swap that was never going
+ * to work — inactive row, missing secret — looks like it succeeded and quietly
+ * keeps billing DeepSeek. An operator mid-migration wants the opposite: fail
+ * loudly, so the misconfiguration surfaces now rather than on next month's
+ * invoice. `ai.provider_fallback` picks which of those two failure modes to have.
+ */
+export class AiRouteUnavailableError extends Error {
+  constructor(capability: ModelTier, why: string) {
+    super(
+      `No usable AI route for "${capability}": ${why}. Provider fallback is ` +
+        `turned off in AI Runtime settings, so this call is refused rather than ` +
+        `silently routed to the built-in DeepSeek route.`,
+    );
+    this.name = "AiRouteUnavailableError";
+  }
+}
+
+function envRoute(capability: ModelTier, secrets: SecretBag, reason: string): ResolvedRoute {
   const fallback = ENV_FALLBACK[capability];
   const key = `MODEL_${capability.toUpperCase()}`;
   return {
+    fallbackReason: reason,
     capability,
     providerSlug: "deepseek",
     providerLabel: "DeepSeek (env fallback)",
@@ -142,7 +167,11 @@ export async function resolveRoute(
       .maybeSingle();
 
     if (error || !row) {
-      route = envRoute(capability, secrets);
+      route = envRoute(
+        capability,
+        secrets,
+        error ? `reading ai_model_routes failed (${error.message})` : "no route is configured",
+      );
     } else {
       // Deliberately a second query rather than a PostgREST embed. The Database
       // type here is hand-written, so it carries no relationship metadata for
@@ -156,7 +185,13 @@ export async function resolveRoute(
         .maybeSingle();
 
       if (!p || !p.active) {
-        route = envRoute(capability, secrets);
+        route = envRoute(
+          capability,
+          secrets,
+          p
+            ? `provider "${p.slug}" is marked inactive`
+            : "the configured provider no longer exists",
+        );
       } else {
         const resolved: ResolvedRoute = {
           capability,
@@ -173,11 +208,17 @@ export async function resolveRoute(
         // A configured provider whose secret was never set would fail on the
         // first real call. Prefer the known-good env path and let the console
         // surface the missing secret.
-        route = resolved.missingSecret ? envRoute(capability, secrets) : resolved;
+        route = resolved.missingSecret
+          ? envRoute(capability, secrets, `${p.api_key_env} is not set in this environment`)
+          : resolved;
       }
     }
-  } catch {
-    route = envRoute(capability, secrets);
+  } catch (cause) {
+    route = envRoute(
+      capability,
+      secrets,
+      `the configuration database was unreachable (${cause instanceof Error ? cause.message : String(cause)})`,
+    );
   }
 
   cache.set(capability, { route, at: Date.now() });
@@ -400,16 +441,26 @@ async function reserveUsage(
     throw new AiBudgetExceededError();
   }
 
-  const configured = secrets["AI_MONTHLY_TOKEN_BUDGET"];
-  const globalCap =
-    configured === undefined || configured.trim() === ""
-      ? DEFAULT_AI_MONTHLY_TOKEN_BUDGET
-      : configuredCeiling(configured, MIN_AI_MONTHLY_TOKEN_BUDGET);
-  if (globalCap === null) {
-    throw new Error(
-      `AI_MONTHLY_TOKEN_BUDGET must be a token count of at least ${MIN_AI_MONTHLY_TOKEN_BUDGET}. Anything lower refuses every call and stops the pipeline.`,
-    );
-  }
+  // Both monthly ceilings come from `ai_runtime_config` first, then the env var,
+  // then the code default (0056). Before that they were read straight off
+  // `secrets` here, which meant the number this function enforced was whatever
+  // the *current* runtime happened to have — `.env` under `npm run pipeline`, a
+  // Cloudflare variable in the Worker — and the two could disagree indefinitely
+  // with nothing reporting it. The resolver clamps to the hard bounds in
+  // runtime-config.ts, so a value that used to have to be rejected here as a
+  // suspected typo is now impossible to store or read in the first place.
+  const runtime = await loadAiRuntimeConfig(dbForFlags, secrets);
+
+  // Refuse rather than fall back. `loadAiRuntimeConfig` skips an out-of-bounds
+  // ceiling so the console can still render, but the reserve path must not spend
+  // against a number nobody meant: `AI_MONTHLY_COST_USD=0.10` where `10` was
+  // intended is finite and positive, and quietly continuing on the $10 default
+  // would spend a hundred times what was asked for. Stopping loudly is the whole
+  // point of the floors — see MIN_AI_MONTHLY_* in budget.ts.
+  refuseInvalidCeiling(runtime, "ai.monthly_token_budget", "AI_MONTHLY_TOKEN_BUDGET");
+  refuseInvalidCeiling(runtime, "ai.monthly_cost_usd", "AI_MONTHLY_COST_USD");
+
+  const globalCap = runtime.monthlyTokenBudget;
 
   // A reasoning completion can consume its whole ceiling, and JSON gets one
   // repair retry. Input is approximated at 2.5 characters/token: English runs
@@ -420,16 +471,7 @@ async function reserveUsage(
   const completion = (call.maxTokens ?? route.maxTokens) * (mayRetry ? 2 : 1);
   const reserve = prompt + completion;
 
-  const configuredCost = secrets["AI_MONTHLY_COST_USD"];
-  const costCapUsd =
-    configuredCost === undefined || configuredCost.trim() === ""
-      ? DEFAULT_AI_MONTHLY_COST_USD
-      : configuredCeiling(configuredCost, MIN_AI_MONTHLY_COST_USD);
-  if (costCapUsd === null) {
-    throw new Error(
-      `AI_MONTHLY_COST_USD must be a dollar amount of at least ${MIN_AI_MONTHLY_COST_USD}. A slipped decimal here refuses every call and looks like a provider outage.`,
-    );
-  }
+  const costCapUsd = runtime.monthlyCostUsd;
 
   // Priced before anything is spent, and refused outright when it cannot be
   // priced. `p_estimated_cost_microusd` is nullable in SQL for older callers,
@@ -484,6 +526,31 @@ async function reserveUsage(
     });
   }
   return data;
+}
+
+/**
+ * Stops the pipeline on a ceiling that cannot be one.
+ *
+ * The message names where the bad value came from, because the fix differs: a
+ * rejected database row is fixed in AI Runtime settings, a rejected env var is
+ * fixed in whichever environment this runtime reads — and after 0056 the second
+ * of those is usually a leftover that should simply be deleted.
+ */
+function refuseInvalidCeiling(
+  runtime: AiRuntimeConfig,
+  key: "ai.monthly_token_budget" | "ai.monthly_cost_usd",
+  envVar: string,
+): void {
+  const invalid = runtime.resolved[key].invalid;
+  if (!invalid) return;
+  const where =
+    invalid.source === "database"
+      ? "the value saved in AI Runtime settings"
+      : `${envVar} in this environment`;
+  throw new Error(
+    `Refusing to run: ${where} is ${String(invalid.value)}, which is ${invalid.reason}. ` +
+      `Correct it in AI Runtime settings rather than spending against a ceiling nobody meant.`,
+  );
 }
 
 async function settleUsage(
@@ -545,6 +612,15 @@ async function prepare(
 ): Promise<{ route: ResolvedRoute; call: CompleteOptions }> {
   const secrets = opts.secrets ?? secretsDefault();
   const route = await resolveRoute(opts.capability, secrets);
+  const runtime = await loadAiRuntimeConfig(createAdminClient(secrets), secrets);
+
+  // The gate lives here rather than inside `resolveRoute` so the route is still
+  // resolved, cached and inspectable when fallback is refused — the console's
+  // probe and status pages want to show WHAT it fell back to, not just that it
+  // did. `resolveRoute` reports; this decides.
+  if (route.source === "env-fallback" && !runtime.providerFallback) {
+    throw new AiRouteUnavailableError(opts.capability, route.fallbackReason ?? "route unavailable");
+  }
 
   const system =
     opts.system ?? (opts.promptKey ? await resolvePrompt(opts.promptKey, secrets) : undefined);
@@ -569,6 +645,11 @@ async function prepare(
       ...(system ? { system } : {}),
       maxTokens: opts.maxTokens ?? route.maxTokens,
       ...(route.temperature !== undefined ? { temperature: route.temperature } : {}),
+      // "default" means send nothing, so the request shape is unchanged from
+      // before this knob existed. See `reasoningEffort` in deepseek.ts.
+      ...(runtime.reasoningEffort !== "default"
+        ? { reasoningEffort: runtime.reasoningEffort }
+        : {}),
       env: synthetic,
       ...(opts.signal ? { signal: opts.signal } : {}),
     },

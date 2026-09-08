@@ -7,15 +7,9 @@ import { TruncatedCompletionError } from "@/lib/ai/deepseek";
 import { signedInOnly } from "./guard";
 import { backfill, WINDOW_HOURS } from "@/lib/pipeline/backfill";
 import { nextSlot } from "@/lib/pipeline/schedule";
-import {
-  ASK_COOLDOWN_MS,
-  ASK_MAX_TOKENS,
-  PLAN_LIMITS,
-  askCapabilityFor,
-  clipLabels,
-  decideAsk,
-} from "@/lib/plans";
+import { ASK_COOLDOWN_MS, PLAN_LIMITS, askCapabilityFor, clipLabels, decideAsk } from "@/lib/plans";
 import { judgeStoryQuestion } from "@/lib/ask-scope";
+import { loadAiRuntimeConfig } from "@/lib/ai/runtime-config";
 import { defaultMonthKey, describeMonth, type HistoryMonth } from "@/lib/history-window";
 import {
   digestInWindow,
@@ -726,11 +720,17 @@ export const askStory = createServerFn({ method: "POST" })
       if (capability === null) {
         return { ok: false, reason: "plan", detail: "Ask is included on Plura and Omni." };
       }
+      // `ai.ask_max_tokens` since 0056, so an operator can trade Ask answer
+      // length against spend without a deploy. Read here rather than hoisted:
+      // the reservation this sizes is made on the very next line, and a value
+      // read earlier in the handler could be a minute staler than the one the
+      // budget is checked against.
+      const { askMaxTokens } = await loadAiRuntimeConfig(actor.db);
       const result = await completeRouted({
         capability,
         system: ASK_SYSTEM,
         user: coverage,
-        maxTokens: ASK_MAX_TOKENS,
+        maxTokens: askMaxTokens,
         feature: "ask",
         meterUserId: actor.id,
         userMonthlyTokenCap: limits.monthlyAiTokenCap,

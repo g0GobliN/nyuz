@@ -11,7 +11,9 @@ import {
   Rss,
   ScrollText,
   ShieldCheck,
+  SlidersHorizontal,
   Users,
+  Activity,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Logo } from "@/components/landing/nav";
@@ -20,6 +22,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 import { isAdmin, useViewer } from "@/lib/viewer";
 import { humanError } from "@/lib/errors";
+import { useQuery } from "@tanstack/react-query";
+import { getAiStatus } from "@/lib/server/ai-status";
 
 /**
  * The console shell.
@@ -54,6 +58,9 @@ const NAV: NavEntry[] = [
   // pipeline reads, and what it thinks with.
   { to: "/admin/sources", label: "Sources", icon: Rss },
   { to: "/admin/ai", label: "AI providers", icon: Cpu },
+  // Between providers and cost because it is the bridge: the budgets and
+  // ceilings that decide how much the thinking on either side of it may spend.
+  { to: "/admin/ai-runtime", label: "AI runtime", icon: SlidersHorizontal },
   // Next to AI providers for the same reason: what the pipeline thinks with,
   // and what that thinking costs.
   { to: "/admin/cost", label: "Cost", icon: Coins },
@@ -95,6 +102,11 @@ function NavItem({ to, label, icon: Icon, exact }: NavEntry) {
 
 export function AdminLayout() {
   const { data: viewer, isLoading } = useViewer();
+  const { data: aiStatus, isLoading: aiStatusLoading } = useQuery({
+    queryKey: ["admin", "ai-status"],
+    queryFn: () => getAiStatus(),
+    staleTime: 30_000,
+  });
 
   if (isLoading) {
     return <PageLoading label="Checking your access" />;
@@ -116,6 +128,14 @@ export function AdminLayout() {
     );
   }
 
+  const statusColor =
+    aiStatus?.status === "blocked" || aiStatus?.status === "near_limit"
+      ? "text-destructive"
+      : aiStatus?.status === "warning"
+        ? "text-yellow-500"
+        : "text-emerald-500";
+  const statusLabel = aiStatus?.status ?? "—";
+
   return (
     <div className="min-h-screen bg-background">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-hairline bg-surface px-4 py-5 lg:flex">
@@ -132,6 +152,24 @@ export function AdminLayout() {
             <NavItem key={n.to} {...n} />
           ))}
         </nav>
+
+        {/* A link, not a read-out. The status this shows is almost always
+            checked by someone who then wants to change something about it, and
+            the setting that would is one tap away. */}
+        <Link
+          to="/admin/ai-runtime"
+          className="rounded-2xl border border-hairline bg-surface-2 p-4 transition-colors duration-200 hover:border-border"
+        >
+          <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+            <Activity className="h-3.5 w-3.5" /> AI Status
+          </p>
+          <p className={cn("mt-1 text-[13px] font-semibold capitalize", statusColor)}>
+            {aiStatusLoading ? "…" : statusLabel}
+          </p>
+          {aiStatus && aiStatus.blocker.kind !== "none" ? (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{aiStatus.blockerLabel}</p>
+          ) : null}
+        </Link>
 
         <div className="rounded-2xl border border-hairline bg-surface-2 p-4">
           <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
