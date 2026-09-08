@@ -140,6 +140,8 @@ export type Candidate = {
   importance: number;
   /** 0..10. */
   novelty: number;
+  /** When the world saw the event — for alert freshness. */
+  firstSeenAt: string;
   topics: CandidateTopic[];
   /**
    * Normalised concepts from the shared analysis pass (0049). Written once per
@@ -554,11 +556,13 @@ async function matchReader(
 
     if (!options.skipAlerts) {
       const importanceOf = new Map(candidates.map((c) => [c.eventId, c.importance] as const));
+      const eventAtOf = new Map(candidates.map((c) => [c.eventId, c.firstSeenAt] as const));
       await fireAlerts(db, {
         userId: reader.userId,
         hits: fresh.map((h) => ({
           eventId: h.eventId,
           importance: importanceOf.get(h.eventId) ?? 0,
+          eventAt: eventAtOf.get(h.eventId) ?? null,
         })),
         ...(options.now ? { now: options.now } : {}),
         ...(options.email ? { email: options.email } : {}),
@@ -762,7 +766,7 @@ async function topicIndex(db: Db): Promise<Map<string, IndexedTopic>> {
 async function loadCandidates(db: Db, options: MatchOptions): Promise<Candidate[]> {
   let query = db
     .from("events")
-    .select("id, title, what_happened, importance, novelty, tags, analysed_at")
+    .select("id, title, what_happened, importance, novelty, tags, analysed_at, first_seen_at")
     .not("analysed_at", "is", null)
     .eq("status", "complete")
     .order("analysed_at", { ascending: false })
@@ -826,6 +830,7 @@ async function loadCandidates(db: Db, options: MatchOptions): Promise<Candidate[
     whatHappened: event.what_happened,
     importance: event.importance,
     novelty: event.novelty,
+    firstSeenAt: event.first_seen_at,
     // Empty for every event analysed before 0049. Those stay reachable through
     // their title and briefing paragraph rather than being re-analysed, which
     // would cost the corpus twice to populate a matching aid.

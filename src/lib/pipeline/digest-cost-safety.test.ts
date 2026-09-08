@@ -99,6 +99,16 @@ function tables(over: {
         relevance: 0.9,
         matched_at: minutesAgo(60),
         briefed_at: null,
+        expired_at: null,
+        // FakeDb does not resolve embedded resources — the nested object is
+        // seeded instead, which is what `loadMatches` reads for the freshness
+        // ranking. Ninety minutes old, so this is unambiguously today's news
+        // and these tests stay about cost rather than about the clock.
+        events: {
+          first_seen_at: minutesAgo(90),
+          importance: 7,
+          novelty: 6,
+        },
       },
     ],
     events: [
@@ -110,6 +120,7 @@ function tables(over: {
         after_state: "Something shipped.",
         importance: 7,
         novelty: 6,
+        first_seen_at: minutesAgo(90),
       },
     ],
     event_topics: [],

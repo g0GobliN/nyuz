@@ -298,11 +298,14 @@ drops CI-ref titles; cluster parks leftovers as failed events.
 **The cron's per-run limit assumes a paid Cloudflare plan.** A Worker invocation may make
 50 subrequests on the free plan and 1000 on paid; `SCHEDULED_LIMIT` is 24 sources, which
 is roughly 120 subrequests. **On the free plan this must come down**, and it is the only
-one of the three that must: there are six stages — ingestion every fifteen
-minutes, clustering at `10,40`, analysis at `20,50`, matching at `25,55`, digest
-every five minutes, and a weekly dormant nudge — carried by **three** triggers,
-because Cloudflare registers three per Worker and silently drops the rest. The
-last four share `STAGES_CRON` and are told apart by the minute. The two model stages are
+one of the three that must: there are seven stages — ingestion every fifteen
+minutes, clustering at `4,34`, classification at `10,40`, analysis at `47,53`,
+matching at `25,55`, digest every five minutes, and a daily dormant sweep —
+carried by **three** triggers, because Cloudflare registers three per Worker and
+silently drops the rest. The last five share `STAGES_CRON` and are told apart by
+the minute. Classification (0068) is free — deterministic keyword matching, no
+model — and sits between clustering and analysis because it is what decides
+which events analysis is allowed to see. The two model stages are
 bounded by money and wall-clock rather than by subrequests. Clustering does 12 articles a
 run and analysis 6 events, roughly 35 subrequests, and neither tries to drain its backlog
 unattended.

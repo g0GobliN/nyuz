@@ -57,7 +57,7 @@ describe("paceAlerts", () => {
   const minutesAgo = (n: number) => new Date(now.getTime() - n * 60 * 1000);
   const hoursAgo = (n: number) => minutesAgo(n * 60);
   const hits = (n: number) =>
-    Array.from({ length: n }, (_, i) => ({ eventId: `e${i}`, importance: i }));
+    Array.from({ length: n }, (_, i) => ({ eventId: `e${i}`, importance: i, eventAt: null }));
 
   it("holds one match run to a single burst", () => {
     // 2026-09-01: twenty-two alerts inside one minute, in event order, because
@@ -68,10 +68,10 @@ describe("paceAlerts", () => {
   it("sends the strongest hits, not the first ones the matcher walked past", () => {
     const picked = paceAlerts({
       hits: [
-        { eventId: "routine", importance: 1 },
-        { eventId: "major", importance: 9 },
-        { eventId: "filler", importance: 0 },
-        { eventId: "notable", importance: 5 },
+        { eventId: "routine", importance: 1, eventAt: null },
+        { eventId: "major", importance: 9, eventAt: null },
+        { eventId: "filler", importance: 0, eventAt: null },
+        { eventId: "notable", importance: 5, eventAt: null },
       ],
       recent: [],
       now,
@@ -104,7 +104,7 @@ describe("paceAlerts", () => {
     // second is not less urgent for the first having happened.
     const earlier = Array.from({ length: ALERT_BURST }, () => hoursAgo(2));
     const picked = paceAlerts({
-      hits: [{ eventId: "openai", importance: 9 }],
+      hits: [{ eventId: "openai", importance: 9, eventAt: null }],
       recent: earlier,
       now,
     });
@@ -155,8 +155,8 @@ describe("paceAlerts", () => {
     // A reader on `everything` chose a broader mode. Pacing orders those hits;
     // it must not reapply the importance floor and quietly narrow the setting.
     const low = [
-      { eventId: "a", importance: 0 },
-      { eventId: "b", importance: 1 },
+      { eventId: "a", importance: 0, eventAt: null },
+      { eventId: "b", importance: 1, eventAt: null },
     ];
     expect(low.every((h) => shouldAlert("everything", h.importance))).toBe(true);
     expect(low.every((h) => shouldAlert("important", h.importance))).toBe(false);

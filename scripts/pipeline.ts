@@ -10,6 +10,8 @@
  *   npm run pipeline -- cluster --limit 20    group twenty unclustered articles
  *   npm run pipeline -- cluster --dry-run     decide and print, write nothing
  *   npm run pipeline -- cluster --article ID  one article, for checking a known case
+ *   npm run pipeline -- classify --limit 500 label five hundred events, no AI
+ *   npm run pipeline -- classify --force      re-label events already classified
  *   npm run pipeline -- analyse --limit 4     understand four events, once each
  *   npm run pipeline -- analyse --dry-run     analyse and print, write nothing
  *   npm run pipeline -- analyse --event ID    one event, for checking a known case
@@ -54,6 +56,7 @@
 
 import { analyse, type AnalysisReport, type EventOutcome } from "@/lib/pipeline/analyse";
 import { backfill, type BackfillReport } from "@/lib/pipeline/backfill";
+import { classify, type ClassifyReport } from "@/lib/pipeline/classify";
 import { cluster, type ArticleOutcome, type ClusterReport } from "@/lib/pipeline/cluster";
 import { digest, type DigestReport } from "@/lib/pipeline/digest";
 import { dormant, type DormantReport } from "@/lib/pipeline/dormant";
@@ -61,7 +64,16 @@ import { ingest, type IngestReport, type SourceOutcome } from "@/lib/pipeline/in
 import { match, type MatchReport, type MissReason } from "@/lib/pipeline/match";
 import { db, fail, heading, main, row, say } from "./lib/db.ts";
 
-const STAGES = ["ingest", "cluster", "analyse", "match", "backfill", "digest", "dormant"] as const;
+const STAGES = [
+  "ingest",
+  "cluster",
+  "classify",
+  "analyse",
+  "match",
+  "backfill",
+  "digest",
+  "dormant",
+] as const;
 type Stage = (typeof STAGES)[number];
 
 /**
@@ -100,6 +112,7 @@ main(async () => {
   for (const stage of stages as Stage[]) {
     if (stage === "ingest") await runIngest(args);
     if (stage === "cluster") await runCluster(args);
+    if (stage === "classify") await runClassify(args);
     if (stage === "analyse") await runAnalyse(args);
     if (stage === "match") await runMatch(args);
     if (stage === "backfill") await runBackfill(args);
@@ -169,6 +182,47 @@ function stringFlag(args: string[], name: string): string | null {
   const raw = args[index + 1];
   if (raw === undefined || raw.startsWith("--")) fail(`${name} needs a value.`);
   return raw;
+}
+
+/**
+ * The free stage, and the one an operator reaches for after an incident.
+ *
+ * Draining a classification backlog by hand is safe in a way draining an
+ * analysis backlog is not: there is no model call and no ledger row, so
+ * `--limit 5000` costs seconds of CPU rather than a number on an invoice. That
+ * asymmetry is why this exists as a command at all.
+ */
+async function runClassify(args: string[]): Promise<void> {
+  const limit = numberFlag(args, "--limit");
+  const event = stringFlag(args, "--event");
+  const force = args.includes("--force");
+  const dryRun = args.includes("--dry-run");
+
+  heading(dryRun ? "Classify (dry run — decisions only, nothing written)" : "Classify");
+
+  const report = await classify(db(), {
+    dryRun,
+    force,
+    ...(limit === null ? {} : { limit }),
+    ...(event === null ? {} : { eventIds: [event] }),
+  });
+
+  printClassify(report);
+}
+
+function printClassify(report: ClassifyReport): void {
+  for (const outcome of report.outcomes) {
+    const label = outcome.topics.length === 0 ? "none  " : `${String(outcome.topics.length)} topic`;
+    say(`${label}  ${outcome.title.slice(0, 66)}`);
+  }
+
+  const seconds = (Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000;
+  say();
+  say(row("considered", report.considered));
+  say(row("labelled", report.classified));
+  say(row("nothing followed", report.unmatched));
+  say(row("links written", report.links));
+  say(row("seconds", seconds.toFixed(1)));
 }
 
 async function runCluster(args: string[]): Promise<void> {

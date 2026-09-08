@@ -65,6 +65,7 @@ import type {
   PlanTier,
 } from "@/lib/supabase/types";
 import { hourInZone, nextSlot } from "./schedule";
+import { policyFor, rankIntoLanes } from "./freshness";
 
 type Db = SupabaseClient<Database>;
 
@@ -188,13 +189,51 @@ export type MatchRow = {
   eventId: string;
   relevance: number;
   matchedAt: string;
+  /**
+   * When the world saw the story, from `events.first_seen_at` — not when we
+   * matched it. Those diverge by exactly the amount the pipeline was behind,
+   * which is precisely the interval a stalled pipeline must not be allowed to
+   * hide. Null when the event row could not be read; treated as undateable and
+   * therefore not current.
+   */
+  eventAt: string | null;
+  /** 0..10 shared significance, for the ranking's significance term. */
+  importance: number;
+  /** 0..10 shared novelty. */
+  novelty: number;
 };
 
 /**
- * Highest relevance first, events already briefed dropped, capped at density.
+ * The briefing's ranking: today first, older material only in the room today
+ * left, and nothing past the cadence's ceiling at any cap.
  *
  * Exported because this is the decision a quiet day hangs on, and it must be
  * the same decision in a test as in a run.
+ *
+ * ---------------------------------------------------------------------------
+ * Why this stopped being `relevance DESC`
+ * ---------------------------------------------------------------------------
+ *
+ * It used to be `relevance DESC, matched_at DESC`, which has no term for time
+ * at all — `matched_at` is a tie-break, and a tie between two floats almost
+ * never happens. That is fine while the pipeline is healthy and every candidate
+ * is a few hours old, and it fails completely the moment it is not: after the
+ * September stall, the 8 September briefing led with 1 September and carried 25
+ * August, because those rows genuinely did have the highest relevance. Relevance
+ * is a statement about the reader, and it is silent about whether the news is
+ * news.
+ *
+ * The fix is not to sort by date instead. A reader who follows Formula 1 and not
+ * politics does not want the newest thing, they want their thing, today. So
+ * relevance still leads and `freshness.ts` decays it by age, and on top of that
+ * the bands make "today first" structural rather than merely preferred — see
+ * that module for why a decay alone is a preference and not a guarantee.
+ *
+ * The bands also mean this can return fewer items than the cap allows, and that
+ * is the intended outcome rather than a shortfall to be corrected. On a quiet
+ * day a fourteen-story briefing is the honest one; reaching back past two days
+ * for ordinary material to make it thirty is how a briefing turns into a
+ * backlog.
  *
  * A relevance of exactly 0 is dropped whatever the cap still has room for. By
  * `relevanceOf` in match.ts that score is an importance-0 event with no novelty,
@@ -204,11 +243,20 @@ export type MatchRow = {
  * it produces a paragraph in which the model tells the reader the story does not
  * affect them, which is a worse briefing than one three stories shorter.
  */
-export function selectItems(matches: MatchRow[], already: Set<string>, cap: number): MatchRow[] {
-  return matches
-    .filter((row) => row.relevance > 0 && !already.has(row.eventId))
-    .sort((a, b) => b.relevance - a.relevance || Date.parse(b.matchedAt) - Date.parse(a.matchedAt))
-    .slice(0, Math.max(0, cap));
+export function selectItems(
+  matches: MatchRow[],
+  already: Set<string>,
+  cap: number,
+  now: Date = new Date(),
+  frequency: DigestFrequency = "daily",
+): MatchRow[] {
+  const policy = policyFor(frequency);
+  const eligible = matches.filter((row) => row.relevance > 0 && !already.has(row.eventId));
+  const { priority, backfill } = rankIntoLanes(eligible, now, policy);
+  // `cap` is a ceiling, never a target. If the two lanes together come to
+  // fourteen, the briefing is fourteen stories long — there is deliberately no
+  // path here that reaches further back to reach thirty.
+  return [...priority, ...backfill].slice(0, Math.max(0, cap));
 }
 
 export type WhyItem = { eventId: string; why: string };
@@ -444,7 +492,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   const cap = capFor(prefs.density, plan);
   const matches = await loadMatches(db, due.user_id);
   const already = await alreadyBriefed(db, due.user_id);
-  const picked = selectItems(matches, already, cap);
+  const picked = selectItems(matches, already, cap, options.now ?? new Date(), prefs.frequency);
 
   // The digest cache (0061) is deliberately not consulted. Skipping generation on
   // an unchanged event set is a P1 optimization; the table and RPCs stay dormant
@@ -866,19 +914,40 @@ async function loadPref(db: Db, userId: string): Promise<PrefRow | null> {
   return (data as PrefRow | null) ?? null;
 }
 
+/**
+ * This reader's briefable matches, with the freshness the ranking needs.
+ *
+ * The event is embedded rather than fetched in a second pass: ranking cannot be
+ * done without `first_seen_at`, and a briefing that loaded every candidate and
+ * then went back for their dates would be two round trips to answer one
+ * question. `expired_at` is filtered here rather than in `selectItems` because
+ * an expired candidate is not a low-scoring candidate — it is not a candidate,
+ * and it should not be counted, ranked or reported as one.
+ */
 async function loadMatches(db: Db, userId: string): Promise<MatchRow[]> {
   const { data, error } = await db
     .from("user_events")
-    .select("event_id, relevance, matched_at")
+    .select("event_id, relevance, matched_at, events ( first_seen_at, importance, novelty )")
     .eq("user_id", userId)
     .is("briefed_at", null)
+    .is("expired_at", null)
     .order("relevance", { ascending: false });
   if (error) throw new Error(`reading user_events: ${error.message}`);
-  return (data ?? []).map((row) => ({
-    eventId: row.event_id,
-    relevance: row.relevance,
-    matchedAt: row.matched_at,
-  }));
+  return (data ?? []).map((row) => {
+    const event = row.events as {
+      first_seen_at?: string;
+      importance?: number;
+      novelty?: number;
+    } | null;
+    return {
+      eventId: row.event_id,
+      relevance: row.relevance,
+      matchedAt: row.matched_at,
+      eventAt: event?.first_seen_at ?? null,
+      importance: event?.importance ?? 0,
+      novelty: event?.novelty ?? 0,
+    };
+  });
 }
 
 async function alreadyBriefed(db: Db, userId: string): Promise<Set<string>> {
