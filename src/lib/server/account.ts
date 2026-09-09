@@ -1,8 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { deletionRequiresCancellation } from "@/lib/account-deletion";
 import { signedInOnly } from "./guard";
 import { parseInput } from "./validate";
-import { cancelStripeSubscription } from "./stripe/api";
 import { sendBriefingsPaused, sendWelcomeOnce } from "./email/lifecycle";
 
 /**
@@ -58,12 +58,19 @@ export const notifyBriefingsPaused = createServerFn({ method: "POST" })
  */
 export const pingPresence = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
-  .handler(async ({ context }): Promise<void> => {
+  .handler(async ({ context }): Promise<{ restored: boolean }> => {
     const { data: profile } = await context.actor.db
       .from("profiles")
-      .select("auto_paused_at")
+      .select("auto_paused_at, deletion_requested_at")
       .eq("id", context.actor.id)
       .maybeSingle();
+    if (profile?.deletion_requested_at) {
+      const { data: restored, error } = await context.actor.db.rpc("restore_account_deletion", {
+        p_user: context.actor.id,
+      });
+      if (error) throw new Error(`restoring account: ${error.message}`);
+      return { restored: restored === true };
+    }
     if (profile?.auto_paused_at) {
       await Promise.all([
         context.actor.db
@@ -79,7 +86,7 @@ export const pingPresence = createServerFn({ method: "POST" })
           })
           .eq("id", context.actor.id),
       ]);
-      return;
+      return { restored: false };
     }
     const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     await context.actor.db
@@ -87,6 +94,7 @@ export const pingPresence = createServerFn({ method: "POST" })
       .update({ last_seen_at: new Date().toISOString() })
       .eq("id", context.actor.id)
       .or(`last_seen_at.is.null,last_seen_at.lt."${hourAgo}"`);
+    return { restored: false };
   });
 
 /** A portable copy of the account data nyuz stores for the signed-in reader. */
@@ -224,41 +232,7 @@ export const exportAccountData = createServerFn({ method: "GET" })
     };
   });
 
-/**
- * Deletes the reader's own account, billing first.
- *
- * ---------------------------------------------------------------------------
- * Why the order is the whole design
- * ---------------------------------------------------------------------------
- *
- * `profiles.id` references `auth.users` with `on delete cascade`, and every
- * user-owned table cascades from `profiles`. That is what makes deletion a
- * single call — and it is also the trap: the `subscriptions` row holds the only
- * copy of `stripe_subscription_id`, so deleting the authentication user first
- * destroys the identifier needed to stop the billing. The reader would be gone
- * from the product and still charged every month, with nothing left to link the
- * charge back to them.
- *
- * So Stripe is cancelled first and the deletion is abandoned if that fails.
- * A reader who is still billed but still has an account can try again or write
- * in; a reader who is billed with no account cannot be helped without a manual
- * reconciliation against Stripe. This mirrors docs/account-deletion-runbook.md
- * step for step, which is what operators have been doing by hand.
- *
- * Cancellation is immediate rather than at period end, because "cancel at
- * period end" leaves a live subscription against a customer who no longer
- * exists here.
- *
- * ---------------------------------------------------------------------------
- * Confirmation
- * ---------------------------------------------------------------------------
- *
- * The caller must send back the account's own email address. This is not
- * security — the request is already behind `signedInOnly`, and anyone holding
- * the token could read the address from the profile. It is there so that an
- * irreversible action cannot happen on one stray click, which is the failure
- * mode this actually has.
- */
+/** Starts the reversible 30-day deletion grace period for this reader. */
 export const deleteAccount = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
   .validator((input: unknown) =>
@@ -268,7 +242,10 @@ export const deleteAccount = createServerFn({ method: "POST" })
     async ({
       context,
       data,
-    }): Promise<{ ok: true } | { ok: false; reason: "mismatch" | "billing"; detail: string }> => {
+    }): Promise<
+      | { ok: true; deletesOn: string }
+      | { ok: false; reason: "mismatch" | "subscription" | "account"; detail: string }
+    > => {
       const { actor } = context;
 
       if (data.confirmEmail.toLowerCase() !== actor.email.toLowerCase()) {
@@ -279,46 +256,40 @@ export const deleteAccount = createServerFn({ method: "POST" })
         };
       }
 
-      const { data: subscription } = await actor.db
+      const { data: subscription, error: subscriptionError } = await actor.db
         .from("subscriptions")
-        .select("stripe_subscription_id, status")
+        .select("stripe_subscription_id, cancel_at_period_end")
         .eq("user_id", actor.id)
         .maybeSingle();
-
-      const subscriptionId = subscription?.stripe_subscription_id;
-      if (subscriptionId) {
-        const cancelled = await cancelStripeSubscription(subscriptionId);
-        // `resource_missing` means Stripe has no such subscription — already
-        // cancelled, or cancelled from the portal. Nothing left to stop, so
-        // this is not a reason to refuse the deletion.
-        const alreadyGone =
-          !cancelled.ok && /resource_missing|No such subscription/i.test(cancelled.error);
-        if (!cancelled.ok && !alreadyGone) {
-          console.error(`Deletion halted for ${actor.id}: ${cancelled.error}`);
-          return {
-            ok: false,
-            reason: "billing",
-            detail:
-              "Your subscription could not be cancelled, so nothing was deleted. Try again shortly, or cancel from the billing page first.",
-          };
-        }
-      }
-
-      // Cascades through profiles to every user-owned table. Accounting rows in
-      // billing_ledger deliberately survive with user_id set to null.
-      const { error } = await actor.db.auth.admin.deleteUser(actor.id);
-      if (error) {
-        // Billing is already stopped at this point, so the worst case is a Uno
-        // account that outlives its owner's intent — recoverable by retrying.
-        console.error(`Deleting ${actor.id} failed after cancelling billing: ${error.message}`);
+      if (subscriptionError) {
         return {
           ok: false,
-          reason: "billing",
-          detail:
-            "Your subscription was cancelled but the account could not be removed. Try again in a moment.",
+          reason: "account",
+          detail: "Your billing state could not be verified. Try again in a moment.",
+        };
+      }
+      if (deletionRequiresCancellation(subscription)) {
+        return {
+          ok: false,
+          reason: "subscription",
+          detail: "Cancel your subscription from Billing before deleting your account.",
         };
       }
 
-      return { ok: true };
+      const { data: requestedAt, error } = await actor.db.rpc("request_account_deletion", {
+        p_user: actor.id,
+      });
+      if (error) {
+        const subscriptionChanged = /active_subscription/i.test(error.message);
+        return {
+          ok: false,
+          reason: subscriptionChanged ? "subscription" : "account",
+          detail: subscriptionChanged
+            ? "Cancel your subscription from Billing before deleting your account."
+            : "Could not schedule account deletion. Try again in a moment.",
+        };
+      }
+
+      return { ok: true, deletesOn: requestedAt };
     },
   );

@@ -2,9 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Check, Download, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
-import { Button } from "@/components/kit";
+import { Button, LinkButton } from "@/components/kit";
+import { ACCOUNT_DELETION_GRACE_DAYS, deletionDeadline } from "@/lib/account-deletion";
 import { useFeedback } from "@/lib/feedback-store";
 import { useAuth } from "@/lib/auth";
+import { usePlan } from "@/lib/plan-state";
 import { usePrefs } from "@/lib/prefs-store";
 import { deleteAccount, exportAccountData } from "@/lib/server/account";
 import { cn } from "@/lib/utils";
@@ -19,6 +21,7 @@ function Settings() {
   // The address on the account, not a stored copy — the account is the only
   // thing that actually receives a briefing.
   const auth = useAuth();
+  const { plan, cancelsOn, loading: planLoading } = usePlan();
   const email = auth.user?.email ?? "";
   const [nextEmail, setNextEmail] = useState(email);
   const { state, signals, reset } = useFeedback();
@@ -31,8 +34,14 @@ function Settings() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmEmail, setConfirmEmail] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Set once the grace period has actually started. The reader is still signed
+  // in at that point, so this is the only moment the restore-by date can be
+  // shown to them — after signing out there is no screen left to show it on.
+  const [deletesOn, setDeletesOn] = useState<Date | null>(null);
 
   useEffect(() => setNextEmail(email), [email]);
+
+  const mustCancelSubscription = !planLoading && plan !== "uno" && cancelsOn === null;
 
   const save = () => {
     setSaved(true);
@@ -49,10 +58,14 @@ function Settings() {
         setDeleteError(result.detail);
         return;
       }
-      // The session outlives the account until it is cleared, and every request
-      // it makes from here on would 401. Signing out is what actually ends the
-      // visit; the redirect follows from the auth guard.
-      await auth.signOut();
+      // Not signed out here. The account is off but still real for thirty days,
+      // so the session stays valid, and the reader is owed the date their
+      // account stops being recoverable before the screen goes away. Presence
+      // will not quietly undo the request in the meantime — restoring needs a
+      // sign-in newer than the request (0074).
+      setConfirmingDelete(false);
+      setConfirmEmail("");
+      setDeletesOn(deletionDeadline(result.deletesOn));
     } catch (cause) {
       setDeleteError(
         cause instanceof Error ? cause.message : "Could not delete the account. Try again.",
@@ -226,70 +239,116 @@ function Settings() {
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-destructive">
             Danger zone
           </h2>
-          <div className="mt-5 flex flex-wrap items-start gap-5">
-            <div className="flex-1">
-              <p className="text-[14px] font-medium">Delete account</p>
+          {deletesOn ? (
+            <div className="mt-5">
+              <p className="text-[14px] font-medium">Deletion scheduled</p>
               <p className="mt-1.5 max-w-md text-[12.5px] leading-relaxed text-muted-foreground">
-                Removes your profile, topics, feedback signals and delivery history. Any paid
-                subscription is cancelled first. This cannot be undone.
+                Briefings and alerts have stopped. Your account is permanently deleted on{" "}
+                <span className="font-medium text-foreground">
+                  {deletesOn.toLocaleDateString(undefined, {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </span>
+                . Signing back in before then restores everything exactly as you left it.
               </p>
-            </div>
-            {confirmingDelete ? null : (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  setConfirmingDelete(true);
-                  setDeleteError(null);
-                }}
-                disabled={busy !== null}
+                className="mt-4"
+                onClick={() => void auth.signOut()}
               >
-                Delete account
+                Sign out
               </Button>
-            )}
-          </div>
-
-          {confirmingDelete ? (
-            <div className="mt-5 rounded-2xl border border-destructive/30 p-4">
-              <label htmlFor="confirm-delete" className="text-[12.5px] text-muted-foreground">
-                Type <span className="font-medium text-foreground">{email}</span> to confirm.
-              </label>
-              <input
-                id="confirm-delete"
-                type="email"
-                autoComplete="off"
-                value={confirmEmail}
-                onChange={(event) => setConfirmEmail(event.target.value)}
-                className="mt-2 h-11 w-full rounded-2xl border border-input bg-background px-4 text-[16px] outline-none focus:border-destructive md:text-[14.5px]"
-              />
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => void removeAccount()}
-                  disabled={
-                    busy !== null || confirmEmail.trim().toLowerCase() !== email.toLowerCase()
-                  }
-                >
-                  {busy === "delete" ? "Deleting…" : "Delete my account"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setConfirmingDelete(false);
-                    setConfirmEmail("");
-                    setDeleteError(null);
-                  }}
-                  disabled={busy !== null}
-                >
-                  Cancel
-                </Button>
-              </div>
-              {deleteError ? (
-                <p className="mt-3 text-[12.5px] text-destructive">{deleteError}</p>
-              ) : null}
             </div>
-          ) : null}
+          ) : (
+            <>
+              <div className="mt-5 flex flex-wrap items-start gap-5">
+                <div className="flex-1">
+                  <p className="text-[14px] font-medium">Delete account</p>
+                  <p className="mt-1.5 max-w-md text-[12.5px] leading-relaxed text-muted-foreground">
+                    Stops all briefings and alerts immediately. Your account remains recoverable for{" "}
+                    {ACCOUNT_DELETION_GRACE_DAYS} days, then your profile and personal data are
+                    permanently deleted.
+                  </p>
+                  {mustCancelSubscription ? (
+                    <p className="mt-2 max-w-md text-[12.5px] font-medium">
+                      Cancel your paid subscription before account deletion can be scheduled.
+                    </p>
+                  ) : cancelsOn ? (
+                    <p className="mt-2 max-w-md text-[12.5px] text-muted-foreground">
+                      Your subscription cancellation is scheduled, so account deletion is available.
+                    </p>
+                  ) : null}
+                </div>
+                {confirmingDelete ? null : (
+                  <div className="flex flex-wrap gap-2">
+                    {mustCancelSubscription ? (
+                      <LinkButton to="/dashboard/billing" variant="outline" size="sm">
+                        Cancel subscription first
+                      </LinkButton>
+                    ) : null}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setConfirmingDelete(true);
+                        setDeleteError(null);
+                      }}
+                      disabled={busy !== null || planLoading || mustCancelSubscription}
+                    >
+                      Delete account
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {confirmingDelete ? (
+                <div className="mt-5 rounded-2xl border border-destructive/30 p-4">
+                  <label htmlFor="confirm-delete" className="text-[12.5px] text-muted-foreground">
+                    Type <span className="font-medium text-foreground">{email}</span> to confirm.
+                  </label>
+                  <input
+                    id="confirm-delete"
+                    type="email"
+                    autoComplete="off"
+                    value={confirmEmail}
+                    onChange={(event) => setConfirmEmail(event.target.value)}
+                    className="mt-2 h-11 w-full rounded-2xl border border-input bg-background px-4 text-[16px] outline-none focus:border-destructive md:text-[14.5px]"
+                  />
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => void removeAccount()}
+                      disabled={
+                        busy !== null ||
+                        mustCancelSubscription ||
+                        confirmEmail.trim().toLowerCase() !== email.toLowerCase()
+                      }
+                    >
+                      {busy === "delete" ? "Scheduling…" : "Delete my account"}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setConfirmingDelete(false);
+                        setConfirmEmail("");
+                        setDeleteError(null);
+                      }}
+                      disabled={busy !== null}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                  {deleteError ? (
+                    <p className="mt-3 text-[12.5px] text-destructive">{deleteError}</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          )}
         </section>
       </div>
     </DashboardShell>

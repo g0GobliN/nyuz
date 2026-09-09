@@ -115,9 +115,13 @@ function NavItem({
   );
 }
 
+/** Survives the one reload that follows a restored account (0074). */
+const RESTORED_KEY = "nyuz.account-restored";
+
 export function DashboardShell({ children, title }: { children: ReactNode; title?: string }) {
   const { prefs } = usePrefs();
   const [search, setSearch] = useState(false);
+  const [restored, setRestored] = useState(false);
   // Shares the `["viewer"]` query key with the console shell, so moving between
   // the two does not re-ask who you are.
   const { data: viewer } = useViewer();
@@ -140,9 +144,27 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
   const closed = access.data?.reason === "maintenance" && !staff;
 
   useEffect(() => {
-    void pingPresence().catch(() => {
-      // A missed ping must not take the dashboard down. The next load retries.
-    });
+    void pingPresence()
+      .then(({ restored }) => {
+        // Reload once so preference hooks that raced the restore do not keep
+        // rendering the temporary deletion pause from their local cache. The
+        // flag survives that reload so the reader is told their account came
+        // back — an account silently un-deleting itself is the one outcome
+        // nobody asked for.
+        if (restored) {
+          window.sessionStorage.setItem(RESTORED_KEY, "1");
+          window.location.reload();
+        }
+      })
+      .catch(() => {
+        // A missed ping must not take the dashboard down. The next load retries.
+      });
+  }, []);
+
+  useEffect(() => {
+    if (window.sessionStorage.getItem(RESTORED_KEY) === null) return;
+    window.sessionStorage.removeItem(RESTORED_KEY);
+    setRestored(true);
   }, []);
 
   useEffect(() => {
@@ -252,7 +274,24 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
         </header>
 
         <main className="px-5 pb-28 pt-8 sm:px-7 lg:pb-16">
-          <div className="mx-auto w-full max-w-5xl">{children}</div>
+          <div className="mx-auto w-full max-w-5xl">
+            {restored ? (
+              <div className="mb-6 flex items-start gap-3 rounded-2xl border border-hairline bg-surface-2 p-4">
+                <p className="flex-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                  <span className="font-medium text-foreground">Welcome back.</span> Signing in
+                  cancelled the deletion of your account, and your briefing settings are exactly as
+                  you left them.
+                </p>
+                <button
+                  onClick={() => setRestored(false)}
+                  className="text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Dismiss
+                </button>
+              </div>
+            ) : null}
+            {children}
+          </div>
         </main>
       </div>
 
@@ -333,15 +372,6 @@ function AccountMenu({ initial, staff, name }: { initial: string; staff: boolean
           </>
         ) : null}
 
-        {/* History sits seventh in the mobile tab bar, which scrolls sideways
-            with no scrollbar — on a phone it is off the right edge and, as far
-            as anyone can tell, not in the product at all. The account menu is
-            the one navigation that is fully visible at every width. */}
-        <DropdownMenuItem asChild>
-          <Link to="/dashboard/history">
-            <History /> History
-          </Link>
-        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link to="/dashboard/settings">
             <Settings /> Settings

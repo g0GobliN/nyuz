@@ -54,6 +54,8 @@ export type DormantReport = {
   skipped: number;
   failed: number;
   purged: number;
+  /** Accounts whose reversible deletion window ended during this sweep. */
+  deletedAccounts: number;
   /** Unbriefed matches marked ineligible by age (0068). Marked, not deleted. */
   expired: number;
   outcomes: DormantOutcome[];
@@ -108,6 +110,7 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
     outcomes.push(await nudgeOne(db, candidate, options, now));
   }
   let purged = 0;
+  let deletedAccounts = 0;
   let expired = 0;
   if (options.dryRun !== true) {
     const { data, error } = await db.rpc("purge_expired_digests", { p_limit: 500 });
@@ -119,6 +122,13 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
     });
     if (corpusError) console.error(`purging expired corpus: ${corpusError.message}`);
     else purged += corpus ?? 0;
+
+    const { data: accounts, error: accountError } = await db.rpc(
+      "purge_expired_account_deletions",
+      { p_limit: 100 },
+    );
+    if (accountError) console.error(`purging expired accounts: ${accountError.message}`);
+    else deletedAccounts = accounts ?? 0;
 
     // Briefing candidates that aged out without ever being sent (0068). Counted
     // separately from `purged` because nothing is destroyed here — the rows keep
@@ -144,6 +154,7 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
     skipped: outcomes.filter((o) => o.decision === "skipped").length,
     failed: outcomes.filter((o) => o.decision === "failed").length,
     purged,
+    deletedAccounts,
     expired,
     outcomes,
   };
@@ -318,6 +329,7 @@ export function describeDormant(report: DormantReport): string {
   return (
     `dormant: ${report.considered} due, ${report.sent} warned, ${report.paused} paused, ` +
     `${report.skipped} skipped, ${report.failed} failed, ${report.purged} expired rows purged, ` +
+    `${report.deletedAccounts} expired accounts deleted, ` +
     `${report.expired} stale candidates retired, ${seconds}s`
   );
 }

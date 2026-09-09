@@ -75,6 +75,10 @@ export type Profile = {
   paused_notified_at: string | null;
   /** Set only by the inactivity job; presence resumes this kind of pause. */
   auto_paused_at: string | null;
+  /** Set while account deletion is inside its reversible 30-day grace period. */
+  deletion_requested_at: string | null;
+  /** Pause state to restore if the reader returns during the grace period. */
+  deletion_previous_paused: boolean;
 };
 
 export type Subscription = {
@@ -762,6 +766,8 @@ export type Database = {
         | "welcomed_at"
         | "paused_notified_at"
         | "auto_paused_at"
+        | "deletion_requested_at"
+        | "deletion_previous_paused"
       >;
       subscriptions: Table<
         Subscription,
@@ -1389,6 +1395,18 @@ export type Database = {
         }[];
       };
       purge_expired_corpus: {
+        Args: { p_limit?: number };
+        Returns: number;
+      };
+      request_account_deletion: {
+        Args: { p_user: string };
+        Returns: string;
+      };
+      restore_account_deletion: {
+        Args: { p_user: string };
+        Returns: boolean;
+      };
+      purge_expired_account_deletions: {
         Args: { p_limit?: number };
         Returns: number;
       };

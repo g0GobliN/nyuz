@@ -1,32 +1,46 @@
 # Account deletion runbook
 
-Readers delete their own account from Settings → Danger zone. `deleteAccount` in `src/lib/server/account.ts` performs the sequence below automatically, in the same order this runbook always prescribed: **cancel Stripe first, delete the authentication user second.** Never invert that. `profiles.id` references `auth.users` with `on delete cascade`, so deleting the authentication user first destroys the `subscriptions` row holding `stripe_subscription_id` — the reader vanishes from the product and keeps being charged, with nothing left to link the charge back to.
+Readers delete their own account from Settings → Danger zone. Since migration `0074`, deletion is **reversible for 30 days**: `deleteAccount` in `src/lib/server/account.ts` starts a grace period rather than destroying anything. Nothing is cascaded until the daily dormant sweep purges an expired request.
 
-The operator procedure below is now the fallback, for the cases self-service cannot reach: a reader who cannot sign in, a deletion that failed partway, or a request arriving by email.
+Two rules replace the old cancel-Stripe-first ordering, and both are enforced in the database:
+
+1. **A live subscription blocks deletion.** `request_account_deletion` raises `active_subscription` while `subscriptions.stripe_subscription_id` is set and `cancel_at_period_end` is not true. The reader cancels in Stripe's portal from Billing first. nyuz no longer cancels Stripe on their behalf — the old flow cancelled and hard-deleted in one click, which left nothing to undo if it was a mistake.
+2. **Restoring requires a fresh sign-in.** `restore_account_deletion` only fires when `auth.users.last_sign_in_at` is newer than `deletion_requested_at`, so the session that asked for deletion cannot quietly undo it by navigating to another dashboard page.
 
 ## What self-service does
 
 1. Confirms the typed address matches the account. This guards against a stray click, not against an attacker — the call is already behind `signedInOnly`.
-2. Reads `subscriptions` for `stripe_subscription_id`.
-3. If a subscription id is present, cancels it immediately via `DELETE /v1/subscriptions/{id}`. Immediate rather than at period end: a subscription outliving the account bills a reader who can no longer sign in.
-4. Aborts the whole deletion if cancellation fails, leaving the account intact and recoverable. A `resource_missing` from Stripe is treated as already-cancelled and does not block.
-5. Deletes the authentication user, which cascades to every user-owned table. `billing_ledger` deliberately retains non-identifying financial facts with `user_id = null`.
+2. Reads `subscriptions` and refuses with `reason: "subscription"` if billing is still live, pointing the reader at Billing. The same check is re-run inside the RPC, so a subscription that starts between the two is still caught.
+3. Calls `request_account_deletion`, which in one transaction: stamps `profiles.deletion_requested_at`, records the reader's existing pause state in `profiles.deletion_previous_paused`, clears `auto_paused_at`, sets `notification_preferences.paused = true`, and retires queued `deliveries` as `failed`. Pausing is what removes the reader from matching, alerts, digest scheduling and `event_has_demand` — all four already gate on `paused = false`.
+4. Shows the reader the exact date the account stops being recoverable, then lets them sign out. They are not signed out automatically: the account is still real, and the date is only visible while they are still on the screen.
 
-If step 5 fails after step 3 succeeded, the reader is told so and can retry. Billing is already stopped at that point, so the worst case is a Free account that outlives its owner's intent.
+## Restoration
+
+Signing in during the window and loading any dashboard page calls `pingPresence`, which calls `restore_account_deletion`. That clears `deletion_requested_at`, restores the reader's _original_ pause preference (not "unpaused" — a reader who had briefings paused before deleting still wants them paused), and stamps `last_seen_at`. The shell reloads once and shows a "welcome back" notice so the reversal is never silent.
+
+Deliveries retired in step 3 are not resurrected. The briefings they carried are stale by then; the next cycle generates current ones.
+
+## Permanent deletion
+
+`purge_expired_account_deletions(p_limit)` runs from the dormant stage of the daily maintenance job (`src/lib/pipeline/dormant.ts`), reported as `deletedAccounts`. It deletes from `auth.users` where `deletion_requested_at <= now() - interval '30 days'`, batched at 100 with `skip locked`. `profiles.id` references `auth.users` with `on delete cascade` and every user-owned table cascades from `profiles`, so that one delete is the whole cascade. `billing_ledger` deliberately retains non-identifying financial facts with `user_id = null`.
+
+To confirm the sweep is working, check the dormant line in the maintenance log: `N expired accounts deleted`.
 
 ## Operator procedure (fallback)
 
+For what self-service cannot reach: a reader who cannot sign in, a request arriving by email, or a deletion that must happen immediately rather than in 30 days.
+
 1. Verify the requester owns the email address and record the Supabase user UUID. Export their data first if they requested a copy.
 2. Read `subscriptions` for that UUID and record `stripe_customer_id`, `stripe_subscription_id`, `status`, and `cancel_at_period_end` in the support ticket.
-3. If `stripe_subscription_id` is present, open that exact subscription in the production Stripe Dashboard. Cancel it immediately (not only at period end) and record the Stripe cancellation result. Do not search by display name.
-4. Wait for the signed `customer.subscription.deleted` webhook to appear as processed in `stripe_events`. Confirm the local subscription is `plan = 'uno'`, `status = 'canceled'`, and `stripe_subscription_id is null`. If the webhook fails, retry it from Stripe; do not continue to deletion while billing is active or uncertain.
-5. Check Stripe for any other active/trialing/past-due Nyuz subscription on the same customer. Cancel any duplicate before continuing. This is a safety check for historical data; the application now prevents creating a second subscription.
-6. Delete the user from Supabase Authentication using the production dashboard. `profiles.id` references `auth.users` with `on delete cascade`, and the user-owned application tables cascade from `profiles`. Accounting rows deliberately retain non-identifying financial facts with `user_id = null`.
-7. Verify the authentication user, profile, subscription, notification preferences, digests, deliveries, custom-source memberships, Telegram account, push subscriptions, and saved/feedback rows are gone. Verify again in Stripe that no subscription for the customer is billable.
+3. If `stripe_subscription_id` is present, open that exact subscription in the production Stripe Dashboard and cancel it immediately (not only at period end). Do not search by display name.
+4. Wait for the signed `customer.subscription.deleted` webhook to appear as processed in `stripe_events`. Confirm the local subscription is `plan = 'uno'`, `status = 'canceled'`, and `stripe_subscription_id is null`. If the webhook fails, retry it from Stripe; do not continue while billing is active or uncertain.
+5. Check Stripe for any other active/trialing/past-due nyuz subscription on the same customer and cancel duplicates. This is a safety check for historical data; the application now prevents creating a second subscription.
+6. For a normal request, call `select public.request_account_deletion('<uuid>')` as `service_role` and tell the reader the returned date. For an immediate erasure request, delete the user from Supabase Authentication in the production dashboard — that is the same cascade the sweep performs, 30 days early.
+7. Verify. After step 6's immediate path: the authentication user, profile, subscription, notification preferences, digests, deliveries, custom-source memberships, Telegram account, push subscriptions, and saved/feedback rows are gone, and no subscription for the customer is billable in Stripe.
 
 Recovery rules:
 
-- If Stripe cancellation fails, stop and retry; the account remains intact and recoverable.
+- A reader who changes their mind only has to sign in. Do not intervene manually; `restore_account_deletion` restores their original pause state, and clearing `deletion_requested_at` by hand does not.
+- If Stripe cancellation fails, stop. The account is untouched and the reader can retry.
 - If local webhook synchronization fails, keep the account and replay the Stripe event.
-- If Supabase deletion fails after Stripe cancellation, retry the deletion. The user may temporarily retain a Free account but cannot be charged.
 - Never recreate or manually fake a webhook row. Replay the signed event from Stripe so idempotency and audit state remain correct.
