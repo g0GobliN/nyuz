@@ -238,6 +238,28 @@
   }
 }
 
+@keyframes feedback-pop {
+  0% {
+    transform: scale(0.88);
+  }
+  55% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.feedback-pop {
+  animation: feedback-pop 380ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feedback-pop {
+    animation: none;
+  }
+}
+
 /* The mark writing itself: one dash the length of the whole letterform, its
    offset unwound so the stroke arrives stem first, then the shoulder, then the
    leg. 78.84 is the measured length of MARK_PATH in nav.tsx — change the
@@ -331,7 +353,8 @@
 }
 
 @keyframes auth-mark-idle {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.5;
     transform: scaleX(0.7) translateY(0);
   }
@@ -342,9 +365,15 @@
 }
 
 @keyframes auth-mark-focus {
-  0% { transform: scaleX(0.7) translateY(0); }
-  50% { transform: scaleX(0.85) translateY(-2px); }
-  100% { transform: scaleX(0.7) translateY(0); }
+  0% {
+    transform: scaleX(0.7) translateY(0);
+  }
+  50% {
+    transform: scaleX(0.85) translateY(-2px);
+  }
+  100% {
+    transform: scaleX(0.7) translateY(0);
+  }
 }
 
 @keyframes auth-mark-send {
@@ -412,36 +441,72 @@
   animation: auth-mark-enter 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.auth-signal-visual.entering .auth-signal-mark:nth-child(1) { animation-delay: 0ms; }
-.auth-signal-visual.entering .auth-signal-mark:nth-child(2) { animation-delay: 40ms; }
-.auth-signal-visual.entering .auth-signal-mark:nth-child(3) { animation-delay: 80ms; }
-.auth-signal-visual.entering .auth-signal-mark:nth-child(4) { animation-delay: 120ms; }
-.auth-signal-visual.entering .auth-signal-mark:nth-child(5) { animation-delay: 160ms; }
-.auth-signal-visual.entering .auth-signal-mark:nth-child(6) { animation-delay: 200ms; }
+.auth-signal-visual.entering .auth-signal-mark:nth-child(1) {
+  animation-delay: 0ms;
+}
+.auth-signal-visual.entering .auth-signal-mark:nth-child(2) {
+  animation-delay: 40ms;
+}
+.auth-signal-visual.entering .auth-signal-mark:nth-child(3) {
+  animation-delay: 80ms;
+}
+.auth-signal-visual.entering .auth-signal-mark:nth-child(4) {
+  animation-delay: 120ms;
+}
+.auth-signal-visual.entering .auth-signal-mark:nth-child(5) {
+  animation-delay: 160ms;
+}
+.auth-signal-visual.entering .auth-signal-mark:nth-child(6) {
+  animation-delay: 200ms;
+}
 
 /* Idle pulse */
 .auth-signal-visual.idle .auth-signal-mark {
   animation: auth-mark-idle 4.5s ease-in-out infinite;
 }
 
-.auth-signal-visual.idle .auth-signal-mark:nth-child(1) { animation-delay: 0s; }
-.auth-signal-visual.idle .auth-signal-mark:nth-child(2) { animation-delay: 0.2s; }
-.auth-signal-visual.idle .auth-signal-mark:nth-child(3) { animation-delay: 0.4s; }
-.auth-signal-visual.idle .auth-signal-mark:nth-child(4) { animation-delay: 0.6s; }
-.auth-signal-visual.idle .auth-signal-mark:nth-child(5) { animation-delay: 0.8s; }
-.auth-signal-visual.idle .auth-signal-mark:nth-child(6) { animation-delay: 1s; }
+.auth-signal-visual.idle .auth-signal-mark:nth-child(1) {
+  animation-delay: 0s;
+}
+.auth-signal-visual.idle .auth-signal-mark:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.auth-signal-visual.idle .auth-signal-mark:nth-child(3) {
+  animation-delay: 0.4s;
+}
+.auth-signal-visual.idle .auth-signal-mark:nth-child(4) {
+  animation-delay: 0.6s;
+}
+.auth-signal-visual.idle .auth-signal-mark:nth-child(5) {
+  animation-delay: 0.8s;
+}
+.auth-signal-visual.idle .auth-signal-mark:nth-child(6) {
+  animation-delay: 1s;
+}
 
 /* Focus response */
 .auth-signal-visual.focused .auth-signal-mark {
   animation: auth-mark-focus 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.auth-signal-visual.focused .auth-signal-mark:nth-child(1) { animation-delay: 0ms; }
-.auth-signal-visual.focused .auth-signal-mark:nth-child(2) { animation-delay: 20ms; }
-.auth-signal-visual.focused .auth-signal-mark:nth-child(3) { animation-delay: 40ms; }
-.auth-signal-visual.focused .auth-signal-mark:nth-child(4) { animation-delay: 60ms; }
-.auth-signal-visual.focused .auth-signal-mark:nth-child(5) { animation-delay: 80ms; }
-.auth-signal-visual.focused .auth-signal-mark:nth-child(6) { animation-delay: 100ms; }
+.auth-signal-visual.focused .auth-signal-mark:nth-child(1) {
+  animation-delay: 0ms;
+}
+.auth-signal-visual.focused .auth-signal-mark:nth-child(2) {
+  animation-delay: 20ms;
+}
+.auth-signal-visual.focused .auth-signal-mark:nth-child(3) {
+  animation-delay: 40ms;
+}
+.auth-signal-visual.focused .auth-signal-mark:nth-child(4) {
+  animation-delay: 60ms;
+}
+.auth-signal-visual.focused .auth-signal-mark:nth-child(5) {
+  animation-delay: 80ms;
+}
+.auth-signal-visual.focused .auth-signal-mark:nth-child(6) {
+  animation-delay: 100ms;
+}
 
 /* Typing - pause motion */
 .auth-signal-visual.typing .auth-signal-mark {
@@ -453,12 +518,24 @@
   animation: auth-mark-send 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-.auth-signal-visual.submitting .auth-signal-mark:nth-child(1) { animation-delay: 0ms; }
-.auth-signal-visual.submitting .auth-signal-mark:nth-child(2) { animation-delay: 40ms; }
-.auth-signal-visual.submitting .auth-signal-mark:nth-child(3) { animation-delay: 80ms; }
-.auth-signal-visual.submitting .auth-signal-mark:nth-child(4) { animation-delay: 120ms; }
-.auth-signal-visual.submitting .auth-signal-mark:nth-child(5) { animation-delay: 160ms; }
-.auth-signal-visual.submitting .auth-signal-mark:nth-child(6) { animation-delay: 200ms; }
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(1) {
+  animation-delay: 0ms;
+}
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(2) {
+  animation-delay: 40ms;
+}
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(3) {
+  animation-delay: 80ms;
+}
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(4) {
+  animation-delay: 120ms;
+}
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(5) {
+  animation-delay: 160ms;
+}
+.auth-signal-visual.submitting .auth-signal-mark:nth-child(6) {
+  animation-delay: 200ms;
+}
 
 /* Code state - transition to signal-blue dots */
 .auth-signal-visual.is-code .auth-signal-mark {
@@ -513,7 +590,11 @@
   inset: 0;
   background:
     linear-gradient(to right, transparent 55%, var(--background) 100%),
-    linear-gradient(to top, color-mix(in oklab, var(--background) 45%, transparent), transparent 40%);
+    linear-gradient(
+      to top,
+      color-mix(in oklab, var(--background) 45%, transparent),
+      transparent 40%
+    );
 }
 
 /* Keep the full auth entry visible above mobile browser controls on genuinely

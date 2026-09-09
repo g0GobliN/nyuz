@@ -125,14 +125,14 @@ export function StoryCard({
             active={vote === "useful"}
             onClick={() => onVote(story.id, "useful")}
           >
-            <ThumbsUp className="h-3.5 w-3.5" />
+            <ThumbsUp className={cn("h-3.5 w-3.5", vote === "useful" && "fill-current")} />
           </IconToggle>
           <IconToggle
             label="Not useful"
             active={vote === "not-useful"}
             onClick={() => onVote(story.id, "not-useful")}
           >
-            <ThumbsDown className="h-3.5 w-3.5" />
+            <ThumbsDown className={cn("h-3.5 w-3.5", vote === "not-useful" && "fill-current")} />
           </IconToggle>
           <IconToggle label="Not interested" onClick={() => onDismiss(story.id)}>
             <EyeOff className="h-3.5 w-3.5" />
@@ -171,6 +171,7 @@ function IconToggle({
       aria-pressed={active}
       className={cn(
         "inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors",
+        active && "feedback-pop",
         active
           ? "bg-signal/15 text-signal"
           : "text-muted-foreground hover:bg-muted hover:text-foreground",

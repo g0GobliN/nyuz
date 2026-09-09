@@ -185,6 +185,7 @@ export function StoryArticle({
                   onClick={() => onVote(value)}
                   className={cn(
                     "inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border py-2 text-[12.5px] transition-colors",
+                    on && "feedback-pop",
                     on
                       ? value === "useful"
                         ? "border-signal/50 bg-signal/10 text-signal"
@@ -192,7 +193,7 @@ export function StoryArticle({
                       : "border-border hover:bg-muted",
                   )}
                 >
-                  <Icon className="h-3.5 w-3.5" />
+                  <Icon className={cn("h-3.5 w-3.5", on && "fill-current")} />
                   {value === "useful" ? "Useful" : "Not useful"}
                 </button>
               );

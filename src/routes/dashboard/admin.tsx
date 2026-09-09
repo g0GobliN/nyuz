@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Check, Info } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DashboardShell, PageHeader, StaffOnly } from "@/components/dashboard/shell";
 import { Loading, LogoLoader, PanelLoading } from "@/components/loading";
 import { Chip } from "@/components/kit";
@@ -47,6 +47,8 @@ function PipelineView() {
     queryFn: () => listRecentEvents(),
     staleTime: 30_000,
     enabled: tab === "events",
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
   });
 
   return (
@@ -81,7 +83,12 @@ function PipelineView() {
         <>
           {tab === "pipeline" ? <PipelineTab data={overviewQ.data} /> : null}
           {tab === "events" ? (
-            <EventsTab events={eventsQ.data} loading={eventsQ.isLoading} />
+            <EventsTab
+              events={eventsQ.data}
+              loading={eventsQ.isLoading}
+              refreshing={eventsQ.isFetching}
+              updatedAt={eventsQ.dataUpdatedAt}
+            />
           ) : null}
           {tab === "economics" ? <EconomicsTab data={overviewQ.data} /> : null}
         </>
@@ -232,53 +239,93 @@ function PipelineTab({ data }: { data: Overview }) {
   );
 }
 
-function EventsTab({ events, loading }: { events: PipelineEvent[] | undefined; loading: boolean }) {
+function EventsTab({
+  events,
+  loading,
+  refreshing,
+  updatedAt,
+}: {
+  events: PipelineEvent[] | undefined;
+  loading: boolean;
+  refreshing: boolean;
+  updatedAt: number;
+}) {
   if (loading) return <Loading label="Reading recent events" />;
-  if (!events || events.length === 0) {
-    return <p className="text-[13px] text-muted-foreground">No events yet.</p>;
-  }
 
   return (
-    <div className="space-y-3">
-      {events.map((e) => (
-        <article key={e.id} className="rounded-3xl border border-hairline bg-surface p-6">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-[12px] tabular-nums text-muted-foreground">
-              {e.id.slice(0, 8)}
-            </span>
-            <span
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px]",
-                e.status === "complete"
-                  ? "border-signal/40 text-signal"
-                  : "border-border text-muted-foreground",
-              )}
-            >
-              {e.status === "analysing" ? (
-                <LogoLoader className="h-3.5 w-3.5" tone="current" label="Analysing" />
-              ) : null}
-              {e.status === "complete" ? <Check className="h-3 w-3" /> : null}
-              {statusLabel(e.status)}
-            </span>
-            <span className="ml-auto text-[12.5px] tabular-nums">
-              Importance {e.importance.toFixed(1)}
-            </span>
-          </div>
-
-          <p className="mt-3 text-[16px] font-medium leading-snug">{e.title}</p>
-
-          <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-[12.5px] text-muted-foreground">
-            <span className="tabular-nums">{e.sources} sources clustered</span>
-            <span className="flex flex-wrap gap-1.5">
-              {e.topics.map((t) => (
-                <span key={t} className="rounded-md bg-muted px-2 py-0.5 text-[11px]">
-                  {t}
+    <div>
+      <PipelineFreshness refreshing={refreshing} updatedAt={updatedAt} />
+      {!events || events.length === 0 ? (
+        <p className="mt-5 text-[13px] text-muted-foreground">No events yet.</p>
+      ) : (
+        <div className="mt-4 space-y-3">
+          {events.map((e) => (
+            <article key={e.id} className="rounded-3xl border border-hairline bg-surface p-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-[12px] tabular-nums text-muted-foreground">
+                  {e.id.slice(0, 8)}
                 </span>
-              ))}
-            </span>
-          </div>
-        </article>
-      ))}
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px]",
+                    e.status === "complete"
+                      ? "border-signal/40 text-signal"
+                      : "border-border text-muted-foreground",
+                  )}
+                >
+                  {e.status === "analysing" ? (
+                    <LogoLoader className="h-3.5 w-3.5" tone="current" label="Analysing" />
+                  ) : null}
+                  {e.status === "complete" ? <Check className="h-3 w-3" /> : null}
+                  {statusLabel(e.status)}
+                </span>
+                <span className="ml-auto text-[12.5px] tabular-nums">
+                  Importance {e.importance.toFixed(1)}
+                </span>
+              </div>
+
+              <p className="mt-3 text-[16px] font-medium leading-snug">{e.title}</p>
+
+              <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-[12.5px] text-muted-foreground">
+                <span className="tabular-nums">{e.sources} sources clustered</span>
+                <span className="flex flex-wrap gap-1.5">
+                  {e.topics.map((t) => (
+                    <span key={t} className="rounded-md bg-muted px-2 py-0.5 text-[11px]">
+                      {t}
+                    </span>
+                  ))}
+                </span>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PipelineFreshness({ refreshing, updatedAt }: { refreshing: boolean; updatedAt: number }) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick((tick) => tick + 1), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const secondsAgo = updatedAt > 0 ? Math.max(0, Math.floor((Date.now() - updatedAt) / 1_000)) : 0;
+  const updatedLabel = secondsAgo < 2 ? "Updated just now" : `Updated ${secondsAgo}s ago`;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+        <span
+          className={cn("h-2 w-2 rounded-full bg-signal", refreshing && "animate-pulse")}
+          aria-hidden
+        />
+        Live
+      </span>
+      <span aria-live="polite">{refreshing ? "Checking for changes…" : updatedLabel}</span>
+      <span>Refreshes every 10 seconds while this tab is open.</span>
     </div>
   );
 }
