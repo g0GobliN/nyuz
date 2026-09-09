@@ -43,8 +43,7 @@ const PROMPTS = [
  * The reading column and its quiet source rail, shared by the article and by
  * everything printed under it, so the prose keeps one measure down the page.
  */
-const READING_GRID =
-  "mx-auto grid max-w-[40rem] gap-12 xl:max-w-none xl:grid-cols-[minmax(0,42rem)_minmax(0,12rem)] xl:gap-14";
+const READING_GRID = "mx-auto grid max-w-[40rem] gap-10 lg:max-w-none lg:grid-cols-[1fr_260px]";
 
 function BackToFeed({ className }: { className?: string }) {
   const router = useRouter();
