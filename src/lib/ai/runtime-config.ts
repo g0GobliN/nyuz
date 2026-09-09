@@ -121,7 +121,8 @@ export type AiSettingKey =
   | "ai.ask_max_tokens"
   | "ai.reasoning_effort"
   | "ai.analysis_batch_size"
-  | "ai.provider_fallback";
+  | "ai.provider_fallback"
+  | "ai.analyse_thinking";
 
 /**
  * "default" is not a value the provider understands — it is this codebase's name
@@ -292,6 +293,16 @@ export const AI_RUNTIME_SETTINGS: readonly AiSettingSpec[] = [
     codeDefault: true,
     dangerous: true,
   },
+  {
+    key: "ai.analyse_thinking",
+    label: "Analyse thinking",
+    description:
+      "Whether deepseek analysis calls may use extended thinking. When disabled, routine events use standard-no-thinking (thinking disabled) and only complex events use complex-thinking (thinking enabled). Set to true to restore always-enabled thinking.",
+    envVar: "AI_THINKING_ANALYSE",
+    kind: "boolean",
+    codeDefault: true,
+    dangerous: false,
+  },
 ];
 
 const BY_KEY = new Map<string, AiSettingSpec>(AI_RUNTIME_SETTINGS.map((s) => [s.key, s]));
@@ -342,6 +353,7 @@ export type AiRuntimeConfig = {
   reasoningEffort: ReasoningEffort;
   analysisBatchSize: number;
   providerFallback: boolean;
+  analyseThinking: boolean;
   /** Per-setting provenance, for the console. Empty-safe for pipeline callers. */
   resolved: Record<AiSettingKey, ResolvedSetting>;
 };
@@ -483,6 +495,7 @@ export function buildAiRuntimeConfig(
     reasoningEffort: resolved["ai.reasoning_effort"].value as ReasoningEffort,
     analysisBatchSize: resolved["ai.analysis_batch_size"].value as number,
     providerFallback: resolved["ai.provider_fallback"].value as boolean,
+    analyseThinking: resolved["ai.analyse_thinking"].value as boolean,
     resolved,
   };
 }

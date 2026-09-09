@@ -288,6 +288,14 @@ export type RoutedOptions = {
   invocationReason?: string;
   budgetExceptionReason?: string;
   thinking?: "enabled" | "disabled";
+  /** Route label for telemetry: "standard-no-thinking" or "complex-thinking". */
+  route?: string;
+  /** Complexity signals detected deterministically, for telemetry. */
+  complexitySignals?: Record<string, boolean>;
+  /** Reasons for complexity classification, for telemetry. */
+  complexityReasons?: string[];
+  /** Whether this call is an escalation from a failed no-thinking attempt. */
+  isEscalation?: boolean;
 };
 
 export type RoutedResult = CompleteResult & { route: ResolvedRoute };
@@ -385,6 +393,11 @@ async function paidAttempt(
           reason: opts.invocationReason ?? opts.feature,
           retry_reason: attempt > 1 ? "invalid_json" : null,
           budget_exception_reason: opts.budgetExceptionReason ?? null,
+          // Selective reasoning telemetry (0072)
+          ...(opts.route ? { route: opts.route } : {}),
+          ...(opts.complexitySignals ? { complexity_signals: opts.complexitySignals } : {}),
+          ...(opts.complexityReasons ? { complexity_reasons: opts.complexityReasons } : {}),
+          ...(opts.isEscalation ? { escalation: true } : {}),
         },
       },
     );

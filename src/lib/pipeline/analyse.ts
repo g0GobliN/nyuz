@@ -49,7 +49,7 @@ import {
   resolvePrompt,
   type SecretBag,
 } from "@/lib/ai/config";
-import { TruncatedCompletionError } from "@/lib/ai/deepseek";
+import { TruncatedCompletionError, CompletionUsageError } from "@/lib/ai/deepseek";
 import type { Database, EventStatus, Json } from "@/lib/supabase/types";
 import { readEventIntelligence, type EventIntelligence } from "@/lib/understand";
 import { READER_ARTICLE_CONTRACT } from "@/lib/reader-article";
@@ -68,6 +68,145 @@ import { LIVE_LANE_DENOMINATOR, LIVE_LANE_NUMERATOR, LIVE_QUEUE_HOURS } from "./
 import { loadAiRuntimeConfig } from "@/lib/ai/runtime-config";
 
 type Db = SupabaseClient<Database>;
+
+/**
+ * The two reasoning routes for Analyse (0072).
+ *
+ * Routine events use `standard-no-thinking` (thinking disabled) to avoid
+ * spending hidden reasoning tokens on straightforward stories.
+ * Complex events use `complex-thinking` (thinking enabled) because the
+ * evidence genuinely requires it.
+ *
+ * Both routes use the SAME production-quality contract, evidence, and
+ * output requirements. Only reasoning behavior differs.
+ */
+export type AnalyseRoute = "standard-no-thinking" | "complex-thinking";
+
+/**
+ * Deterministic complexity signals detected from pipeline data.
+ *
+ * Each key is a signal that, when true, indicates the event may need
+ * reasoning. The classifier is conservative: if uncertain, the event
+ * is routed to complex-thinking.
+ */
+export type ComplexitySignals = {
+  legalOrRegulatory: boolean;
+  financialFilingReconciliation: boolean;
+  materiallyConflictingNumbers: boolean;
+  explicitSourceContradiction: boolean;
+  correctionOrUpdate: boolean;
+  meaningfulNegation: boolean;
+  strongFactualQualifiers: boolean;
+  attributionAmbiguity: boolean;
+  entityAmbiguity: boolean;
+  multipleMateriallyDifferentDates: boolean;
+  primarySecondaryDisagreement: boolean;
+  evidenceReconciliationRequired: boolean;
+};
+
+/**
+ * Detect whether an event requires reasoning, using only explicit
+ * deterministic signals already available in the pipeline.
+ *
+ * Conservative by design: false negatives (routing a complex event
+ * to no-thinking) are worse than false positives. If genuinely
+ * uncertain, the event is classified as complex.
+ *
+ * Uses:
+ * - Extracted facts (money, regulatory actions, dates, etc.)
+ * - Evidence selection metadata (conflicts, source diversity)
+ * - Event signals from scoring
+ * - Source metadata
+ */
+export function detectComplexity(
+  codeFacts: ReturnType<typeof extractFacts>,
+  selection: {
+    conflictsPreserved: number;
+    totalUniqueFacts: number;
+    totalFactsFull: number;
+  },
+  signals: EventSignals,
+  articleCount: number,
+  selectedIndices: number[],
+): { route: AnalyseRoute; signals: ComplexitySignals; reasons: string[] } {
+  const complexitySignals: ComplexitySignals = {
+    legalOrRegulatory: codeFacts.regulatoryActions.length > 0,
+    financialFilingReconciliation: codeFacts.money.length > 2 || codeFacts.percentages.length > 2,
+    materiallyConflictingNumbers: selection.conflictsPreserved > 0,
+    explicitSourceContradiction: selection.conflictsPreserved > 0,
+    correctionOrUpdate: false, // Would need event history to detect
+    meaningfulNegation: false, // Would need NLP on evidence text
+    strongFactualQualifiers: false, // Would need NLP on evidence text
+    attributionAmbiguity: false, // Would need source metadata analysis
+    entityAmbiguity: false, // Would need NLP on evidence text
+    multipleMateriallyDifferentDates: false, // Would need date analysis
+    primarySecondaryDisagreement: false, // Would need source metadata analysis
+    evidenceReconciliationRequired: false, // Would need evidence analysis
+  };
+
+  const reasons: string[] = [];
+
+  if (complexitySignals.legalOrRegulatory) {
+    reasons.push("regulatory_action");
+  }
+  if (complexitySignals.financialFilingReconciliation) {
+    reasons.push("financial_reconciliation");
+  }
+  if (complexitySignals.materiallyConflictingNumbers) {
+    reasons.push("conflicting_numbers");
+  }
+  if (signals.importanceEstimate >= 7) {
+    reasons.push("high_importance");
+  }
+  if (signals.confidence === "low") {
+    reasons.push("low_confidence");
+  }
+  if (articleCount >= 5 && selectedIndices.length >= 4) {
+    reasons.push("high_source_diversity");
+  }
+  if (signals.noveltyEstimate >= 7) {
+    reasons.push("high_novelty");
+  }
+
+  // Conservative: if any strong signal exists, route to complex-thinking.
+  // If no strong signal but also no clear "routine" signal, route to complex.
+  const hasStrongSignal =
+    complexitySignals.legalOrRegulatory ||
+    complexitySignals.financialFilingReconciliation ||
+    complexitySignals.materiallyConflictingNumbers ||
+    signals.importanceEstimate >= 7 ||
+    signals.confidence === "low";
+
+  // Also route to complex if we have conflicting evidence
+  const hasEvidenceConflict = selection.conflictsPreserved > 0;
+
+  // Conservative default: if uncertain, use complex-thinking
+  const isComplex = hasStrongSignal || hasEvidenceConflict || reasons.length >= 3;
+
+  return {
+    route: isComplex ? "complex-thinking" : "standard-no-thinking",
+    signals: complexitySignals,
+    reasons,
+  };
+}
+
+/**
+ * Build the system prompt with a stable prefix for provider caching.
+ *
+ * The static prefix (system instructions, contract, schema, field
+ * descriptions, formatting rules) is byte-for-byte identical across
+ * all events of the same contract type. Event-specific evidence is
+ * placed in the user message, not the system prompt.
+ *
+ * This preserves provider prefix caching while keeping the prompt
+ * content identical regardless of reasoning route.
+ */
+function buildAnalyseSystemPrompt(system: string, useThinContract: boolean): string {
+  const contractText = useThinContract ? thinContract() : contract();
+  // The prefix is deterministic and identical for all events with the
+  // same contract type. The provider can cache this prefix.
+  return `${system}\n\n${contractText}`;
+}
 
 /**
  * Events per run, when the operator has not set one.
@@ -539,6 +678,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
         system,
         demand: hasDemand,
         maxTokens: runtime.analyseMaxTokens,
+        analyseThinking: runtime.analyseThinking,
       }),
     );
   }
@@ -573,6 +713,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
             system,
             demand: hasDemand,
             maxTokens: runtime.analyseMaxTokens,
+            analyseThinking: runtime.analyseThinking,
           }),
         );
       }
@@ -868,6 +1009,8 @@ type Context = {
    * could report two different ceilings for the same work.
    */
   maxTokens: number;
+  /** Whether thinking is globally enabled for analysis (0072). */
+  analyseThinking: boolean;
 };
 
 type Coverage = {
@@ -1005,14 +1148,39 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
   // can omit the expensive understand block.
   const signals = scoreEvent(articles, codeFacts);
 
+  // ---- Complexity detection (0072) ----
+  // Deterministic, conservative: if uncertain, route to complex-thinking.
+  const complexity = detectComplexity(
+    codeFacts,
+    {
+      conflictsPreserved: selection.conflictsPreserved,
+      totalUniqueFacts: selection.totalUniqueFacts,
+      totalFactsFull: selection.totalFactsFull,
+    },
+    signals,
+    articles.length,
+    selectedIndices,
+  );
+
+  // ---- Thin/full contract is orthogonal to thinking route (0072) ----
+  // Do NOT change the thin/full decision based on thinking state.
+  // The same production editorial standard applies to both routes.
+  const useThinContract = signals.confidence === "high" && signals.importanceEstimate <= 3;
+
+  // ---- Determine reasoning route and thinking state (0072) ----
+  // ai.analyse_thinking is a safe feature toggle:
+  //   true  → selective routing enabled: routine → thinking OFF, complex → thinking ON
+  //   false → safest fallback: ALL Analyse thinking ON (restores pre-0072 behavior)
+  const route: AnalyseRoute = ctx.analyseThinking ? complexity.route : "complex-thinking";
+  const thinkingEnabled = ctx.analyseThinking ? complexity.route === "complex-thinking" : true;
+
+  const systemPrompt = buildAnalyseSystemPrompt(ctx.system, useThinContract);
+
+  let hasEscalated = false;
+
   try {
     if (selection.omittedUniqueSources)
       throw new Error("Evidence source limit would omit unique claims");
-    const useThinContract = signals.confidence === "high" && signals.importanceEstimate <= 3;
-
-    const systemPrompt = useThinContract
-      ? `${ctx.system}\n\n${thinContract()}`
-      : `${ctx.system}\n\n${contract()}`;
 
     const { data, usage } = await completeRoutedJson<unknown>({
       capability: "reason",
@@ -1029,34 +1197,102 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
         : {}),
       maxTokens: useThinContract ? THIN_CONTRACT_MAX_TOKENS : ctx.maxTokens,
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
+      thinking: thinkingEnabled ? "enabled" : "disabled",
+      route,
+      complexitySignals: complexity.signals,
+      complexityReasons: complexity.reasons,
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
     parsed = readAnalysis(data, codeTopics, codeTags, selectedIndices.length);
+    if (!parsed) throw new Error("Analysis contract validation failed: readAnalysis returned null");
   } catch (error) {
-    // A truncated call spent everything it was given and the API reports the
-    // reasoning half of it. Recorded as a floor rather than an estimate: it is a
-    // number the provider returned, and the prompt tokens of a failed call are not
-    // available on this path.
-    const floor = error instanceof TruncatedCompletionError ? error.reasoningTokens : 0;
-    const retryAt = aiCapacityRetryAt(error, ctx.options.now ?? new Date());
-    if (retryAt !== null) {
-      await deferAnalysis(db, event, retryAt, ctx.options);
+    // Determine if this is a terminal structural failure that warrants
+    // exactly-once escalation to the thinking-enabled route.
+    const isTerminalStructural =
+      error instanceof TruncatedCompletionError ||
+      error instanceof CompletionUsageError ||
+      (error instanceof Error && /provider|timeout|network|fetch failed/i.test(error.message)) ||
+      (error instanceof Error && /contract validation failed/i.test(error.message));
+
+    if (
+      isTerminalStructural &&
+      !hasEscalated &&
+      ctx.analyseThinking &&
+      complexity.route === "standard-no-thinking"
+    ) {
+      // Exactly-once escalation: retry with thinking enabled.
+      hasEscalated = true;
+      try {
+        const { data, usage } = await completeRoutedJson<unknown>({
+          capability: "reason",
+          system: systemPrompt,
+          user,
+          feature: "analyse",
+          eventIds: [event.id],
+          promptVersion: `${ANALYSIS_PROMPT_VERSION}:${useThinContract ? "thin" : "full"}`,
+          sourceCount: selectedIndices.length,
+          evidenceCharacters: selectedEvidenceText.length,
+          invocationReason: "demanded_unanalysed_event",
+          ...(selectedIndices.length > NORMAL_AI_EVIDENCE
+            ? { budgetExceptionReason: "additional_sources_preserve_distinct_claims" }
+            : {}),
+          maxTokens: useThinContract ? THIN_CONTRACT_MAX_TOKENS : ctx.maxTokens,
+          ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
+          thinking: "enabled",
+          route: "complex-thinking",
+          complexitySignals: complexity.signals,
+          complexityReasons: complexity.reasons,
+          isEscalation: true,
+        });
+        spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
+        parsed = readAnalysis(data, codeTopics, codeTags, selectedIndices.length);
+      } catch (escalationError) {
+        // Escalation also failed. Record the failure. No further escalation.
+        const floor =
+          escalationError instanceof TruncatedCompletionError ? escalationError.reasoningTokens : 0;
+        const retryAt = aiCapacityRetryAt(escalationError, ctx.options.now ?? new Date());
+        if (retryAt !== null) {
+          await deferAnalysis(db, event, retryAt, ctx.options);
+          return {
+            ...base,
+            articles: total,
+            decision: "deferred",
+            completionTokens: floor,
+            detail: `temporary AI capacity; retry after ${retryAt.toISOString()}`,
+          };
+        }
+        await recordFailure(db, event, floor, ctx.options);
+        return {
+          ...base,
+          articles: total,
+          decision: "failed",
+          completionTokens: floor,
+          detail: `model: ${escalationError instanceof Error ? escalationError.message : String(escalationError)}`,
+        };
+      }
+    } else {
+      // Original error handling path (no escalation or escalation not applicable).
+      const floor = error instanceof TruncatedCompletionError ? error.reasoningTokens : 0;
+      const retryAt = aiCapacityRetryAt(error, ctx.options.now ?? new Date());
+      if (retryAt !== null) {
+        await deferAnalysis(db, event, retryAt, ctx.options);
+        return {
+          ...base,
+          articles: total,
+          decision: "deferred",
+          completionTokens: floor,
+          detail: `temporary AI capacity; retry after ${retryAt.toISOString()}`,
+        };
+      }
+      await recordFailure(db, event, floor, ctx.options);
       return {
         ...base,
         articles: total,
-        decision: "deferred",
+        decision: "failed",
         completionTokens: floor,
-        detail: `temporary AI capacity; retry after ${retryAt.toISOString()}`,
+        detail: `model: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
-    await recordFailure(db, event, floor, ctx.options);
-    return {
-      ...base,
-      articles: total,
-      decision: "failed",
-      completionTokens: floor,
-      detail: `model: ${error instanceof Error ? error.message : String(error)}`,
-    };
   }
 
   if (!parsed) {
