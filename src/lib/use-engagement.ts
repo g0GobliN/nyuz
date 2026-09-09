@@ -80,6 +80,7 @@ export function useReadTracking(eventId: string | undefined, reachedEnd: { curre
     startedAt.current = Date.now();
     accumulated.current = 0;
     flushed.current = false;
+    void recordEngagement({ data: { eventId, opened: true } }).catch(() => {});
 
     const stopClock = () => {
       if (startedAt.current === null) return;
@@ -91,16 +92,10 @@ export function useReadTracking(eventId: string | undefined, reachedEnd: { curre
       if (flushed.current) return;
       stopClock();
       const readMs = accumulated.current;
-      // The open itself is always worth recording, even from a visit too short
-      // to count as reading — a click-through is mild interest on its own.
-      if (readMs < MIN_FLUSH_MS && !reachedEnd.current) {
-        flushed.current = true;
-        void recordEngagement({ data: { eventId, opened: true } }).catch(() => {});
-        return;
-      }
       flushed.current = true;
+      if (readMs < MIN_FLUSH_MS && !reachedEnd.current) return;
       void recordEngagement({
-        data: { eventId, opened: true, readMs, reachedEnd: reachedEnd.current },
+        data: { eventId, readMs, reachedEnd: reachedEnd.current },
       }).catch(() => {});
     };
 

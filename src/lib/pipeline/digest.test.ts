@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { capFor } from "@/lib/density";
-import { nextAttemptAt, queuedChannels, readWhys, selectItems, type MatchRow } from "./digest";
+import { FakeDb, asDb } from "@/lib/test-support/fake-db";
+import {
+  alertWasOpened,
+  nextAttemptAt,
+  queuedChannels,
+  readWhys,
+  selectItems,
+  type MatchRow,
+} from "./digest";
 
 /**
  * A fixed "now" so these assertions are about the ranking rather than about the
@@ -123,6 +131,23 @@ describe("queuedChannels", () => {
     expect(
       queuedChannels(["email", "telegram", "whatsapp", "push"], { telegram: true, push: true }),
     ).toEqual(["email", "telegram", "push"]);
+  });
+});
+
+describe("alertWasOpened", () => {
+  it("suppresses a push retry after the reader opened its story", async () => {
+    const db = new FakeDb({
+      user_events: [
+        { user_id: "reader-1", event_id: "event-1", opened_at: "2026-09-08T06:00:00Z" },
+      ],
+    });
+
+    await expect(alertWasOpened(asDb(db), "reader-1", [{ eventId: "event-1" }])).resolves.toBe(
+      true,
+    );
+    await expect(alertWasOpened(asDb(db), "reader-1", [{ eventId: "event-2" }])).resolves.toBe(
+      false,
+    );
   });
 });
 

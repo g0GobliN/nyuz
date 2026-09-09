@@ -1322,6 +1322,11 @@ async function sendPushDelivery(
   options: DigestOptions,
   timezone: string | null,
 ) {
+  const alert = digestRow.kind === "alert";
+  if (alert && (await alertWasOpened(db, digestRow.user_id, items))) {
+    return { ok: true as const };
+  }
+
   const { data: rows } = await db
     .from("push_subscriptions")
     .select("id, endpoint, p256dh, auth")
@@ -1331,7 +1336,6 @@ async function sendPushDelivery(
     return { ok: false as const, error: "no push subscription", retryable: false };
   }
 
-  const alert = digestRow.kind === "alert";
   const stories = alert
     ? items.map((item) =>
         storyPush({
@@ -1379,6 +1383,24 @@ async function sendPushDelivery(
     return { ok: true as const };
   }
   return { ok: false as const, error: result.error, retryable: result.retryable };
+}
+
+export async function alertWasOpened(
+  db: Db,
+  userId: string,
+  items: { eventId: string }[],
+): Promise<boolean> {
+  const eventId = items[0]?.eventId;
+  if (!eventId) return false;
+
+  const { data, error } = await db
+    .from("user_events")
+    .select("opened_at")
+    .eq("user_id", userId)
+    .eq("event_id", eventId)
+    .maybeSingle();
+  if (error) throw new Error(`checking alert read state: ${error.message}`);
+  return data?.opened_at != null;
 }
 
 async function markDelivery(
