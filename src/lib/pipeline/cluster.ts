@@ -35,6 +35,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { aiCapacityRetryAt, completeRoutedJson, type SecretBag } from "@/lib/ai/config";
+import { loadAiRuntimeConfig } from "@/lib/ai/runtime-config";
 import type { Database, EventStatus } from "@/lib/supabase/types";
 import { verdictFor, type ConfidenceVerdict } from "./confidence";
 import { isVcsRef, shortlist, type Candidate } from "./shortlist";
@@ -159,6 +160,14 @@ export async function cluster(db: Db, options: ClusterOptions = {}): Promise<Clu
   // shadow mode computes, and acting without also recording would remove the
   // evidence for whether acting was right.
   const skipOn = shadowOn && (await loadSkipFlag(db));
+  // Resolved once per run, not per article, for the same reason `analyse` does
+  // it: a save mid-run would otherwise change the ceiling between two articles
+  // of one batch, and a run could report two different ceilings for the same
+  // work. Until this existed the effective ceiling was `ENV_FALLBACK.cluster`
+  // in config.ts -- 1024, the floor -- which deepseek-v4-flash spent entirely
+  // on reasoning before writing any JSON, so the call returned nothing and the
+  // article failed. See `ai.cluster_max_tokens`.
+  const { clusterMaxTokens } = await loadAiRuntimeConfig(db, options.secrets);
   const outcomes: ArticleOutcome[] = [];
   // Stamped on every decision row this invocation writes, so one run can be
   // read back whole later (0057). `describeCluster`'s per-run agreement line
@@ -168,7 +177,7 @@ export async function cluster(db: Db, options: ClusterOptions = {}): Promise<Clu
   // Sequential, on purpose. See the module comment: concurrency here produces
   // duplicate events for one story rather than a faster correct answer.
   for (const article of articles) {
-    outcomes.push(await runOne(db, article, options, shadowOn, skipOn, runId));
+    outcomes.push(await runOne(db, article, options, shadowOn, skipOn, runId, clusterMaxTokens));
   }
 
   const decidable = outcomes.filter((o) => o.shadowAgreed !== null);
@@ -288,6 +297,8 @@ async function runOne(
   shadowOn: boolean,
   skipOn: boolean,
   runId: string,
+  /** The operator's `ai.cluster_max_tokens`, resolved once for the whole run. */
+  maxTokens: number,
 ): Promise<ArticleOutcome> {
   const base = {
     articleId: article.id,
@@ -362,7 +373,7 @@ async function runOne(
     skipped = true;
   } else {
     try {
-      const decided = await ask(article, candidates, options);
+      const decided = await ask(article, candidates, options, maxTokens);
       matched = decided.matched;
       usage = decided.usage;
       usageId = decided.usageId ?? null;
@@ -474,6 +485,7 @@ async function ask(
   article: Unclustered,
   candidates: Candidate[],
   options: ClusterOptions,
+  maxTokens: number,
 ): Promise<{
   matched: Candidate[];
   usage: { promptTokens: number; completionTokens: number };
@@ -486,6 +498,16 @@ async function ask(
     system: SYSTEM,
     user: `New headline:\n${article.title}\n\nCandidates:\n${numbered}`,
     feature: "cluster",
+    articleId: article.id,
+    promptVersion: "cluster:1",
+    sourceCount: 1,
+    evidenceCharacters: article.title.length + numbered.length,
+    invocationReason: "ambiguous_headline_shortlist",
+    // Passed explicitly rather than left to the route's own `max_tokens`, which
+    // is a per-provider display value an operator changes on the AI tab. The
+    // ceiling that decides whether this call comes back at all is one setting
+    // in one place for both runtimes.
+    maxTokens,
     ...(options.secrets ? { secrets: options.secrets } : {}),
   });
 

@@ -1,18 +1,17 @@
 /**
  * AI operational status derivation.
  *
- * This is the single source of truth for "is AI running?" used by both
- * the admin UI and the pipeline. It mirrors the exact checks in
- * `reserve_ai_tokens` (migration 0053) so the admin page and the pipeline
- * always agree on the blocker.
+ * A snapshot of enforced limits, not authorization for a particular request.
+ * The atomic reservation also checks the size and model of the next call.
  */
 
 import { createServerFn } from "@tanstack/react-start";
 import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { adminOnly } from "@/lib/server/guard";
-import { DEFAULT_PRO_CAP_MICROUSD } from "@/lib/ai/launch-flags";
-import { computeAiCredit } from "@/lib/ai/credit";
+import { dailyCapsMicrousd } from "@/lib/ai/launch-flags";
+import type { AiCreditStatus } from "@/lib/ai/credit";
+import { readAiCredit } from "@/lib/server/cost-intelligence";
 import { loadAiRuntimeConfig, type ValueSource } from "@/lib/ai/runtime-config";
 
 // ── Types ──
@@ -24,7 +23,6 @@ export type AiBlocker =
   | { kind: "monthly_tokens"; usedTokens: number; budgetTokens: number }
   | { kind: "daily_cap"; daySpent: number; dayCap: number; model: string }
   | { kind: "user_budget"; userUsed: number; userCap: number }
-  | { kind: "provider_capacity" }
   | { kind: "unknown" };
 
 export type AiStatus =
@@ -33,12 +31,7 @@ export type AiStatus =
 /**
  * What the console should offer to do about a blocker.
  *
- * `settingKey` is the point of this type. The status card used to end in prose
- * — "raise AI_MONTHLY_COST_USD in Cloudflare" — which was both a chore and, once
- * 0056 landed, wrong: the env var is no longer where the number lives. Naming
- * the setting instead lets the card render a button that opens the very control
- * that unblocks it, and keeps the copy honest without anyone remembering to
- * update two places.
+ * Naming the setting lets the card link directly to the relevant control.
  */
 export type AiRuntimeAction = {
   /** Button text. Imperative, names the thing being changed. */
@@ -64,9 +57,12 @@ export type AiRuntimeStatus = {
     inFlightUsd: number;
     daySpentPro: number;
     dayCapPro: number;
+    daySpentFlash: number;
+    dayCapFlash: number;
     killSwitchOn: boolean;
   };
   credit: {
+    status: AiCreditStatus | "unknown";
     remainingUsd: number;
     burnUsdPerDay: number | null;
     daysRemaining: number | null;
@@ -100,10 +96,13 @@ export function deriveAiStatus(params: {
   inFlightUsd: number;
   daySpentPro: number;
   dayCapPro: number;
+  daySpentFlash: number;
+  dayCapFlash: number;
   killSwitchOn: boolean;
   creditRemainingUsd: number;
   creditBurnUsdPerDay: number | null;
   creditDaysRemaining: number | null;
+  creditStatus: AiCreditStatus | "unknown";
   ceilingSource: ValueSource;
   tokenBudgetSource: ValueSource;
 }): AiRuntimeStatus {
@@ -115,19 +114,8 @@ export function deriveAiStatus(params: {
     return makeStatus(
       "blocked",
       { kind: "kill_switch" },
-      "AI kill switch is enabled",
+      "AI kill switch enabled.",
       { label: "Manage AI runtime", settingKey: KILL_SWITCH_SETTING_KEY },
-      usedPct,
-      params,
-    );
-  }
-
-  if (spentUsd >= ceilingUsd) {
-    return makeStatus(
-      "blocked",
-      { kind: "monthly_usd", spentUsd, ceilingUsd },
-      `Monthly USD budget exceeded: ${formatUsd(spentUsd)} / ${formatUsd(ceilingUsd)}`,
-      { label: "Increase budget", settingKey: "ai.monthly_cost_usd" },
       usedPct,
       params,
     );
@@ -137,38 +125,49 @@ export function deriveAiStatus(params: {
     return makeStatus(
       "blocked",
       { kind: "monthly_tokens", usedTokens: tokensUsed, budgetTokens: tokensBudget },
-      `Monthly token budget exceeded: ${formatTokens(tokensUsed)} / ${formatTokens(tokensBudget)}`,
-      { label: "Adjust token budget", settingKey: "ai.monthly_token_budget" },
+      `Token safety cap reached. ${formatTokens(tokensUsed)} / ${formatTokens(tokensBudget)} tokens this month. Increase the token safety cap or wait for the next month.`,
+      { label: "Increase token safety cap", settingKey: "ai.monthly_token_budget" },
       usedPct,
       params,
     );
   }
 
-  if (daySpentPro > 0 && daySpentPro >= dayCapPro) {
+  if (spentUsd >= ceilingUsd) {
     return makeStatus(
       "blocked",
-      { kind: "daily_cap", daySpent: daySpentPro, dayCap: dayCapPro, model: "deepseek-v4-pro" },
-      `Daily model cap exceeded: ${formatUsd(daySpentPro)} / ${formatUsd(dayCapPro)}`,
-      { label: "Manage AI runtime", settingKey: null },
+      { kind: "monthly_usd", spentUsd, ceilingUsd },
+      `Monthly safety cap reached. ${formatUsd(spentUsd)} / ${formatUsd(ceilingUsd)} this month. Increase the safety cap or wait for the next month.`,
+      { label: "Increase safety cap", settingKey: "ai.monthly_cost_usd" },
       usedPct,
       params,
     );
   }
 
-  if (params.inFlightUsd > dayCapPro * 0.5 && dayCapPro > 0) {
-    return makeStatus(
-      "provider_degraded",
-      { kind: "provider_capacity" },
-      "Provider temporary capacity issue",
-      { label: "Manage AI runtime", settingKey: null },
-      usedPct,
-      params,
-    );
+  for (const [model, daySpent, dayCap] of [
+    ["deepseek-v4-flash", params.daySpentFlash, params.dayCapFlash],
+    ["deepseek-v4-pro", daySpentPro, dayCapPro],
+  ] as const) {
+    if (dayCap > 0 && daySpent >= dayCap) {
+      return makeStatus(
+        "warning",
+        { kind: "daily_cap", daySpent, dayCap, model },
+        `Daily model cap reached for ${model}. ${formatUsd(daySpent)} / ${formatUsd(dayCap)} today (UTC). Calls to this model are blocked; other models retain their own limits.`,
+        null,
+        usedPct,
+        params,
+      );
+    }
   }
 
   let status: AiStatus = "healthy";
-  if (usedPct >= NEAR_LIMIT_PCT) status = "near_limit";
-  else if (usedPct >= WARNING_PCT) status = "warning";
+  const maxUsedPct = Math.max(usedPct, tokensBudget > 0 ? (tokensUsed / tokensBudget) * 100 : 0);
+  if (maxUsedPct >= NEAR_LIMIT_PCT) status = "near_limit";
+  else if (
+    maxUsedPct >= WARNING_PCT ||
+    params.creditStatus === "low" ||
+    params.creditStatus === "exhausted"
+  )
+    status = "warning";
 
   return {
     status,
@@ -186,9 +185,12 @@ export function deriveAiStatus(params: {
       inFlightUsd: params.inFlightUsd,
       daySpentPro,
       dayCapPro,
+      daySpentFlash: params.daySpentFlash,
+      dayCapFlash: params.dayCapFlash,
       killSwitchOn: false,
     },
     credit: {
+      status: params.creditStatus,
       remainingUsd: params.creditRemainingUsd,
       burnUsdPerDay: params.creditBurnUsdPerDay,
       daysRemaining: params.creditDaysRemaining,
@@ -202,21 +204,7 @@ function makeStatus(
   blockerLabel: string,
   action: AiRuntimeAction | null,
   usedPct: number,
-  params: {
-    spentUsd: number;
-    ceilingUsd: number;
-    tokensUsed: number;
-    tokensBudget: number;
-    inFlightUsd: number;
-    daySpentPro: number;
-    dayCapPro: number;
-    killSwitchOn: boolean;
-    creditRemainingUsd: number;
-    creditBurnUsdPerDay: number | null;
-    creditDaysRemaining: number | null;
-    ceilingSource: ValueSource;
-    tokenBudgetSource: ValueSource;
-  },
+  params: Parameters<typeof deriveAiStatus>[0],
 ): AiRuntimeStatus {
   return {
     status,
@@ -234,9 +222,12 @@ function makeStatus(
       inFlightUsd: params.inFlightUsd,
       daySpentPro: params.daySpentPro,
       dayCapPro: params.dayCapPro,
+      daySpentFlash: params.daySpentFlash,
+      dayCapFlash: params.dayCapFlash,
       killSwitchOn: params.killSwitchOn,
     },
     credit: {
+      status: params.creditStatus,
       remainingUsd: params.creditRemainingUsd,
       burnUsdPerDay: params.creditBurnUsdPerDay,
       daysRemaining: params.creditDaysRemaining,
@@ -275,8 +266,10 @@ export const getAiStatus = createServerFn({ method: "GET" })
     const runtime = await loadAiRuntimeConfig(db);
 
     // 1. Monthly spend
-    const { data: spendRow } = await db.rpc("ai_spend_this_month");
+    const { data: spendRow, error: spendError } = await db.rpc("ai_spend_this_month");
+    if (spendError) throw new Error(`Reading monthly safety caps: ${spendError.message}`);
     const row = Array.isArray(spendRow) ? spendRow[0] : null;
+    if (!row) throw new Error("Monthly safety cap usage is unavailable.");
     const spentUsd = row ? row.spent_microusd / 1_000_000 : 0;
     const inFlightUsd = row ? row.in_flight_microusd / 1_000_000 : 0;
     const tokensUsed = row ? row.tokens : 0;
@@ -286,85 +279,44 @@ export const getAiStatus = createServerFn({ method: "GET" })
     const tokensBudget = runtime.monthlyTokenBudget;
 
     // 4. Kill switch
-    const { data: killFlag } = await db
+    const { data: killFlag, error: killError } = await db
       .from("feature_flags")
       .select("enabled")
       .eq("key", "ai_kill_switch")
       .maybeSingle();
+    if (killError) throw new Error(`Reading AI kill switch: ${killError.message}`);
     const killSwitchOn = killFlag?.enabled === true;
 
-    // 5. Daily pro cap
-    const { data: dailyCaps } = await db
-      .from("site_settings")
-      .select("key, value")
-      .in("key", ["ai.daily_pro_cap_microusd"]);
-    const storedCaps = new Map<string, unknown>(
-      ((dailyCaps ?? []) as { key: string; value: { value?: unknown } | null }[]).map((r) => [
-        r.key,
-        r.value?.value,
-      ]),
-    );
-    const dayCapPro =
-      Number(storedCaps.get("ai.daily_pro_cap_microusd") ?? DEFAULT_PRO_CAP_MICROUSD) ||
-      DEFAULT_PRO_CAP_MICROUSD;
-
-    // 6. Day spent for deepseek-v4-pro
+    const daily = await dailyCapsMicrousd(db);
     const now = new Date();
     const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const staleBefore = new Date(now.getTime() - 60 * 60 * 1000);
-    const { data: ledgerRows } = await db
-      .from("ai_usage_ledger")
-      .select(
-        "reserved_tokens, prompt_tokens, completion_tokens, cost_microusd, estimated_cost_microusd, model, created_at",
-      )
-      .gte("created_at", dayStart.toISOString());
-
     let daySpentPro = 0;
-    if (ledgerRows) {
+    let daySpentFlash = 0;
+    // Page through all rows; the REST row limit must not hide a reached cap.
+    // Unresolved reservations remain charged until reconciliation (0070).
+    for (let offset = 0; ; offset += 1000) {
+      const { data: ledgerRows, error } = await db
+        .from("ai_usage_ledger")
+        .select("cost_microusd, estimated_cost_microusd, model")
+        .gte("created_at", dayStart.toISOString())
+        .lte("created_at", now.toISOString())
+        .order("created_at")
+        .order("id")
+        .range(offset, offset + 999);
+      if (error) throw new Error(`Reading daily model limits: ${error.message}`);
+      if (!ledgerRows) throw new Error("Daily model usage is unavailable.");
       for (const r of ledgerRows) {
-        const isStale =
-          r.reserved_tokens > 0 &&
-          r.cost_microusd === null &&
-          r.prompt_tokens === 0 &&
-          r.completion_tokens === 0 &&
-          r.created_at < staleBefore.toISOString();
-        if (!isStale && r.model?.startsWith("deepseek-v4-pro")) {
-          daySpentPro += r.cost_microusd ?? r.estimated_cost_microusd ?? 0;
-        }
+        const cost = (r.cost_microusd ?? r.estimated_cost_microusd ?? 0) / 1_000_000;
+        if (r.model?.startsWith("deepseek-v4-pro")) daySpentPro += cost;
+        if (r.model?.startsWith("deepseek-v4-flash")) daySpentFlash += cost;
       }
+      if (ledgerRows.length < 1000) break;
     }
 
-    // 7. Credit
-    let creditRemainingUsd = 0;
-    let creditBurnUsdPerDay: number | null = null;
-    let creditDaysRemaining: number | null = null;
-    try {
-      const { data: creditRow } = await db.rpc("ai_credit_balance");
-      const cr = Array.isArray(creditRow) ? creditRow[0] : null;
-      if (cr) {
-        const creditInput = {
-          toppedUpMicrousd: cr.topped_up_microusd ?? 0,
-          topups: cr.topups ?? 0,
-          firstTopupAt: cr.first_topup_at,
-          lastTopupAt: cr.last_topup_at,
-          lastTopupMicrousd: cr.last_topup_microusd ?? 0,
-          spentMicrousd: cr.spent_microusd ?? 0,
-          settledMicrousd: cr.settled_microusd ?? 0,
-          inFlightMicrousd: cr.in_flight_microusd ?? 0,
-          unfundedSpentMicrousd: cr.unfunded_spent_microusd ?? 0,
-          calls: cr.calls ?? 0,
-          unpricedCalls: cr.unpriced_calls ?? 0,
-          weekSpentMicrousd: 0,
-          now,
-        };
-        const credit = computeAiCredit(creditInput);
-        creditRemainingUsd = credit.remainingUsd;
-        creditBurnUsdPerDay = credit.burnUsdPerDay;
-        creditDaysRemaining = credit.daysRemaining;
-      }
-    } catch {
-      // Credit not measured yet
-    }
+    // A missing advisory estimate must not hide an enforced safety-cap blocker.
+    const credit = await readAiCredit(db)
+      .then((view) => view?.credit)
+      .catch(() => undefined);
 
     return deriveAiStatus({
       spentUsd,
@@ -373,11 +325,14 @@ export const getAiStatus = createServerFn({ method: "GET" })
       tokensBudget,
       inFlightUsd,
       daySpentPro,
-      dayCapPro,
+      dayCapPro: daily.pro / 1_000_000,
+      daySpentFlash,
+      dayCapFlash: daily.flash / 1_000_000,
       killSwitchOn,
-      creditRemainingUsd,
-      creditBurnUsdPerDay,
-      creditDaysRemaining,
+      creditRemainingUsd: credit?.remainingUsd ?? 0,
+      creditBurnUsdPerDay: credit?.burnUsdPerDay ?? null,
+      creditDaysRemaining: credit?.daysRemaining ?? null,
+      creditStatus: credit?.status ?? "unknown",
       ceilingSource: runtime.resolved["ai.monthly_cost_usd"].source,
       tokenBudgetSource: runtime.resolved["ai.monthly_token_budget"].source,
     });

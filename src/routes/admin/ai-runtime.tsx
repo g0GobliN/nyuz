@@ -124,7 +124,7 @@ function AiRuntimePage() {
     <>
       <ConsoleHeader
         title="AI runtime"
-        sub="The budgets, ceilings and switches the pipeline runs on. Saved here, they apply to both the local pipeline and the deployed Worker — there is no second place to edit."
+        sub="Emergency safety caps and runtime limits. Provider top-ups are recorded separately on the Cost page. Saved controls apply to both the local pipeline and the deployed Worker."
       />
 
       <Panel
@@ -311,8 +311,8 @@ function SettingCard({
               ? "The saved value"
               : `${row.envVar} in this environment`}{" "}
             is {row.invalid.value}, which is {row.invalid.reason}. It is being skipped, and for the
-            monthly budgets the pipeline refuses to run at all rather than spend against a ceiling
-            nobody meant. Save a value inside the permitted range to clear this.
+            monthly safety caps the pipeline refuses to run at all rather than spend against a
+            ceiling nobody meant. Save a value inside the permitted range to clear this.
           </span>
         </p>
       ) : null}

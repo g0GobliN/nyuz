@@ -1,7 +1,7 @@
 import { MICROUSD_PER_USD } from "@/lib/ai/budget";
 
 /**
- * Prepaid AI credit, as arithmetic rather than as a feeling.
+ * Estimated provider credit from manually recorded top-ups and ledger spend.
  *
  * The provider is paid in one-off top-ups, so the question an operator actually
  * has is "how many days until I have to recharge", and that question has three
@@ -40,7 +40,7 @@ export type AiCreditInput = {
   calls: number;
   unpricedCalls: number;
   /** Spend over the trailing 7 days, from `ai_spend_windows()`. */
-  weekSpentMicrousd: number;
+  weekSpentMicrousd: number | null;
   now: Date;
 };
 
@@ -74,17 +74,18 @@ export function computeAiCredit(input: AiCreditInput): AiCredit {
   const spentUsd = usd(input.spentMicrousd);
   const remainingUsd = toppedUpUsd - spentUsd;
 
-  // Measured over the trailing week, or over the whole life of the balance when
-  // it is younger than that. The numerator is the full week either way, so a
-  // balance opened three days ago counts any spend from the four days before it
-  // against a three-day denominator. That overstates burn, which shortens the
-  // predicted runway — the direction that warns early rather than late.
+  // For a younger balance, attributable lifetime spend covers the entire window
+  // without importing pre-top-up spend into a shorter denominator.
   const firstAt = input.firstTopupAt ? new Date(input.firstTopupAt).getTime() : null;
   const sinceFirstMs =
     firstAt === null || !Number.isFinite(firstAt) ? 0 : input.now.getTime() - firstAt;
   const measuredMs = Math.min(BURN_WINDOW_MS, Math.max(0, sinceFirstMs));
+  const measuredSpend =
+    sinceFirstMs < BURN_WINDOW_MS ? input.spentMicrousd : input.weekSpentMicrousd;
   const burnUsdPerDay =
-    measuredMs >= MIN_MEASURED_MS ? (usd(input.weekSpentMicrousd) / measuredMs) * 86_400_000 : null;
+    measuredMs >= MIN_MEASURED_MS && measuredSpend !== null
+      ? (usd(measuredSpend) / measuredMs) * 86_400_000
+      : null;
 
   const draining = burnUsdPerDay !== null && burnUsdPerDay > 0;
   const daysRemaining = draining ? Math.max(0, remainingUsd) / burnUsdPerDay : null;

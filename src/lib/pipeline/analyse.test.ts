@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { TOPIC_POOL } from "@/lib/topics-pool";
+import { topicSlug } from "@/lib/topics";
 import {
   contract,
   isEnrichmentEligible,
   isUnanalysable,
   readAnalysis,
   renderCoverage,
+  topicVocabulary,
 } from "./analyse";
+import { assignTopics } from "./topic-assign";
 
 /**
  * What the model says, and what is written down because of it.
@@ -412,5 +416,57 @@ describe("isEnrichmentEligible", () => {
   it("malformed metadata (non-integer or non-numeric source count): not eligible", () => {
     expect(isEnrichmentEligible({ sourceCountAtAnalysis: 1.5 }, 50)).toBe(false);
     expect(isEnrichmentEligible({ sourceCountAtAnalysis: "1" }, 50)).toBe(false);
+  });
+});
+
+/**
+ * The join between the topic assigner and the topics table.
+ *
+ * `assignTopics` returns editorial labels ("Open source"); the table is keyed for
+ * the prompt by slug ("open-source"). Between 2026-09-02 and 2026-09-09 the map
+ * held only slugs, so every lookup returned `undefined`, `event_topics` was never
+ * written, and no reader matched anything analysed in that week. Nothing threw --
+ * an empty row list is an empty upsert -- which is precisely why the rule is
+ * pinned here rather than left to a live run.
+ *
+ * Rows are derived from `TOPIC_POOL` through `topicSlug`, not typed out again,
+ * because that is the rule 0006 says its own slugs must obey. A fixture that
+ * spelled them independently could agree with itself while disagreeing with the
+ * database.
+ */
+describe("topicVocabulary", () => {
+  const rows = TOPIC_POOL.map((label) => ({
+    id: `id-${topicSlug(label)}`,
+    slug: topicSlug(label),
+    label,
+  }));
+  const vocabulary = topicVocabulary(rows);
+
+  it("resolves every label assignTopics can return", () => {
+    for (const label of TOPIC_POOL) {
+      expect(vocabulary.ids.get(label.toLowerCase())).toBe(`id-${topicSlug(label)}`);
+    }
+  });
+
+  it("still resolves slugs, which is what the prompt speaks", () => {
+    expect(vocabulary.ids.get("open-source")).toBe("id-open-source");
+    expect(vocabulary.ids.get("next-js")).toBe("id-next-js");
+  });
+
+  it("offers the prompt slugs, never labels", () => {
+    expect(vocabulary.slugs).toContain("open-source");
+    expect(vocabulary.slugs).not.toContain("Open source");
+  });
+
+  it("resolves what assignTopics actually produces for a real headline", () => {
+    const assigned = assignTopics(
+      "NVIDIA unveils a new semiconductor architecture for AI data centres.",
+    );
+
+    expect(assigned.length).toBeGreaterThan(0);
+    // The property that matters: not one unresolvable name in the output.
+    for (const name of assigned) {
+      expect(vocabulary.ids.get(name.toLowerCase())).toBeDefined();
+    }
   });
 });

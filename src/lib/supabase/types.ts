@@ -48,7 +48,7 @@ export type AiCapability = "cluster" | "digest" | "reason";
  * uses the `cluster` tier), and only the `feature` distinguishes the two.
  */
 export type AiFeature =
-  "cluster" | "analyse" | "enrich" | "translate" | "impact" | "ask" | "unknown";
+  "probe" | "cluster" | "analyse" | "enrich" | "translate" | "impact" | "ask" | "unknown";
 
 type Table<Row, Optional extends keyof Row = never> = {
   Row: Row;
@@ -1231,6 +1231,10 @@ export type Database = {
           p_channels: DeliveryChannel[];
         };
         Returns: string;
+      };
+      record_ai_attempt: {
+        Args: { p_id: string; p_meta: Json; p_usage?: Json };
+        Returns: undefined;
       };
       reserve_ai_tokens: {
         Args: {

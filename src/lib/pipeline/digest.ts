@@ -722,6 +722,11 @@ async function resolveImpacts(
         user: renderImpactBrief(claimed),
         maxTokens: digestMaxTokens,
         feature: "impact",
+        eventIds: claimed.map((event) => event.eventId),
+        promptVersion: "impact:1",
+        evidenceCharacters: renderImpactBrief(claimed).length,
+        invocationReason: "shared_impact_missing",
+        budgetExceptionReason: "bounded_shared_impact_batch",
         ...(options.secrets ? { secrets: options.secrets } : {}),
       });
     } catch (error) {

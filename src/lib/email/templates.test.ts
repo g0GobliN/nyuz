@@ -195,12 +195,12 @@ describe("briefing design", () => {
     expect(email.html).not.toContain("cid:");
     expect(email.html).toContain("OpenAI launched a realtime API");
     expect(email.html).toContain("Why it matters to you");
-    expect(email.html).toContain("Understand this event on nyuz");
+    expect(email.html).toContain("Read the full story on nyuz");
     expect(email.html).toContain("Open the rest on nyuz");
     expect(email.html).not.toContain("Hello Sam");
     expect(email.html).toContain("Summaries are generated");
     expect(email.text).toContain("OpenAI launched a realtime API");
-    expect(email.text).toContain("Understand this event:");
+    expect(email.text).toContain("Read on nyuz:");
   });
 
   it("does not stamp the briefing disclaimer on a receipt", () => {

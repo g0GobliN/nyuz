@@ -28,7 +28,12 @@ const PEAK_RATES: Record<string, Rates> = {
 
 const PROVIDER_PEAK = new Set(["deepseek"]);
 
-function rateFor(model: string): Rates | null {
+function rateFor(provider: string, model: string): Rates | null {
+  if (!(
+    (provider === "deepseek" && model.startsWith("deepseek-v4-")) ||
+    (provider === "groq" && model.startsWith("llama-3.1-8b"))
+  ))
+    return null;
   const key = Object.keys(PEAK_RATES).find((candidate) => model.startsWith(candidate));
   return key ? (PEAK_RATES[key] ?? null) : null;
 }
@@ -74,21 +79,21 @@ export function aiCostCeilingMicrousd(input: {
   promptTokens: number;
   completionTokens: number;
 }): number | null {
-  const peak = rateFor(input.model);
+  const peak = rateFor(input.provider, input.model);
   if (!peak) return null;
 
-  return Math.round(
+  return Math.ceil(
     Math.max(0, input.promptTokens) * peak.uncachedInput +
       Math.max(0, input.completionTokens) * peak.output,
   );
 }
 
 export function aiCostMicrousd(input: UsageCostInput): number | null {
-  const peak = rateFor(input.model);
+  const peak = rateFor(input.provider, input.model);
   if (!peak) return null;
 
   const multiplier =
-    isPeakProvider(input.provider) && isDeepSeekPeak(input.at ?? new Date()) ? 1 : 0.5;
+    isPeakProvider(input.provider) && !isDeepSeekPeak(input.at ?? new Date()) ? 0.5 : 1;
   const prompt = Math.max(0, input.promptTokens);
   const cached = Math.min(prompt, Math.max(0, input.cachedPromptTokens));
   const uncached = prompt - cached;

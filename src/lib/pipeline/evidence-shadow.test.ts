@@ -172,11 +172,10 @@ describe("selectEvidence", () => {
     expect(result.selectedIndices).toEqual([0, 1]);
   });
 
-  it("reduces articles with duplicate facts", () => {
+  it("retains differently worded claims even when extracted entities and numbers match", () => {
     const articles = [PRIMARY_SOURCE, INDEPENDENT_SOURCE_1, INDEPENDENT_SOURCE_2];
     const result = selectEvidence(articles);
-    expect(result.selectedCount).toBeLessThan(3);
-    expect(result.selectedCount).toBeGreaterThanOrEqual(1);
+    expect(result.selectedCount).toBe(3);
   });
 
   it("always keeps at least 1 primary source", () => {
@@ -379,13 +378,13 @@ describe("renderSelectedCoverage", () => {
     const articles = [PRIMARY_SOURCE, INDEPENDENT_SOURCE_1, UNRELATED_SOURCE];
     const outlets = new Map();
     const coverage = renderSelectedCoverage(articles, [0, 1], 3, outlets);
-    expect(coverage).toContain("highest-evidence");
+    expect(coverage).toContain("2 of 3 sources");
   });
 
   it("shows all articles when all are selected", () => {
     const articles = [PRIMARY_SOURCE, INDEPENDENT_SOURCE_1];
     const outlets = new Map();
     const coverage = renderSelectedCoverage(articles, [0, 1], 2, outlets);
-    expect(coverage).toContain("2 articles");
+    expect(coverage).toContain("2 of 2 sources");
   });
 });

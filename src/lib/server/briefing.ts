@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { AiBudgetExceededError, AiUnpricedRouteError, completeRouted } from "@/lib/ai/config";
 import { TruncatedCompletionError } from "@/lib/ai/deepseek";
+import { orderEvidenceSources, remapEvidence } from "@/lib/pipeline/evidence-text";
 import { signedInOnly } from "./guard";
 import { backfill, WINDOW_HOURS } from "@/lib/pipeline/backfill";
 import { nextSlot } from "@/lib/pipeline/schedule";
@@ -1227,8 +1228,14 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
   return eventIds.flatMap((id) => {
     const event = byId.get(id);
     if (!event) return [];
-    const coverage = articles.get(id) ?? [];
-    const understand = readEventIntelligence(event.understand, coverage.length);
+    const allCoverage = articles.get(id) ?? [];
+    const original = readEventIntelligence(event.understand, allCoverage.length);
+    const sourceIds = original?.analysisMeta?.sourceArticleIds ?? [];
+    const coverage = orderEvidenceSources(allCoverage, sourceIds);
+    const understand = readEventIntelligence(
+      remapEvidence(event.understand, sourceIds, coverage),
+      coverage.length,
+    );
     const publishedAt = coverage[0]?.publishedAt ?? event.analysed_at ?? event.first_seen_at;
     return [
       {
@@ -1268,6 +1275,7 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
 }
 
 type Coverage = {
+  id: string;
   name: string;
   url: string;
   headline: string;
@@ -1278,7 +1286,7 @@ type Coverage = {
 async function articlesFor(db: Db, eventIds: string[]): Promise<Map<string, Coverage[]>> {
   const { data, error } = await db
     .from("articles")
-    .select("event_id, url, title, published_at, excerpt, sources ( name )")
+    .select("id, event_id, url, title, published_at, excerpt, sources ( name )")
     .in("event_id", eventIds)
     .order("published_at", { ascending: true, nullsFirst: false });
   if (error) throw new Error(`reading articles: ${error.message}`);
@@ -1291,7 +1299,7 @@ async function articlesFor(db: Db, eventIds: string[]): Promise<Map<string, Cove
     const excerpt = (row.excerpt ?? "").trim();
     const list = out.get(row.event_id) ?? [];
     if (!list.some((c) => c.url === row.url)) {
-      list.push({ name, url: row.url, headline: row.title, publishedAt, excerpt });
+      list.push({ id: row.id, name, url: row.url, headline: row.title, publishedAt, excerpt });
     }
     out.set(row.event_id, list);
   }

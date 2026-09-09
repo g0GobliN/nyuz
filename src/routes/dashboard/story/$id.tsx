@@ -7,19 +7,11 @@ import {
 } from "@tanstack/react-router";
 import { humanError } from "@/lib/errors";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Bookmark,
-  ExternalLink,
-  Sparkles,
-  ThumbsDown,
-  ThumbsUp,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DashboardShell } from "@/components/dashboard/shell";
+import { StoryArticle } from "@/components/dashboard/story-article";
 import { LogoLoader, PanelLoading } from "@/components/loading";
-import { formatStoryTime } from "@/lib/story-time";
 import { Button } from "@/components/kit";
 import { useFeedback } from "@/lib/feedback-store";
 import { useReadTracking } from "@/lib/use-engagement";
@@ -28,27 +20,7 @@ import type { QueueItem, ReadingQueue } from "@/lib/reading-queue";
 import { asQueueSource, useReadingQueue, type QueueSource } from "@/lib/use-reading-queue";
 import { loadStory, askStory } from "@/lib/server/briefing";
 import { getLaunchFlags } from "@/lib/server/settings";
-import type { Story } from "@/lib/story";
 import { cn } from "@/lib/utils";
-import {
-  corroboration,
-  deriveChange,
-  eventTimeline,
-  intelligenceText,
-  legacyEventIntelligence,
-  sourceCountLabel,
-  understandMinutes,
-  type Audience,
-  type Comparison,
-  type EventIntelligence,
-  type NumericSeries,
-  type OverviewItem,
-  type Perspective,
-  type RelationshipMap as RelationshipMapType,
-  type WatchItem,
-} from "@/lib/understand";
-import { composeArticle } from "@/lib/editorial";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export const Route = createFileRoute("/dashboard/story/$id")({
   component: StoryDetail,
@@ -56,8 +28,8 @@ export const Route = createFileRoute("/dashboard/story/$id")({
     const from = asQueueSource(search["from"]);
     return from ? { from } : {};
   },
-  head: ({ params }) => ({
-    meta: [{ title: params.id ? "Understand — nyuz" : "nyuz" }],
+  head: () => ({
+    meta: [{ title: "nyuz" }],
   }),
 });
 
@@ -66,6 +38,13 @@ const PROMPTS = [
   "How does this affect developers?",
   "What should I do about it this week?",
 ];
+
+/**
+ * The reading column and its quiet source rail, shared by the article and by
+ * everything printed under it, so the prose keeps one measure down the page.
+ */
+const READING_GRID =
+  "mx-auto grid max-w-[40rem] gap-12 xl:max-w-none xl:grid-cols-[minmax(0,42rem)_minmax(0,12rem)] xl:gap-14";
 
 function BackToFeed({ className }: { className?: string }) {
   const router = useRouter();
@@ -111,6 +90,10 @@ function StoryDetail() {
     reachedEnd.current = false;
   }, [id]);
 
+  const onReachEnd = useCallback(() => {
+    reachedEnd.current = true;
+  }, []);
+
   const { asksPerDay, loading: planLoading } = usePlan();
   const { state, vote, toggleSaved } = useFeedback();
   const saved = story ? state.saved.includes(story.id) : false;
@@ -154,7 +137,7 @@ function StoryDetail() {
 
   if (storyQ.isLoading) {
     return (
-      <DashboardShell title="Understand">
+      <DashboardShell>
         <PanelLoading label="Preparing the event" />
       </DashboardShell>
     );
@@ -162,151 +145,40 @@ function StoryDetail() {
 
   if (!story) {
     return (
-      <DashboardShell title="Understand">
+      <DashboardShell>
         <p className="text-[15px]">This event is not in your briefing.</p>
         <BackToFeed className="mt-4" />
       </DashboardShell>
     );
   }
 
-  const article = composeArticle(story, {
-    audience: "reader",
-    implication: "",
-    evidence: [],
-  });
-
   return (
-    <DashboardShell title="Understand">
+    <DashboardShell>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <BackToFeed />
         <QueueControls queue={queue} onOpen={open} />
       </div>
 
-      <article className="mt-6 animate-rise">
-        <div className="grid gap-10 xl:grid-cols-[minmax(0,40rem)_minmax(0,14rem)]">
-          <div className="min-w-0 space-y-9">
-            <div>
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-signal">
-                  {story.topics[0] ?? story.org}
-                </span>
-                <span className="text-[12px] tabular-nums text-muted-foreground">
-                  {formatStoryTime(story.updatedAt ?? story.publishedAt)}
-                </span>
-                <span className="rounded-full border border-border px-2.5 py-0.5 text-[11px]">
-                  {story.importance} importance
-                </span>
-              </div>
+      <div className="animate-rise">
+        <StoryArticle
+          story={story}
+          saved={saved}
+          current={current}
+          gridClassName={READING_GRID}
+          onVote={(value) => vote(story.id, value)}
+          onToggleSaved={() => toggleSaved(story.id)}
+          onReachEnd={onReachEnd}
+        />
 
-              <h1 className="display mt-4 max-w-[40rem] text-[clamp(1.5rem,4.5vw,2.9rem)]">
-                {story.title}
-              </h1>
-              <p className="mt-4 text-[13px] text-muted-foreground">
-                {story.org}
-                <span aria-hidden> · </span>
-                {sourceCountLabel(story.understand?.analysisMeta, story.sources)}
-                <span aria-hidden> · </span>
-                {understandMinutes([
-                  ...intelligenceText(
-                    story.understand ??
-                      legacyEventIntelligence({ what: story.what, sources: story.sourceList }),
-                  ),
-                  ...(story.personalization?.explanation
-                    ? [story.personalization.explanation]
-                    : []),
-                ])}{" "}
-                understand
-              </p>
-            </div>
-
-            <EditorialBody
-              article={article}
-              story={story}
-              onReachEnd={() => {
-                reachedEnd.current = true;
-              }}
-            />
-
+        <div className={cn(READING_GRID, "mt-14")}>
+          <div className="min-w-0 space-y-10">
             {askEnabled && !planLoading && asksPerDay > 0 ? (
               <AskPanel eventId={story.id} dailyLimit={asksPerDay} />
             ) : null}
-
             <QueuePager queue={queue} onOpen={open} />
           </div>
-
-          <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
-            <div className="rounded-2xl border border-hairline bg-surface p-5">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                Scoring
-              </p>
-              <div className="mt-4 space-y-3">
-                {(
-                  [
-                    ["Relevance", story.score.relevance],
-                    ["Importance", story.score.importance],
-                    ["Novelty", story.score.novelty],
-                  ] as const
-                ).map(([label, v]) => (
-                  <div key={label}>
-                    <div className="flex justify-between text-[12.5px]">
-                      <span className="text-muted-foreground">{label}</span>
-                      <span className="tabular-nums">{v}%</span>
-                    </div>
-                    <div className="mt-1.5 h-1 rounded-full bg-muted">
-                      <div
-                        className="h-1 rounded-full bg-signal transition-[width] duration-1000"
-                        style={{ width: `${v}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <EndMatter article={article} story={story} />
-
-            <div className="rounded-2xl border border-hairline bg-surface p-5">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                Was this useful?
-              </p>
-              <div className="mt-4 flex gap-2">
-                <button
-                  onClick={() => vote(story.id, "useful")}
-                  className={cn(
-                    "inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border py-2 text-[12.5px] transition-colors",
-                    current === "useful"
-                      ? "border-signal/50 bg-signal/10 text-signal"
-                      : "border-border hover:bg-muted",
-                  )}
-                >
-                  <ThumbsUp className="h-3.5 w-3.5" /> Useful
-                </button>
-                <button
-                  onClick={() => vote(story.id, "not-useful")}
-                  className={cn(
-                    "inline-flex flex-1 items-center justify-center gap-1.5 rounded-full border py-2 text-[12.5px] transition-colors",
-                    current === "not-useful"
-                      ? "border-border bg-muted text-foreground"
-                      : "border-border hover:bg-muted",
-                  )}
-                >
-                  <ThumbsDown className="h-3.5 w-3.5" /> Not useful
-                </button>
-              </div>
-              <button
-                onClick={() => toggleSaved(story.id)}
-                className={cn(
-                  "mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-full border py-2 text-[12.5px] transition-colors",
-                  saved ? "border-signal/50 text-signal" : "border-border hover:bg-muted",
-                )}
-              >
-                <Bookmark className={cn("h-3.5 w-3.5", saved && "fill-current")} />
-                {saved ? "Saved" : "Save for later"}
-              </button>
-            </div>
-          </aside>
         </div>
-      </article>
+      </div>
     </DashboardShell>
   );
 }
@@ -400,7 +272,7 @@ function QueuePager({ queue, onOpen }: { queue: ReadingQueue; onOpen: (id: strin
           {queue.position} of {queue.total} in {queue.label}
         </span>
         <span className="hidden sm:inline">
-          <Key>{"\u2190"}</Key> and <Key>{"\u2192"}</Key> move between stories
+          <Key>{"←"}</Key> and <Key>{"→"}</Key> move between stories
         </span>
       </div>
 
@@ -469,502 +341,6 @@ function Key({ children }: { children: string }) {
   );
 }
 
-function EndOfStory({ onReach }: { onReach: () => void }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const node = ref.current;
-    if (!node || typeof IntersectionObserver === "undefined") return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          onReach();
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "0px 0px -25% 0px" },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [onReach]);
-
-  return <div ref={ref} aria-hidden className="h-px" />;
-}
-
-function eventIntelligence(story: Story): EventIntelligence {
-  return (
-    story.understand ?? legacyEventIntelligence({ what: story.what, sources: story.sourceList })
-  );
-}
-
-function timelinePoints(story: Story, intelligence: EventIntelligence) {
-  return eventTimeline(
-    intelligence,
-    story.timeline.map((point) => ({ when: point.at, what: point.label, evidence: [] })),
-  );
-}
-
-function understandTime(story: Story, intelligence: EventIntelligence) {
-  const change = deriveChange(
-    story.before,
-    story.after,
-    intelligence.newDevelopments,
-    intelligence.oneSentence,
-  );
-  const changeTexts =
-    change?.mode === "before_now"
-      ? [change.before, change.now]
-      : (change?.items.map((item) => item.text) ?? []);
-  return understandMinutes([
-    ...intelligenceText(intelligence),
-    ...changeTexts,
-    story.personalization?.explanation ?? "",
-  ]);
-}
-
-function ComparisonTable({ comparison, story }: { comparison: Comparison; story: Story }) {
-  return (
-    <section>
-      <BlockHeading>{comparison.caption || "Compared"}</BlockHeading>
-      <div className="mt-3 divide-y divide-[var(--hairline)] border-y border-hairline">
-        <div className="grid grid-cols-[1fr_1fr] gap-4 py-2 sm:grid-cols-[8rem_1fr_1fr]">
-          <span className="hidden text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground sm:block" />
-          <span className="text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
-            {comparison.leftLabel}
-          </span>
-          <span className="text-[10.5px] uppercase tracking-[0.16em] text-signal">
-            {comparison.rightLabel}
-          </span>
-        </div>
-        {comparison.rows.map((row) => (
-          <div
-            key={row.label}
-            className="grid grid-cols-[1fr_1fr] gap-4 py-3 sm:grid-cols-[8rem_1fr_1fr]"
-          >
-            <p className="col-span-2 text-[12px] text-muted-foreground sm:col-span-1 sm:text-[14px] sm:text-foreground">
-              {row.label}
-            </p>
-            <p className="text-[14.5px] text-muted-foreground">{row.left}</p>
-            <p className="text-[14.5px]">
-              {row.right}
-              <EvidenceRefs refs={row.evidence} story={story} />
-            </p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function NumericChart({ series, story }: { series: NumericSeries; story: Story }) {
-  const max = Math.max(...series.points.map((point) => point.value));
-  const min = Math.min(0, ...series.points.map((point) => point.value));
-  const span = max - min || 1;
-
-  return (
-    <section>
-      <BlockHeading>{series.caption || "By the numbers"}</BlockHeading>
-      {series.shape === "line" ? (
-        <div className="mt-4">
-          <svg
-            viewBox="0 0 100 32"
-            preserveAspectRatio="none"
-            className="h-24 w-full"
-            role="img"
-            aria-label={series.points.map((p) => `${p.label} ${p.display}`).join(", ")}
-          >
-            <polyline
-              fill="none"
-              stroke="var(--signal)"
-              strokeWidth="0.6"
-              vectorEffect="non-scaling-stroke"
-              points={series.points
-                .map((point, index) => {
-                  const x = (index / (series.points.length - 1)) * 100;
-                  const y = 30 - ((point.value - min) / span) * 28;
-                  return `${x},${y}`;
-                })
-                .join(" ")}
-            />
-          </svg>
-          <div className="mt-2 flex justify-between text-[11px] tabular-nums text-muted-foreground">
-            {series.points.map((point) => (
-              <span key={point.label}>{point.label}</span>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="mt-4 space-y-2.5">
-          {series.points.map((point) => (
-            <div key={point.label} className="grid grid-cols-[4.5rem_1fr_auto] items-center gap-3">
-              <span className="truncate text-[12px] text-muted-foreground">{point.label}</span>
-              <span className="h-2 rounded-full bg-muted">
-                <span
-                  className="block h-2 rounded-full bg-signal"
-                  style={{ width: `${Math.max(2, ((point.value - min) / span) * 100)}%` }}
-                />
-              </span>
-              <span className="text-[12.5px] tabular-nums">{point.display}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      <p className="mt-3 text-[11px] text-muted-foreground">
-        <EvidenceRefs refs={series.points.flatMap((point) => point.evidence)} story={story} />
-      </p>
-    </section>
-  );
-}
-
-function StructuredOverview({ items, story }: { items: OverviewItem[]; story: Story }) {
-  return (
-    <section>
-      <BlockHeading>What was announced</BlockHeading>
-      <dl className="mt-3 divide-y divide-[var(--hairline)] border-y border-hairline">
-        {items.map((item) => (
-          <div key={item.name} className="flex items-baseline justify-between gap-4 py-3">
-            <div className="min-w-0">
-              <dt className="text-[14.5px] font-medium">{item.name}</dt>
-              {item.kind ? (
-                <dd className="mt-0.5 text-[12px] text-muted-foreground">{item.kind}</dd>
-              ) : null}
-            </div>
-            <dd className="shrink-0 text-[14px] tabular-nums">
-              {item.detail}
-              <EvidenceRefs refs={item.evidence} story={story} />
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  );
-}
-
-function ThePicture({
-  relationships,
-  story,
-}: {
-  relationships: RelationshipMapType;
-  story: Story;
-}) {
-  const labelOf = (id: string) => relationships.nodes.find((node) => node.id === id)?.label ?? id;
-  return (
-    <section className="border-y border-hairline py-6">
-      <BlockHeading>The picture</BlockHeading>
-      <div className="mt-4 space-y-5">
-        {relationships.edges.map((edge, index) => (
-          <div
-            key={`${edge.from}-${edge.to}-${index}`}
-            className="flex flex-col items-center gap-1.5 text-center"
-          >
-            <p className="text-[14px] font-medium uppercase tracking-[0.04em]">
-              {labelOf(edge.from)}
-            </p>
-            <span aria-hidden className="h-4 w-px bg-border" />
-            {edge.label ? (
-              <p className="text-[11px] uppercase tracking-[0.14em] text-signal">{edge.label}</p>
-            ) : null}
-            <span aria-hidden className="h-4 w-px bg-border" />
-            <p className="text-[14px] font-medium uppercase tracking-[0.04em]">
-              {labelOf(edge.to)}
-              <EvidenceRefs refs={edge.evidence} story={story} />
-            </p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function AudienceList({ audiences, story }: { audiences: Audience[]; story: Story }) {
-  return (
-    <section>
-      <BlockHeading>Who should care</BlockHeading>
-      <dl className="mt-3 divide-y divide-[var(--hairline)] border-y border-hairline">
-        {audiences.map((item) => (
-          <div key={item.audience} className="py-3.5 sm:grid sm:grid-cols-[8rem_1fr] sm:gap-5">
-            <dt className="text-[14px] font-medium">{item.audience}</dt>
-            <dd className="mt-1 text-[14px] leading-relaxed text-muted-foreground sm:mt-0">
-              {item.implication}
-              <EvidenceRefs refs={item.evidence} story={story} />
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </section>
-  );
-}
-
-function PerspectiveList({ perspectives, story }: { perspectives: Perspective[]; story: Story }) {
-  return (
-    <section>
-      <BlockHeading>Different perspectives</BlockHeading>
-      <div className="mt-3 space-y-4">
-        {perspectives.map((item) => (
-          <div key={item.source}>
-            <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-              {item.source}
-            </p>
-            <p className="mt-1 text-[14.5px] leading-relaxed">
-              {item.stance}
-              <EvidenceRefs refs={item.evidence} story={story} />
-            </p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function WatchNextList({ items, story }: { items: WatchItem[]; story: Story }) {
-  return (
-    <section>
-      <BlockHeading>Watch next</BlockHeading>
-      <ul className="mt-3 space-y-3">
-        {items.map((item) => (
-          <li key={item.label}>
-            <p className="text-[14px] font-medium">{item.label}</p>
-            <p className="mt-0.5 text-[14px] leading-relaxed text-muted-foreground">
-              {item.detail}
-              <EvidenceRefs refs={item.evidence} story={story} />
-            </p>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function Corroboration({ refs, story }: { refs: number[]; story: Story }) {
-  const outlets = corroboration(
-    refs,
-    story.sourceList.map((source) => source.name),
-  );
-  if (outlets < 3) return null;
-  return (
-    <span className="ml-2 text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground">
-      {outlets} sources
-    </span>
-  );
-}
-
-function EvidenceRefs({ refs, story }: { refs: number[]; story: Story }) {
-  if (refs.length === 0) return null;
-  const names = refs
-    .map((ref) => story.sourceList[ref - 1]?.name)
-    .filter((name): name is string => Boolean(name));
-  if (names.length === 0) return null;
-  return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <sup className="ml-1 text-[10px] font-normal text-muted-foreground cursor-help">
-            [{refs.join(", ")}]
-          </sup>
-        </TooltipTrigger>
-        <TooltipContent
-          side="top"
-          align="center"
-          className="max-w-[18rem] text-[11px] leading-snug"
-        >
-          {names.join(", ")}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  );
-}
-
-function BlockHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-      {children}
-    </h2>
-  );
-}
-
-/**
- * The editorial margin body: a two-column grid where the main content
- * lives in the left column and margin notes populate the right column
- * at the `xl` breakpoint and above. Below `xl`, margin notes render
- * inline within the content flow.
- */
-function EditorialBody({
-  article,
-  story,
-  onReachEnd,
-}: {
-  article: ReturnType<typeof composeArticle>;
-  story: Story;
-  onReachEnd: () => void;
-}) {
-  const change = deriveChange(
-    story.before,
-    story.after,
-    article.blocks
-      .filter((b) => b.type === "paragraph")
-      .map((b) => ({ text: b.content, evidence: b.evidence, kind: "reported" as const })),
-    story.understand?.oneSentence ?? "",
-  );
-
-  return (
-    <div className="xl:grid xl:grid-cols-[minmax(0,40rem)_minmax(0,14rem)] xl:gap-8">
-      <div className="min-w-0 space-y-8">
-        <p className="text-[14.5px] leading-[1.5] tracking-[-0.01em] sm:text-[19px] sm:leading-[1.65]">
-          {story.understand?.oneSentence ??
-            legacyEventIntelligence({ what: story.what, sources: story.sourceList }).oneSentence}
-        </p>
-
-        {story.understand?.relationships ? (
-          <ThePicture relationships={story.understand.relationships} story={story} />
-        ) : null}
-
-        {change?.mode === "before_now" ? (
-          <section>
-            <BlockHeading>What changed</BlockHeading>
-            <div className="mt-3 grid gap-5 sm:grid-cols-2 sm:gap-8">
-              <div className="border-t border-hairline pt-3">
-                <p className="text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
-                  Before
-                </p>
-                <p className="mt-1.5 text-[14.5px] leading-relaxed">{change.before}</p>
-              </div>
-              <div className="border-t border-signal pt-3">
-                <p className="text-[10.5px] uppercase tracking-[0.16em] text-signal">Now</p>
-                <p className="mt-1.5 text-[14.5px] leading-relaxed">{change.now}</p>
-              </div>
-            </div>
-          </section>
-        ) : change?.mode === "new" ? (
-          <section>
-            <BlockHeading>New in this announcement</BlockHeading>
-            <ul className="mt-3 space-y-2.5 text-[15px] leading-relaxed">
-              {change.items.map((item) => (
-                <li key={item.text}>
-                  {item.text}
-                  <EvidenceRefs refs={item.evidence} story={story} />
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-
-        {article.sections.map((section, index) => (
-          <section key={index}>
-            {section.heading ? <BlockHeading>{section.heading}</BlockHeading> : null}
-            <div className="mt-3 space-y-3.5">
-              {section.blocks.map((block, bIndex) => (
-                <ArticleBlock key={`${index}-${bIndex}`} block={block} story={story} />
-              ))}
-            </div>
-            {section.marginNotes.length > 0 ? (
-              <div className="xl:hidden mt-3 space-y-2">
-                {section.marginNotes.map((note, nIndex) => (
-                  <MarginNote key={`${index}-${nIndex}`} note={note} story={story} />
-                ))}
-              </div>
-            ) : null}
-          </section>
-        ))}
-
-        {story.personalization ? (
-          <div className="rounded-3xl border border-signal/30 bg-surface p-6">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal">
-              {story.personalization.heading}
-            </h2>
-            <p className="mt-3 text-[15px] leading-relaxed">{story.personalization.explanation}</p>
-          </div>
-        ) : null}
-
-        <EndOfStory onReach={onReachEnd} />
-      </div>
-
-      <aside className="hidden xl:block xl:space-y-6">
-        {article.marginNotes.map((note, index) => (
-          <MarginNote key={index} note={note} story={story} />
-        ))}
-      </aside>
-    </div>
-  );
-}
-
-function ArticleBlock({
-  block,
-  story,
-}: {
-  block: import("@/lib/editorial").ArticleBlock;
-  story: Story;
-}) {
-  return (
-    <p className="text-[14.5px] leading-relaxed">
-      {block.content}
-      <EvidenceRefs refs={block.evidence} story={story} />
-    </p>
-  );
-}
-
-function MarginNote({ note, story }: { note: import("@/lib/editorial").MarginNote; story: Story }) {
-  return (
-    <div className="rounded-lg border border-hairline bg-surface-2 p-3 text-[12px] leading-relaxed text-muted-foreground">
-      <span className="font-medium text-foreground">{note.text}</span>
-      <EvidenceRefs refs={note.evidence} story={story} />
-    </div>
-  );
-}
-
-function EndMatter({
-  article,
-  story,
-}: {
-  article: ReturnType<typeof composeArticle>;
-  story: Story;
-}) {
-  return (
-    <div className="rounded-2xl border border-hairline bg-surface p-5">
-      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-        {story.understand?.analysisMeta &&
-        story.understand.analysisMeta.sourceCountAtAnalysis !== story.sources
-          ? sourceCountLabel(story.understand.analysisMeta, story.sources)
-          : `Based on ${sourceCountLabel(story.understand?.analysisMeta, story.sources)}`}
-      </p>
-      <ul className="mt-4 space-y-2.5">
-        {story.sourceList.map((s) => (
-          <li key={s.url ?? s.name} className="flex items-center justify-between gap-3 text-[13px]">
-            {s.url ? (
-              <a
-                href={s.url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex min-w-0 items-center gap-2 hover:underline"
-              >
-                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate">{s.name}</span>
-              </a>
-            ) : (
-              <span className="flex min-w-0 items-center gap-2">
-                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate">{s.name}</span>
-              </span>
-            )}
-            <span className="shrink-0 tabular-nums text-[12px] text-muted-foreground">{s.at}</span>
-          </li>
-        ))}
-      </ul>
-      {article.endMatter.citations.length > 0 && (
-        <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">
-          {article.endMatter.citations.length} citation
-          {article.endMatter.citations.length !== 1 ? "s" : ""} across{" "}
-          {article.endMatter.sourceCount} source{article.endMatter.sourceCount !== 1 ? "s" : ""}.
-        </p>
-      )}
-      <p className="mt-2 text-[11.5px] leading-relaxed text-muted-foreground">
-        nyuz is not the source. This explanation is generated — open the reporting before acting on
-        it.
-      </p>
-    </div>
-  );
-}
-
 function AskPanel({ eventId, dailyLimit }: { eventId: string; dailyLimit: number }) {
   const [q, setQ] = useState("");
   const [asking, setAsking] = useState(false);
@@ -989,10 +365,7 @@ function AskPanel({ eventId, dailyLimit }: { eventId: string; dailyLimit: number
   };
 
   return (
-    <section
-      id="ask"
-      className="max-w-[40rem] scroll-mt-24 rounded-3xl border border-hairline bg-surface-2 p-6"
-    >
+    <section id="ask" className="scroll-mt-24 border-t border-hairline pt-7">
       <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
         <Sparkles className="h-3.5 w-3.5" /> Ask nyuz
       </h2>
@@ -1047,7 +420,7 @@ function AskPanel({ eventId, dailyLimit }: { eventId: string; dailyLimit: number
       ) : null}
 
       {answered ? (
-        <div className="mt-5 space-y-4 rounded-2xl border border-hairline bg-surface p-5">
+        <div className="mt-5 space-y-4">
           {answered.split(/\n\n+/).map((graf) => (
             <p key={graf.slice(0, 48)} className="text-[14.5px] leading-relaxed">
               {graf}

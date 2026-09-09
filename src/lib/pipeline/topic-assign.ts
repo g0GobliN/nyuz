@@ -12,323 +12,380 @@
  */
 
 import { TOPIC_POOL, IGNORE_POOL } from "@/lib/topics-pool";
-import { normaliseText, topicTerms, mentions, matchesTerms } from "@/lib/topics";
+import { normaliseText, topicTerms, matchesTerms, mentionsWord } from "@/lib/topics";
 
 // ---------------------------------------------------------------------------
 // Topic keyword mapping
 // ---------------------------------------------------------------------------
 
 /**
- * Keywords that indicate an event belongs to a specific topic.
+ * What each editorial topic is recognised by, split into two strengths.
  *
- * These are used for deterministic assignment when the AI model
- * would normally decide. The mapping is intentionally simple —
- * it captures the most obvious signals.
+ * ---------------------------------------------------------------------------
+ * Why two strengths and not one list
+ * ---------------------------------------------------------------------------
+ *
+ * A single flat list makes every keyword a sufficient condition, so the whole
+ * label rests on the weakest word in it. Live examples on 2026-09-08:
+ * "Germany's far-right breakthrough" came out as Politics, Music, Next.js, and
+ * "Tokyo tourist hotspot bans short-term rentals" as Music, World. Nothing was
+ * broken in the matcher's own terms — `Music` listed "pop" and "tour", `World`
+ * listed "world", `Next.js` listed "next", and the stories contain "populist",
+ * "tourist", a "World Discovery/Alamy" photo credit, and the ordinary English
+ * word "next". Three separate faults produced that, and all three are fixed
+ * here rather than in the examples:
+ *
+ *   1. **Prefix matching.** `mentions` finds "pop" at the start of "populist".
+ *      Right for a reader's own words, wrong for a fixed category list — see
+ *      `mentionsWord` in topics.ts, which this now uses instead.
+ *
+ *   2. **Words that are not evidence.** "next" is never evidence for Next.js;
+ *      it is one of the commonest words in English and is simply gone. Terms
+ *      that are real signal but ambiguous alone — "tour", "pop", "world",
+ *      "hacker", "device" — are `weak`.
+ *
+ *   3. **One hit was enough.** A topic now needs one `strong` term, or two
+ *      distinct `weak` ones. A single ambiguous word can no longer put a label
+ *      on a story by itself, which is the property the regression tests pin.
+ *
+ * ---------------------------------------------------------------------------
+ * Which list a term belongs in
+ * ---------------------------------------------------------------------------
+ *
+ * `strong` is for terms that are about the topic in essentially every English
+ * sentence they appear in: "semiconductor", "parliament", "ransomware",
+ * "album". If you can write a plausible headline in another field containing
+ * the term, it is not strong.
+ *
+ * `weak` is for terms that carry the topic only in company: "tour" (Music, but
+ * also tourism and tournaments), "hacker" (Cybersecurity, but also the name of
+ * the site half this corpus comes from), "capital" (Funding, but also every
+ * capital city), "team", "round", "device", "world".
+ *
+ * The cost of demoting a term is recall: a real Music story mentioning only
+ * "tour" loses its label. That is the trade this file is making on purpose,
+ * because since 0068 these labels also decide what nyuz pays to analyse, and a
+ * false topic buys an analysis for a story nobody follows.
  */
-const TOPIC_KEYWORDS: Record<string, string[]> = {
-  World: [
-    "world",
-    "global",
-    "international",
-    "foreign",
-    "diplomacy",
-    "geopolitics",
-    "summit",
-    "treaty",
-    "alliance",
-    "un",
-  ],
-  Politics: [
-    "politics",
-    "government",
-    "election",
-    "vote",
-    "congress",
-    "parliament",
-    "senate",
-    "white house",
-    "president",
-    "prime minister",
-    "democrat",
-    "republican",
-    "legislation",
-    "bill",
-    "policy",
-    "administration",
-    "cabinet",
-    "minister",
-    "regulatory",
-  ],
-  Sports: [
-    "sports",
-    "game",
-    "match",
-    "tournament",
-    "championship",
-    "league",
-    "player",
-    "coach",
-    "team",
-    "score",
-    "goal",
-    "penalty",
-    "olympics",
-    "nba",
-    "nfl",
-    "mlb",
-    "nhl",
-    "fifa",
-    "uefa",
-  ],
-  Music: [
-    "music",
-    "song",
-    "album",
-    "artist",
-    "singer",
-    "band",
-    "concert",
-    "tour",
-    "lyrics",
-    "melody",
-    "rhythm",
-    "genre",
-    "pop",
-    "rock",
-    "hip hop",
-    "jazz",
-    "classical",
-  ],
-  Gaming: [
-    "game",
-    "gaming",
-    "video game",
-    "esports",
-    "guild",
-    "raid",
-    "npc",
-    "mmo",
-    "rpg",
-    "fps",
-    "console",
-    "playstation",
-    "xbox",
-    "nintendo",
-    "steam",
-    "twitch",
-    "streamer",
-  ],
-  Film: [
-    "film",
-    "movie",
-    "cinema",
-    "director",
-    "actor",
-    "actress",
-    "oscar",
-    "academy award",
-    "box office",
-    "screenplay",
-    "sequel",
-    "franchise",
-    "blockbuster",
-    "premiere",
-  ],
-  Climate: [
-    "climate",
-    "weather",
-    "hurricane",
-    "tornado",
-    "flood",
-    "drought",
-    "temperature",
-    "emissions",
-    "carbon",
-    "greenhouse",
-    "warming",
-    "ice cap",
-    "sea level",
-    "renewable",
-    "solar",
-    "wind",
-  ],
-  Economy: [
-    "economy",
-    "market",
-    "stock",
-    "trade",
-    "inflation",
-    "recession",
-    "gdp",
-    "unemployment",
-    "interest rate",
-    "fiscal",
-    "monetary",
-    "supply chain",
-    "tariff",
-    "import",
-    "export",
-    "revenue",
-    "profit",
-    "loss",
-    "quarterly",
-  ],
-  Health: [
-    "health",
-    "medical",
-    "hospital",
-    "doctor",
-    "patient",
-    "disease",
-    "treatment",
-    "pharmaceutical",
-    "drug",
-    "vaccine",
-    "pandemic",
-    "epidemic",
-    "symptom",
-    "diagnosis",
-    "therapy",
-    "clinical trial",
-  ],
-  AI: [
-    "artificial intelligence",
-    "ai",
-    "machine learning",
-    "deep learning",
-    "neural network",
-    "llm",
-    "large language model",
-    "generative",
-    "prompt",
-    "inference",
-    "training data",
-    "model parameter",
-  ],
-  OpenAI: ["openai", "gpt", "chatgpt", "openai gpt"],
-  Anthropic: ["anthropic", "claude ai"],
-  Claude: ["claude", "anthropic"],
-  NVIDIA: ["nvidia", "gpu", "cuda", "rtx", "blackwell", "hopper", "tesla"],
-  Cursor: ["cursor", "ai code editor"],
-  React: ["react", "reactjs"],
-  "Next.js": ["next.js", "nextjs", "next"],
-  TypeScript: ["typescript", "ts"],
-  Startups: [
-    "startup",
-    "startup company",
-    "founder",
-    "founding",
-    "seed round",
-    "series a",
-    "series b",
-    "series c",
-    "venture capital",
-    "vc",
-    "pitch",
-    "incubator",
-    "accelerator",
-  ],
-  Cybersecurity: [
-    "cybersecurity",
-    "cyber security",
-    "hack",
-    "hacker",
-    "breach",
-    "vulnerability",
-    "exploit",
-    "malware",
-    "ransomware",
-    "phishing",
-    "firewall",
-    "encryption",
-    "zero day",
-    "cve",
-    "cvss",
-    "security",
-  ],
-  Funding: [
-    "funding",
-    "fundraise",
-    "investment",
-    "investor",
-    "round",
-    "valuation",
-    "unicorn",
-    "ipo",
-    "acquisition",
-    "merger",
-    "buyout",
-    "capital",
-    "equity",
-    "debt",
-  ],
-  Chips: [
-    "chip",
-    "semiconductor",
-    "processor",
-    "microchip",
-    "fabrication",
-    "foundry",
-    "tsmc",
-    "intel",
-    "amd",
-    "qualcomm",
-    "broadcom",
-    "asml",
-  ],
-  "Open source": [
-    "open source",
-    "opensource",
-    "github",
-    "gitlab",
-    "repository",
-    "pull request",
-    "contributor",
-    "license",
-    "fork",
-    "merge",
-  ],
-  Robotics: [
-    "robot",
-    "robotics",
-    "autonomous",
-    "drone",
-    "humanoid",
-    "manipulator",
-    "sensor",
-    "actuator",
-  ],
-  Linux: ["linux", "ubuntu", "debian", "fedora", "arch", "centos", "rhel", "kernel"],
-  Hardware: ["hardware", "cpu", "ram", "storage", "ssd", "hdd", "motherboard", "gpu", "processor"],
-  "Developer tools": [
-    "developer tool",
-    "ide",
-    "editor",
-    "compiler",
-    "debugger",
-    "cli",
-    "terminal",
-    "docker",
-    "kubernetes",
-    "terraform",
-    "ci/cd",
-    "pipeline",
-    "deployment",
-  ],
-  "Consumer tech": [
-    "consumer",
-    "smartphone",
-    "tablet",
-    "laptop",
-    "desktop",
-    "wearable",
-    "smart home",
-    "iot",
-    "device",
-    "app",
-    "mobile",
-  ],
+type TopicVocabulary = {
+  /** One mention is evidence enough. */
+  strong: readonly string[];
+  /** Real signal, ambiguous alone: two distinct hits are needed. */
+  weak?: readonly string[];
 };
+
+const TOPIC_KEYWORDS: Record<string, TopicVocabulary> = {
+  World: {
+    strong: ["geopolitics", "geopolitical", "diplomacy", "diplomatic", "treaty", "united nations"],
+    weak: ["world", "global", "international", "foreign", "summit", "alliance", "un"],
+  },
+  Politics: {
+    strong: [
+      "politics",
+      "political",
+      "election",
+      "electoral",
+      "parliament",
+      "congress",
+      "senate",
+      "white house",
+      "prime minister",
+      "legislation",
+      "lawmaker",
+      "referendum",
+      "democrat",
+      "republican",
+      "government",
+      "minister",
+      "voter",
+      "ballot",
+      "senator",
+      "governor",
+    ],
+    weak: ["vote", "president", "bill", "policy", "administration", "cabinet", "regulatory"],
+  },
+  Sports: {
+    strong: [
+      // "sport" singular is here for the section signal `classify.ts` folds in:
+      // a "BBC Sport" feed name is the publisher stating the subject outright,
+      // and is the strongest evidence available for wire copy that names only
+      // clubs and players.
+      "sport",
+      "olympics",
+      "olympic",
+      "nba",
+      "nfl",
+      "mlb",
+      "nhl",
+      "fifa",
+      "uefa",
+      "championship",
+      "tournament",
+      "premier league",
+      "world cup",
+      "grand slam",
+      "wimbledon",
+      "quarter final",
+      "semi final",
+      "footballer",
+      "midfielder",
+      "striker",
+      "athlete",
+      "cricket",
+      "rugby",
+      "tennis",
+      "basketball",
+      "baseball",
+    ],
+    // "match" and "score" are absent on purpose: they are ordinary machine-
+    // learning vocabulary ("matching", "score function") and together they put
+    // Sports on a diffusion-model paper.
+    weak: ["game", "league", "player", "coach", "team", "goal", "fixture"],
+  },
+  Music: {
+    strong: [
+      "music",
+      "musician",
+      "song",
+      "album",
+      "singer",
+      "concert",
+      "lyrics",
+      "soundtrack",
+      "spotify",
+    ],
+    weak: ["artist", "band", "tour", "genre", "pop", "rock", "hip hop", "jazz", "classical"],
+  },
+  Gaming: {
+    strong: [
+      "video game",
+      "gaming",
+      "gamer",
+      "esports",
+      "gameplay",
+      "playstation",
+      "xbox",
+      "nintendo",
+      "twitch",
+      "speedrun",
+    ],
+    weak: ["game", "guild", "raid", "npc", "mmo", "rpg", "fps", "console", "steam", "streamer"],
+  },
+  Film: {
+    strong: [
+      "film",
+      "movie",
+      "cinema",
+      "box office",
+      "screenplay",
+      "oscar",
+      "academy award",
+      "blockbuster",
+    ],
+    weak: ["director", "actor", "actress", "sequel", "franchise", "premiere"],
+  },
+  Climate: {
+    strong: [
+      "climate",
+      "emissions",
+      "greenhouse",
+      "global warming",
+      "sea level",
+      "hurricane",
+      "tornado",
+      "drought",
+      "wildfire",
+    ],
+    weak: ["weather", "flood", "temperature", "carbon", "warming", "ice cap", "renewable", "solar"],
+  },
+  Economy: {
+    strong: [
+      "economy",
+      "economic",
+      "inflation",
+      "recession",
+      "gdp",
+      "unemployment",
+      "interest rate",
+      "tariff",
+      "fiscal",
+      "monetary",
+    ],
+    weak: [
+      "market",
+      "stock",
+      "trade",
+      "supply chain",
+      "import",
+      "export",
+      "revenue",
+      "profit",
+      "quarterly",
+    ],
+  },
+  Health: {
+    strong: [
+      "health",
+      "medical",
+      "hospital",
+      "disease",
+      "vaccine",
+      "pandemic",
+      "epidemic",
+      "clinical trial",
+      "pharmaceutical",
+      "diagnosis",
+      "cancer",
+      "mental health",
+      "nhs",
+      "surgery",
+    ],
+    weak: ["doctor", "patient", "treatment", "drug", "symptom", "therapy"],
+  },
+  AI: {
+    strong: [
+      // Two letters, so `mentionsWord` matches it as a whole word only. "AI"
+      // standing alone in English is the field; it is not a word otherwise.
+      "ai",
+      "artificial intelligence",
+      "machine learning",
+      "deep learning",
+      "neural network",
+      "llm",
+      "large language model",
+      "chatbot",
+    ],
+    weak: ["generative", "prompt", "inference", "training data", "model parameter"],
+  },
+  OpenAI: { strong: ["openai", "chatgpt", "gpt"] },
+  Anthropic: { strong: ["anthropic", "claude ai", "claude code"] },
+  Claude: {
+    // "Claude" alone is also a first name -- Claude Monet, Claude Shannon -- so
+    // the bare word needs the company beside it.
+    strong: ["claude ai", "claude code", "claude opus", "claude sonnet"],
+    weak: ["claude", "anthropic"],
+  },
+  NVIDIA: {
+    strong: ["nvidia", "cuda", "geforce"],
+    weak: ["gpu", "rtx", "blackwell", "hopper", "tesla"],
+  },
+  Cursor: {
+    strong: ["cursor ai", "cursor ide", "anysphere", "ai code editor"],
+    weak: ["cursor"],
+  },
+  React: {
+    // "react" is an ordinary English verb, so it cannot be strong; "reactjs"
+    // and "react native" are unambiguous.
+    strong: ["reactjs", "react js", "react native", "react hooks"],
+    weak: ["react", "jsx"],
+  },
+  "Next.js": {
+    // The bare word "next" used to be here. It is one of the commonest words in
+    // English and labelled a German election story Next.js; it is not evidence
+    // for anything and is deliberately absent.
+    strong: ["nextjs", "next js", "app router"],
+    weak: ["vercel"],
+  },
+  TypeScript: {
+    strong: ["typescript"],
+    weak: ["ts", "tsx", "type safety"],
+  },
+  Startups: {
+    strong: [
+      "startup",
+      "founder",
+      "co-founder",
+      "seed round",
+      "series a",
+      "series b",
+      "series c",
+      "venture capital",
+      "incubator",
+      "accelerator",
+      "y combinator",
+    ],
+    weak: ["founding", "pitch", "vc"],
+  },
+  Cybersecurity: {
+    strong: [
+      "cybersecurity",
+      "cyber security",
+      "malware",
+      "ransomware",
+      "phishing",
+      "vulnerability",
+      "zero day",
+      "cve",
+      "data breach",
+      "exploit",
+    ],
+    // "hacker" is weak because a large share of this corpus arrives from a site
+    // called Hacker News, which is not a security signal.
+    weak: ["hack", "hacker", "breach", "firewall", "encryption", "cvss", "security"],
+  },
+  Funding: {
+    strong: ["funding", "fundraise", "valuation", "ipo", "unicorn", "seed round", "series a"],
+    weak: [
+      "investment",
+      "investor",
+      "round",
+      "acquisition",
+      "merger",
+      "buyout",
+      "capital",
+      "equity",
+      "debt",
+    ],
+  },
+  Chips: {
+    strong: ["semiconductor", "microchip", "tsmc", "asml", "foundry", "chipmaker", "fpga"],
+    weak: ["chip", "processor", "fabrication", "intel", "amd", "qualcomm", "broadcom"],
+  },
+  "Open source": {
+    strong: ["open source", "opensource", "github", "gitlab", "pull request"],
+    weak: ["repository", "contributor", "license", "fork", "merge"],
+  },
+  Robotics: {
+    strong: ["robot", "robotics", "humanoid robot", "autonomous vehicle"],
+    // A military drone story is not robotics news, so "drone" needs company.
+    weak: ["drone", "autonomous", "humanoid", "manipulator", "actuator", "sensor"],
+  },
+  Linux: {
+    strong: ["linux", "ubuntu", "debian", "fedora", "centos", "rhel", "arch linux"],
+    weak: ["kernel", "arch"],
+  },
+  Hardware: {
+    strong: ["hardware", "motherboard", "ssd", "hdd"],
+    weak: ["cpu", "gpu", "ram", "storage", "processor", "device"],
+  },
+  "Developer tools": {
+    strong: [
+      "developer tool",
+      "docker",
+      "kubernetes",
+      "terraform",
+      "ci cd",
+      "compiler",
+      "debugger",
+    ],
+    // "ide" used to be found inside "identify"; it is now a whole word, and
+    // still only counts alongside a second signal.
+    weak: ["ide", "editor", "cli", "terminal", "pipeline", "deployment"],
+  },
+  "Consumer tech": {
+    strong: ["smartphone", "tablet", "laptop", "wearable", "smart home", "iot"],
+    weak: ["consumer", "desktop", "device", "app", "mobile"],
+  },
+};
+
+/**
+ * How many distinct `weak` terms stand in for one `strong` one.
+ *
+ * Two, not three: three would cost the label on short wire copy, which is most
+ * of what arrives, and two already rules out every case in the report — each of
+ * Music, Next.js and World on those stories rested on exactly one word.
+ */
+const WEAK_TERMS_FOR_EVIDENCE = 2;
 
 // ---------------------------------------------------------------------------
 // Tag keywords
@@ -397,60 +454,59 @@ const TAG_KEYWORDS: Record<string, string[]> = {
 /**
  * Deterministically assign topics to an event based on its text content.
  *
- * Uses keyword matching against the TOPIC_POOL. For each topic, counts how many
- * of its associated keywords the normalised text actually mentions.
+ * The rule, in full: a topic is assigned when the text mentions one of its
+ * `strong` terms, or `WEAK_TERMS_FOR_EVIDENCE` distinct `weak` ones. Matching is
+ * `mentionsWord` — whole words with regular inflections, never word prefixes.
+ * `TOPIC_KEYWORDS` explains at length why both halves of that are necessary and
+ * what shipped without them.
  *
- * ---------------------------------------------------------------------------
- * Why `mentions` and not `includes`
- * ---------------------------------------------------------------------------
+ * Ordering is by evidence: strong hits first, then the number of terms matched,
+ * then alphabetically so the result is stable for a given text. Callers take the
+ * first few, so the strongest-evidence labels are the ones that survive the cut.
  *
- * This used to be `normalised.includes(keyword)`, plain substring containment,
- * and the keyword lists contain two-letter entries: `ts` for TypeScript, `ai`
- * for AI, `un` for World. Substring containment finds `ts` inside "releases",
- * "protests" and "data centers", `ai` inside "chair", "said" and "maintain",
- * and `un` inside "under". Measured against 126 live events on 2026-09-08, that
- * labelled an anime round-up as Next.js and Economy, the Eiffel Tower closing
- * as AI and Developer tools, and a food-safety story as TypeScript.
- *
- * That was already wrong where these labels are shown to readers. It became
- * load-bearing when 0068 made the same function decide what nyuz pays to
- * analyse: at those rates 74% of everything ingested reaches some reader, which
- * is the "analyse the whole internet" outcome the demand gate exists to prevent.
- *
- * `mentions` from topics.ts is the word-boundary test the rest of the product
- * already matches on — exact-word for terms under three characters, word-start
- * otherwise, containment for unspaced scripts. Using it here means the
- * classifier, the matcher and the reader's own interests all agree on what it
- * means for a text to be about something.
- *
- * Returns topics sorted by confidence (number of keyword matches).
+ * This is the only place topics are decided. `classify.ts` calls it to write
+ * `event_topic_candidates`, which is what the demand gate spends money on, and
+ * `analyse.ts` calls it to write `event_topics`, which is what the reader is
+ * matched on and sees. There is no second implementation to drift from it and
+ * no model in the path, which is what makes the regression tests in
+ * topic-assign.test.ts binding rather than indicative.
  */
 export function assignTopics(text: string): string[] {
   const normalised = normaliseText(text).toLowerCase();
-  const scored: { topic: string; score: number }[] = [];
+  const scored: { topic: string; strong: number; total: number }[] = [];
 
   for (const topic of TOPIC_POOL) {
-    const keywords = TOPIC_KEYWORDS[topic];
-    if (!keywords) continue;
+    const vocabulary = TOPIC_KEYWORDS[topic];
+    if (!vocabulary) continue;
 
-    let score = 0;
-    for (const keyword of keywords) {
-      if (mentions(normalised, keyword.toLowerCase())) {
-        score++;
-      }
-    }
+    const strong = countMentions(normalised, vocabulary.strong);
+    const weak = countMentions(normalised, vocabulary.weak ?? []);
+    if (strong === 0 && weak < WEAK_TERMS_FOR_EVIDENCE) continue;
 
-    if (score > 0) {
-      scored.push({ topic, score });
-    }
+    scored.push({ topic, strong, total: strong + weak });
   }
 
-  // Sort by score descending, then alphabetically for stability
-  scored.sort((a, b) => b.score - a.score || a.topic.localeCompare(b.topic));
+  scored.sort((a, b) => b.strong - a.strong || b.total - a.total || a.topic.localeCompare(b.topic));
 
-  // Return top topics, max 5
-  return scored.slice(0, 5).map((s) => s.topic);
+  return scored.slice(0, MAX_ASSIGNED_TOPICS).map((s) => s.topic);
 }
+
+/** How many of these terms the text mentions. Distinct terms, not occurrences. */
+function countMentions(normalised: string, terms: readonly string[]): number {
+  let hits = 0;
+  for (const term of terms) {
+    // Terms are normalised the same way the text is. Without this a keyword
+    // holding punctuation could never match at all: "next.js" is "next js"
+    // after normalisation, and "ci/cd" is "ci cd", so both used to be dead
+    // entries -- which is how Next.js came to rest entirely on the bare word
+    // "next".
+    if (mentionsWord(normalised, normaliseText(term).toLowerCase())) hits++;
+  }
+  return hits;
+}
+
+/** Matches `MAX_TOPICS` in analyse.ts, which slices this again on write. */
+const MAX_ASSIGNED_TOPICS = 5;
 
 /**
  * Deterministically assign tags to an event based on its text content.
@@ -464,8 +520,12 @@ export function assignTags(text: string): string[] {
 
   for (const [tag, keywords] of Object.entries(TAG_KEYWORDS)) {
     for (const keyword of keywords) {
-      // Word boundaries, for the reason `assignTopics` documents at length.
-      if (mentions(normalised, keyword.toLowerCase())) {
+      // Whole words, for the reason `TOPIC_KEYWORDS` documents at length: with
+      // prefix matching "ban" reached "bank" and tagged every banking story as
+      // regulation. Single-tier rather than strong/weak because a tag is a
+      // description of one concrete thing that happened, not a category claim
+      // -- and unlike a topic, a tag does not decide what gets analysed.
+      if (mentionsWord(normalised, normaliseText(keyword).toLowerCase())) {
         if (!seen.has(tag)) {
           seen.add(tag);
           tags.push(tag);

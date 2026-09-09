@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { composeArticle } from "./editorial";
 import type { Story } from "@/lib/story";
-import type { Audience } from "@/lib/understand";
+import type { EventIntelligence } from "@/lib/understand";
 
 const makeStory = (overrides: Partial<Story> = {}): Story => ({
   id: "test-1",
@@ -26,15 +26,7 @@ const makeStory = (overrides: Partial<Story> = {}): Story => ({
   ...overrides,
 });
 
-const makeAudience: Audience = {
-  audience: "developers",
-  implication: "It affects your stack",
-  evidence: [1],
-};
-
-const makeIntelligence = (
-  overrides: Partial<import("@/lib/understand").EventIntelligence> = {},
-): import("@/lib/understand").EventIntelligence => ({
+const makeIntelligence = (overrides: Partial<EventIntelligence> = {}): EventIntelligence => ({
   version: 2,
   coverage: "normal",
   oneSentence: "A significant event occurred.",
@@ -55,487 +47,201 @@ const makeIntelligence = (
   ...overrides,
 });
 
+const bodyOf = (story: Story) =>
+  composeArticle(story)
+    .paragraphs.map((paragraph) => paragraph.text)
+    .join("\n\n");
+
 describe("composeArticle", () => {
-  it("returns an article with empty sections for a thin event", () => {
-    const story = makeStory({
-      understand: makeIntelligence({ coverage: "thin", oneSentence: "Minor event." }),
-    });
-    const article = composeArticle(story, makeAudience);
-    expect(article.sections.length).toBeGreaterThanOrEqual(0);
-    expect(article.blocks.length).toBeGreaterThanOrEqual(0);
-    expect(article.marginNotes.length).toBeGreaterThanOrEqual(0);
+  it("returns the authored article untouched when the analysis wrote one", () => {
+    const article = {
+      deck: { text: "The deck.", evidence: [1] },
+      paragraphs: [
+        { text: "The opening paragraph.", evidence: [1] },
+        { text: "A later turn in the story.", evidence: [2], heading: "After the vote" },
+      ],
+    };
+    const story = makeStory({ understand: makeIntelligence({ article }) });
+
+    expect(composeArticle(story)).toEqual(article);
   });
 
-  it("returns an article with a oneSentence block", () => {
-    const story = makeStory({
-      understand: makeIntelligence({ oneSentence: "The merger was announced." }),
-    });
-    const article = composeArticle(story, makeAudience);
-    expect(article.sections[0]?.blocks[0]?.content).toBe("The merger was announced.");
-  });
-
-  it("includes numbers as chart blocks", () => {
+  it("prefers authored prose over the extracted statements", () => {
     const story = makeStory({
       understand: makeIntelligence({
-        numbers: [{ value: "$4B", label: "Deal value", evidence: [1] }],
+        article: {
+          deck: { text: "Authored deck.", evidence: [] },
+          paragraphs: [{ text: "Authored body.", evidence: [] }],
+        },
+        numbers: [{ value: "$1", label: "Value", evidence: [1] }],
       }),
     });
-    const article = composeArticle(story, makeAudience);
-    const chartBlock = article.sections.find((s) => s.heading === "By the numbers");
-    expect(chartBlock).toBeDefined();
-    expect(chartBlock!.blocks[0]?.type).toBe("chart");
+
+    expect(bodyOf(story)).toBe("Authored body.");
   });
 
-  it("includes newDevelopments as paragraph blocks", () => {
+  it("falls back to the story summary as the deck", () => {
+    const story = makeStory({ what: "A summary of the event" });
+
+    expect(composeArticle(story).deck.text).toBe("A summary of the event");
+  });
+
+  it("falls back to the one-sentence analysis when the story has no summary", () => {
     const story = makeStory({
+      what: "   ",
+      understand: makeIntelligence({ oneSentence: "The analysed sentence." }),
+    });
+
+    expect(composeArticle(story).deck.text).toBe("The analysed sentence.");
+  });
+
+  it("never emits analytical headings in the fallback article", () => {
+    const story = makeStory({
+      before: "It used to be one way",
+      after: "Now it is another",
       understand: makeIntelligence({
-        newDevelopments: [{ text: "The deal closed.", evidence: [1], kind: "reported" }],
+        numbers: [{ value: "$1B", label: "Funding", evidence: [1] }],
+        audiences: [{ audience: "developers", implication: "Your stack changes", evidence: [1] }],
+        watchNext: [{ label: "The vote", detail: "Scheduled for March", evidence: [2] }],
       }),
     });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "What changed");
-    expect(section).toBeDefined();
-    expect(section!.blocks[0]?.type).toBe("paragraph");
+
+    for (const paragraph of composeArticle(story).paragraphs) {
+      expect(paragraph.heading).toBeUndefined();
+    }
   });
 
-  it("includes audiences as audience blocks", () => {
+  it("groups related statements into paragraphs rather than one block each", () => {
     const story = makeStory({
       understand: makeIntelligence({
-        audiences: [{ audience: "Developers", implication: "Your stack changes.", evidence: [1] }],
+        numbers: [
+          { value: "$1B", label: "Funding", evidence: [1] },
+          { value: "40%", label: "Growth", evidence: [2] },
+        ],
       }),
     });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Who should care");
-    expect(section).toBeDefined();
+    const numbers = composeArticle(story).paragraphs.filter((p) => p.text.includes("Funding"));
+
+    expect(numbers).toHaveLength(1);
+    expect(numbers[0]?.text).toContain("Growth");
   });
 
-  it("includes context as paragraph blocks", () => {
+  it("carries the evidence of every statement it merges into a paragraph", () => {
     const story = makeStory({
       understand: makeIntelligence({
-        context: [{ text: "Background info.", evidence: [1], kind: "context" }],
+        numbers: [
+          { value: "$1B", label: "Funding", evidence: [1] },
+          { value: "40%", label: "Growth", evidence: [3] },
+        ],
       }),
     });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Context");
-    expect(section).toBeDefined();
+    const numbers = composeArticle(story).paragraphs.find((p) => p.text.includes("Funding"));
+
+    expect(numbers?.evidence).toEqual([1, 3]);
   });
 
-  it("includes overview as overview blocks", () => {
+  it("drops statements the deck already made, and keeps their evidence on it", () => {
     const story = makeStory({
+      what: "",
       understand: makeIntelligence({
-        overview: [{ name: "Feature", kind: "launch", detail: "New thing", evidence: [1] }],
+        oneSentence: "The company raised money.",
+        newDevelopments: [{ text: "The company raised money.", evidence: [2], kind: "reported" }],
+        context: [{ text: "The company raised money.", evidence: [3], kind: "context" }],
       }),
     });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "What was announced");
-    expect(section).toBeDefined();
+    const article = composeArticle(story);
+    const mentions = article.paragraphs.filter((p) => p.text.includes("The company raised money"));
+
+    expect(article.deck.text).toBe("The company raised money.");
+    expect(article.deck.evidence).toEqual([2, 3]);
+    expect(mentions).toHaveLength(0);
   });
 
-  it("includes comparison as comparison blocks", () => {
+  it("does not repeat the deck sentence in the body", () => {
+    const story = makeStory({
+      what: "The company raised money.",
+      understand: makeIntelligence({
+        oneSentence: "The company raised money.",
+        context: [{ text: "Investors had waited two years.", evidence: [1], kind: "context" }],
+      }),
+    });
+
+    expect(bodyOf(story)).not.toContain("The company raised money.");
+    expect(bodyOf(story)).toContain("Investors had waited two years.");
+  });
+
+  it("terminates statements that arrive without punctuation", () => {
+    const story = makeStory({
+      what: "",
+      understand: makeIntelligence({
+        oneSentence: "",
+        unknowns: ["Nobody has said who pays"],
+      }),
+    });
+
+    expect(bodyOf(story)).toContain("Nobody has said who pays.");
+  });
+
+  it("reads a relationship map as prose rather than a diagram", () => {
     const story = makeStory({
       understand: makeIntelligence({
-        comparison: {
-          caption: "Before and after",
-          leftLabel: "Before",
-          rightLabel: "After",
-          rows: [{ label: "Revenue", left: "$1B", right: "$2B", evidence: [1] }],
+        relationships: {
+          nodes: [
+            { id: "a", label: "Meta", type: "org" },
+            { id: "b", label: "Muse", type: "product" },
+          ],
+          edges: [{ from: "a", to: "b", label: "releases", evidence: [1] }],
         },
       }),
     });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Before and after");
-    expect(section).toBeDefined();
-    expect(section!.blocks[0]?.type).toBe("comparison");
+
+    expect(bodyOf(story)).toContain("Meta releases Muse.");
   });
 
-  it("includes series as chart blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        series: {
-          caption: "Revenue trend",
-          shape: "line",
-          points: [{ label: "Q1", value: 100, display: "$100M", evidence: [1] }],
-        },
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Revenue trend");
-    expect(section).toBeDefined();
-  });
-
-  it("includes whatNext as whatNext blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        whatNext: [{ text: "Next step", evidence: [1], kind: "reported" }],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "What happens next");
-    expect(section).toBeDefined();
-  });
-
-  it("includes conflicts as conflict blocks", () => {
+  it("keeps a conflict's competing reports together under its topic", () => {
     const story = makeStory({
       understand: makeIntelligence({
         conflicts: [
           {
-            topic: "Revenue",
+            topic: "The price",
             reports: [
-              { text: "Up", evidence: [1] },
-              { text: "Down", evidence: [2] },
+              { text: "One outlet reported $10", evidence: [1] },
+              { text: "Another reported $12", evidence: [2] },
             ],
           },
         ],
       }),
     });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Reports differ");
-    expect(section).toBeDefined();
+    const conflict = composeArticle(story).paragraphs.find((p) => p.text.includes("The price"));
+
+    expect(conflict?.text).toContain("One outlet reported $10");
+    expect(conflict?.text).toContain("Another reported $12");
+    expect(conflict?.evidence).toEqual([1, 2]);
   });
 
-  it("includes perspectives as perspective blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        perspectives: [
-          { source: "Analyst A", stance: "Bullish", evidence: [1] },
-          { source: "Analyst B", stance: "Bearish", evidence: [2] },
-        ],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Different perspectives");
-    expect(section).toBeDefined();
+  it("keeps an event with no analysis readable", () => {
+    const article = composeArticle(makeStory({ understand: undefined as never }));
+
+    expect(article.deck.text).toBe("Something happened");
+    expect(article.paragraphs).toEqual([]);
   });
 
-  it("includes unknowns as unknown blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({ unknowns: ["The outcome"] }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Still unknown");
-    expect(section).toBeDefined();
+  it("returns an empty article rather than blank paragraphs for an empty event", () => {
+    const article = composeArticle(
+      makeStory({ what: "", understand: makeIntelligence({ oneSentence: "" }) }),
+    );
+
+    expect(article.deck.text).toBe("");
+    expect(article.paragraphs).toEqual([]);
   });
 
-  it("includes timeline as timeline blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        timeline: [{ when: "Jan 1", what: "Started", evidence: [1] }],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "How this event formed");
-    expect(section).toBeDefined();
-  });
-
-  it("includes watchNext as whatNext blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        watchNext: [{ label: "Next", detail: "Details", evidence: [1] }],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Watch next");
-    expect(section).toBeDefined();
-  });
-
-  it("produces deterministic output for the same input", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        oneSentence: "Deterministic.",
-        numbers: [{ value: "$1", label: "Value", evidence: [1] }],
-      }),
-    });
-    const article1 = composeArticle(story, makeAudience);
-    const article2 = composeArticle(story, makeAudience);
-    expect(JSON.stringify(article1)).toBe(JSON.stringify(article2));
-  });
-
-  it("returns endMatter with citations", () => {
+  it("produces deterministic output for the same event", () => {
     const story = makeStory({
       understand: makeIntelligence({
         numbers: [{ value: "$1", label: "Value", evidence: [1] }],
       }),
     });
-    const article = composeArticle(story, makeAudience);
-    expect(article.endMatter.citations.length).toBeGreaterThan(0);
-    expect(article.endMatter.sourceCount).toBe(3);
-  });
 
-  it("returns endMatter with correct source count", () => {
-    const story = makeStory({
-      sources: 5,
-      sourceList: Array.from({ length: 5 }, (_, i) => ({ name: `Source ${i + 1}`, at: "10:00" })),
-    });
-    const article = composeArticle(story, makeAudience);
-    expect(article.endMatter.sourceCount).toBe(5);
-  });
-
-  it("generates margin notes from evidence", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        numbers: [{ value: "$1", label: "Value", evidence: [1] }],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    expect(article.marginNotes.length).toBeGreaterThan(0);
-  });
-
-  it("handles empty intelligence gracefully", () => {
-    const story = makeStory({
-      understand: makeIntelligence({ oneSentence: "" }),
-    });
-    const article = composeArticle(story, makeAudience);
-    expect(article).toBeDefined();
-    expect(article.sections).toBeDefined();
-  });
-
-  it("handles story without understand field", () => {
-    const story = makeStory();
-    const article = composeArticle(story, makeAudience);
-    expect(article).toBeDefined();
-  });
-
-  it("handles empty sourceList", () => {
-    const story = makeStory({ sourceList: [] });
-    const article = composeArticle(story, makeAudience);
-    expect(article.endMatter.sourceCount).toBe(0);
-    expect(article.endMatter.citations.length).toBe(0);
-  });
-
-  it("creates blocks from all section types", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        oneSentence: "Test.",
-        numbers: [{ value: "$1", label: "V", evidence: [1] }],
-        newDevelopments: [{ text: "Changed.", evidence: [1], kind: "reported" }],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const totalBlocks = article.sections.reduce((sum, s) => sum + s.blocks.length, 0);
-    expect(totalBlocks).toBeGreaterThanOrEqual(3);
-  });
-
-  it("each section has heading and blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        oneSentence: "Test.",
-        numbers: [{ value: "$1", label: "V", evidence: [1] }],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    for (const section of article.sections) {
-      expect(section.heading).toBeDefined();
-      expect(section.blocks).toBeInstanceOf(Array);
-    }
-  });
-
-  it("margin notes have correct position", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        numbers: [{ value: "$1", label: "V", evidence: [1] }],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    for (const note of article.marginNotes) {
-      expect(note.position).toBe("margin");
-    }
-  });
-
-  it("citations reference valid source names", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        numbers: [{ value: "$1", label: "Value", evidence: [1] }],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    for (const citation of article.endMatter.citations) {
-      expect(citation.name).toBeTruthy();
-    }
-  });
-
-  it("deduplicates across sections", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        oneSentence: "Same text.",
-        newDevelopments: [{ text: "Same text.", evidence: [1], kind: "reported" }],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const allTexts = article.sections.flatMap((s) => s.blocks.map((b) => b.content));
-    const uniqueTexts = new Set(allTexts);
-    expect(uniqueTexts.size).toBeLessThanOrEqual(allTexts.length);
-  });
-
-  it("handles rich coverage", () => {
-    const story = makeStory({
-      understand: makeIntelligence({ coverage: "rich" }),
-    });
-    const article = composeArticle(story, makeAudience);
-    expect(article).toBeDefined();
-  });
-
-  it("handles normal coverage", () => {
-    const story = makeStory({
-      understand: makeIntelligence({ coverage: "normal" }),
-    });
-    const article = composeArticle(story, makeAudience);
-    expect(article).toBeDefined();
-  });
-
-  it("handles thin coverage", () => {
-    const story = makeStory({
-      understand: makeIntelligence({ coverage: "thin" }),
-    });
-    const article = composeArticle(story, makeAudience);
-    expect(article).toBeDefined();
-  });
-
-  it("includes comparison rows in blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        comparison: {
-          caption: "Test",
-          leftLabel: "A",
-          rightLabel: "B",
-          rows: [
-            { label: "Revenue", left: "$1B", right: "$2B", evidence: [1] },
-            { label: "Profit", left: "$3B", right: "$4B", evidence: [2] },
-          ],
-        },
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Test");
-    expect(section!.blocks.length).toBe(2);
-  });
-
-  it("includes overview items in blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        overview: [
-          { name: "A", kind: "type", detail: "d1", evidence: [1] },
-          { name: "B", kind: "type", detail: "d2", evidence: [2] },
-        ],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "What was announced");
-    expect(section!.blocks.length).toBe(2);
-  });
-
-  it("includes timeline points in blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        timeline: [
-          { when: "2024", what: "Start", evidence: [1] },
-          { when: "2025", what: "End", evidence: [2] },
-        ],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "How this event formed");
-    expect(section!.blocks.length).toBe(2);
-  });
-
-  it("includes whatNext items in blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        whatNext: [
-          { text: "A", evidence: [1], kind: "reported" },
-          { text: "B", evidence: [2], kind: "reported" },
-        ],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "What happens next");
-    expect(section!.blocks.length).toBe(2);
-  });
-
-  it("includes context items in blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        context: [
-          { text: "Context A", evidence: [1], kind: "context" },
-          { text: "Context B", evidence: [2], kind: "context" },
-        ],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Context");
-    expect(section!.blocks.length).toBe(2);
-  });
-
-  it("includes audience items in blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        audiences: [
-          { audience: "A", implication: "i1", evidence: [1] },
-          { audience: "B", implication: "i2", evidence: [2] },
-        ],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Who should care");
-    expect(section!.blocks.length).toBe(2);
-  });
-
-  it("includes unknowns in blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({ unknowns: ["A", "B"] }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Still unknown");
-    expect(section!.blocks.length).toBe(2);
-  });
-
-  it("includes perspectives in blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        perspectives: [
-          { source: "A", stance: "Bullish", evidence: [1] },
-          { source: "B", stance: "Bearish", evidence: [2] },
-        ],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Different perspectives");
-    expect(section!.blocks.length).toBe(2);
-  });
-
-  it("includes watchNext in blocks", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        watchNext: [
-          { label: "A", detail: "d1", evidence: [1] },
-          { label: "B", detail: "d2", evidence: [2] },
-        ],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    const section = article.sections.find((s) => s.heading === "Watch next");
-    expect(section!.blocks.length).toBe(2);
-  });
-
-  it("returns empty sections when intelligence has no content", () => {
-    const story = makeStory({
-      understand: makeIntelligence({
-        oneSentence: "",
-        numbers: [],
-        newDevelopments: [],
-        audiences: [],
-        whatNext: [],
-        context: [],
-        overview: [],
-        comparison: null,
-        series: null,
-        conflicts: [],
-        perspectives: [],
-        unknowns: [],
-        timeline: [],
-        watchNext: [],
-      }),
-    });
-    const article = composeArticle(story, makeAudience);
-    expect(article.sections.length).toBe(0);
+    expect(composeArticle(story)).toEqual(composeArticle(story));
   });
 });

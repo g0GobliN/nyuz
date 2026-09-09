@@ -391,7 +391,7 @@ function storyText(item: BriefingItem): string {
     ...grafs,
     ...(why ? ["", `Why it matters: ${why}`] : []),
     "",
-    `Understand this event: ${item.href}`,
+    `Read on nyuz: ${item.href}`,
   ].join("\n");
 }
 

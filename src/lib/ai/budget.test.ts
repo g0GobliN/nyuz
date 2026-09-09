@@ -90,8 +90,7 @@ describe("the $10 default against real pipeline shape", () => {
     expect(monthlyUsd).toBeGreaterThan(DEFAULT_AI_MONTHLY_COST_USD);
   });
 
-  it("prices a known model on any provider, and an unknown model as unknown rather than as free", () => {
-    // A model with a rate card entry returns a cost regardless of provider.
+  it("requires a known provider/model pair rather than assuming a reseller's price", () => {
     expect(
       aiCostMicrousd({
         provider: "deepseek",
@@ -103,7 +102,7 @@ describe("the $10 default against real pipeline shape", () => {
       }),
     ).not.toBeNull();
 
-    // A model with a rate card entry on a different provider also returns a cost.
+    // Another provider can charge a different price for the same model name.
     expect(
       aiCostMicrousd({
         provider: "openai",
@@ -113,7 +112,7 @@ describe("the $10 default against real pipeline shape", () => {
         completionTokens: 10_000,
         at: OFF_PEAK,
       }),
-    ).not.toBeNull();
+    ).toBeNull();
 
     // A model with no rate card entry returns null — spend is understated
     // rather than silently pretending to cost zero.

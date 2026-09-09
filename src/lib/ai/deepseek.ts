@@ -54,6 +54,8 @@ export function createDeepSeek(e?: AiEnv): OpenAI {
   return new OpenAI({
     apiKey,
     baseURL: env(e, "DEEPSEEK_BASE_URL") ?? "https://api.deepseek.com",
+    // Each attempt must acquire its own reservation in the routed caller.
+    maxRetries: 0,
   });
 }
 
@@ -65,9 +67,10 @@ export class TruncatedCompletionError extends Error {
     readonly promptTokens = 0,
     readonly completionTokens = reasoningTokens,
     readonly cachedTokens = 0,
+    readonly usageReported = true,
   ) {
     super(
-      `${model} hit the token ceiling during reasoning (${reasoningTokens} reasoning tokens of ${maxTokens}) and returned no content. Raise maxTokens.`,
+      `${model} returned truncated output at its ${maxTokens}-token ceiling (${reasoningTokens} reasoning tokens).`,
     );
     this.name = "TruncatedCompletionError";
   }
@@ -90,6 +93,7 @@ export type CompleteOptions = {
    * been moved off "default", so the pre-0056 request shape is byte-identical.
    */
   reasoningEffort?: "minimal" | "low" | "medium" | "high";
+  thinking?: "enabled" | "disabled";
   env?: AiEnv;
   signal?: AbortSignal;
 };
@@ -103,14 +107,16 @@ export type CompleteResult = {
   cachedTokens: number;
   /** How many provider calls produced this result (1 = first attempt, 2 = retried). */
   attempt_count: number;
+  usageReported?: boolean;
 };
 
 export class CompletionUsageError extends Error {
   constructor(
     message: string,
     readonly usage: CompleteResult,
+    cause?: unknown,
   ) {
-    super(message);
+    super(message, { cause });
     this.name = "CompletionUsageError";
   }
 }
@@ -131,6 +137,7 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
       // Not in the SDK's request type for every model, but accepted on the wire
       // by the reasoning models this routes to. Spread in only when set.
       ...(opts.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
+      ...(opts.thinking ? { thinking: { type: opts.thinking } } : {}),
       messages: [
         ...(opts.system ? [{ role: "system" as const, content: opts.system }] : []),
         { role: "user" as const, content: opts.user },
@@ -146,27 +153,36 @@ export async function complete(opts: CompleteOptions): Promise<CompleteResult> {
     (usage?.completion_tokens_details as { reasoning_tokens?: number } | undefined)
       ?.reasoning_tokens ?? 0;
 
-  if (choice?.finish_reason === "length" && content.trim() === "") {
+  if (choice?.finish_reason === "length") {
     throw new TruncatedCompletionError(
       model,
       reasoningTokens,
       maxTokens,
       usage?.prompt_tokens ?? 0,
       usage?.completion_tokens ?? reasoningTokens,
-      (usage?.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens ?? 0,
+      cachedInputTokens(usage),
+      usage != null,
     );
   }
 
   return {
     content,
-    model,
+    model: res.model ?? model,
     promptTokens: usage?.prompt_tokens ?? 0,
     completionTokens: usage?.completion_tokens ?? 0,
     reasoningTokens,
-    cachedTokens:
-      (usage?.prompt_tokens_details as { cached_tokens?: number } | undefined)?.cached_tokens ?? 0,
+    cachedTokens: cachedInputTokens(usage),
     attempt_count: 1,
+    usageReported: usage != null,
   };
+}
+
+function cachedInputTokens(usage: unknown): number {
+  const value = usage as {
+    prompt_cache_hit_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
+  } | null;
+  return value?.prompt_cache_hit_tokens ?? value?.prompt_tokens_details?.cached_tokens ?? 0;
 }
 
 /**
@@ -220,8 +236,9 @@ function addUsage(first: CompleteResult, second: CompleteResult): CompleteResult
  */
 export async function completeJson<T>(
   opts: CompleteOptions,
+  attempt: (options: CompleteOptions, number: number) => Promise<CompleteResult> = complete,
 ): Promise<{ data: T; usage: CompleteResult }> {
-  const first = await complete(opts);
+  const first = await attempt(opts, 1);
 
   try {
     return {
@@ -232,13 +249,39 @@ export async function completeJson<T>(
     // Deliberately not a conversation: the same request again, plus the reason the
     // last reply was unusable. Replaying a multi-turn exchange would cost the
     // prompt twice over and give the model room to argue with itself.
-    const second = await complete({
-      ...opts,
-      user:
-        `${opts.user}\n\n---\nYour previous reply could not be parsed as JSON. ` +
-        `Reply with the JSON value only — no prose, no explanation, no code fence.\n` +
-        `What you sent began: ${first.content.trim().slice(0, 120)}`,
-    });
+    let second: CompleteResult;
+    try {
+      second = await attempt(
+        {
+          ...opts,
+          user:
+            `${opts.user}\n\n---\nYour previous reply could not be parsed as JSON. ` +
+            `Reply with the JSON value only — no prose, no explanation, no code fence.\n` +
+            `What you sent began: ${first.content.trim().slice(0, 120)}`,
+        },
+        2,
+      );
+    } catch (error) {
+      const extra =
+        error instanceof CompletionUsageError
+          ? error.usage
+          : error instanceof TruncatedCompletionError
+            ? {
+                content: "",
+                model: error.model,
+                promptTokens: error.promptTokens,
+                completionTokens: error.completionTokens,
+                reasoningTokens: error.reasoningTokens,
+                cachedTokens: error.cachedTokens,
+                attempt_count: 1,
+              }
+            : null;
+      throw new CompletionUsageError(
+        "JSON repair failed after a billed first response",
+        extra ? addUsage(first, extra) : first,
+        error,
+      );
+    }
 
     const combined: CompleteResult = {
       content: second.content,

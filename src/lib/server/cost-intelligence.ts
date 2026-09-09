@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { adminOnly, audit } from "@/lib/server/guard";
@@ -10,7 +11,7 @@ import {
   type AiCredit,
   type SpendWindow,
 } from "@/lib/ai/credit";
-import type { AiCreditTopup } from "@/lib/supabase/types";
+import type { AiCreditTopup, Database } from "@/lib/supabase/types";
 import {
   computeUnitEconomics,
   COST_PROVIDERS,
@@ -90,6 +91,14 @@ export const getCostIntelligence = createServerFn({ method: "GET" })
     });
     if (error) return null;
     return (row as CostIntelligence | null) ?? null;
+  });
+
+export const getAiFeatureSpend = createServerFn({ method: "GET" })
+  .middleware([adminOnly])
+  .handler(async ({ context }) => {
+    const { data, error } = await context.actor.db.rpc("admin_cost_breakdown");
+    if (error) throw new Error(`Reading spend by feature: ${error.message}`);
+    return data ?? [];
   });
 
 /**
@@ -305,57 +314,58 @@ export type AiCreditView = { credit: AiCredit; windows: SpendWindow[] };
 
 export const getAiCredit = createServerFn({ method: "GET" })
   .middleware([adminOnly])
-  .handler(async ({ context }): Promise<AiCreditView | null> => {
-    const [balance, windows] = await Promise.all([
-      context.actor.db.rpc("ai_credit_balance"),
-      context.actor.db.rpc("ai_spend_windows"),
-    ]);
-    if (migrationMissing(balance.error)) return null;
-    if (balance.error) throw new Error(`Reading AI credit: ${balance.error.message}`);
-    const row = Array.isArray(balance.data) ? balance.data[0] : null;
-    if (!row) return null;
+  .handler(({ context }) => readAiCredit(context.actor.db));
 
-    const rows = windows.error ? [] : (windows.data ?? []);
-    const parsed: SpendWindow[] = SPEND_WINDOW_KEYS.flatMap((key) => {
-      const match = rows.find((w) => w.window_key === key);
-      return match
-        ? [
-            {
-              key,
-              since: match.since,
-              spentUsd: match.spent_microusd / MICROUSD_PER_USD,
-              settledUsd: match.settled_microusd / MICROUSD_PER_USD,
-              inFlightUsd: match.in_flight_microusd / MICROUSD_PER_USD,
-              tokens: match.tokens,
-              calls: match.calls,
-            },
-          ]
-        : [];
-    });
+export async function readAiCredit(db: SupabaseClient<Database>): Promise<AiCreditView | null> {
+  const [balance, windows] = await Promise.all([
+    db.rpc("ai_credit_balance"),
+    db.rpc("ai_spend_windows"),
+  ]);
+  if (migrationMissing(balance.error)) return null;
+  if (balance.error) throw new Error(`Reading provider credit: ${balance.error.message}`);
+  const row = Array.isArray(balance.data) ? balance.data[0] : null;
+  if (!row) return null;
 
-    // The week window feeds the burn rate. Zero when the aggregate failed, which
-    // suppresses the rate rather than inventing one — see `computeAiCredit`.
-    const week = parsed.find((w) => w.key === "week");
-
-    return {
-      credit: computeAiCredit({
-        toppedUpMicrousd: row.topped_up_microusd,
-        topups: row.topups,
-        firstTopupAt: row.first_topup_at,
-        lastTopupAt: row.last_topup_at,
-        lastTopupMicrousd: row.last_topup_microusd,
-        spentMicrousd: row.spent_microusd,
-        settledMicrousd: row.settled_microusd,
-        inFlightMicrousd: row.in_flight_microusd,
-        unfundedSpentMicrousd: row.unfunded_spent_microusd,
-        calls: row.calls,
-        unpricedCalls: row.unpriced_calls,
-        weekSpentMicrousd: week ? Math.round(week.spentUsd * MICROUSD_PER_USD) : 0,
-        now: new Date(),
-      }),
-      windows: parsed,
-    };
+  const rows = windows.error ? [] : (windows.data ?? []);
+  const parsed: SpendWindow[] = SPEND_WINDOW_KEYS.flatMap((key) => {
+    const match = rows.find((w) => w.window_key === key);
+    return match
+      ? [
+          {
+            key,
+            since: match.since,
+            spentUsd: match.spent_microusd / MICROUSD_PER_USD,
+            settledUsd: match.settled_microusd / MICROUSD_PER_USD,
+            inFlightUsd: match.in_flight_microusd / MICROUSD_PER_USD,
+            tokens: match.tokens,
+            calls: match.calls,
+          },
+        ]
+      : [];
   });
+
+  // Missing measurements must not be reported as zero burn.
+  const week = parsed.find((w) => w.key === "week");
+
+  return {
+    credit: computeAiCredit({
+      toppedUpMicrousd: row.topped_up_microusd,
+      topups: row.topups,
+      firstTopupAt: row.first_topup_at,
+      lastTopupAt: row.last_topup_at,
+      lastTopupMicrousd: row.last_topup_microusd,
+      spentMicrousd: row.spent_microusd,
+      settledMicrousd: row.settled_microusd,
+      inFlightMicrousd: row.in_flight_microusd,
+      unfundedSpentMicrousd: row.unfunded_spent_microusd,
+      calls: row.calls,
+      unpricedCalls: row.unpriced_calls,
+      weekSpentMicrousd: week ? Math.round(week.spentUsd * MICROUSD_PER_USD) : null,
+      now: new Date(),
+    }),
+    windows: parsed,
+  };
+}
 
 export const listAiTopups = createServerFn({ method: "GET" })
   .middleware([adminOnly])

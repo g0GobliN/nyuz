@@ -42,6 +42,22 @@ describe("balance arithmetic", () => {
     // overdraws between reservation and settlement.
     const c = credit({ spentMicrousd: 2 * M, settledMicrousd: 1 * M, inFlightMicrousd: 1 * M });
     expect(c.remainingUsd).toBe(3);
+    expect(c.remainingUsd).toBe(c.toppedUpUsd - c.settledUsd - c.inFlightUsd);
+  });
+
+  it("adds multiple top-ups without resetting attributed spend", () => {
+    const c = credit({
+      toppedUpMicrousd: 15 * M,
+      topups: 2,
+      lastTopupMicrousd: 10 * M,
+      lastTopupAt: NOW.toISOString(),
+      spentMicrousd: 3 * M,
+      settledMicrousd: 2 * M,
+      inFlightMicrousd: M,
+    });
+    expect(c.remainingUsd).toBe(12);
+    expect(c.topups).toBe(2);
+    expect(c.lastTopupUsd).toBe(10);
   });
 
   it("keeps spend that predates the first top-up out of the balance", () => {
@@ -66,9 +82,27 @@ describe("burn rate", () => {
   it("divides by the life of the balance when it is younger than a week", () => {
     const c = credit({
       firstTopupAt: new Date(NOW.getTime() - 2 * DAY).toISOString(),
+      spentMicrousd: 2 * M,
       weekSpentMicrousd: 2 * M,
     });
     expect(c.burnUsdPerDay).toBeCloseTo(1);
+  });
+
+  it("excludes pre-top-up spend from burn for a young balance", () => {
+    const c = credit({
+      firstTopupAt: new Date(NOW.getTime() - 2 * DAY).toISOString(),
+      spentMicrousd: M,
+      weekSpentMicrousd: 10 * M,
+      unfundedSpentMicrousd: 9 * M,
+    });
+    expect(c.burnUsdPerDay).toBe(0.5);
+    expect(c.daysRemaining).toBe(8);
+  });
+
+  it("does not mistake an unavailable week measurement for zero burn", () => {
+    const c = credit({ weekSpentMicrousd: null });
+    expect(c.burnUsdPerDay).toBeNull();
+    expect(c.daysRemaining).toBeNull();
   });
 
   it("is withheld under an hour of history", () => {

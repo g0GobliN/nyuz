@@ -93,11 +93,11 @@ function AiPage() {
       {data ? (
         <div className="space-y-5">
           <Panel
-            title="This month's token budget"
+            title="Token safety cap · this month"
             note={
               data.usage.budgetTokens > 0
                 ? `${formatNumber(data.usage.monthTokens)} of ${formatNumber(data.usage.budgetTokens)} tokens used or reserved. Calls stop before crossing the configured ceiling.`
-                : "No monthly token budget is in force, so the ledger records calls but does not enforce a global ceiling. Set one in AI runtime."
+                : "Token safety cap unavailable. Check AI Runtime."
             }
           >
             <div className="grid gap-3 sm:grid-cols-4">
@@ -109,7 +109,7 @@ function AiPage() {
             {data.usage.budgetTokens > 0 &&
             data.usage.monthTokens / data.usage.budgetTokens >= 0.8 ? (
               <p className="mt-4 text-[12.5px] font-semibold">
-                Budget warning: at least 80% of this month's AI allowance is committed.
+                Token safety cap warning: at least 80% of this month's cap is committed.
               </p>
             ) : null}
           </Panel>

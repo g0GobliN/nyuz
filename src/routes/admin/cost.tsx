@@ -23,6 +23,7 @@ import {
   addAiTopup,
   deleteAiTopup,
   getAiCredit,
+  getAiFeatureSpend,
   getAiSpend,
   getCostIntelligence,
   getUnitEconomics,
@@ -80,12 +81,18 @@ function CostPage() {
     <>
       <ConsoleHeader
         title="Cost"
-        sub="What the pipeline is spending, and what the demand-driven work measurably changed. Everything here is counted from rows."
+        sub="Estimated provider credit, ledger spend and emergency safety caps."
       />
 
-      {aiStatus.data ? <AiStatusCard data={aiStatus.data} /> : null}
-      {aiStatus.data ? <AiRuntimeCard data={aiStatus.data} /> : null}
+      {aiStatus.data && !aiStatus.error ? (
+        <AiStatusCard data={aiStatus.data} />
+      ) : (
+        <Panel title="AI status" className="mb-5">
+          {aiStatus.isLoading ? "Checking limits…" : "Unknown — could not read runtime limits."}
+        </Panel>
+      )}
 
+      <ErrorNote error={aiStatus.error} />
       <ErrorNote error={cost.error} />
       <ErrorNote error={unit.error} />
       <ErrorNote error={spend.error} />
@@ -102,7 +109,11 @@ function CostPage() {
         </Panel>
       ) : null}
 
+      {creditView.data ? <SpendByWindow data={creditView.data} /> : null}
+      <SpendByFeature />
+      {aiStatus.data ? <AiRuntimeCard data={aiStatus.data} /> : null}
       {spend.data ? <AiSpendPanel data={spend.data} /> : null}
+      <TopupSection />
 
       <div className="mb-5 flex flex-wrap items-center gap-1.5">
         {WINDOWS.map((w) => (
@@ -141,11 +152,6 @@ function CostPage() {
       ) : null}
 
       {data ? <AdvancedDiagnostics data={data} /> : null}
-
-      {creditView.data ? <SpendByWindow data={creditView.data} /> : null}
-      {data ? <SpendByFeature data={data} /> : null}
-
-      <TopupSection />
     </>
   );
 }
@@ -153,13 +159,12 @@ function CostPage() {
 function AiStatusCard({ data }: { data: AiRuntimeStatus }) {
   const isBlocked = data.status === "blocked";
   const isWarning = data.status === "warning" || data.status === "near_limit";
-  const progressPct = Math.min(data.usage.usedPct, 100);
 
   return (
     <div className="mb-5">
       <Panel
         title="AI status"
-        note="Derived from the same checks as the pipeline's reserve_ai_tokens."
+        note="Current enforced limits. Each new reservation must also fit within the remaining caps."
       >
         <div className="flex flex-wrap items-center gap-3">
           <span
@@ -167,17 +172,13 @@ function AiStatusCard({ data }: { data: AiRuntimeStatus }) {
               isBlocked
                 ? "bg-signal/10 text-signal"
                 : isWarning
-                  ? "bg-yellow-500/10 text-yellow-500"
-                  : "bg-emerald-500/10 text-emerald-500"
+                  ? "bg-muted text-foreground"
+                  : "bg-muted text-muted-foreground"
             }`}
           >
             {data.status.replace("_", " ")}
           </span>
           {data.action ? (
-            // Deep-links to the control that clears the blocker. It used to be
-            // an inert button next to prose naming an environment variable,
-            // which was both a dead end and — since the budgets moved into the
-            // database — the wrong instruction.
             <Link
               to="/admin/ai-runtime"
               search={data.action.settingKey ? { setting: data.action.settingKey } : {}}
@@ -196,30 +197,35 @@ function AiStatusCard({ data }: { data: AiRuntimeStatus }) {
           </div>
         )}
 
-        <div className="mt-3">
-          <div className="flex items-center justify-between text-[11.5px] text-muted-foreground">
-            <span>Monthly spend</span>
-            <span>{data.usage.usedPct.toFixed(1)}%</span>
+        <div className="mt-3 space-y-1 text-[12.5px]">
+          <div>
+            Provider credit:{" "}
+            {data.credit.status === "unknown"
+              ? "Unavailable"
+              : data.credit.status === "unrecorded"
+                ? "No top-up recorded"
+                : `${usd(data.credit.remainingUsd)} remaining (estimated)`}
           </div>
-          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                progressPct >= 90
-                  ? "bg-signal"
-                  : progressPct >= 70
-                    ? "bg-yellow-500"
-                    : "bg-emerald-500"
-              }`}
-              style={{ width: `${progressPct}%` }}
-            />
+          <div>
+            Monthly safety cap: {usd(data.usage.spentUsd)} / {usd(data.usage.ceilingUsd)} this month
           </div>
-          <div className="mt-1 flex justify-between text-[10.5px] text-muted-foreground">
-            <span>0%</span>
-            <span className="text-yellow-500">70%</span>
-            <span className="text-signal">90%</span>
-            <span>100%</span>
+          <div>
+            Token safety cap: {formatNumber(data.usage.tokensUsed)} /{" "}
+            {formatNumber(data.usage.tokensBudget)} this month
           </div>
         </div>
+        {data.credit.status === "exhausted" ? (
+          <div className="mt-3 space-y-2 text-[12.5px]">
+            <p>
+              Provider credit exhausted. Estimated provider credit is{" "}
+              {usd(data.credit.remainingUsd)}. This ledger estimate does not block calls. Record a
+              new top-up after recharging the provider.
+            </p>
+            <a href="#record-topup" className={buttonClass("outline", "sm")}>
+              Record top-up
+            </a>
+          </div>
+        ) : null}
       </Panel>
     </div>
   );
@@ -239,19 +245,19 @@ function AiRuntimeCard({ data }: { data: AiRuntimeStatus }) {
   return (
     <div className="mb-5">
       <Panel
-        title="AI runtime controls"
-        note="Budgets, token ceilings and switches, stored in the database and read by both the local pipeline and the deployed Worker."
+        title="Safety caps and runtime controls"
+        note="Maximum nyuz may spend in one calendar month. This is an emergency guard and does not add provider credit. Set it above routine usage; top-ups do not change it."
       >
         <div className="mt-4 flex flex-wrap items-end justify-between gap-5">
           <dl className="flex flex-wrap gap-x-10 gap-y-4">
             <LimitSummary
-              label="Monthly AI budget"
+              label="Monthly safety cap"
               value={`$${data.usage.ceilingUsd.toFixed(2)}`}
               source={data.ceilingSource}
               settingKey="ai.monthly_cost_usd"
             />
             <LimitSummary
-              label="Monthly token budget"
+              label="Token safety cap"
               value={formatNumber(data.usage.tokensBudget)}
               source={data.tokenBudgetSource}
               settingKey="ai.monthly_token_budget"
@@ -269,6 +275,11 @@ function AiRuntimeCard({ data }: { data: AiRuntimeStatus }) {
             Manage AI runtime
           </Link>
         </div>
+        <p className="mt-4 text-[12px] text-muted-foreground">
+          Daily model limits (UTC): Flash {usd(data.usage.daySpentFlash)} /{" "}
+          {usd(data.usage.dayCapFlash)}; Pro {usd(data.usage.daySpentPro)} /{" "}
+          {usd(data.usage.dayCapPro)}. Per-call and other runtime limits are in AI Runtime.
+        </p>
       </Panel>
     </div>
   );
@@ -317,18 +328,31 @@ function ProviderCreditCard({ data }: { data: AiCreditView }) {
     <div className="mb-5">
       <Panel
         title="Provider credit"
-        note={`${credit.toppedUpUsd > 0 ? `${credit.spentUsd} of ${credit.toppedUpUsd} used` : "No top-up recorded yet"} · ${runway} runway`}
+        note="Estimated from recorded top-ups minus settled AI spend and in-flight reservations. Informational; nyuz does not gate calls on this estimate."
       >
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <p className="font-serif text-[36px] tabular-nums">
+            {credit.topups === 0 ? "No top-up recorded" : `${usd(credit.remainingUsd)} remaining`}
+          </p>
+          <a href="#record-topup" className={buttonClass("outline", "sm")}>
+            Record top-up
+          </a>
+        </div>
         <StatGrid>
           <Stat
-            label="Remaining"
-            value={credit.topups === 0 ? "—" : `$${credit.remainingUsd.toFixed(2)}`}
-            hint={credit.daysRemaining !== null ? `${credit.daysRemaining} days` : "Not measured"}
+            label="Total topped up"
+            value={usd(credit.toppedUpUsd)}
+            hint={`${credit.topups} top-ups`}
+          />
+          <Stat
+            label="Settled AI spend"
+            value={usd(credit.settledUsd)}
+            hint="Since the first recorded top-up"
           />
           <Stat
             label="Burn"
             value={credit.burnUsdPerDay === null ? "—" : `$${credit.burnUsdPerDay.toFixed(2)}/day`}
-            hint="Trailing 7 days"
+            hint="Trailing 7 days, or since first top-up if newer; includes reservations"
           />
           <Stat
             label="In flight"
@@ -336,17 +360,29 @@ function ProviderCreditCard({ data }: { data: AiCreditView }) {
             hint="Reserved at estimate"
           />
           <Stat
-            label="Topped up"
-            value={`$${credit.toppedUpUsd.toFixed(2)}`}
-            hint={`${credit.topups} top-ups`}
+            label="Runway"
+            value={credit.daysRemaining === null ? "—" : `~${runway}`}
+            hint={credit.burnUsdPerDay === 0 ? "No measured burn" : "At the measured burn rate"}
           />
         </StatGrid>
 
         {credit.status === "exhausted" && (
           <div className="mt-3">
-            <Pill tone="signal">Credit exhausted — top up</Pill>
+            <Pill tone="signal">Provider credit exhausted · advisory</Pill>
           </div>
         )}
+        <p className="mt-3 text-[12px] text-muted-foreground">
+          {credit.firstTopupAt
+            ? `Balance starts ${formatDateTime(credit.firstTopupAt)}. `
+            : "Balance starts with the first recorded top-up. "}
+          Earlier ledger spend ({usd(credit.unfundedSpentUsd)}) is excluded from provider credit and
+          remains in spend history and applicable monthly safety-cap usage.
+        </p>
+        {credit.unpricedCalls > 0 ? (
+          <p className="mt-2 text-[12px] text-signal">
+            {credit.unpricedCalls} calls have no price; the estimated balance may be overstated.
+          </p>
+        ) : null}
       </Panel>
     </div>
   );
@@ -359,14 +395,14 @@ function AiSpendPanel({ data }: { data: AiSpend }) {
   return (
     <div className="mb-5">
       <Panel
-        title="AI spend · this month"
-        note={`${data.usedPct.toFixed(1)}% of the ${data.ceilingUsd > 0 ? `$${data.ceilingUsd.toFixed(2)}` : "default"} ceiling`}
+        title="Monthly safety cap · usage details"
+        note={`${data.usedPct.toFixed(1)}% of the $${data.ceilingUsd.toFixed(2)} safety cap; includes settled spend and reservations in this UTC calendar month`}
       >
         <StatGrid>
           <Stat
             label="Spent"
             value={`$${data.spentUsd.toFixed(2)}`}
-            hint={exhausted ? "Ceiling reached" : `${data.usedPct.toFixed(1)}% used`}
+            hint={exhausted ? "Monthly safety cap reached" : `${data.usedPct.toFixed(1)}% used`}
           />
           <Stat
             label="Projected month end"
@@ -375,8 +411,8 @@ function AiSpendPanel({ data }: { data: AiSpend }) {
               exhausted
                 ? "Model calls refused"
                 : willExhaust
-                  ? `Ceiling ${new Date(data.exhaustionDate as string).toLocaleDateString()}`
-                  : "Inside ceiling"
+                  ? `Safety cap ${new Date(data.exhaustionDate as string).toLocaleDateString()}`
+                  : "Inside safety cap"
             }
             estimate
           />
@@ -394,11 +430,11 @@ function AiSpendPanel({ data }: { data: AiSpend }) {
         {exhausted || willExhaust || data.unpricedCalls > 0 || !data.ceilingResolved ? (
           <div className="mt-3 flex flex-wrap gap-2">
             {exhausted ? (
-              <Pill tone="signal">Ceiling reached — adjust the monthly AI budget</Pill>
+              <Pill tone="signal">Monthly safety cap reached — increase it in AI Runtime</Pill>
             ) : null}
             {willExhaust ? <Pill tone="signal">On track to stop before month end</Pill> : null}
             {!data.ceilingResolved ? (
-              <Pill tone="outline">Using built-in default ceiling — set one in AI runtime</Pill>
+              <Pill tone="outline">Using built-in default safety cap — edit in AI Runtime</Pill>
             ) : null}
             {data.unpricedCalls > 0 ? (
               <Pill tone="outline">{formatNumber(data.unpricedCalls)} calls unpriced</Pill>
@@ -695,11 +731,13 @@ function AdvancedDiagnostics({
   );
 }
 
-function SpendByFeature({
-  data,
-}: {
-  data: Awaited<ReturnType<typeof getCostIntelligence>> | null;
-}) {
+function SpendByFeature() {
+  const [window, setWindow] = useState("30_days");
+  const spend = useQuery({
+    queryKey: ["admin", "ai-feature-spend"],
+    queryFn: () => getAiFeatureSpend(),
+    staleTime: 60_000,
+  });
   const featureLabels: Record<string, string> = {
     analyse: "Analyse",
     reason: "Reason",
@@ -707,23 +745,42 @@ function SpendByFeature({
     cluster: "Cluster",
     ask: "Ask",
     translation: "Translation",
+    translate: "Translation",
+    enrich: "Enrichment",
+    impact: "Impact",
+    unknown: "Unattributed",
   };
 
-  if (!data) return null;
-
-  const entries = Object.entries(data.ai_usage);
-  if (entries.length === 0) return null;
+  const entries = spend.data?.filter((row) => row.window_key === window) ?? [];
 
   return (
     <div className="mb-5">
-      <Panel title="Spend by feature" note="Dollar spend first, tokens and calls as secondary.">
+      <Panel
+        title="Spend by feature"
+        note="Ledger cost, including in-flight reservations; token counts reflect reported usage."
+      >
+        <div className="mb-4 flex gap-2">
+          {(
+            [
+              ["today", "Today (UTC)"],
+              ["7_days", "7 days"],
+              ["30_days", "30 days"],
+            ] as const
+          ).map(([key, label]) => (
+            <Chip key={key} active={window === key} onClick={() => setWindow(key)}>
+              {label}
+            </Chip>
+          ))}
+        </div>
+        <ErrorNote error={spend.error} />
+        {spend.isLoading ? <Loading label="Counting spend" /> : null}
         <StatGrid>
-          {entries.map(([feature, tokens]) => (
+          {entries.map((row) => (
             <Stat
-              key={feature}
-              label={featureLabels[feature] ?? feature}
-              value={formatNumber(tokens)}
-              hint={`${tokens.toLocaleString()} tokens`}
+              key={row.feature}
+              label={featureLabels[row.feature] ?? row.feature}
+              value={usd(row.spent_microusd / 1_000_000)}
+              hint={`${formatNumber(row.calls)} calls · ${formatNumber(row.tokens)} tokens`}
             />
           ))}
         </StatGrid>
@@ -738,7 +795,10 @@ function SpendByWindow({ data }: { data: AiCreditView }) {
 
   return (
     <div className="mb-5">
-      <Panel title="Spend by window" note="The same ledger, sliced by how recently it was spent.">
+      <Panel
+        title="Recent spend"
+        note="Ledger spend including in-flight reservations, across all recorded history."
+      >
         <StatGrid>
           {windows.map((w) => (
             <Stat
@@ -761,6 +821,7 @@ function TopupSection() {
   const add = useConsoleMutation(addAiTopup, [
     ["admin", "ai-credit"],
     ["admin", "ai-topups"],
+    ["admin", "ai-status"],
   ]);
   const topups = useQuery({
     queryKey: ["admin", "ai-topups"],
@@ -770,6 +831,7 @@ function TopupSection() {
   const remove = useConsoleMutation(deleteAiTopup, [
     ["admin", "ai-credit"],
     ["admin", "ai-topups"],
+    ["admin", "ai-status"],
   ]);
 
   const submit = () => {
@@ -780,10 +842,10 @@ function TopupSection() {
   };
 
   return (
-    <div className="mb-5 space-y-5">
+    <div id="record-topup" className="mb-5 scroll-mt-5 space-y-5">
       <Panel
         title="Record a top-up"
-        note="Enter what the provider actually charged you. A $5 purchase is 5."
+        note="Enter what the provider actually charged you. A $5 purchase is 5. Recording a top-up does not change the monthly safety cap."
       >
         <div className="grid gap-4 sm:grid-cols-[160px_1fr_auto] sm:items-end">
           <Field label="Amount">
@@ -800,7 +862,7 @@ function TopupSection() {
               />
             </div>
           </Field>
-          <Field label="Note (optional)">
+          <Field label="Note / provider (optional)">
             <input
               placeholder="DeepSeek top-up"
               maxLength={200}
@@ -819,7 +881,10 @@ function TopupSection() {
       </Panel>
 
       {topups.data && topups.data.length > 0 ? (
-        <Panel title="Top-up history">
+        <Panel
+          title="Top-up history"
+          note="Most recent 100 entries. The provider-credit total includes every recorded top-up."
+        >
           <ul className="divide-y divide-hairline">
             {topups.data.map((row) => (
               <li key={row.id} className="flex flex-wrap items-center gap-3 py-3 first:pt-0">

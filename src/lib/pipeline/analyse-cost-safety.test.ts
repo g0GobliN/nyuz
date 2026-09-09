@@ -122,7 +122,7 @@ function baseTables(events: Row[]): Record<string, Row[]> {
         source_id: "source-2",
       },
     ],
-    topics: [{ id: "topic-ai", slug: "ai", kind: "predefined" }],
+    topics: [{ id: "topic-ai", slug: "ai", label: "AI", kind: "predefined" }],
     sources: [
       { id: "source-1", name: "The Verge" },
       { id: "source-2", name: "Ars Technica" },

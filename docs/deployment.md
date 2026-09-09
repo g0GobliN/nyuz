@@ -130,6 +130,18 @@ want a sane starting point; do not treat them as the place to tune. The AI runti
 shows, per setting, whether the value in force came from the database, the environment
 or the built-in default, so there is never a question about which one is live.
 
+**Every completion ceiling is on that page, clustering included.** 0069 moved the last
+one. Clustering's ceiling used to come from `ai_model_routes.max_tokens` if a `cluster`
+row existed and from a constant in `src/lib/ai/config.ts` if it did not — and in this
+project no row existed, so every clustering call ran on the 1024 floor, spent the whole
+allowance on hidden reasoning and returned empty content. If clustering or analysis
+starts failing with "hit the token ceiling during reasoning", raise **Cluster max
+tokens** or **Analyse max tokens** on that page; do not raise all four. Each ceiling is
+held as a reservation against the monthly budget on every call that uses it, so a global
+raise spends the budget faster on stages that never needed the room. Clustering is bounded
+lower than the rest (4096) because it is the only per-article call — everything else is
+per event or per reader, so a number raised there multiplies across the whole ingest.
+
 Anything set as a dashboard variable is set once and never in `wrangler.json` or GitHub.
 Those names do not appear in this repo's Wrangler config on purpose: `vite.config.ts`
 sets `cloudflare.wrangler.keep_vars = true`, so `wrangler deploy` leaves

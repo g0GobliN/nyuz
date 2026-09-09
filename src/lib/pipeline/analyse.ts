@@ -45,12 +45,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   aiCapacityRetryAt,
   completeRoutedJson,
+  optionalEnrichmentAllowed,
   resolvePrompt,
   type SecretBag,
 } from "@/lib/ai/config";
 import { TruncatedCompletionError } from "@/lib/ai/deepseek";
 import type { Database, EventStatus, Json } from "@/lib/supabase/types";
 import { readEventIntelligence, type EventIntelligence } from "@/lib/understand";
+import { READER_ARTICLE_CONTRACT } from "@/lib/reader-article";
 import { isVcsRef } from "./shortlist";
 import { extractFacts, compareExtraction, type ExtractedFacts } from "./extract";
 import { assignTopics, assignTags, compareTopics, compareTags } from "./topic-assign";
@@ -94,7 +96,8 @@ const BATCH = 8;
 const ARTICLES = 12;
 
 /** After evidence selection, the maximum articles sent to the AI model. */
-const MAX_AI_EVIDENCE = 4;
+export const NORMAL_AI_EVIDENCE = 4;
+export const ANALYSIS_PROMPT_VERSION = "5";
 
 /** Characters of each feed excerpt kept. Enough for the substance, not the essay. */
 const EXCERPT_CHARS = 400;
@@ -172,10 +175,17 @@ const THIN_CONTRACT_MAX_TOKENS = 4096;
  * combination around the boundary.
  */
 export function isEnrichmentEligible(
-  meta: { sourceCountAtAnalysis?: unknown; refreshedAfterEnrichment?: unknown } | null | undefined,
+  meta:
+    | {
+        sourceCountAtAnalysis?: unknown;
+        coverageCountAtAnalysis?: unknown;
+        refreshedAfterEnrichment?: unknown;
+      }
+    | null
+    | undefined,
   currentSourceCount: number,
 ): boolean {
-  const sourceCountAtAnalysis = meta?.sourceCountAtAnalysis;
+  const sourceCountAtAnalysis = meta?.coverageCountAtAnalysis ?? meta?.sourceCountAtAnalysis;
   if (typeof sourceCountAtAnalysis !== "number" || !Number.isInteger(sourceCountAtAnalysis)) {
     return false;
   }
@@ -220,36 +230,8 @@ export function renderAnalysisPayload(
   lines.push(`Event: ${eventTitle}`);
   lines.push("");
 
-  // Deterministic facts summary — so the AI doesn't re-extract them
-  const factSummary = summarizeFacts(codeFacts);
-  if (factSummary) {
-    lines.push("DETERMINISTIC FACTS (extracted by code, do not re-extract):");
-    lines.push(factSummary);
-    lines.push("");
-  }
-
-  // Evidence selection info
-  lines.push(
-    `EVIDENCE: ${selection.selectedIndices.length} of ${selection.totalFactsFull} articles selected (${selection.totalUniqueFacts} unique facts, ${dedup.factsRemoved} duplicates removed, ${selection.conflictsPreserved} conflicts preserved).`,
-  );
-  lines.push("");
-
-  // Selected evidence excerpts
   lines.push("SELECTED EVIDENCE:");
   lines.push(selectedEvidence);
-  lines.push("");
-
-  // What the AI should focus on
-  lines.push("You are a news analyst. Based on the evidence above, write the synthesis ONLY.");
-  lines.push(
-    "Do NOT re-extract facts, numbers, dates, entities, companies, countries, products, CVEs, versions, percentages, counts, layoffs, or regulatory actions — they have already been extracted by code and are listed above.",
-  );
-  lines.push(
-    "Focus on: what happened, why it matters, perspectives, unknowns, what may happen next, and contextual explanation.",
-  );
-  lines.push("");
-  lines.push("Reply with JSON only, in exactly this shape:");
-  lines.push(contract());
 
   return lines.join("\n");
 }
@@ -297,7 +279,7 @@ function summarizeFacts(facts: ReturnType<typeof extractFacts>): string | null {
  * The JSON contract is deliberately NOT here. It is appended by `contract()` below,
  * so an operator retuning the wording cannot accidentally break the parse.
  */
-const DEFAULT_PROMPT = `You are a news analyst. You read every article about one event and write down what actually happened, for a reader who needs to know whether it changes anything for them.
+export const DEFAULT_PROMPT = `You are a news analyst. You read every article about one event and write down what actually happened, for a reader who needs to know whether it changes anything for them.
 
 Be specific and concrete. Name the thing, the number, the version, the company. Prefer "raised $300m at a $4bn valuation" over "secured significant funding".
 
@@ -350,15 +332,17 @@ export function contract(): string {
     "conflicts": [{ "topic": "Transaction value", "reports": [{ "text": "$12B", "evidence": [1] }, { "text": "$13B", "evidence": [2] }] }],
     "comparison": { "caption": "Pricing", "left_label": "Before", "right_label": "Now", "rows": [{ "label": "Monthly", "left": "$20", "right": "$25", "evidence": [1] }] },
     "series": { "caption": "Quarterly revenue", "shape": "bar", "points": [{ "label": "Q1", "value": 26.0, "display": "$26B", "evidence": [1] }] },
-    "overview": [{ "name": "Beam Ultra", "kind": "Soundbar", "detail": "$699", "evidence": [1] }]
+    "overview": [{ "name": "Beam Ultra", "kind": "Soundbar", "detail": "$699", "evidence": [1] }],
+    "article": { "deck": { "text": "short introduction", "evidence": [1] }, "paragraphs": [{ "text": "connected editorial prose", "evidence": [1], "heading": null }] }
   }
 }
 
 evidence is article numbers from the numbered list in the user message. Use only
 valid numbers; a statement supported by several articles lists each of them.
 
-understand is event intelligence, not an article. The reader has already seen
-what_happened, so each block must add something what_happened did not. Place
+understand holds internal event intelligence and a separate reader-facing article.
+For the internal fields other than article, each block adds something
+what_happened did not. Place
 each claim in the single section it fits best; a detail in one_sentence must
 not reappear in numbers, audiences, context, or anywhere else unless another
 block genuinely needs it. one_sentence owns the relationship and meaning;
@@ -385,7 +369,7 @@ audiences names a real group and what changes for them specifically, not
 mentioned in what_happened. Grounded in listed evidence; a bounded,
 clearly-scoped inference the coverage supports is allowed.
 
-relationships, comparison, series and overview are drawn, not narrated:
+relationships, comparison, series and overview are internal structured data:
 - relationships: a small graph of the entities the event turns on, only with
   a genuine structure (at least two edges or three nodes). A single
   "A acquired B" is a fact, not a map.
@@ -420,7 +404,9 @@ release, acquisition, outage with real consequences, regulatory decision);
 
 novelty, 0 to 10 — how new: 0-2 already known or latest of many; 3-5
 expected step that has now happened; 6-8 genuinely unexpected or first of
-its kind from this player; 9-10 nobody was predicting this.`;
+its kind from this player; 9-10 nobody was predicting this.
+
+${READER_ARTICLE_CONTRACT}`;
 }
 
 /**
@@ -438,7 +424,12 @@ export function thinContract(): string {
   "title": "one neutral line naming what happened, under 100 characters",
   "what_happened": "one 50-90 word briefing paragraph containing only unique supported facts",
   "importance": 0,
-  "novelty": 0
+  "novelty": 0,
+  "understand": {
+    "coverage": "thin",
+    "one_sentence": "one compact sentence capturing the event",
+    "article": { "deck": { "text": "short introduction", "evidence": [1] }, "paragraphs": [{ "text": "only the useful supported detail", "evidence": [1], "heading": null }] }
+  }
 }
 
 importance, 0 to 10 — how much this changes for someone in the field:
@@ -449,7 +440,9 @@ release, acquisition, outage with real consequences, regulatory decision);
 
 novelty, 0 to 10 — how new: 0-2 already known or latest of many; 3-5
 expected step that has now happened; 6-8 genuinely unexpected or first of
-its kind from this player; 9-10 nobody was predicting this.`;
+its kind from this player; 9-10 nobody was predicting this.
+
+${READER_ARTICLE_CONTRACT}`;
 }
 
 export type AnalyseOptions = {
@@ -524,8 +517,9 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
   // Read once per run, not once per event: the topic vocabulary is fifteen rows
   // that change when somebody edits a migration, and the outlet names are sixty-
   // eight. Sixteen extra round trips per batch would buy nothing.
-  const [topics, outlets] = await Promise.all([loadTopics(db), loadOutlets(db)]);
-  const slugs = [...topics.keys()];
+  const sourceKinds = new Map<string, string>();
+  const [topics, outlets] = await Promise.all([loadTopics(db), loadOutlets(db, sourceKinds)]);
+  const slugs = topics.slugs;
 
   const system = await promptFor(options.secrets);
   const hasDemand = await loadDemand(db, events, options);
@@ -540,6 +534,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
         options,
         topics,
         outlets,
+        sourceKinds,
         slugs,
         system,
         demand: hasDemand,
@@ -562,7 +557,10 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
       .eq("key", "enrichment_pass_enabled")
       .maybeSingle();
 
-    if (enrichmentFlag?.enabled === true) {
+    if (
+      enrichmentFlag?.enabled === true &&
+      (await optionalEnrichmentAllowed(db, options.secrets))
+    ) {
       const enrichmentCandidates = await selectEnrichmentCandidates(db, ENRICHMENT_BATCH);
       for (const event of enrichmentCandidates) {
         outcomes.push(
@@ -570,6 +568,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
             options,
             topics,
             outlets,
+            sourceKinds,
             slugs,
             system,
             demand: hasDemand,
@@ -785,15 +784,62 @@ async function selectEnrichmentCandidates(db: Db, limit: number): Promise<Pendin
  * `tags` this same pass writes, which costs one extraction shared by everyone
  * rather than one judgement per reader.
  */
-async function loadTopics(db: Db): Promise<Map<string, string>> {
-  const { data, error } = await db.from("topics").select("id, slug").eq("kind", "predefined");
+export type TopicVocabulary = {
+  /** Slugs, exactly as the table spells them. This is what the prompt embeds. */
+  slugs: string[];
+  /** Topic id by lowercased slug *and* by lowercased label. See below. */
+  ids: Map<string, string>;
+};
+
+/**
+ * Resolvable by slug or by label, because the two callers speak different names.
+ *
+ * The prompt is written in slugs (`open-source`), and for as long as the model
+ * chose the topics that was the only vocabulary this map needed. Since topics
+ * became deterministic, the names actually handed to `writeAnalysis` come from
+ * `assignTopics`, whose pool is editorial labels (`Open source`) — so a map keyed
+ * on slugs alone resolved nothing at all, silently, and `event_topics` stopped
+ * being written on 2026-09-02. Nothing threw: `topicIds.get("Open source")` is
+ * `undefined`, the row list came out empty, and an empty upsert is a no-op. The
+ * damage surfaced four stages later as readers with no matches and empty
+ * briefings.
+ *
+ * Holding both keys is deliberate rather than transitional. "Which topic is this
+ * name" is one question, and the answer should not depend on which of a topic's
+ * two names the caller happens to hold. Collisions are not a concern: slugs and
+ * labels are drawn from the same 28 rows, and where they coincide once
+ * lowercased (`world`) they coincide on the same id.
+ */
+async function loadTopics(db: Db): Promise<TopicVocabulary> {
+  const { data, error } = await db
+    .from("topics")
+    .select("id, slug, label")
+    .eq("kind", "predefined");
   if (error) throw new Error(`reading topics: ${error.message}`);
-  return new Map((data ?? []).map((t) => [t.slug, t.id]));
+  return topicVocabulary(data ?? []);
 }
 
-async function loadOutlets(db: Db): Promise<Map<string, string>> {
-  const { data, error } = await db.from("sources").select("id, name");
+/**
+ * The row-to-vocabulary step, exported because it is the join that broke.
+ *
+ * Pure, so the rule it encodes -- a topic answers to either of its names, in any
+ * case -- is pinned by a test rather than by a live run nobody repeats.
+ */
+export function topicVocabulary(
+  rows: readonly { id: string; slug: string; label: string }[],
+): TopicVocabulary {
+  const ids = new Map<string, string>();
+  for (const topic of rows) {
+    ids.set(topic.slug.toLowerCase(), topic.id);
+    ids.set(topic.label.toLowerCase(), topic.id);
+  }
+  return { slugs: rows.map((topic) => topic.slug), ids };
+}
+
+async function loadOutlets(db: Db, kinds: Map<string, string>): Promise<Map<string, string>> {
+  const { data, error } = await db.from("sources").select("id, name, kind");
   if (error) throw new Error(`reading sources: ${error.message}`);
+  for (const source of data ?? []) kinds.set(source.id, source.kind);
   return new Map((data ?? []).map((s) => [s.id, s.name]));
 }
 
@@ -808,8 +854,9 @@ async function promptFor(secrets: SecretBag | undefined): Promise<string> {
 
 type Context = {
   options: AnalyseOptions;
-  topics: Map<string, string>;
+  topics: TopicVocabulary;
   outlets: Map<string, string>;
+  sourceKinds: Map<string, string>;
   slugs: string[];
   system: string;
   /** Demand check result. See loadDemand. */
@@ -901,7 +948,7 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
   // Build EvidenceArticle objects for selection
   const sourceMap = ctx.outlets;
   const evidenceArticles: EvidenceArticle[] = articles.map((a) => {
-    const outlet = a.source_id ? sourceMap.get(a.source_id) : undefined;
+    const outlet = a.source_id ? ctx.sourceKinds.get(a.source_id) : undefined;
     return outlet !== undefined
       ? {
           title: a.title,
@@ -959,6 +1006,8 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
   const signals = scoreEvent(articles, codeFacts);
 
   try {
+    if (selection.omittedUniqueSources)
+      throw new Error("Evidence source limit would omit unique claims");
     const useThinContract = signals.confidence === "high" && signals.importanceEstimate <= 3;
 
     const systemPrompt = useThinContract
@@ -970,11 +1019,19 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
       system: systemPrompt,
       user,
       feature: "analyse",
+      eventIds: [event.id],
+      promptVersion: `${ANALYSIS_PROMPT_VERSION}:${useThinContract ? "thin" : "full"}`,
+      sourceCount: selectedIndices.length,
+      evidenceCharacters: selectedEvidenceText.length,
+      invocationReason: "demanded_unanalysed_event",
+      ...(selectedIndices.length > NORMAL_AI_EVIDENCE
+        ? { budgetExceptionReason: "additional_sources_preserve_distinct_claims" }
+        : {}),
       maxTokens: useThinContract ? THIN_CONTRACT_MAX_TOKENS : ctx.maxTokens,
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
-    parsed = readAnalysis(data, codeTopics, codeTags, articles.length);
+    parsed = readAnalysis(data, codeTopics, codeTags, selectedIndices.length);
   } catch (error) {
     // A truncated call spent everything it was given and the API reports the
     // reasoning half of it. Recorded as a floor rather than an estimate: it is a
@@ -1021,7 +1078,11 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
       ...parsed,
       understand: {
         ...parsed.understand,
-        analysisMeta: { sourceCountAtAnalysis: articles.length },
+        analysisMeta: {
+          sourceCountAtAnalysis: selectedIndices.length,
+          coverageCountAtAnalysis: articles.length,
+          sourceArticleIds: selectedArticles.map((a) => a.id),
+        },
       },
     };
   }
@@ -1110,6 +1171,9 @@ async function runEnrichment(db: Db, event: Pending, ctx: Context): Promise<Even
     excerpt: a.excerpt,
     published_at: a.published_at,
     source_id: a.source_id,
+    ...(a.source_id && ctx.sourceKinds.has(a.source_id)
+      ? { source_kind: ctx.sourceKinds.get(a.source_id)! }
+      : {}),
   }));
   const selection = selectEvidence(evidenceArticles);
   const selectedIndices = selection.selectedIndices;
@@ -1134,16 +1198,26 @@ async function runEnrichment(db: Db, event: Pending, ctx: Context): Promise<Even
   let spent: { promptTokens: number; completionTokens: number };
 
   try {
+    if (selection.omittedUniqueSources)
+      throw new Error("Evidence source limit would omit unique claims");
     const { data, usage } = await completeRoutedJson<unknown>({
       capability: "reason",
       system: `${ctx.system}\n\n${contract()}`,
       user,
       feature: "enrich",
+      eventIds: [event.id],
+      promptVersion: `${ANALYSIS_PROMPT_VERSION}:full`,
+      sourceCount: selectedIndices.length,
+      evidenceCharacters: selectedEvidence.length,
+      invocationReason: "material_evidence_growth",
+      ...(selectedIndices.length > NORMAL_AI_EVIDENCE
+        ? { budgetExceptionReason: "additional_sources_preserve_distinct_claims" }
+        : {}),
       maxTokens: ctx.maxTokens,
       ...(ctx.options.secrets ? { secrets: ctx.options.secrets } : {}),
     });
     spent = { promptTokens: usage.promptTokens, completionTokens: usage.completionTokens };
-    parsed = readAnalysis(data, codeTopics, codeTags, articles.length);
+    parsed = readAnalysis(data, codeTopics, codeTags, selectedIndices.length);
   } catch (error) {
     // Includes an exhausted AI budget: the call throws before it spends
     // anything, `refreshedAfterEnrichment` is never set, and the event simply
@@ -1180,7 +1254,12 @@ async function runEnrichment(db: Db, event: Pending, ctx: Context): Promise<Even
       ...parsed,
       understand: {
         ...parsed.understand,
-        analysisMeta: { sourceCountAtAnalysis: articles.length, refreshedAfterEnrichment: true },
+        analysisMeta: {
+          sourceCountAtAnalysis: selectedIndices.length,
+          coverageCountAtAnalysis: articles.length,
+          refreshedAfterEnrichment: true,
+          sourceArticleIds: selectedIndices.map((i) => articles[i]!.id),
+        },
       },
     };
   }
@@ -1504,19 +1583,30 @@ async function writeAnalysis(
   event: Pending,
   analysis: Analysis,
   spent: { promptTokens: number; completionTokens: number },
-  topicIds: Map<string, string>,
+  topics: TopicVocabulary,
 ): Promise<string | null> {
   if (analysis.topics.length > 0) {
+    // Lowercased because the names arrive as editorial labels ("Open source")
+    // and the map also holds slugs; see `loadTopics` for why it holds both.
     const rows = analysis.topics
-      .map((slug) => topicIds.get(slug))
+      .map((name) => topics.ids.get(name.trim().toLowerCase()))
       .filter((id): id is string => id !== undefined)
       .map((topic_id) => ({ event_id: event.id, topic_id }));
 
-    const { error } = await db
-      .from("event_topics")
-      .upsert(rows, { onConflict: "event_id,topic_id", ignoreDuplicates: true });
+    // An empty list here is not "no topics" -- it is every name failing to
+    // resolve, which is the fault that went unnoticed for a week. Warned rather
+    // than returned: the analysis is already bought and already good, and
+    // discarding its prose over an unresolvable label would turn a broken join
+    // into a lost event. The regression test is what keeps this at zero.
+    if (rows.length === 0) {
+      console.warn(`no topic resolved for ${event.id} from: ${analysis.topics.join(", ")}`);
+    } else {
+      const { error } = await db
+        .from("event_topics")
+        .upsert(rows, { onConflict: "event_id,topic_id", ignoreDuplicates: true });
 
-    if (error) return `linking topics: ${error.message}`;
+      if (error) return `linking topics: ${error.message}`;
+    }
   }
 
   const now = new Date().toISOString();

@@ -24,6 +24,7 @@
     "pipeline": "node --env-file=.env scripts/tsrun.mjs scripts/pipeline.ts",
     "cron:test": "node --env-file=.env scripts/test-scheduled.mjs",
     "telegram:webhook": "node --env-file=.env scripts/tsrun.mjs scripts/telegram-webhook.ts",
+    "topics:backfill": "node --env-file=.env scripts/tsrun.mjs scripts/topic-backfill.ts",
     "vapid": "node --env-file=.env scripts/tsrun.mjs scripts/vapid.ts"
   },
   "overrides": {
@@ -72,6 +73,7 @@
     "input-otp": "^1.4.2",
     "lucide-react": "^0.575.0",
     "openai": "^7.5.0",
+    "pg": "^8.23.0",
     "react": "^19.2.0",
     "react-day-picker": "^9.14.0",
     "react-dom": "^19.2.0",

@@ -101,7 +101,12 @@ describe("out-of-range values", () => {
   });
 
   it("never returns a completion ceiling low enough to produce empty content", () => {
-    for (const key of ["ai.analyse_max_tokens", "ai.digest_max_tokens", "ai.ask_max_tokens"]) {
+    for (const key of [
+      "ai.cluster_max_tokens",
+      "ai.analyse_max_tokens",
+      "ai.digest_max_tokens",
+      "ai.ask_max_tokens",
+    ]) {
       const config = buildAiRuntimeConfig([row(key, 64)], {});
       const value = config.resolved[key as keyof typeof config.resolved].value;
       expect(value).toBeGreaterThanOrEqual(MIN_COMPLETION_TOKENS);
@@ -113,6 +118,76 @@ describe("out-of-range values", () => {
     const fromEnv = buildAiRuntimeConfig([], { AI_MONTHLY_COST_USD: "10000" });
     expect(fromDb.monthlyCostUsd).toBeLessThanOrEqual(MAX_AI_MONTHLY_COST_USD);
     expect(fromEnv.monthlyCostUsd).toBeLessThanOrEqual(MAX_AI_MONTHLY_COST_USD);
+  });
+});
+
+/**
+ * Every completion ceiling the pipeline runs on has to come from this table, or
+ * an operator raising one in the console watches nothing change. Clustering was
+ * the case that proved it: its ceiling was a constant in config.ts, so the only
+ * way to move it was a deploy, and with no `cluster` row in `ai_model_routes`
+ * the constant in force was the 1024 floor.
+ */
+describe("every completion ceiling is operator-settable", () => {
+  const CEILINGS = [
+    "ai.cluster_max_tokens",
+    "ai.analyse_max_tokens",
+    "ai.digest_max_tokens",
+    "ai.ask_max_tokens",
+  ] as const;
+
+  it("reads each ceiling from the database in preference to anything else", () => {
+    const rows = CEILINGS.map((key, i) => row(key, 2048 + i * 1024));
+    const config = buildAiRuntimeConfig(rows, {
+      CLUSTER_MAX_TOKENS: "1024",
+      ANALYSE_MAX_TOKENS: "1024",
+      DIGEST_MAX_TOKENS: "1024",
+      ASK_MAX_TOKENS: "1024",
+    });
+    CEILINGS.forEach((key, i) => {
+      expect(config.resolved[key].source).toBe("database");
+      expect(config.resolved[key].value).toBe(2048 + i * 1024);
+    });
+    expect(config.clusterMaxTokens).toBe(2048);
+    expect(config.analyseMaxTokens).toBe(3072);
+  });
+
+  /**
+   * Raising analysis must not raise anything else. Each ceiling is held against
+   * the monthly budget as a reservation on every call that uses it, so a global
+   * raise spends the budget faster on stages that never needed the room.
+   */
+  it("raises one ceiling without moving the others", () => {
+    const config = buildAiRuntimeConfig([row("ai.analyse_max_tokens", 6144)], {});
+    expect(config.analyseMaxTokens).toBe(6144);
+    expect(config.clusterMaxTokens).toBe(aiSettingSpec("ai.cluster_max_tokens")?.codeDefault);
+    expect(config.digestMaxTokens).toBe(aiSettingSpec("ai.digest_max_tokens")?.codeDefault);
+    expect(config.askMaxTokens).toBe(aiSettingSpec("ai.ask_max_tokens")?.codeDefault);
+  });
+
+  it("starts clustering above the floor that returned empty content", () => {
+    const spec = aiSettingSpec("ai.cluster_max_tokens");
+    expect(spec?.kind).toBe("number");
+    expect(spec && "codeDefault" in spec ? spec.codeDefault : 0).toBeGreaterThan(
+      MIN_COMPLETION_TOKENS,
+    );
+    expect(buildAiRuntimeConfig([], {}).clusterMaxTokens).toBeGreaterThan(MIN_COMPLETION_TOKENS);
+  });
+
+  /**
+   * Clustering is the highest-volume call in the pipeline, so its bound is the
+   * tightest of the four on purpose. A console field that could set it to 16384
+   * would be a spending mistake one keystroke wide.
+   */
+  it("bounds clustering more tightly than the per-event and per-reader ceilings", () => {
+    const cluster = aiSettingSpec("ai.cluster_max_tokens");
+    const analyse = aiSettingSpec("ai.analyse_max_tokens");
+    const clusterMax = cluster && "max" in cluster ? cluster.max : 0;
+    const analyseMax = analyse && "max" in analyse ? analyse.max : 0;
+    expect(clusterMax).toBeLessThan(analyseMax);
+    expect(buildAiRuntimeConfig([row("ai.cluster_max_tokens", 32_768)], {}).clusterMaxTokens).toBe(
+      cluster && "codeDefault" in cluster ? cluster.codeDefault : 0,
+    );
   });
 });
 

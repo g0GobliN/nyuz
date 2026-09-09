@@ -301,6 +301,78 @@ export function mentions(normalisedText: string, term: string): boolean {
 }
 
 /**
+ * The closed-vocabulary counterpart to `mentions`: whole word, not word prefix.
+ *
+ * `mentions` is right for what a reader typed. "Nepal floods" reaching
+ * "flooding" is the behaviour someone following that subject wants, and the
+ * looseness is bounded because every term of their interest must match.
+ *
+ * It is wrong for a fixed editorial vocabulary, where a single generic keyword
+ * decides a category label on its own. Measured against live events on
+ * 2026-09-08, word-prefix matching over `TOPIC_KEYWORDS` read "pop" inside
+ * "populist" and "tour" inside "tourist" (both -> Music), "ide" inside
+ * "identify" (-> Developer tools), "intel" inside "intelligence" (-> Chips) and
+ * "app" inside "appointed" (-> Consumer tech). A German election story came out
+ * as Politics, Music, Next.js; a Tokyo rental story as Music, World.
+ *
+ * So terms here match a whole word, plus a small, deliberately English-only set
+ * of regular inflections — enough that "flood" reaches "flooding" and "raise"
+ * reaches "raised" without "tour" ever reaching "tourist". Inflection applies
+ * only from `INFLECTION_MIN_LENGTH` characters up, because below it the added
+ * forms are words in their own right: "ai" + "d" is "aid", which would put
+ * every foreign-aid story under AI.
+ *
+ * This is not the stemmer `mentions` refuses to be. A stemmer generalises over
+ * arbitrary reader input in any language; this expands a fixed list of English
+ * category words whose forms are known when the list is written, and anything
+ * irregular is spelled out in the list instead.
+ */
+export function mentionsWord(normalisedText: string, term: string): boolean {
+  if (term === "" || normalisedText === "") return false;
+  if (UNSPACED.test(term)) return normalisedText.includes(term);
+
+  const padded = ` ${normalisedText} `;
+  return wordForms(term).some((form) => padded.includes(` ${form} `));
+}
+
+/**
+ * Shortest term that may be inflected. See `mentionsWord`.
+ *
+ * Four rather than three: "app" + "s" is "apps", which is fine, but "cli",
+ * "ide" and "pop" gain nothing real from inflection while every added form is
+ * another chance to collide with an ordinary word.
+ */
+const INFLECTION_MIN_LENGTH = 4;
+
+/**
+ * A term and its regular inflections, as whole words.
+ *
+ * Only the last word of a phrase is inflected: "clinical trial" should reach
+ * "clinical trials" and never "clinicals trial".
+ */
+function wordForms(term: string): string[] {
+  const words = term.split(" ");
+  const last = words[words.length - 1] ?? "";
+  const lead = words.slice(0, -1);
+  if ([...last].length < INFLECTION_MIN_LENGTH) return [term];
+
+  const forms = new Set([last, `${last}s`, `${last}es`, `${last}ing`, `${last}ed`]);
+  if (last.endsWith("e")) {
+    // "raise" -> "raised", "raising"; the bare +ed/+ing forms above would be
+    // "raiseed" and "raiseing", which match nothing and cost nothing.
+    const stem = last.slice(0, -1);
+    forms.add(`${last}d`);
+    forms.add(`${stem}ing`);
+    forms.add(`${stem}ed`);
+  }
+  if (last.endsWith("y") && !/[aeiou]y$/u.test(last)) {
+    forms.add(`${last.slice(0, -1)}ies`);
+  }
+
+  return [...forms].map((form) => [...lead, form].join(" "));
+}
+
+/**
  * Whether an event's shared signal carries every term of one interest.
  *
  * An empty term list matches nothing, not everything. See `topicTerms`.

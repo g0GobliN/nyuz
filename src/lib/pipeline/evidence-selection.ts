@@ -18,6 +18,8 @@ import { extractFacts } from "./extract";
 import { repeats } from "../understand";
 import { norm } from "../relate";
 import { titleTokens } from "./shortlist";
+import { claimKey, cleanEvidence } from "./evidence-text";
+import { requestTokens } from "../ai/request-policy";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,6 +50,7 @@ export interface ArticleFact {
 
 /** The result of selecting and deduplicating evidence. */
 export interface EvidenceSelectionResult {
+  omittedUniqueSources?: number;
   /** Indices of the selected articles (0-based into the original array). */
   selectedIndices: number[];
   /** Per-article facts marked as NEW or SEEN. */
@@ -285,7 +288,7 @@ export function selectEvidence(articles: EvidenceArticle[]): EvidenceSelectionRe
   // Group facts by category+value to identify unique facts and conflicts
   const factGroups = new Map<string, ArticleFact[]>();
   for (const fact of allFacts) {
-    const key = `${fact.category}::${fact.value}`;
+    const key = fact.category;
     if (!factGroups.has(key)) factGroups.set(key, []);
     factGroups.get(key)!.push(fact);
   }
@@ -302,6 +305,7 @@ export function selectEvidence(articles: EvidenceArticle[]): EvidenceSelectionRe
   // Step 4: Greedy selection — pick highest-scored articles first
   const selectedIndices: number[] = [];
   const coveredFacts = new Set<string>();
+  const coveredClaims = new Set<string>();
 
   // First pass: always include at least 1 primary source
   let hasPrimary = false;
@@ -320,6 +324,11 @@ export function selectEvidence(articles: EvidenceArticle[]): EvidenceSelectionRe
 
   // Track facts covered by selected articles
   for (const index of selectedIndices) {
+    for (const claim of [
+      articles[index]!.title,
+      ...cleanEvidence(articles[index]!.title, articles[index]!.excerpt ?? ""),
+    ])
+      coveredClaims.add(claimKey(claim));
     const articleFacts = extractAllFacts([articles[index]!]);
     for (const fact of articleFacts) {
       coveredFacts.add(`${fact.category}::${fact.value}`);
@@ -334,8 +343,13 @@ export function selectEvidence(articles: EvidenceArticle[]): EvidenceSelectionRe
     const articleFacts = extractAllFacts([item.article]);
     const newFacts = articleFacts.filter((f) => !coveredFacts.has(`${f.category}::${f.value}`));
 
-    if (newFacts.length > 0) {
+    const claims = [
+      item.article.title,
+      ...cleanEvidence(item.article.title, item.article.excerpt ?? ""),
+    ];
+    if (newFacts.length > 0 || claims.some((claim) => !coveredClaims.has(claimKey(claim)))) {
       selectedIndices.push(item.index);
+      for (const claim of claims) coveredClaims.add(claimKey(claim));
       for (const fact of articleFacts) {
         coveredFacts.add(`${fact.category}::${fact.value}`);
       }
@@ -389,7 +403,7 @@ export function selectEvidence(articles: EvidenceArticle[]): EvidenceSelectionRe
   const totalUniqueFacts = uniqueSelectedFacts.size;
 
   const allFactKeys = allFacts.map((f) => `${f.category}::${f.value}`);
-  const factsLost = allFactKeys.length - new Set(allFactKeys).size;
+  const factsLost = [...new Set(allFactKeys)].filter((key) => !uniqueSelectedFacts.has(key)).length;
 
   let conflictsPreserved = 0;
   for (const category of conflictCategories) {
@@ -405,8 +419,22 @@ export function selectEvidence(articles: EvidenceArticle[]): EvidenceSelectionRe
     if (selectedValues.size >= 2) conflictsPreserved++;
   }
 
-  const tokensPerArticle = 100;
-  const promptTokensSaved = (articles.length - selectedIndices.length) * tokensPerArticle;
+  const fullText = renderSelectedCoverage(
+    articles,
+    articles.map((_, i) => i),
+    articles.length,
+    new Map(),
+  );
+  const selectedText = renderSelectedCoverage(
+    articles,
+    selectedIndices,
+    articles.length,
+    new Map(),
+  );
+  const promptTokensSaved = Math.max(
+    0,
+    requestTokens("", fullText) - requestTokens("", selectedText),
+  );
 
   return {
     selectedIndices,
@@ -418,6 +446,13 @@ export function selectEvidence(articles: EvidenceArticle[]): EvidenceSelectionRe
     sourceAttributionPreserved: true,
     selectedCount: selectedIndices.length,
     promptTokensSaved,
+    omittedUniqueSources: articles.filter(
+      (a, i) =>
+        !selectedIndices.includes(i) &&
+        [a.title, ...cleanEvidence(a.title, a.excerpt ?? "")].some(
+          (claim) => !coveredClaims.has(claimKey(claim)),
+        ),
+    ).length,
   };
 }
 
@@ -501,13 +536,7 @@ export function deduplicateEvidence(articles: EvidenceArticle[]): DeduplicationR
         seenFacts.add(key);
         newFacts.push(fact);
       } else {
-        // Check if this is a conflict (another article has a different value for same category)
-        const isConflict = checkConflict(fact.category, seenFacts, fact.value);
-        if (isConflict) {
-          newFacts.push(fact);
-        } else {
-          seenCount++;
-        }
+        seenCount++;
       }
     }
 
@@ -555,7 +584,7 @@ export function computeEvidenceShadowMetrics(
   const agreementRate = totalFacts > 0 ? selection.totalUniqueFacts / totalFacts : 1.0;
 
   const factPreservationDetail = buildFactPreservationDetail(articles, selection);
-  const promptTokensSaved = selection.promptTokensSaved + dedup.factsRemoved * 5;
+  const promptTokensSaved = selection.promptTokensSaved;
 
   return {
     eventId,
@@ -642,30 +671,35 @@ export function renderSelectedCoverage(
   outlets: Map<string, string>,
 ): string {
   const selected = selectedIndices
-    .map((i) => articles[i]!)
+    .map((i) => articles[i])
     .filter((a): a is EvidenceArticle => a !== undefined);
-  const shown = selected.length;
-
-  const header =
-    shown === total
-      ? `${total} article${total === 1 ? "" : "s"} about one event, oldest first.`
-      : `${total} articles about one event. The ${shown} highest-evidence are below.`;
-
-  const body = selected.map((article, i) => {
-    const outlet = article.source_id ? outlets.get(article.source_id) : undefined;
-    const when = article.published_at?.slice(0, 10);
-    const meta = [outlet, when]
-      .filter((part): part is string => part !== undefined && part !== "")
-      .join(", ");
-    const excerpt = (article.excerpt ?? "").trim().replace(/\s+/g, " ");
-
-    return [
-      `${i + 1}. ${article.title}${meta === "" ? "" : ` (${meta})`}`,
-      excerpt === "" ? null : `   ${excerpt.slice(0, 400)}${excerpt.length > 400 ? "..." : ""}`,
+  const claims = new Map<string, { text: string; sources: number[] }>();
+  const headers = selected.map((article, index) => {
+    const number = index + 1;
+    for (const sentence of cleanEvidence(article.title, article.excerpt ?? "")) {
+      const key = claimKey(sentence);
+      const claim = claims.get(key);
+      if (claim) claim.sources.push(number);
+      else claims.set(key, { text: sentence, sources: [number] });
+    }
+    const meta = [
+      article.source_id ? outlets.get(article.source_id) : null,
+      article.source_kind,
+      article.published_at?.slice(0, 10),
     ]
-      .filter((line): line is string => line !== null)
-      .join("\n");
+      .filter(Boolean)
+      .join(", ");
+    return number + ". " + article.title + (meta ? " (" + meta + ")" : "");
   });
-
-  return `${header}\n\n${body.join("\n\n")}`;
+  return (
+    selected.length +
+    " of " +
+    total +
+    " sources. Cite the source numbers below.\n" +
+    headers.join("\n") +
+    "\n\nEvidence (supporting source numbers):\n" +
+    [...claims.values()]
+      .map((claim) => "[" + claim.sources.join(",") + "] " + claim.text)
+      .join("\n")
+  );
 }

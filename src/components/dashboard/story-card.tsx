@@ -105,7 +105,7 @@ export function StoryCard({
           search={{ from: "home" }}
           className="rounded-full border border-border px-3.5 py-1.5 text-[12.5px] transition-colors hover:bg-muted"
         >
-          Understand <span aria-hidden>→</span>
+          Read <span aria-hidden>→</span>
         </Link>
         <button
           onClick={() => onSave(story.id)}

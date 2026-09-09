@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { adminOnly, audit, superadminOnly, AdminAuthError } from "@/lib/server/guard";
-import { invalidateRouteCache } from "@/lib/ai/config";
+import { invalidateRouteCache, meterProviderProbe } from "@/lib/ai/config";
 import { ambientEnv } from "@/lib/runtime-env";
 import { loadAiRuntimeConfig } from "@/lib/ai/runtime-config";
 import type { AiCapability } from "@/lib/supabase/types";
@@ -518,45 +518,83 @@ export const probeProvider = createServerFn({ method: "POST" })
     const url = `${checkBaseUrl(provider.base_url)}/chat/completions`;
     const started = Date.now();
 
-    let res: Response;
+    let res: Response | undefined;
     let body: ProbeBody = {};
     try {
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-        body: JSON.stringify({
-          model: data.model,
-          max_tokens: data.maxTokens,
-          messages: [{ role: "user", content: "Reply with the single word: ready" }],
-        }),
-        signal: AbortSignal.timeout(45_000),
-      });
-      body = (await res.json().catch(() => ({}))) as ProbeBody;
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      await audit(
-        actor,
-        "ai.provider.probe",
-        { type: "ai_provider", id: data.providerId },
+      await meterProviderProbe(
         {
-          ok: false,
+          capability: "reason",
+          providerSlug: provider.slug,
+          providerLabel: provider.slug,
+          baseUrl: provider.base_url,
+          apiKeyEnv: provider.api_key_env,
           model: data.model,
+          maxTokens: data.maxTokens,
+          temperature: undefined,
+          source: "database",
+          missingSecret: false,
+        },
+        "Reply with the single word: ready",
+        ambientEnv(),
+        async () => {
+          res = await fetch(url, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+            body: JSON.stringify({
+              model: data.model,
+              max_tokens: data.maxTokens,
+              messages: [{ role: "user", content: "Reply with the single word: ready" }],
+            }),
+            signal: AbortSignal.timeout(45_000),
+          });
+          body = (await res.json().catch(() => ({}))) as ProbeBody;
+          if (!res.ok)
+            throw Object.assign(new Error(body.error?.message ?? `HTTP ${res.status}`), {
+              status: res.status,
+            });
+          return {
+            content: body.choices?.[0]?.message?.content ?? "",
+            model: body.model ?? data.model,
+            promptTokens: body.usage?.prompt_tokens ?? 0,
+            completionTokens: body.usage?.completion_tokens ?? 0,
+            cachedTokens:
+              body.usage?.prompt_cache_hit_tokens ??
+              body.usage?.prompt_tokens_details?.cached_tokens ??
+              0,
+            reasoningTokens: body.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+            attempt_count: 1,
+            usageReported: body.usage != null,
+          };
         },
       );
-      return {
-        ok: false,
-        httpStatus: 0,
-        latencyMs: Date.now() - started,
-        modelEcho: "",
-        finishReason: "",
-        contentChars: 0,
-        promptTokens: 0,
-        completionTokens: 0,
-        reasoningTokens: 0,
-        diagnosis: `Could not reach ${provider.slug}: ${message}`,
-      };
+    } catch (cause) {
+      if (!res || res.ok) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        await audit(
+          actor,
+          "ai.provider.probe",
+          { type: "ai_provider", id: data.providerId },
+          {
+            ok: false,
+            model: data.model,
+          },
+        );
+        return {
+          ok: false,
+          httpStatus: res?.status ?? 0,
+          latencyMs: Date.now() - started,
+          modelEcho: body.model ?? "",
+          finishReason: "",
+          contentChars: 0,
+          promptTokens: body.usage?.prompt_tokens ?? 0,
+          completionTokens: body.usage?.completion_tokens ?? 0,
+          reasoningTokens: body.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+          diagnosis: `Provider test failed for ${provider.slug}: ${message}`,
+        };
+      }
     }
 
+    if (!res) throw new Error("Provider test returned no response");
     const latencyMs = Date.now() - started;
     const choice = body.choices?.[0];
     const content = choice?.message?.content ?? "";
@@ -619,6 +657,8 @@ type ProbeBody = {
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
+    prompt_cache_hit_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number };
     completion_tokens_details?: { reasoning_tokens?: number };
   };
 };

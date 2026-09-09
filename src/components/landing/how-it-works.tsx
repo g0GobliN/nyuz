@@ -285,27 +285,46 @@ function StepVisual({ kind }: { kind: (typeof STEPS)[number]["kind"] }) {
 
   if (kind === "rank")
     return (
-      <div className="space-y-5">
-        {[
-          ["Relevance", 94],
-          ["Importance", 91],
-          ["Novelty", 87],
-        ].map(([label, v], i) => (
-          <div key={label as string}>
-            <div className="flex justify-between text-[12.5px]">
-              <span className="text-muted-foreground">{label}</span>
-              <span className="tabular-nums">{v}%</span>
-            </div>
-            <div className="mt-2 h-1 rounded-full bg-muted">
-              <div
-                className="h-1 rounded-full bg-signal transition-[width] duration-1000"
-                style={{ width: `${v}%`, transitionDelay: `${i * 150}ms` }}
-              />
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-2xl border border-hairline bg-surface-2 p-4">
+            <p className="text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
+              Your topics
+            </p>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {["AI", "Robotics", "Privacy"].map((t) => (
+                <span
+                  key={t}
+                  className="rounded-md bg-signal/10 px-2 py-0.5 text-[12px] text-signal"
+                >
+                  {t}
+                </span>
+              ))}
             </div>
           </div>
-        ))}
-        <div className="mt-6 rounded-2xl border border-hairline bg-surface-2 p-4">
-          <p className="text-[13px]">Selected for your 7:30 brief</p>
+          <div className="rounded-2xl border border-hairline bg-surface-2 p-4">
+            <p className="text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
+              Today's stories
+            </p>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {["Breakthrough", "Policy", "Launch"].map((t) => (
+                <span
+                  key={t}
+                  className="rounded-md bg-muted px-2 py-0.5 text-[12px] text-muted-foreground"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center justify-center">
+          <div className="rounded-full border border-signal/40 bg-signal/10 px-4 py-1.5 text-[12px] font-medium text-signal">
+            matched
+          </div>
+        </div>
+        <div className="rounded-2xl border border-signal/30 bg-surface p-4">
+          <p className="text-[13px]">Selected for your briefing</p>
         </div>
       </div>
     );

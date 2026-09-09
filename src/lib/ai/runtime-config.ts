@@ -114,6 +114,8 @@ export const MAX_AI_MONTHLY_TOKEN_BUDGET = 100_000_000;
 export type AiSettingKey =
   | "ai.monthly_cost_usd"
   | "ai.monthly_token_budget"
+  | "ai.cluster_max_tokens"
+  | "ai.cluster_thinking"
   | "ai.analyse_max_tokens"
   | "ai.digest_max_tokens"
   | "ai.ask_max_tokens"
@@ -166,9 +168,9 @@ export type AiSettingSpec = (NumberSetting | BooleanSetting | EnumSetting) & {
 export const AI_RUNTIME_SETTINGS: readonly AiSettingSpec[] = [
   {
     key: "ai.monthly_cost_usd",
-    label: "Monthly AI budget",
+    label: "Monthly safety cap",
     description:
-      "The invoice ceiling. Every reservation is priced before it is spent, and calls are refused once the month's total would cross this.",
+      "Maximum nyuz may spend in one calendar month. This is an emergency guard and does not add provider credit. Set it above routine usage; top-ups do not change it. Settled spend and in-flight reservations count toward this cap.",
     envVar: "AI_MONTHLY_COST_USD",
     kind: "number",
     unit: "usd",
@@ -179,7 +181,7 @@ export const AI_RUNTIME_SETTINGS: readonly AiSettingSpec[] = [
   },
   {
     key: "ai.monthly_token_budget",
-    label: "Monthly token budget",
+    label: "Token safety cap",
     description:
       "A second ceiling counted in tokens, to catch a runaway loop generating enormous cheap traffic that the dollar ceiling would notice too late.",
     envVar: "AI_MONTHLY_TOKEN_BUDGET",
@@ -189,6 +191,35 @@ export const AI_RUNTIME_SETTINGS: readonly AiSettingSpec[] = [
     max: MAX_AI_MONTHLY_TOKEN_BUDGET,
     codeDefault: DEFAULT_AI_MONTHLY_TOKEN_BUDGET,
     dangerous: true,
+  },
+  {
+    key: "ai.cluster_max_tokens",
+    label: "Cluster max tokens",
+    description:
+      "Output ceiling for one clustering decision. The answer is a few numbers, but the model reasons before it writes them, and at 1024 deepseek-v4-flash spent the whole allowance reasoning and returned nothing.",
+    envVar: "CLUSTER_MAX_TOKENS",
+    kind: "number",
+    unit: "count",
+    min: MIN_COMPLETION_TOKENS,
+    // Deliberately the lowest ceiling of the four. Clustering is the highest-
+    // volume call nyuz makes -- once per shortlisted article, against every
+    // other stage's once per event or once per reader -- so a ceiling raised
+    // here multiplies across the whole ingest. The reply is a JSON array of
+    // integers; anything past 4096 is buying reasoning, not output, and if
+    // clustering genuinely needs that much the answer is a better shortlist.
+    max: 4096,
+    codeDefault: 2048,
+    dangerous: false,
+  },
+  {
+    key: "ai.cluster_thinking",
+    label: "Cluster extended thinking",
+    description:
+      "Whether deepseek cluster calls may use extended thinking. deepseek-v4-flash can spend the entire token allowance on hidden reasoning before writing any JSON; disabling extended thinking for clustering keeps the ceiling effective.",
+    envVar: "AI_THINKING_CLUSTER",
+    kind: "boolean",
+    codeDefault: true,
+    dangerous: false,
   },
   {
     key: "ai.analyse_max_tokens",
@@ -303,6 +334,8 @@ export type ResolvedSetting = {
 export type AiRuntimeConfig = {
   monthlyCostUsd: number;
   monthlyTokenBudget: number;
+  clusterMaxTokens: number;
+  clusterThinking: boolean;
   analyseMaxTokens: number;
   digestMaxTokens: number;
   askMaxTokens: number;
@@ -442,6 +475,8 @@ export function buildAiRuntimeConfig(
   return {
     monthlyCostUsd: resolved["ai.monthly_cost_usd"].value as number,
     monthlyTokenBudget: resolved["ai.monthly_token_budget"].value as number,
+    clusterMaxTokens: resolved["ai.cluster_max_tokens"].value as number,
+    clusterThinking: resolved["ai.cluster_thinking"].value as boolean,
     analyseMaxTokens: resolved["ai.analyse_max_tokens"].value as number,
     digestMaxTokens: resolved["ai.digest_max_tokens"].value as number,
     askMaxTokens: resolved["ai.ask_max_tokens"].value as number,

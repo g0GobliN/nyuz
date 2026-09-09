@@ -1,3 +1,5 @@
+import { readReaderArticle, type ReaderArticle } from "@/lib/reader-article";
+
 export type CoverageDepth = "thin" | "normal" | "rich";
 export type StatementKind = "reported" | "context" | "analysis";
 
@@ -118,6 +120,8 @@ export type Change =
  */
 export type AnalysisMeta = {
   sourceCountAtAnalysis: number;
+  sourceArticleIds?: string[];
+  coverageCountAtAnalysis?: number;
   /** Set once this document has already had its one material-enrichment refresh. */
   refreshedAfterEnrichment?: boolean;
 };
@@ -136,6 +140,8 @@ export type AnalysisMeta = {
  */
 export type EventIntelligence = {
   version: 2;
+  /** Connected reader prose; absent on older analyses. */
+  article?: ReaderArticle;
   coverage: CoverageDepth;
   oneSentence: string;
   numbers: KeyNumber[];
@@ -418,9 +424,20 @@ function analysisMetaOf(value: unknown): AnalysisMeta | undefined {
   }
   if (sourceCountAtAnalysis < 0) return undefined;
   const refreshed = row["refreshedAfterEnrichment"];
-  return refreshed === true
-    ? { sourceCountAtAnalysis, refreshedAfterEnrichment: true }
-    : { sourceCountAtAnalysis };
+  const ids = row["sourceArticleIds"];
+  const coverageCount = row["coverageCountAtAnalysis"];
+  return {
+    sourceCountAtAnalysis,
+    ...(typeof coverageCount === "number" &&
+    Number.isInteger(coverageCount) &&
+    coverageCount >= sourceCountAtAnalysis
+      ? { coverageCountAtAnalysis: coverageCount }
+      : {}),
+    ...(refreshed === true ? { refreshedAfterEnrichment: true } : {}),
+    ...(Array.isArray(ids) && ids.every((id) => typeof id === "string")
+      ? { sourceArticleIds: ids as string[] }
+      : {}),
+  };
 }
 
 function claimText<T>(items: T[], textOf: (item: T) => string, claimed: string[]): T[] {
@@ -581,11 +598,13 @@ export function readEventIntelligence(
   });
 
   const analysisMeta = analysisMetaOf(raw["analysisMeta"]);
+  const article = readReaderArticle(raw["article"], evidenceCount);
 
   return {
     version: 2,
     coverage,
     ...deduped,
+    ...(article ? { article } : {}),
     ...(analysisMeta ? { analysisMeta } : {}),
   };
 }

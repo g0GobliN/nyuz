@@ -11,10 +11,17 @@ import {
   type CompleteResult,
   type ModelTier,
 } from "@/lib/ai/deepseek";
-import { aiCostCeilingMicrousd, aiCostMicrousd } from "@/lib/ai/cost";
+import { aiCostCeilingMicrousd, aiCostMicrousd, isDeepSeekPeak } from "@/lib/ai/cost";
 import { dailyCapsMicrousd } from "@/lib/ai/launch-flags";
 import { MICROUSD_PER_USD } from "@/lib/ai/budget";
 import { loadAiRuntimeConfig, type AiRuntimeConfig } from "@/lib/ai/runtime-config";
+import {
+  budgetThresholds,
+  checkRequestBudget,
+  operationThinking,
+  requestTokenCeiling,
+  requestTokens,
+} from "./request-policy";
 
 /**
  * Runtime AI routing.
@@ -87,8 +94,20 @@ function secretsDefault(): SecretBag {
   return ambientEnv();
 }
 
+/**
+ * The route to use when the database cannot supply one.
+ *
+ * `maxTokens` here is a last-resort default, not the ceiling in force: every
+ * stage passes its own from `ai_runtime_config`, which is the one place an
+ * operator moves it. Cluster's entry was 1024 -- the floor -- and, with no
+ * `cluster` row in `ai_model_routes`, that floor WAS the effective ceiling for
+ * every clustering call. deepseek-v4-flash spent all of it reasoning and
+ * returned empty content, which is the failure `ai.cluster_max_tokens` exists
+ * to end. Kept in step with that setting's `codeDefault` so a config outage
+ * degrades to the same number rather than back to the broken one.
+ */
 const ENV_FALLBACK: Record<ModelTier, { model: string; maxTokens: number }> = {
-  cluster: { model: "deepseek-v4-flash", maxTokens: 1024 },
+  cluster: { model: "deepseek-v4-flash", maxTokens: 2048 },
   digest: { model: "deepseek-v4-pro", maxTokens: 8192 },
   reason: { model: "deepseek-v4-pro", maxTokens: 16384 },
 };
@@ -260,7 +279,15 @@ export type RoutedOptions = {
    * Which of the six call sites is making this call (0053). Required so the
    * ledger can answer "where exactly did my $X go?" per feature.
    */
-  feature: "cluster" | "analyse" | "enrich" | "translate" | "impact" | "ask";
+  feature: "cluster" | "analyse" | "enrich" | "translate" | "impact" | "ask" | "probe";
+  eventIds?: string[];
+  articleId?: string;
+  promptVersion?: string;
+  evidenceCharacters?: number;
+  sourceCount?: number;
+  invocationReason?: string;
+  budgetExceptionReason?: string;
+  thinking?: "enabled" | "disabled";
 };
 
 export type RoutedResult = CompleteResult & { route: ResolvedRoute };
@@ -272,46 +299,145 @@ export type RoutedResult = CompleteResult & { route: ResolvedRoute };
  */
 export async function completeRouted(opts: RoutedOptions): Promise<RoutedResult> {
   const { route, call } = await prepare(opts);
-  const reservation = await reserveUsage(opts, route, call, false);
+  const { result } = await paidAttempt(opts, route, call, 1, crypto.randomUUID());
+  return { ...result, route };
+}
+
+/** Meter the admin's explicit provider without replacing it with a configured route. */
+export async function meterProviderProbe(
+  route: ResolvedRoute,
+  user: string,
+  secrets: SecretBag,
+  send: () => Promise<CompleteResult>,
+): Promise<void> {
+  await paidAttempt(
+    {
+      capability: route.capability,
+      feature: "probe",
+      user,
+      secrets,
+      promptVersion: "provider-probe-1",
+      invocationReason: "admin_connection_test",
+    },
+    route,
+    { tier: route.capability, user, maxTokens: route.maxTokens },
+    1,
+    crypto.randomUUID(),
+    send,
+  );
+}
+
+async function paidAttempt(
+  opts: RoutedOptions,
+  route: ResolvedRoute,
+  call: CompleteOptions,
+  attempt: number,
+  requestId: string,
+  send: (options: CompleteOptions) => Promise<CompleteResult> = complete,
+): Promise<{ result: CompleteResult; reservation: string | null }> {
+  if (opts.feature !== "ask") {
+    try {
+      checkRequestBudget(opts.feature, call.system ?? "", call.user, opts.budgetExceptionReason);
+    } catch (error) {
+      await recordOps(
+        createAdminClient(opts.secrets ?? secretsDefault()),
+        "ai:request-budget",
+        "warning",
+        {
+          feature: opts.feature,
+          reason: error instanceof Error ? error.message : String(error),
+        },
+      );
+      throw error;
+    }
+  }
+  const reservation = await reserveUsage(opts, route, call);
+  const started = Date.now();
+  // The metadata write is required before spending. Deploy the migration first.
+  if (opts.feature !== "ask" && reservation) {
+    const promptHash = [
+      ...new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(call.system ?? "")),
+      ),
+    ]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    const { error } = await createAdminClient(opts.secrets ?? secretsDefault()).rpc(
+      "record_ai_attempt",
+      {
+        p_id: reservation,
+        p_meta: {
+          request_id: requestId,
+          attempt,
+          provider: route.providerSlug,
+          model: route.model,
+          event_ids: opts.eventIds ?? [],
+          article_id: opts.articleId ?? null,
+          prompt_version: opts.promptVersion ?? "legacy",
+          source_count: opts.sourceCount ?? 0,
+          system_prompt_hash: promptHash,
+          evidence_characters: opts.evidenceCharacters ?? 0,
+          request_token_estimate: requestTokens(call.system ?? "", call.user),
+          request_token_ceiling: requestTokenCeiling(call.system ?? "", call.user),
+          output_ceiling: call.maxTokens ?? route.maxTokens,
+          thinking: call.thinking ?? "provider-default",
+          cache: "miss",
+          reason: opts.invocationReason ?? opts.feature,
+          retry_reason: attempt > 1 ? "invalid_json" : null,
+          budget_exception_reason: opts.budgetExceptionReason ?? null,
+        },
+      },
+    );
+    if (error) {
+      // No provider call has occurred, so this particular reservation is unbilled.
+      await releaseUnusedReservation(opts, reservation, { status: 400 });
+      throw new Error(`recording AI attempt: ${error.message}`);
+    }
+  }
+  let result: CompleteResult;
   try {
-    const result = await complete(call);
-    await settleUsage(opts, reservation, result, route);
-    return { ...result, route };
+    result = await send(call);
   } catch (error) {
     const usage = completionUsageFromError(error);
-    if (usage) await settleUsage(opts, reservation, usage, route);
-    else await releaseUnusedReservation(opts, reservation, error);
+    if (usage) {
+      try {
+        await settleUsage(opts, reservation, usage, route, started);
+      } catch (settlementError) {
+        throw new CompletionUsageError(
+          "Failed completion could not be settled",
+          usage,
+          settlementError,
+        );
+      }
+    } else await releaseUnusedReservation(opts, reservation, error);
     throw error;
   }
+  try {
+    await settleUsage(opts, reservation, result, route, started);
+  } catch (error) {
+    throw new CompletionUsageError("AI response received but settlement failed", result, error);
+  }
+  return { result, reservation };
 }
 
 /**
  * `completeRouted` for a caller that wants JSON back.
  *
- * Exists so the pipeline gets the routing and the parse-with-one-retry in a single
- * call. Written in terms of the same `prepare` as `completeRouted` rather than
- * wrapping it, because `completeJson` has to own the retry — it is the only place
- * that can see the malformed reply, and its returned usage is the sum of both
- * attempts, which a wrapper around a single completion could not report.
+ * Each attempt is reserved and settled independently. The returned usage is
+ * combined for the event record; it must never be settled a second time.
  */
 export async function completeRoutedJson<T>(
   opts: RoutedOptions,
 ): Promise<{ data: T; usage: CompleteResult; route: ResolvedRoute; usageId: string | null }> {
   const { route, call } = await prepare(opts);
-  const reservation = await reserveUsage(opts, route, call, true);
-  try {
-    const { data, usage } = await completeJson<T>(call);
-    await settleUsage(opts, reservation, usage, route);
-    // The ledger row id goes back to the caller so a stage can join its own
-    // decision to the spend that bought it (0057) instead of copying token
-    // counts into a second table that will eventually disagree with this one.
-    return { data, usage, route, usageId: reservation };
-  } catch (error) {
-    const usage = completionUsageFromError(error);
-    if (usage) await settleUsage(opts, reservation, usage, route);
-    else await releaseUnusedReservation(opts, reservation, error);
-    throw error;
-  }
+  const requestId = crypto.randomUUID();
+  let usageId: string | null = null;
+  const { data, usage } = await completeJson<T>(call, async (attemptCall, number) => {
+    const paid = await paidAttempt(opts, route, attemptCall, number, requestId);
+    usageId ??= paid.reservation;
+    return paid.result;
+  });
+  return { data, usage, route, usageId };
 }
 
 export function completionUsageFromError(error: unknown): CompleteResult | null {
@@ -325,21 +451,45 @@ export function completionUsageFromError(error: unknown): CompleteResult | null 
       reasoningTokens: error.reasoningTokens,
       cachedTokens: error.cachedTokens,
       attempt_count: 1,
+      usageReported: error.usageReported,
     };
   }
   return null;
 }
 
 export class AiBudgetExceededError extends Error {
-  constructor() {
-    super("The configured monthly AI budget has been reached.");
+  constructor(
+    message = "An AI safety limit refused this reservation. Check Admin → Cost for current limits.",
+  ) {
+    super(message);
     this.name = "AiBudgetExceededError";
   }
+}
+
+export async function optionalEnrichmentAllowed(
+  db: ReturnType<typeof createAdminClient>,
+  secrets: SecretBag = secretsDefault(),
+): Promise<boolean> {
+  const { degradation } = budgetThresholds(secrets);
+  if (degradation === 1) return true;
+  const runtime = await loadAiRuntimeConfig(db, secrets);
+  const { data, error } = await db.rpc("ai_spend_this_month");
+  const spent = data?.[0]?.spent_microusd ?? 0;
+  const allowed = !error && spent < runtime.monthlyCostUsd * MICROUSD_PER_USD * degradation;
+  if (!allowed)
+    await recordOps(db, "ai:budget", "warning", {
+      feature: "enrich",
+      reason: error ? "spend_check_failed" : "optional_enrichment_threshold",
+      spent_microusd: spent,
+    });
+  return allowed;
 }
 
 let lastBudgetStatusAt = 0;
 
 export function aiCapacityRetryAt(error: unknown, now = new Date()): Date | null {
+  if (error instanceof CompletionUsageError && error.cause)
+    return aiCapacityRetryAt(error.cause, now);
   if (error instanceof AiBudgetExceededError) {
     return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 5));
   }
@@ -424,7 +574,6 @@ async function reserveUsage(
   opts: RoutedOptions,
   route: ResolvedRoute,
   call: CompleteOptions,
-  mayRetry: boolean,
 ): Promise<string | null> {
   const secrets = opts.secrets ?? secretsDefault();
 
@@ -432,13 +581,14 @@ async function reserveUsage(
   // every call before a reservation is written and before a provider is
   // contacted. Deterministic processing continues regardless.
   const dbForFlags = createAdminClient(secrets);
-  const { data: killFlag } = await dbForFlags
+  const { data: killFlag, error: killError } = await dbForFlags
     .from("feature_flags")
     .select("enabled")
     .eq("key", "ai_kill_switch")
     .maybeSingle();
+  if (killError) throw new Error(`Reading AI kill switch: ${killError.message}`);
   if (killFlag?.enabled === true) {
-    throw new AiBudgetExceededError();
+    throw new AiBudgetExceededError("AI kill switch enabled.");
   }
 
   // Both monthly ceilings come from `ai_runtime_config` first, then the env var,
@@ -461,14 +611,12 @@ async function reserveUsage(
   refuseInvalidCeiling(runtime, "ai.monthly_cost_usd", "AI_MONTHLY_COST_USD");
 
   const globalCap = runtime.monthlyTokenBudget;
+  const { warning } = budgetThresholds(secrets);
 
-  // A reasoning completion can consume its whole ceiling, and JSON gets one
-  // repair retry. Input is approximated at 2.5 characters/token: English runs
-  // nearer four, but Ask takes a free-text question and `translate.ts` handles
-  // CJK, where a character can be most of a token. Erring low here would shrink
-  // the very number the ceiling is computed from.
-  const prompt = Math.ceil(((call.system?.length ?? 0) + call.user.length) / 2.5);
-  const completion = (call.maxTokens ?? route.maxTokens) * (mayRetry ? 2 : 1);
+  // Reserve this attempt only. JSON repair acquires another reservation before
+  // sending its larger prompt. UTF-8 bytes bound input conservatively.
+  const prompt = requestTokenCeiling(call.system ?? "", call.user);
+  const completion = call.maxTokens ?? route.maxTokens;
   const reserve = prompt + completion;
 
   const costCapUsd = runtime.monthlyCostUsd;
@@ -518,8 +666,8 @@ async function reserveUsage(
     const used = spend?.[0]?.spent_microusd ?? 0;
     const cap = Math.round(costCapUsd * MICROUSD_PER_USD);
     const ratio = cap > 0 ? used / cap : 1;
-    await recordOps(db, "ai:budget", ratio >= 0.8 ? "warning" : "healthy", {
-      state: ratio >= 0.8 ? "nearing" : "available",
+    await recordOps(db, "ai:budget", ratio >= warning ? "warning" : "healthy", {
+      state: ratio >= warning ? "nearing" : "available",
       spent_microusd: used,
       cap_microusd: cap,
       fraction: ratio,
@@ -558,21 +706,44 @@ async function settleUsage(
   reservation: string | null,
   usage: CompleteResult,
   route: ResolvedRoute,
+  started = Date.now(),
 ): Promise<void> {
   if (!reservation) return;
+  // Missing usage is an unknown charge, not a zero-dollar success.
+  if (usage.usageReported === false) return;
   const db = createAdminClient(opts.secrets ?? secretsDefault());
+  const cost = aiCostMicrousd({
+    provider: route.providerSlug,
+    model: usage.model,
+    promptTokens: usage.promptTokens,
+    cachedPromptTokens: usage.cachedTokens,
+    completionTokens: usage.completionTokens,
+    // A call crossing a tariff boundary is charged conservatively at peak.
+    at: isDeepSeekPeak(new Date(started)) ? new Date(started) : new Date(),
+  });
+  if (opts.feature !== "ask") {
+    const { error } = await db.rpc("record_ai_attempt", {
+      p_id: reservation,
+      p_meta: {},
+      p_usage: {
+        model: usage.model,
+        prompt_tokens: usage.promptTokens,
+        completion_tokens: usage.completionTokens,
+        cached_tokens: usage.cachedTokens,
+        cost_microusd: cost,
+        reasoning_tokens: usage.reasoningTokens,
+        latency_ms: Date.now() - started,
+      },
+    });
+    if (error) throw new Error(`recording AI usage: ${error.message}`);
+  }
+  if (cost === null) throw new AiUnpricedRouteError(route.providerSlug, usage.model);
   const { error } = await db.rpc("settle_ai_tokens", {
     p_id: reservation,
     p_prompt_tokens: usage.promptTokens,
     p_cached_prompt_tokens: usage.cachedTokens,
     p_completion_tokens: usage.completionTokens,
-    p_cost_microusd: aiCostMicrousd({
-      provider: route.providerSlug,
-      model: usage.model,
-      promptTokens: usage.promptTokens,
-      cachedPromptTokens: usage.cachedTokens,
-      completionTokens: usage.completionTokens,
-    }),
+    p_cost_microusd: cost,
     p_feature: opts.feature,
   });
   if (error) {
@@ -629,6 +800,13 @@ async function prepare(
   // `exactOptionalPropertyTypes` is on: an optional property must be absent, not
   // present-and-undefined, so each field is spread in only when it has a value.
   const apiKey = secrets[route.apiKeyEnv];
+  const thinking =
+    opts.feature !== "ask" && route.providerSlug === "deepseek"
+      ? (opts.thinking ??
+        (opts.feature === "cluster" && !runtime.clusterThinking
+          ? "disabled"
+          : operationThinking(opts.feature, secrets)))
+      : undefined;
   const synthetic: AiEnv = {
     DEEPSEEK_BASE_URL: route.baseUrl,
     ...(apiKey !== undefined ? { DEEPSEEK_API_KEY: apiKey } : {}),
@@ -647,9 +825,10 @@ async function prepare(
       ...(route.temperature !== undefined ? { temperature: route.temperature } : {}),
       // "default" means send nothing, so the request shape is unchanged from
       // before this knob existed. See `reasoningEffort` in deepseek.ts.
-      ...(runtime.reasoningEffort !== "default"
+      ...(runtime.reasoningEffort !== "default" && thinking !== "disabled"
         ? { reasoningEffort: runtime.reasoningEffort }
         : {}),
+      ...(thinking ? { thinking } : {}),
       env: synthetic,
       ...(opts.signal ? { signal: opts.signal } : {}),
     },
