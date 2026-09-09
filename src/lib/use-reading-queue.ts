@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { FeedbackState } from "@/lib/feedback-store";
 import { buildQueue, EMPTY_QUEUE, type QueueItem, type ReadingQueue } from "@/lib/reading-queue";
-import { loadHomeFeed, loadRecentAlerts } from "@/lib/server/briefing";
+import { loadRecentAlerts } from "@/lib/server/alerts";
+import { loadHomeFeed } from "@/lib/server/briefing";
 
 /**
  * The list a reader is working through, made available on the story page.
@@ -72,9 +73,9 @@ const SOURCES: Record<QueueSource, SourceConfig> = {
     queryFn: () => loadRecentAlerts(),
     // One event can be alerted on more than once, and the same story arriving
     // twice in a row would make Next look broken. First delivery wins.
-    select: (alerts) => {
+    select: (list) => {
       const seen = new Set<string>();
-      return alerts.flatMap((alert) => {
+      return list.alerts.flatMap((alert) => {
         if (seen.has(alert.eventId)) return [];
         seen.add(alert.eventId);
         return [{ id: alert.eventId, title: alert.title, topics: [] }];

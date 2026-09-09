@@ -1,16 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, BellOff } from "lucide-react";
+import { ArrowRight, Bell, BellOff } from "lucide-react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { Chip, LinkButton } from "@/components/kit";
 import { Loading } from "@/components/loading";
 import { usePrefs } from "@/lib/prefs-store";
-import { loadRecentAlerts } from "@/lib/server/briefing";
+import { loadRecentAlerts } from "@/lib/server/alerts";
 import { formatStoryTime } from "@/lib/story-time";
 import { usePlan } from "@/lib/plan-state";
 import { PLAN_LIMITS, PLAN_NAMES, allowedBreaking } from "@/lib/plans";
 
-export const Route = createFileRoute("/dashboard/alerts")({
+export const Route = createFileRoute("/dashboard/alerts/")({
   component: Alerts,
   head: () => ({ meta: [{ title: "Alerts — nyuz" }] }),
 });
@@ -26,7 +26,11 @@ function Alerts() {
     queryFn: () => loadRecentAlerts(),
     staleTime: 30_000,
   });
-  const sent = alertsQ.data ?? [];
+  const sent = alertsQ.data?.alerts ?? [];
+  // Offered only when it would lead somewhere: alert twenty-one existing is
+  // the whole reason to have a history page, and a link to an empty one is
+  // worse than no link.
+  const showHistory = limits.alertRetentionDays > 0 && (alertsQ.data?.hasMore ?? false);
 
   return (
     <DashboardShell title="Alerts">
@@ -86,7 +90,7 @@ function Alerts() {
       </section>
 
       <section className="mt-10">
-        <h2 className="text-[17px] font-medium tracking-tight">Recently sent</h2>
+        <h2 className="text-[17px] font-medium tracking-tight">Recent alerts</h2>
         {alertsQ.isLoading ? (
           <Loading label="Reading recent alerts" className="justify-center" />
         ) : off && sent.length === 0 ? (
@@ -115,7 +119,6 @@ function Alerts() {
                 >
                   <p className="text-[12px] tabular-nums text-muted-foreground">
                     {formatStoryTime(alert.at)}
-                    {alert.status !== "sent" ? ` · ${alert.status}` : ""}
                   </p>
                   <p className="mt-2 text-[15px] font-medium leading-snug">{alert.title}</p>
                   {alert.why ? (
@@ -128,6 +131,14 @@ function Alerts() {
             ))}
           </ul>
         )}
+        {showHistory ? (
+          <Link
+            to="/dashboard/alerts/history"
+            className="mt-5 inline-flex items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+          >
+            View alert history <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        ) : null}
       </section>
 
       <div className="mt-10 rounded-2xl border border-hairline bg-surface-2 px-5 py-5">

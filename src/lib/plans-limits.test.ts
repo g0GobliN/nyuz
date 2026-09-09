@@ -3,6 +3,7 @@ import { isPredefinedTopic, keepUsableTopics } from "@/lib/coverage";
 import {
   ASK_COOLDOWN_MS,
   PLAN_LIMITS,
+  PLAN_TIERS,
   allowedBreaking,
   askCapabilityFor,
   clipLabels,
@@ -145,5 +146,33 @@ describe("decideAsk", () => {
     expect(decideAsk({ flagOn: true, plan: "plura", usedToday: 0, lastAt, now })).toEqual({
       ok: true,
     });
+  });
+});
+
+describe("alert retention", () => {
+  it("entitles nothing on uno, ninety days on plura, a year on omni", () => {
+    expect(PLAN_LIMITS.uno.alertRetentionDays).toBe(0);
+    expect(PLAN_LIMITS.plura.alertRetentionDays).toBe(90);
+    expect(PLAN_LIMITS.omni.alertRetentionDays).toBe(365);
+  });
+
+  it("gives uno no alert history rather than a week of it", () => {
+    // Uno has no breaking alerts at all — `claim_alert` returns 'plan' before
+    // anything is written — so borrowing the seven-day briefing window would
+    // advertise a week of alerts nobody ever received.
+    expect(PLAN_LIMITS.uno.alerts).toBe("none");
+    expect(PLAN_LIMITS.uno.alertRetentionDays).toBe(0);
+  });
+
+  it("never promises alert history the purge would delete", () => {
+    // `purge_expired_digests` deletes alerts and briefings alike at the
+    // BRIEFING window, so an alert window longer than the briefing one would
+    // offer history the daily purge then removes. Raising these numbers means
+    // teaching that function `kind` first (0073 says so too).
+    for (const tier of PLAN_TIERS) {
+      expect(PLAN_LIMITS[tier].alertRetentionDays).toBeLessThanOrEqual(
+        PLAN_LIMITS[tier].retentionDays,
+      );
+    }
   });
 });

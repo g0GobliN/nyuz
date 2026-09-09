@@ -2,6 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import {
+  ComparisonBars,
+  DistributionBar,
+  DonutChart,
+  LollipopChart,
+  TrendAreaChart,
+} from "@/components/admin/charts";
+import {
   ConsoleHeader,
   ErrorNote,
   Loading,
@@ -73,7 +80,9 @@ function OverviewPage() {
       <ConsoleHeader
         title="Overview"
         sub="Every figure below is counted in Postgres at request time. Nothing here is sampled or cached beyond a minute, except where a number is marked as an estimate."
-      />
+      >
+        <Pill tone="signal">Live snapshot</Pill>
+      </ConsoleHeader>
 
       <div className="space-y-5">
         <Panel title="People">
@@ -137,7 +146,10 @@ function OverviewPage() {
           </StatGrid>
         </Panel>
 
-        <Panel title="Trend">
+        <Panel
+          title="Activity trend"
+          note="Switch the metric and time window to compare volume, direction and peak day."
+        >
           <div className="flex flex-wrap items-center gap-2">
             {METRICS.map((m) => (
               <Chip key={m.key} active={metric === m.key} onClick={() => setMetric(m.key)}>
@@ -158,13 +170,25 @@ function OverviewPage() {
             ) : daily.error ? (
               <ErrorNote error={daily.error} />
             ) : (
-              <BarChart rows={daily.data ?? []} metric={metric} />
+              <TrendAreaChart
+                rows={(daily.data ?? []).map((row) => ({
+                  label: shortDate(row.day),
+                  value: row[metric],
+                }))}
+                valueLabel={formatNumber}
+              />
             )}
           </div>
         </Panel>
 
         <div className="grid gap-5 lg:grid-cols-2">
           <Panel title="Pipeline">
+            <PipelineFlow
+              activeSources={d.content.activeSources}
+              articles={d.content.articles}
+              stories={d.content.events}
+              analysed={d.ai.analysedEvents}
+            />
             <dl className="divide-y divide-[var(--hairline)] text-[13.5px]">
               <Row label="Sources" value={formatNumber(d.content.sources)} />
               <Row
@@ -197,6 +221,40 @@ function OverviewPage() {
           </Panel>
 
           <Panel title="Delivery">
+            <div className="mb-4">
+              <DonutChart
+                segments={[
+                  {
+                    label: "Sent",
+                    value: d.delivery.deliveriesByStatus.sent,
+                    display: formatNumber(d.delivery.deliveriesByStatus.sent),
+                  },
+                  {
+                    label: "Queued",
+                    value: d.delivery.deliveriesByStatus.queued,
+                    display: formatNumber(d.delivery.deliveriesByStatus.queued),
+                  },
+                  {
+                    label: "Failed",
+                    value: d.delivery.deliveriesByStatus.failed,
+                    display: formatNumber(d.delivery.deliveriesByStatus.failed),
+                  },
+                  {
+                    label: "Bounced",
+                    value: d.delivery.deliveriesByStatus.bounced,
+                    display: formatNumber(d.delivery.deliveriesByStatus.bounced),
+                  },
+                ]}
+                centerLabel="deliveries"
+                centerValue={formatNumber(
+                  Object.values(d.delivery.deliveriesByStatus).reduce(
+                    (sum, value) => sum + value,
+                    0,
+                  ),
+                )}
+                emptyLabel="No deliveries yet."
+              />
+            </div>
             <dl className="divide-y divide-[var(--hairline)] text-[13.5px]">
               <Row
                 label="Send success"
@@ -247,6 +305,23 @@ function OverviewPage() {
                 }
               />
             </dl>
+            <div className="mt-4 border-t border-hairline pt-4">
+              <DistributionBar
+                segments={[
+                  {
+                    label: "Analysis",
+                    value: d.ai.analysisTokens,
+                    display: formatNumber(d.ai.analysisTokens),
+                  },
+                  {
+                    label: "Generation",
+                    value: d.ai.generationTokens,
+                    display: formatNumber(d.ai.generationTokens),
+                  },
+                ]}
+                emptyLabel="No AI tokens recorded yet."
+              />
+            </div>
             <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">
               Sums are computed over the most recent 10,000 rows per table, so on a busy project
               these are a floor rather than a total.
@@ -259,6 +334,29 @@ function OverviewPage() {
               <Row label="Not useful" value={formatNumber(d.feedback.not_useful)} />
               <Row label="Not interested" value={formatNumber(d.feedback.not_interested)} />
             </dl>
+
+            <div className="mt-4 border-t border-hairline pt-4">
+              <ComparisonBars
+                rows={[
+                  {
+                    label: "Useful",
+                    value: d.feedback.useful,
+                    display: formatNumber(d.feedback.useful),
+                  },
+                  {
+                    label: "Not useful",
+                    value: d.feedback.not_useful,
+                    display: formatNumber(d.feedback.not_useful),
+                  },
+                  {
+                    label: "Not interested",
+                    value: d.feedback.not_interested,
+                    display: formatNumber(d.feedback.not_interested),
+                  },
+                ].sort((a, b) => b.value - a.value)}
+                emptyLabel="No feedback yet."
+              />
+            </div>
 
             <h3 className="mt-7 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               Topic uptake
@@ -288,6 +386,44 @@ function OverviewPage() {
   );
 }
 
+function PipelineFlow({
+  activeSources,
+  articles,
+  stories,
+  analysed,
+}: {
+  activeSources: number;
+  articles: number;
+  stories: number;
+  analysed: number;
+}) {
+  const stages = [
+    { label: "Active sources", value: activeSources },
+    { label: "Articles", value: articles },
+    { label: "Stories", value: stories },
+    { label: "Analysed", value: analysed },
+  ];
+
+  return (
+    <ol className="relative mb-6 grid grid-cols-4 gap-2 pt-1 before:absolute before:left-[12.5%] before:right-[12.5%] before:top-[13px] before:h-px before:bg-border before:content-['']">
+      {stages.map((stage, index) => (
+        <li key={stage.label} className="relative z-10 min-w-0 text-center">
+          <span
+            className={`mx-auto block h-6 w-6 rounded-full border-[5px] border-surface ${
+              index === stages.length - 1 ? "bg-signal" : "bg-foreground"
+            }`}
+            aria-hidden
+          />
+          <p className="mt-3 text-[17px] font-semibold leading-none tabular-nums">
+            {formatNumber(stage.value)}
+          </p>
+          <p className="mt-1.5 text-[10.5px] leading-tight text-muted-foreground">{stage.label}</p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function Row({
   label,
   value,
@@ -312,62 +448,6 @@ function Row({
   );
 }
 
-/**
- * Hand-rolled because it is forty lines of SVG and the alternative is shipping a
- * charting library to every console visitor for one bar chart. Bars are drawn as
- * percentages of the container so it reflows without a resize observer.
- */
-function BarChart({ rows, metric }: { rows: DailyCount[]; metric: Metric }) {
-  const first = rows[0];
-  const last = rows[rows.length - 1];
-  if (!first || !last) {
-    return (
-      <p className="py-8 text-[13px] text-muted-foreground">No activity in this window yet.</p>
-    );
-  }
-
-  const values = rows.map((r) => r[metric]);
-  const max = Math.max(...values, 1);
-  const total = values.reduce((sum, v) => sum + v, 0);
-  const peak = rows[values.indexOf(max)];
-
-  return (
-    <div>
-      <div className="flex items-baseline gap-5">
-        <p className="font-serif text-[30px] leading-none tabular-nums">{formatNumber(total)}</p>
-        <p className="text-[12.5px] text-muted-foreground">
-          total · peak {formatNumber(max)}
-          {peak ? ` on ${shortDate(peak.day)}` : ""}
-        </p>
-      </div>
-
-      <div className="mt-5 flex h-40 items-end gap-[2px]">
-        {rows.map((row) => {
-          const value = row[metric];
-          const height = (value / max) * 100;
-          return (
-            <div
-              key={row.day}
-              className="group relative h-full flex-1"
-              title={`${shortDate(row.day)} — ${formatNumber(value)}`}
-            >
-              <div
-                className="absolute inset-x-0 bottom-0 rounded-t-[2px] bg-muted transition-colors duration-150 group-hover:bg-signal"
-                style={{ height: `${Math.max(height, value > 0 ? 2 : 0.5)}%` }}
-              />
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="mt-2 flex justify-between text-[11px] text-muted-foreground">
-        <span>{shortDate(first.day)}</span>
-        <span>{shortDate(last.day)}</span>
-      </div>
-    </div>
-  );
-}
-
 function shortDate(day: string): string {
   const d = new Date(day);
   if (Number.isNaN(d.getTime())) return day;
@@ -375,24 +455,16 @@ function shortDate(day: string): string {
 }
 
 function TopicBars({ rows }: { rows: { label: string; slug: string; users: number }[] }) {
-  if (rows.length === 0) {
-    return <p className="mt-4 text-[13px] text-muted-foreground">No topics followed yet.</p>;
-  }
-  const max = Math.max(...rows.map((r) => r.users), 1);
   return (
-    <ul className="mt-4 space-y-2">
-      {rows.map((row) => (
-        <li key={row.slug} className="flex items-center gap-3 text-[13px]">
-          <span className="w-32 shrink-0 truncate text-muted-foreground">{row.label}</span>
-          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-            <span
-              className="block h-full rounded-full bg-signal"
-              style={{ width: `${(row.users / max) * 100}%` }}
-            />
-          </span>
-          <span className="w-10 shrink-0 text-right tabular-nums">{formatNumber(row.users)}</span>
-        </li>
-      ))}
-    </ul>
+    <div className="mt-4">
+      <LollipopChart
+        rows={rows.map((row) => ({
+          label: row.label,
+          value: row.users,
+          display: formatNumber(row.users),
+        }))}
+        emptyLabel="No topics followed yet."
+      />
+    </div>
   );
 }

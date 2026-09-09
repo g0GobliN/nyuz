@@ -2,6 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ComparisonBars,
+  DonutChart,
+  ForecastTimeline,
+  RadialGauge,
+  WindowLineChart,
+} from "@/components/admin/charts";
+import {
   ConsoleHeader,
   ErrorNote,
   Field,
@@ -39,7 +46,7 @@ import {
   type PlanEconomics,
   type UnitEconomics,
 } from "@/lib/unit-economics";
-import { AlertTriangle, ArrowRight, Wrench } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, Wrench } from "lucide-react";
 
 export const Route = createFileRoute("/admin/cost")({ component: CostPage });
 
@@ -85,9 +92,9 @@ function CostPage() {
       />
 
       {aiStatus.data && !aiStatus.error ? (
-        <AiStatusCard data={aiStatus.data} />
+        <AiStatusCard data={aiStatus.data} forecast={spend.data ?? undefined} />
       ) : (
-        <Panel title="AI status" className="mb-5">
+        <Panel title="AI status" className="mb-4">
           {aiStatus.isLoading ? "Checking limits…" : "Unknown — could not read runtime limits."}
         </Panel>
       )}
@@ -101,7 +108,7 @@ function CostPage() {
       {creditView.data ? <ProviderCreditCard data={creditView.data} /> : null}
 
       {!creditView.isLoading && creditView.data === null ? (
-        <Panel className="mb-5">
+        <Panel className="mb-4">
           <p className="text-[13.5px] leading-relaxed text-signal">
             Apply migration 0048 to record credit top-ups and see the balance, burn rate and spend
             by window.
@@ -109,13 +116,17 @@ function CostPage() {
         </Panel>
       ) : null}
 
-      {creditView.data ? <SpendByWindow data={creditView.data} /> : null}
-      <SpendByFeature />
-      {aiStatus.data ? <AiRuntimeCard data={aiStatus.data} /> : null}
       {spend.data ? <AiSpendPanel data={spend.data} /> : null}
-      <TopupSection />
+      <div className="mb-4 space-y-4">
+        {creditView.data ? <SpendByWindow data={creditView.data} /> : null}
+        <SpendByFeature />
+      </div>
+      {aiStatus.data ? <AiRuntimeCard data={aiStatus.data} /> : null}
 
-      <div className="mb-5 flex flex-wrap items-center gap-1.5">
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        <span className="mr-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+          Unit economics
+        </span>
         {WINDOWS.map((w) => (
           <Chip key={w} active={days === w} onClick={() => setDays(w)}>
             {w} days
@@ -152,75 +163,132 @@ function CostPage() {
       ) : null}
 
       {data ? <AdvancedDiagnostics data={data} /> : null}
+      <TopupSection />
     </>
   );
 }
 
-function AiStatusCard({ data }: { data: AiRuntimeStatus }) {
+function AiStatusCard({
+  data,
+  forecast,
+}: {
+  data: AiRuntimeStatus;
+  forecast?: AiSpend | undefined;
+}) {
   const isBlocked = data.status === "blocked";
   const isWarning = data.status === "warning" || data.status === "near_limit";
 
   return (
-    <div className="mb-5">
+    <div className="mb-4">
       <Panel
         title="AI status"
         note="Current enforced limits. Each new reservation must also fit within the remaining caps."
       >
-        <div className="flex flex-wrap items-center gap-3">
-          <span
-            className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-semibold capitalize ${
-              isBlocked
-                ? "bg-signal/10 text-signal"
-                : isWarning
-                  ? "bg-muted text-foreground"
-                  : "bg-muted text-muted-foreground"
-            }`}
-          >
-            {data.status.replace("_", " ")}
-          </span>
-          {data.action ? (
-            <Link
-              to="/admin/ai-runtime"
-              search={data.action.settingKey ? { setting: data.action.settingKey } : {}}
-              className={buttonClass("outline", "sm")}
-            >
-              {data.action.label}
-              <ArrowRight className="h-3 w-3" />
-            </Link>
-          ) : null}
-        </div>
-
-        {data.blocker.kind !== "none" && (
-          <div className="mt-2 flex items-start gap-2 text-[12.5px] text-muted-foreground">
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
-            <span>{data.blockerLabel}</span>
-          </div>
-        )}
-
-        <div className="mt-3 space-y-1 text-[12.5px]">
-          <div>
-            Provider credit:{" "}
-            {data.credit.status === "unknown"
-              ? "Unavailable"
-              : data.credit.status === "unrecorded"
-                ? "No top-up recorded"
-                : `${usd(data.credit.remainingUsd)} remaining (estimated)`}
-          </div>
-          <div>
-            Monthly safety cap: {usd(data.usage.spentUsd)} / {usd(data.usage.ceilingUsd)} this month
-          </div>
-          <div>
-            Token safety cap: {formatNumber(data.usage.tokensUsed)} /{" "}
-            {formatNumber(data.usage.tokensBudget)} this month
-          </div>
-        </div>
-        {data.credit.status === "exhausted" ? (
-          <div className="mt-3 space-y-2 text-[12.5px]">
-            <p>
-              Provider credit exhausted. Estimated provider credit is{" "}
-              {usd(data.credit.remainingUsd)}. This ledger estimate does not block calls. Record a
-              new top-up after recharging the provider.
+        <div className="grid gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
+          <div className="flex flex-col rounded-2xl bg-surface-2 p-4">
+            <p className="flex items-center gap-2 text-[10.5px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+              <Activity className="h-3.5 w-3.5" /> Operating state
             </p>
+            <p
+              className={`mt-2 text-[24px] font-semibold capitalize tracking-[-0.035em] ${
+                isBlocked || isWarning ? "text-signal" : "text-foreground"
+              }`}
+            >
+              {data.status.replace("_", " ")}
+            </p>
+            <p className="mt-3 text-[11.5px] leading-relaxed text-muted-foreground">
+              Credit:{" "}
+              {data.credit.status === "unknown"
+                ? "Unavailable"
+                : data.credit.status === "unrecorded"
+                  ? "No top-up recorded"
+                  : `${usd(data.credit.remainingUsd)} left`}
+            </p>
+            {data.blocker.kind === "none" &&
+            (data.credit.status === "low" || data.credit.status === "exhausted") ? (
+              <p className="mt-2 text-[11.5px] leading-relaxed text-signal">
+                Provider credit is{" "}
+                {data.credit.status === "exhausted" ? "exhausted" : "running low"}.
+              </p>
+            ) : null}
+            {data.blocker.kind !== "none" ? (
+              <p className="mt-3 flex items-start gap-2 text-[11.5px] leading-relaxed">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
+                <span>{data.blockerLabel}</span>
+              </p>
+            ) : null}
+            <div className="mt-auto pt-4">
+              {data.action ? (
+                <Link
+                  to="/admin/ai-runtime"
+                  search={data.action.settingKey ? { setting: data.action.settingKey } : {}}
+                  className={buttonClass("outline", "sm")}
+                >
+                  {data.action.label}
+                  <ArrowRight className="h-3 w-3" />
+                </Link>
+              ) : data.credit.status === "low" ||
+                data.credit.status === "exhausted" ||
+                data.credit.status === "unrecorded" ? (
+                <a href="#record-topup" className={buttonClass("primary", "sm")}>
+                  {data.credit.status === "unrecorded" ? "Record first top-up" : "Record top-up"}
+                  <ArrowRight className="h-3 w-3" />
+                </a>
+              ) : (
+                <Link to="/admin/ai-runtime" search={{}} className={buttonClass("ghost", "sm")}>
+                  View controls <ArrowRight className="h-3 w-3" />
+                </Link>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <RadialGauge
+              label="Monthly spend"
+              value={data.usage.spentUsd}
+              max={data.usage.ceilingUsd}
+              valueLabel={`${percent(data.usage.spentUsd, data.usage.ceilingUsd)} used`}
+              detail={
+                forecast?.exhaustionDate
+                  ? `Stops ${shortDate(forecast.exhaustionDate)}`
+                  : `${usd(Math.max(data.usage.ceilingUsd - data.usage.spentUsd, 0))} left`
+              }
+              attention={
+                forecast?.exhaustionDate !== null && forecast?.exhaustionDate !== undefined
+                  ? true
+                  : ratio(data.usage.spentUsd, data.usage.ceilingUsd) >= 0.7
+              }
+            />
+            <RadialGauge
+              label="Monthly tokens"
+              value={data.usage.tokensUsed}
+              max={data.usage.tokensBudget}
+              valueLabel={`${percent(data.usage.tokensUsed, data.usage.tokensBudget)} used`}
+              detail={`${formatNumber(Math.max(data.usage.tokensBudget - data.usage.tokensUsed, 0))} left`}
+              attention={ratio(data.usage.tokensUsed, data.usage.tokensBudget) >= 0.7}
+            />
+            <RadialGauge
+              label="Flash today"
+              value={data.usage.daySpentFlash}
+              max={data.usage.dayCapFlash}
+              valueLabel={`${usd(data.usage.daySpentFlash)} / ${usd(data.usage.dayCapFlash)}`}
+              detail={`Resets ${resetLabel("day")}`}
+              attention={ratio(data.usage.daySpentFlash, data.usage.dayCapFlash) >= 0.7}
+            />
+            <RadialGauge
+              label="Pro today"
+              value={data.usage.daySpentPro}
+              max={data.usage.dayCapPro}
+              valueLabel={`${usd(data.usage.daySpentPro)} / ${usd(data.usage.dayCapPro)}`}
+              detail={`Resets ${resetLabel("day")}`}
+              attention={ratio(data.usage.daySpentPro, data.usage.dayCapPro) >= 0.7}
+            />
+          </div>
+        </div>
+
+        {data.credit.status === "exhausted" ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-signal px-4 py-3 text-[12px]">
+            <p>Provider credit is exhausted. Recharge the provider, then record the top-up.</p>
             <a href="#record-topup" className={buttonClass("outline", "sm")}>
               Record top-up
             </a>
@@ -243,7 +311,7 @@ function AiStatusCard({ data }: { data: AiRuntimeStatus }) {
  */
 function AiRuntimeCard({ data }: { data: AiRuntimeStatus }) {
   return (
-    <div className="mb-5">
+    <div className="mb-4">
       <Panel
         title="Safety caps and runtime controls"
         note="Maximum nyuz may spend in one calendar month. This is an emergency guard and does not add provider credit. Set it above routine usage; top-ups do not change it."
@@ -317,54 +385,77 @@ function LimitSummary({
 
 function ProviderCreditCard({ data }: { data: AiCreditView }) {
   const { credit } = data;
-  const runway =
-    credit.daysRemaining === null
-      ? "Not measured yet"
-      : credit.daysRemaining < 1
-        ? "Under a day"
-        : `${credit.daysRemaining.toFixed(credit.daysRemaining < 10 ? 1 : 0)} days`;
 
   return (
-    <div className="mb-5">
+    <div className="mb-4">
       <Panel
         title="Provider credit"
         note="Estimated from recorded top-ups minus settled AI spend and in-flight reservations. Informational; nyuz does not gate calls on this estimate."
       >
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <p className="font-serif text-[36px] tabular-nums">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[32px] font-semibold tracking-[-0.04em] tabular-nums">
             {credit.topups === 0 ? "No top-up recorded" : `${usd(credit.remainingUsd)} remaining`}
           </p>
           <a href="#record-topup" className={buttonClass("outline", "sm")}>
             Record top-up
           </a>
         </div>
-        <StatGrid>
-          <Stat
-            label="Total topped up"
-            value={usd(credit.toppedUpUsd)}
-            hint={`${credit.topups} top-ups`}
-          />
-          <Stat
-            label="Settled AI spend"
-            value={usd(credit.settledUsd)}
-            hint="Since the first recorded top-up"
-          />
-          <Stat
-            label="Burn"
-            value={credit.burnUsdPerDay === null ? "—" : `$${credit.burnUsdPerDay.toFixed(2)}/day`}
-            hint="Trailing 7 days, or since first top-up if newer; includes reservations"
-          />
-          <Stat
-            label="In flight"
-            value={`$${credit.inFlightUsd.toFixed(2)}`}
-            hint="Reserved at estimate"
-          />
-          <Stat
-            label="Runway"
-            value={credit.daysRemaining === null ? "—" : `~${runway}`}
-            hint={credit.burnUsdPerDay === 0 ? "No measured burn" : "At the measured burn rate"}
-          />
-        </StatGrid>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem] xl:items-center">
+          <StatGrid>
+            <Stat
+              label="Total topped up"
+              value={usd(credit.toppedUpUsd)}
+              hint={`${credit.topups} top-ups`}
+            />
+            <Stat
+              label="Settled AI spend"
+              value={usd(credit.settledUsd)}
+              hint="Since the first recorded top-up"
+            />
+            <Stat
+              label="Burn"
+              value={
+                credit.burnUsdPerDay === null ? "—" : `$${credit.burnUsdPerDay.toFixed(2)}/day`
+              }
+              hint="Trailing 7 days, or since first top-up if newer; includes reservations"
+            />
+            <Stat
+              label="In flight"
+              value={`$${credit.inFlightUsd.toFixed(2)}`}
+              hint="Reserved at estimate"
+            />
+          </StatGrid>
+
+          {credit.topups > 0 ? (
+            <div className="rounded-2xl border border-hairline bg-surface-2 p-4">
+              <DonutChart
+                centerLabel="runway"
+                centerValue={
+                  credit.daysRemaining === null
+                    ? "—"
+                    : credit.daysRemaining < 1
+                      ? "<1 day"
+                      : `${credit.daysRemaining.toFixed(credit.daysRemaining < 10 ? 1 : 0)}d`
+                }
+                segments={[
+                  {
+                    label: "Credit left",
+                    value: Math.max(credit.remainingUsd, 0),
+                    display: usd(Math.max(credit.remainingUsd, 0)),
+                  },
+                  {
+                    label: "Credit used",
+                    value: Math.max(credit.toppedUpUsd - credit.remainingUsd, 0),
+                    display: usd(Math.max(credit.toppedUpUsd - credit.remainingUsd, 0)),
+                  },
+                ]}
+              />
+              <p className="mt-3 text-center text-[11px] text-muted-foreground">
+                {creditDepletionLabel(credit.daysRemaining)}
+              </p>
+            </div>
+          ) : null}
+        </div>
 
         {credit.status === "exhausted" && (
           <div className="mt-3">
@@ -393,7 +484,7 @@ function AiSpendPanel({ data }: { data: AiSpend }) {
   const exhausted = data.spentUsd >= data.ceilingUsd;
 
   return (
-    <div className="mb-5">
+    <div className="mb-4">
       <Panel
         title="Monthly safety cap · usage details"
         note={`${data.usedPct.toFixed(1)}% of the $${data.ceilingUsd.toFixed(2)} safety cap; includes settled spend and reservations in this UTC calendar month`}
@@ -427,6 +518,26 @@ function AiSpendPanel({ data }: { data: AiSpend }) {
             hint="Reserved at estimate"
           />
         </StatGrid>
+        <div className="mt-5">
+          <ForecastTimeline
+            label="Cap consumption and forecast"
+            value={data.spentUsd}
+            max={data.ceilingUsd}
+            valueLabel={`${data.usedPct.toFixed(1)}% used`}
+            detail={`${usd(Math.max(data.ceilingUsd - data.spentUsd, 0))} available until ${resetLabel("month")}`}
+            marker={
+              data.projectedUsd === null
+                ? undefined
+                : {
+                    value: data.projectedUsd,
+                    label: data.exhaustionDate
+                      ? `Projected to stop ${shortDate(data.exhaustionDate)}`
+                      : `Month-end projection ${usd(data.projectedUsd)}`,
+                  }
+            }
+            attention={exhausted || willExhaust || data.usedPct >= 70}
+          />
+        </div>
         {exhausted || willExhaust || data.unpricedCalls > 0 || !data.ceilingResolved ? (
           <div className="mt-3 flex flex-wrap gap-2">
             {exhausted ? (
@@ -751,41 +862,41 @@ function SpendByFeature() {
     unknown: "Unattributed",
   };
 
-  const entries = spend.data?.filter((row) => row.window_key === window) ?? [];
+  const entries =
+    spend.data
+      ?.filter((row) => row.window_key === window)
+      .sort((a, b) => b.spent_microusd - a.spent_microusd) ?? [];
 
   return (
-    <div className="mb-5">
-      <Panel
-        title="Spend by feature"
-        note="Ledger cost, including in-flight reservations; token counts reflect reported usage."
-      >
-        <div className="mb-4 flex gap-2">
-          {(
-            [
-              ["today", "Today (UTC)"],
-              ["7_days", "7 days"],
-              ["30_days", "30 days"],
-            ] as const
-          ).map(([key, label]) => (
-            <Chip key={key} active={window === key} onClick={() => setWindow(key)}>
-              {label}
-            </Chip>
-          ))}
-        </div>
-        <ErrorNote error={spend.error} />
-        {spend.isLoading ? <Loading label="Counting spend" /> : null}
-        <StatGrid>
-          {entries.map((row) => (
-            <Stat
-              key={row.feature}
-              label={featureLabels[row.feature] ?? row.feature}
-              value={usd(row.spent_microusd / 1_000_000)}
-              hint={`${formatNumber(row.calls)} calls · ${formatNumber(row.tokens)} tokens`}
-            />
-          ))}
-        </StatGrid>
-      </Panel>
-    </div>
+    <Panel
+      title="Spend by feature"
+      note="Ledger cost, including in-flight reservations; token counts reflect reported usage."
+    >
+      <div className="mb-4 flex gap-2">
+        {(
+          [
+            ["today", "Today (UTC)"],
+            ["7_days", "7 days"],
+            ["30_days", "30 days"],
+          ] as const
+        ).map(([key, label]) => (
+          <Chip key={key} active={window === key} onClick={() => setWindow(key)}>
+            {label}
+          </Chip>
+        ))}
+      </div>
+      <ErrorNote error={spend.error} />
+      {spend.isLoading ? <Loading label="Counting spend" /> : null}
+      <ComparisonBars
+        rows={entries.map((row) => ({
+          label: featureLabels[row.feature] ?? row.feature,
+          value: row.spent_microusd,
+          display: usd(row.spent_microusd / 1_000_000),
+          note: `${formatNumber(row.calls)} calls · ${formatNumber(row.tokens)} tokens`,
+        }))}
+        emptyLabel="No spend recorded in this window."
+      />
+    </Panel>
   );
 }
 
@@ -794,24 +905,59 @@ function SpendByWindow({ data }: { data: AiCreditView }) {
   if (windows.length === 0) return null;
 
   return (
-    <div className="mb-5">
-      <Panel
-        title="Recent spend"
-        note="Ledger spend including in-flight reservations, across all recorded history."
-      >
-        <StatGrid>
-          {windows.map((w) => (
-            <Stat
-              key={w.key}
-              label={SPEND_WINDOW_LABELS[w.key]}
-              value={`$${w.spentUsd.toFixed(2)}`}
-              hint={`${formatNumber(w.calls)} calls · ${formatNumber(w.tokens)} tokens`}
-            />
-          ))}
-        </StatGrid>
-      </Panel>
-    </div>
+    <Panel
+      title="Recent spend"
+      note="Cumulative ledger spend across each lookback window, including in-flight reservations."
+    >
+      <WindowLineChart
+        rows={windows.map((window) => ({
+          label: SPEND_WINDOW_LABELS[window.key],
+          value: window.spentUsd,
+          display: usd(window.spentUsd),
+        }))}
+      />
+      <p className="mt-3 text-[11px] text-muted-foreground">
+        Each point is a cumulative window, not an independent period.
+      </p>
+    </Panel>
   );
+}
+
+function ratio(value: number, max: number): number {
+  return max > 0 ? value / max : 0;
+}
+
+function percent(value: number, max: number): string {
+  return `${Math.min(Math.max(ratio(value, max) * 100, 0), 100).toFixed(1)}%`;
+}
+
+function resetLabel(period: "day" | "month"): string {
+  const now = new Date();
+  const reset =
+    period === "day"
+      ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1))
+      : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const label = reset.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  return `${label} UTC`;
+}
+
+function creditDepletionLabel(daysRemaining: number | null): string {
+  if (daysRemaining === null) return "A depletion date needs measured spend.";
+  if (daysRemaining <= 0) return "Estimated credit is depleted.";
+  const date = new Date(Date.now() + daysRemaining * 86_400_000);
+  return `At the current burn rate, credit lasts until about ${date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+  })}.`;
+}
+
+function shortDate(value: string): string {
+  return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function TopupSection() {
@@ -842,7 +988,7 @@ function TopupSection() {
   };
 
   return (
-    <div id="record-topup" className="mb-5 scroll-mt-5 space-y-5">
+    <div id="record-topup" className="scroll-mt-5 space-y-4">
       <Panel
         title="Record a top-up"
         note="Enter what the provider actually charged you. A $5 purchase is 5. Recording a top-up does not change the monthly safety cap."

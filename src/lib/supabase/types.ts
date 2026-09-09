@@ -1365,6 +1365,15 @@ export type Database = {
         Returns: string;
       };
       /**
+       * The canonical breaking-alert access boundary (0073). Separate from
+       * `history_window_start` even where the numbers agree, so alert
+       * retention can move without moving the briefing archive with it.
+       */
+      alert_window_start: {
+        Args: { p_user: string };
+        Returns: string;
+      };
+      /**
        * Month metadata for the History page (0067). The one call allowed to see
        * past the window, and the reason it may is that it returns no content.
        */

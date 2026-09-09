@@ -32,7 +32,6 @@ import { Route as BlogIndexRouteImport } from './routes/blog/index'
 import { Route as BlogSlugRouteImport } from './routes/blog/$slug'
 import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
 import { Route as DashboardAdminRouteImport } from './routes/dashboard/admin'
-import { Route as DashboardAlertsRouteImport } from './routes/dashboard/alerts'
 import { Route as DashboardBillingRouteImport } from './routes/dashboard/billing'
 import { Route as DashboardBriefingRouteImport } from './routes/dashboard/briefing'
 import { Route as DashboardDeliveryRouteImport } from './routes/dashboard/delivery'
@@ -41,6 +40,8 @@ import { Route as DashboardSettingsRouteImport } from './routes/dashboard/settin
 import { Route as DashboardSourcesRouteImport } from './routes/dashboard/sources'
 import { Route as DashboardTopicsRouteImport } from './routes/dashboard/topics'
 import { Route as LegalDocRouteImport } from './routes/legal/$doc'
+import { Route as DashboardAlertsIndexRouteImport } from './routes/dashboard/alerts/index'
+import { Route as DashboardAlertsHistoryRouteImport } from './routes/dashboard/alerts/history'
 import { Route as DashboardStoryIdRouteImport } from './routes/dashboard/story/$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -158,11 +159,6 @@ const DashboardAdminRoute = DashboardAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => DashboardRoute,
 } as any)
-const DashboardAlertsRoute = DashboardAlertsRouteImport.update({
-  id: '/alerts',
-  path: '/alerts',
-  getParentRoute: () => DashboardRoute,
-} as any)
 const DashboardBillingRoute = DashboardBillingRouteImport.update({
   id: '/billing',
   path: '/billing',
@@ -203,6 +199,16 @@ const LegalDocRoute = LegalDocRouteImport.update({
   path: '/legal/$doc',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardAlertsIndexRoute = DashboardAlertsIndexRouteImport.update({
+  id: '/alerts/',
+  path: '/alerts/',
+  getParentRoute: () => DashboardRoute,
+} as any)
+const DashboardAlertsHistoryRoute = DashboardAlertsHistoryRouteImport.update({
+  id: '/alerts/history',
+  path: '/alerts/history',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardStoryIdRoute = DashboardStoryIdRouteImport.update({
   id: '/story/$id',
   path: '/story/$id',
@@ -230,7 +236,6 @@ export interface FileRoutesByFullPath {
   '/admin/users': typeof AdminUsersRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/dashboard/admin': typeof DashboardAdminRoute
-  '/dashboard/alerts': typeof DashboardAlertsRoute
   '/dashboard/billing': typeof DashboardBillingRoute
   '/dashboard/briefing': typeof DashboardBriefingRoute
   '/dashboard/delivery': typeof DashboardDeliveryRoute
@@ -242,7 +247,9 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/blog/': typeof BlogIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/dashboard/alerts/history': typeof DashboardAlertsHistoryRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
+  '/dashboard/alerts/': typeof DashboardAlertsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -263,7 +270,6 @@ export interface FileRoutesByTo {
   '/admin/users': typeof AdminUsersRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/dashboard/admin': typeof DashboardAdminRoute
-  '/dashboard/alerts': typeof DashboardAlertsRoute
   '/dashboard/billing': typeof DashboardBillingRoute
   '/dashboard/briefing': typeof DashboardBriefingRoute
   '/dashboard/delivery': typeof DashboardDeliveryRoute
@@ -275,7 +281,9 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/blog': typeof BlogIndexRoute
   '/dashboard': typeof DashboardIndexRoute
+  '/dashboard/alerts/history': typeof DashboardAlertsHistoryRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
+  '/dashboard/alerts': typeof DashboardAlertsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -299,7 +307,6 @@ export interface FileRoutesById {
   '/admin/users': typeof AdminUsersRoute
   '/blog/$slug': typeof BlogSlugRoute
   '/dashboard/admin': typeof DashboardAdminRoute
-  '/dashboard/alerts': typeof DashboardAlertsRoute
   '/dashboard/billing': typeof DashboardBillingRoute
   '/dashboard/briefing': typeof DashboardBriefingRoute
   '/dashboard/delivery': typeof DashboardDeliveryRoute
@@ -311,7 +318,9 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/blog/': typeof BlogIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/dashboard/alerts/history': typeof DashboardAlertsHistoryRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
+  '/dashboard/alerts/': typeof DashboardAlertsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -336,7 +345,6 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/blog/$slug'
     | '/dashboard/admin'
-    | '/dashboard/alerts'
     | '/dashboard/billing'
     | '/dashboard/briefing'
     | '/dashboard/delivery'
@@ -348,7 +356,9 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/blog/'
     | '/dashboard/'
+    | '/dashboard/alerts/history'
     | '/dashboard/story/$id'
+    | '/dashboard/alerts/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -369,7 +379,6 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/blog/$slug'
     | '/dashboard/admin'
-    | '/dashboard/alerts'
     | '/dashboard/billing'
     | '/dashboard/briefing'
     | '/dashboard/delivery'
@@ -381,7 +390,9 @@ export interface FileRouteTypes {
     | '/admin'
     | '/blog'
     | '/dashboard'
+    | '/dashboard/alerts/history'
     | '/dashboard/story/$id'
+    | '/dashboard/alerts'
   id:
     | '__root__'
     | '/'
@@ -404,7 +415,6 @@ export interface FileRouteTypes {
     | '/admin/users'
     | '/blog/$slug'
     | '/dashboard/admin'
-    | '/dashboard/alerts'
     | '/dashboard/billing'
     | '/dashboard/briefing'
     | '/dashboard/delivery'
@@ -416,7 +426,9 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/blog/'
     | '/dashboard/'
+    | '/dashboard/alerts/history'
     | '/dashboard/story/$id'
+    | '/dashboard/alerts/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -597,13 +609,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAdminRouteImport
       parentRoute: typeof DashboardRoute
     }
-    '/dashboard/alerts': {
-      id: '/dashboard/alerts'
-      path: '/alerts'
-      fullPath: '/dashboard/alerts'
-      preLoaderRoute: typeof DashboardAlertsRouteImport
-      parentRoute: typeof DashboardRoute
-    }
     '/dashboard/billing': {
       id: '/dashboard/billing'
       path: '/billing'
@@ -660,6 +665,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LegalDocRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard/alerts/': {
+      id: '/dashboard/alerts/'
+      path: '/alerts'
+      fullPath: '/dashboard/alerts/'
+      preLoaderRoute: typeof DashboardAlertsIndexRouteImport
+      parentRoute: typeof DashboardRoute
+    }
+    '/dashboard/alerts/history': {
+      id: '/dashboard/alerts/history'
+      path: '/alerts/history'
+      fullPath: '/dashboard/alerts/history'
+      preLoaderRoute: typeof DashboardAlertsHistoryRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/dashboard/story/$id': {
       id: '/dashboard/story/$id'
       path: '/story/$id'
@@ -700,7 +719,6 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 
 interface DashboardRouteChildren {
   DashboardAdminRoute: typeof DashboardAdminRoute
-  DashboardAlertsRoute: typeof DashboardAlertsRoute
   DashboardBillingRoute: typeof DashboardBillingRoute
   DashboardBriefingRoute: typeof DashboardBriefingRoute
   DashboardDeliveryRoute: typeof DashboardDeliveryRoute
@@ -709,12 +727,13 @@ interface DashboardRouteChildren {
   DashboardSourcesRoute: typeof DashboardSourcesRoute
   DashboardTopicsRoute: typeof DashboardTopicsRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
+  DashboardAlertsHistoryRoute: typeof DashboardAlertsHistoryRoute
   DashboardStoryIdRoute: typeof DashboardStoryIdRoute
+  DashboardAlertsIndexRoute: typeof DashboardAlertsIndexRoute
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAdminRoute: DashboardAdminRoute,
-  DashboardAlertsRoute: DashboardAlertsRoute,
   DashboardBillingRoute: DashboardBillingRoute,
   DashboardBriefingRoute: DashboardBriefingRoute,
   DashboardDeliveryRoute: DashboardDeliveryRoute,
@@ -723,7 +742,9 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardSourcesRoute: DashboardSourcesRoute,
   DashboardTopicsRoute: DashboardTopicsRoute,
   DashboardIndexRoute: DashboardIndexRoute,
+  DashboardAlertsHistoryRoute: DashboardAlertsHistoryRoute,
   DashboardStoryIdRoute: DashboardStoryIdRoute,
+  DashboardAlertsIndexRoute: DashboardAlertsIndexRoute,
 }
 
 const DashboardRouteWithChildren = DashboardRoute._addFileChildren(

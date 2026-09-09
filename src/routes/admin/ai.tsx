@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Activity, KeyRound, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { ColumnChart, RadialGauge } from "@/components/admin/charts";
 import {
   ConsoleHeader,
   ErrorNote,
@@ -100,18 +101,49 @@ function AiPage() {
                 : "Token safety cap unavailable. Check AI Runtime."
             }
           >
-            <div className="grid gap-3 sm:grid-cols-4">
-              <UsageStat label="Calls" value={data.usage.calls} />
-              <UsageStat label="Cluster / Flash" value={data.usage.byCapability.cluster} />
-              <UsageStat label="Digest" value={data.usage.byCapability.digest} />
-              <UsageStat label="Reason / Pro Ask" value={data.usage.byCapability.reason} />
-            </div>
-            {data.usage.budgetTokens > 0 &&
-            data.usage.monthTokens / data.usage.budgetTokens >= 0.8 ? (
-              <p className="mt-4 text-[12.5px] font-semibold">
-                Token safety cap warning: at least 80% of this month's cap is committed.
+            {data.usage.budgetTokens > 0 ? (
+              <div className="grid gap-4 lg:grid-cols-[minmax(15rem,0.8fr)_minmax(20rem,1.3fr)_minmax(10rem,0.6fr)]">
+                <RadialGauge
+                  label="Monthly token budget"
+                  value={data.usage.monthTokens}
+                  max={data.usage.budgetTokens}
+                  valueLabel={`${Math.min((data.usage.monthTokens / data.usage.budgetTokens) * 100, 100).toFixed(1)}% used`}
+                  detail={`${formatNumber(Math.max(data.usage.budgetTokens - data.usage.monthTokens, 0))} tokens remain · resets ${nextMonthLabel()}`}
+                  attention={data.usage.monthTokens / data.usage.budgetTokens >= 0.7}
+                />
+                <div className="rounded-2xl border border-hairline bg-surface-2 px-4 py-3.5">
+                  <p className="mb-3 text-[12px] font-medium">Usage mix</p>
+                  <ColumnChart
+                    rows={[
+                      {
+                        label: "Cluster",
+                        value: data.usage.byCapability.cluster,
+                        display: formatNumber(data.usage.byCapability.cluster),
+                      },
+                      {
+                        label: "Digest",
+                        value: data.usage.byCapability.digest,
+                        display: formatNumber(data.usage.byCapability.digest),
+                      },
+                      {
+                        label: "Reason",
+                        value: data.usage.byCapability.reason,
+                        display: formatNumber(data.usage.byCapability.reason),
+                      },
+                    ].sort((a, b) => b.value - a.value)}
+                    emptyLabel="No token usage yet."
+                  />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                  <UsageStat label="Metered calls" value={data.usage.calls} />
+                  <UsageStat label="Reserved tokens" value={data.usage.reservedTokens} />
+                </div>
+              </div>
+            ) : (
+              <p className="text-[12.5px] text-muted-foreground">
+                Usage charts appear once the token safety cap is available.
               </p>
-            ) : null}
+            )}
           </Panel>
 
           <Panel
@@ -194,6 +226,14 @@ function AiPage() {
       ) : null}
     </>
   );
+}
+
+function nextMonthLabel(): string {
+  const now = new Date();
+  const label = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+  ).toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+  return `${label} UTC`;
 }
 
 function UsageStat({ label, value }: { label: string; value: number }) {

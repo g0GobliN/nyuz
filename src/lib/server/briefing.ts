@@ -495,68 +495,6 @@ export const loadStory = createServerFn({ method: "GET" })
     return stories[0] ?? null;
   });
 
-export type SentAlert = {
-  digestId: string;
-  eventId: string;
-  title: string;
-  why: string;
-  at: string;
-  status: "queued" | "sent" | "failed" | "bounced";
-};
-
-export const loadRecentAlerts = createServerFn({ method: "GET" })
-  .middleware([signedInOnly])
-  .handler(async ({ context }): Promise<SentAlert[]> => {
-    const { actor } = context;
-    const { data, error } = await actor.db
-      .from("digests")
-      .select("digest_id, scheduled_for, status")
-      .eq("user_id", actor.id)
-      .eq("kind", "alert")
-      .in("status", ["ready", "sent"])
-      .order("scheduled_for", { ascending: false })
-      .limit(20);
-    if (error) throw new Error(`reading alerts: ${error.message}`);
-    const rows = data ?? [];
-    if (rows.length === 0) return [];
-
-    const ids = rows.map((r) => r.digest_id);
-    const [{ data: items, error: itemError }, { data: deliveries, error: deliveryError }] =
-      await Promise.all([
-        actor.db
-          .from("digest_items")
-          .select("digest_id, event_id, why_it_matters, events ( title )")
-          .in("digest_id", ids),
-        actor.db.from("deliveries").select("digest_id, status, delivered_at").in("digest_id", ids),
-      ]);
-    if (itemError) throw new Error(`reading alert items: ${itemError.message}`);
-    if (deliveryError) throw new Error(`reading alert deliveries: ${deliveryError.message}`);
-
-    const itemOf = new Map(
-      (items ?? []).map((row) => {
-        const title = (row.events as { title?: string } | null)?.title ?? "";
-        return [row.digest_id, { eventId: row.event_id, title, why: row.why_it_matters }] as const;
-      }),
-    );
-    const deliveryOf = new Map((deliveries ?? []).map((row) => [row.digest_id, row] as const));
-
-    return rows.flatMap((row) => {
-      const item = itemOf.get(row.digest_id);
-      if (!item?.title) return [];
-      const delivery = deliveryOf.get(row.digest_id);
-      return [
-        {
-          digestId: row.digest_id,
-          eventId: item.eventId,
-          title: item.title,
-          why: item.why,
-          at: delivery?.delivered_at ?? row.scheduled_for,
-          status: delivery?.status ?? "queued",
-        },
-      ];
-    });
-  });
-
 export type AskResult =
   | { ok: true; answer: string }
   | {

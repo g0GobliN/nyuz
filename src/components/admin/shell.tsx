@@ -130,14 +130,25 @@ export function AdminLayout() {
 
   const statusColor =
     aiStatus?.status === "blocked" || aiStatus?.status === "near_limit"
-      ? "text-destructive"
+      ? "text-signal"
       : aiStatus?.status === "warning"
-        ? "text-yellow-500"
-        : "text-emerald-500";
+        ? "text-foreground"
+        : "text-muted-foreground";
   const statusLabel = aiStatus?.status ?? "—";
+  const aiLoad = aiStatus
+    ? Math.min(
+        Math.max(
+          percentUsed(aiStatus.usage.spentUsd, aiStatus.usage.ceilingUsd),
+          percentUsed(aiStatus.usage.tokensUsed, aiStatus.usage.tokensBudget),
+          percentUsed(aiStatus.usage.daySpentFlash, aiStatus.usage.dayCapFlash),
+          percentUsed(aiStatus.usage.daySpentPro, aiStatus.usage.dayCapPro),
+        ),
+        100,
+      )
+    : 0;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-surface-2">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-hairline bg-surface px-4 py-5 lg:flex">
         <div className="px-2">
           <Logo />
@@ -166,6 +177,24 @@ export function AdminLayout() {
           <p className={cn("mt-1 text-[13px] font-semibold capitalize", statusColor)}>
             {aiStatusLoading ? "…" : statusLabel}
           </p>
+          {aiStatus ? (
+            <div
+              className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+              role="progressbar"
+              aria-label="Highest active AI limit usage"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(aiLoad)}
+            >
+              <span
+                className={cn(
+                  "block h-full rounded-full",
+                  aiLoad >= 70 ? "bg-signal" : "bg-foreground",
+                )}
+                style={{ width: `${aiLoad}%` }}
+              />
+            </div>
+          ) : null}
           {aiStatus && aiStatus.blocker.kind !== "none" ? (
             <p className="mt-0.5 text-[11px] text-muted-foreground">{aiStatus.blockerLabel}</p>
           ) : null}
@@ -186,7 +215,7 @@ export function AdminLayout() {
       </aside>
 
       <div className="lg:pl-60">
-        <header className="glass sticky top-0 z-30 border-b border-hairline">
+        <header className="glass sticky top-0 z-30 border-b border-hairline bg-surface/85">
           <div className="flex h-16 items-center gap-3 px-5 sm:px-7">
             <div className="lg:hidden">
               <Logo />
@@ -229,6 +258,10 @@ export function AdminLayout() {
   );
 }
 
+function percentUsed(value: number, max: number): number {
+  return max > 0 ? Math.max((value / max) * 100, 0) : 0;
+}
+
 /* ---------------------------------------------------------------------- */
 /* Shared primitives                                                      */
 /* ---------------------------------------------------------------------- */
@@ -250,7 +283,7 @@ export function ConsoleHeader({
   children?: ReactNode | undefined;
 }) {
   return (
-    <div className="mb-8 flex flex-wrap items-end justify-between gap-5">
+    <div className="mb-7 flex flex-wrap items-end justify-between gap-5">
       <div>
         <h1 className="display text-[clamp(1.375rem,4vw,2.35rem)]">{title}</h1>
         {sub ? (
@@ -276,18 +309,17 @@ export function Panel({
   className?: string | undefined;
 }) {
   return (
-    <section className={cn("rounded-3xl border border-hairline bg-surface p-6 sm:p-7", className)}>
-      {title ? (
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-          {title}
-        </h2>
-      ) : null}
+    <section
+      className={cn(
+        "rounded-2xl border border-border bg-surface p-5 shadow-[var(--shadow-soft)] sm:p-6",
+        className,
+      )}
+    >
+      {title ? <h2 className="text-[14px] font-semibold tracking-[-0.015em]">{title}</h2> : null}
       {note ? (
-        <p className="mt-2.5 max-w-2xl text-[12.5px] leading-relaxed text-muted-foreground">
-          {note}
-        </p>
+        <p className="mt-1.5 max-w-2xl text-[12px] leading-relaxed text-muted-foreground">{note}</p>
       ) : null}
-      <div className={title || note ? "mt-5" : undefined}>{children}</div>
+      <div className={title || note ? "mt-4" : undefined}>{children}</div>
     </section>
   );
 }
@@ -310,12 +342,14 @@ export function Stat({
   estimate?: boolean | undefined;
 }) {
   return (
-    <div className="bg-surface px-5 py-4">
+    <div className="bg-surface px-4 py-4">
       <p className="text-[11.5px] text-muted-foreground">
         {label}
         {estimate ? <span className="ml-1.5 text-signal">est.</span> : null}
       </p>
-      <p className="mt-1 font-serif text-[26px] leading-none tabular-nums">{value}</p>
+      <p className="mt-1 text-[24px] font-semibold leading-none tracking-[-0.035em] tabular-nums">
+        {value}
+      </p>
       {hint ? <p className="mt-1.5 text-[11.5px] text-muted-foreground">{hint}</p> : null}
     </div>
   );
@@ -323,7 +357,7 @@ export function Stat({
 
 export function StatGrid({ children }: { children: ReactNode }) {
   return (
-    <div className="grid gap-px overflow-hidden rounded-2xl border border-hairline bg-hairline sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-px overflow-hidden rounded-xl border border-hairline bg-hairline sm:grid-cols-2 lg:grid-cols-4">
       {children}
     </div>
   );

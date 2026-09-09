@@ -108,6 +108,25 @@ export type PlanLimits = {
    * gone: one field, one window, enforced by `claim_alert` in 0037.
    */
   alertDailyCap: number;
+  /**
+   * Days of breaking-alert history this plan entitles.
+   *
+   * Deliberately its own field rather than a reuse of `retentionDays`, even
+   * though the two agree for plura and omni. Alert history and the briefing
+   * archive are separate things a plan sells, and the moment they share one
+   * number, changing either means changing both.
+   *
+   * Uno is 0 because Uno has no breaking alerts at all, so there is no history
+   * to keep — not 7, which would imply a week of alerts nobody ever received.
+   *
+   * INVARIANT: this must stay <= `retentionDays` for every plan.
+   * `purge_expired_digests` deletes alerts and briefings alike at the BRIEFING
+   * window, so a longer alert window would promise history the daily purge then
+   * deletes. Raising it above `retentionDays` means teaching that function
+   * `kind` first. Asserted in src/lib/plans-limits.test.ts, and mirrored in SQL
+   * by `plan_alert_days()` in 0073.
+   */
+  alertRetentionDays: number;
   inactivePauseDays: number | null;
   monthlyAiTokenCap: number;
 };
@@ -141,6 +160,7 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     storyCaps: { minimal: 3, focused: 6, broad: 10, deep: 18 },
     alerts: "none",
     alertDailyCap: 0,
+    alertRetentionDays: 0,
     inactivePauseDays: 30,
     // Reduced to 50K tokens for student budget. 400K per free user could become expensive.
     monthlyAiTokenCap: 50_000,
@@ -157,6 +177,7 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     storyCaps: { minimal: 5, focused: 10, broad: 18, deep: 30 },
     alerts: "important",
     alertDailyCap: 10,
+    alertRetentionDays: 90,
     inactivePauseDays: null,
     // Reduced for student budget. Increase after covering costs with paid users.
     monthlyAiTokenCap: 200_000,
@@ -176,6 +197,7 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     storyCaps: { minimal: 8, focused: 16, broad: 30, deep: 50 },
     alerts: "configurable",
     alertDailyCap: 25,
+    alertRetentionDays: 365,
     inactivePauseDays: null,
     // Reduced for student budget. Increase after covering costs with paid users.
     monthlyAiTokenCap: 500_000,

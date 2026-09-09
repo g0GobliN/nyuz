@@ -260,7 +260,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
         className="glass fixed inset-x-0 bottom-0 z-40 border-t border-hairline will-change-transform lg:hidden"
         style={{ transform: "translateZ(0)" }}
       >
-        <div className="flex items-stretch overflow-x-auto px-2 pb-[env(safe-area-inset-bottom)] scrollbar-hide">
+        <div className="flex touch-pan-x items-stretch overflow-x-auto overscroll-x-contain px-2 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] scrollbar-hide">
           {MOBILE.map((m) => (
             <MobileItem key={m.to} {...m} />
           ))}
@@ -448,11 +448,11 @@ function MobileItem({
       ref={ref}
       to={to}
       className={cn(
-        "flex flex-col items-center gap-1 px-4 py-2.5 text-[10.5px] transition-colors shrink-0",
+        "flex min-h-13 shrink-0 flex-col items-center gap-1 px-[18px] py-3 text-[11px] transition-colors",
         active ? "text-foreground" : "text-muted-foreground",
       )}
     >
-      <Icon className="h-[18px] w-[18px]" strokeWidth={active ? 2.2 : 1.8} />
+      <Icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.8} />
       {label}
     </Link>
   );
