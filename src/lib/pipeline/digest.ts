@@ -308,6 +308,8 @@ export async function digest(db: Db, options: DigestOptions = {}): Promise<Diges
   let failed = 0;
   let paused = 0;
   let deferred = 0;
+  let sent = 0;
+  let retried = 0;
   let tokens = 0;
 
   for (const row of due) {
@@ -319,18 +321,26 @@ export async function digest(db: Db, options: DigestOptions = {}): Promise<Diges
     else if (outcome.decision === "failed") failed += 1;
     else if (outcome.decision === "paused") paused += 1;
     else if (outcome.decision === "deferred") deferred += 1;
+
+    // Dispatch this slot before another reader's generation or the retry
+    // backlog can turn a 07:30 promise into a later five-minute cron slot.
+    if (
+      options.skipSend !== true &&
+      options.dryRun !== true &&
+      outcome.digestId &&
+      (outcome.decision === "generated" || outcome.decision === "skipped")
+    ) {
+      const delivery = await deliverDue(db, options, [outcome.digestId]);
+      sent += delivery.sent;
+      retried += delivery.retried;
+      outcome.sent = delivery.byDigest.get(outcome.digestId) ?? 0;
+    }
   }
 
-  let sent = 0;
-  let retried = 0;
   if (options.skipSend !== true && options.dryRun !== true) {
     const delivery = await deliverDue(db, options);
-    sent = delivery.sent;
-    retried = delivery.retried;
-    for (const outcome of outcomes) {
-      const match = delivery.byDigest.get(outcome.digestId ?? "");
-      if (match) outcome.sent = match;
-    }
+    sent += delivery.sent;
+    retried += delivery.retried;
   }
 
   return {
@@ -1085,16 +1095,21 @@ export async function flushDeliveries(db: Db, options: DigestOptions): Promise<D
   return deliverDue(db, options);
 }
 
-async function deliverDue(db: Db, options: DigestOptions): Promise<DeliveryReport> {
+async function deliverDue(
+  db: Db,
+  options: DigestOptions,
+  digestIds?: string[],
+): Promise<DeliveryReport> {
   // `next_attempt_at` is null for a delivery that has never been deferred — a
   // first attempt is not a retry — so "due" is null or in the past.
-  const query = db
+  let query = db
     .from("deliveries")
     .select("id, digest_id, channel, status, attempts, last_error")
     .eq("status", "queued")
     .in("channel", ["email", "telegram", "push"])
     .lt("attempts", MAX_ATTEMPTS)
     .or(`next_attempt_at.is.null,next_attempt_at.lte.${new Date().toISOString()}`);
+  if (digestIds) query = query.in("digest_id", digestIds);
 
   const { data, error } = await query;
   if (error) throw new Error(`reading deliveries: ${error.message}`);
@@ -1120,7 +1135,16 @@ async function deliverDue(db: Db, options: DigestOptions): Promise<DeliveryRepor
     if (claimError) throw new Error(`claiming delivery: ${claimError.message}`);
     if (claimed !== true) continue;
 
-    const result = await sendOne(db, row, options);
+    let result: "sent" | "retried" | "failed";
+    try {
+      result = await sendOne(db, row, options);
+    } catch (error) {
+      const attempts = row.attempts + 1;
+      const detail = error instanceof Error ? error.message : String(error);
+      const retry = attempts < MAX_ATTEMPTS;
+      await markDelivery(db, row.id, attempts, retry ? "queued" : "failed", detail);
+      result = retry ? "retried" : "failed";
+    }
     if (result === "sent") {
       sent += 1;
       byDigest.set(row.digest_id, (byDigest.get(row.digest_id) ?? 0) + 1);
@@ -1142,9 +1166,12 @@ async function sendOne(
     .select("digest_id, user_id, scheduled_for, status, item_count, kind")
     .eq("digest_id", row.digest_id)
     .maybeSingle();
-  if (error || !digestRow) return "failed";
+  if (error) throw new Error(`reading delivery digest: ${error.message}`);
+  if (!digestRow) throw new Error("delivery digest is missing");
 
-  if (digestRow.status !== "ready" && digestRow.status !== "skipped") return "failed";
+  if (digestRow.status !== "ready" && digestRow.status !== "skipped") {
+    throw new Error(`digest is ${digestRow.status}`);
+  }
 
   // The reader's language is read at send time rather than carried on the
   // digest: generation prewarmed the cache, this reads it. A reader who
