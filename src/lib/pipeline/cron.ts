@@ -72,10 +72,9 @@ const SCHEDULED_LIMIT = 12;
  * articles is around forty subrequests and twelve calls to a reasoning model, which
  * is the part that takes seconds rather than milliseconds.
  *
- * At four invocations an hour this clusters under 1200 articles a day, against a
- * real ingestion rate of a few hundred. There is headroom, and the backlog is
- * drained by `npm run pipeline -- cluster --limit N` rather than by a cron that
- * might run up a bill unattended.
+ * At four invocations an hour the demand lane can respond to briefing deadlines.
+ * The database selector keeps the unrelated background lane fixed, so this
+ * cadence does not turn quiet periods into extra model spend.
  */
 const CLUSTER_LIMIT = 12;
 
@@ -89,7 +88,7 @@ const CLUSTER_LIMIT = 12;
  * thirty-five plus the shared reads. That fits inside the free plan's fifty, which
  * ingestion's slice does not.
  *
- * Six an hour is not how the backlog gets cleared, and is not meant to be: an
+ * Six per invocation is not how the backlog gets cleared, and is not meant to be: an
  * operator runs `npm run pipeline -- analyse --limit N` and watches it. What this
  * number has to cover is the news of the last half hour, not the corpus — the
  * standing backlog is drained deliberately, by hand, because it is money.
@@ -112,49 +111,40 @@ const CLASSIFY_LIMIT_PER_RUN = 200;
 export const INGEST_CRON = "*/15 * * * *";
 
 /**
- * Clustering runs on its own schedule, offset from ingestion.
+ * Clustering runs two minutes after each ingest window.
  *
- * Offset rather than shared because the two stages want the opposite thing from
- * each other's timing: clustering works best when the coverage of one announcement
- * has all arrived, so it should run after an ingest rather than alongside one. Ten
- * past the half hour is a few minutes after an ingest run, and half as often,
- * which also keeps the two from competing for the same invocation's budget.
+ * Two minutes lets the concurrent feed reads finish while leaving enough room for
+ * classification, analysis and matching before each quarter-hour briefing slot.
  */
-export const CLUSTER_CRON = "4,34 * * * *";
+export const CLUSTER_CRON = "2,17,32,47 * * * *";
 
 /**
  * Analysis runs after clustering, on the same reasoning.
  *
- * Ten minutes behind `CLUSTER_CRON`, so an event analysed on this pass has had the
- * coverage that arrived with it grouped first. Getting that order wrong would not
- * corrupt anything — a later article still attaches to the analysed event, and
- * still costs nothing — but the analysis would have been written from one outlet's
- * account of the story when three were available.
+ * One minute behind classification. Demand and the next briefing deadline decide
+ * which events receive the bounded model capacity in each run.
  */
-export const ANALYSE_CRON = "47,53 * * * *";
+export const ANALYSE_CRON = "9,24,39,54 * * * *";
 
 /**
  * Classification runs between clustering and analysis, and costs nothing.
  *
- * Placed after `CLUSTER_CRON` and before `ANALYSE_CRON` because that is the
+ * Placed six minutes after clustering and before analysis because that is the
  * order the data needs: an event has to exist before it can be labelled, and it
- * has to be labelled before the demand gate can tell whether understanding it is
- * worth paying for. Twice an hour, on the same half-hourly rhythm as the stages
- * either side of it, so an event clustered at :04 is labelled at :10 and can be
- * analysed at :47 in the same hour rather than the next one.
+ * has to be labelled before the demand gate can value it.
  */
-export const CLASSIFY_CRON = "10,40 * * * *";
+export const CLASSIFY_CRON = "8,23,38,53 * * * *";
 
 /**
  * Matching runs last in the chain, and is the only schedule with no budget note.
  *
- * Five minutes behind `ANALYSE_CRON`, so an event matched on this pass has been
+ * Two minutes behind `ANALYSE_CRON`, so an event matched on this pass has been
  * read and scored first — an unanalysed event has no importance to compare against
  * a reader's threshold and no topics to join, so matching one would be matching a
  * placeholder. There is no limit constant above because there is nothing to limit:
  * no model call, no token, and re-running it writes nothing the second time.
  */
-export const MATCH_CRON = "25,55 * * * *";
+export const MATCH_CRON = "14,29,44,59 * * * *";
 
 /**
  * Digest generation and delivery, after matching.
@@ -183,7 +173,7 @@ export const DORMANT_CRON = "0 12 * * *";
  * nothing to do is the exception rather than the rule — the single exception
  * being minute 0, which exists for a nudge that runs once a week.
  */
-export const STAGES_CRON = "0,4,10,25,34,40,47,53,55 * * * *";
+export const STAGES_CRON = "0,2,8,9,14,17,23,24,29,32,38,39,44,47,53,54,59 * * * *";
 
 type SharedStage = "cluster" | "classify" | "analyse" | "match" | "dormant";
 
@@ -196,10 +186,10 @@ type SharedStage = "cluster" | "classify" | "analyse" | "match" | "dormant";
  */
 export function stageForMinute(scheduledFor: Date): SharedStage | null {
   const minute = scheduledFor.getUTCMinutes();
-  if (minute === 4 || minute === 34) return "cluster";
-  if (minute === 10 || minute === 40) return "classify";
-  if (minute === 47 || minute === 53) return "analyse";
-  if (minute === 25 || minute === 55) return "match";
+  if (minute === 2 || minute === 17 || minute === 32 || minute === 47) return "cluster";
+  if (minute === 8 || minute === 23 || minute === 38 || minute === 53) return "classify";
+  if (minute === 9 || minute === 24 || minute === 39 || minute === 54) return "analyse";
+  if (minute === 14 || minute === 29 || minute === 44 || minute === 59) return "match";
   // Noon UTC daily, as DORMANT_CRON said. The other 23 minute-zero firings are
   // deliberately nothing at all.
   if (minute === 0 && scheduledFor.getUTCHours() === 12) {
@@ -350,7 +340,7 @@ export async function runScheduled(
   }
 
   // The per-stage schedules are no longer registered triggers, but they stay
-  // dispatchable: `npm run cron:test -- "4,34 * * * *"` has to force clustering
+  // dispatchable: `npm run cron:test -- "2,17,32,47 * * * *"` has to force clustering
   // rather than depend on the minute the operator happened to run it.
   if (cron === CLUSTER_CRON || cron === ANALYSE_CRON) {
     await reapStaleReservations(env);

@@ -1192,6 +1192,28 @@ export type Database = {
           analysis_tokens: number;
         }[];
       };
+      /** Demand/deadline priority queue for clustering (0075). */
+      priority_articles_to_cluster: {
+        Args: {
+          p_limit?: number;
+          p_live_hours?: number;
+          p_live_share?: number;
+          p_deadline_minutes?: number;
+        };
+        Returns: { id: string; title: string; published_at: string | null }[];
+      };
+      /** Readiness of scheduled briefings inside the monitoring horizon (0075). */
+      briefing_readiness: {
+        Args: { p_horizon_minutes?: number; p_fresh_hours?: number; p_target?: number };
+        Returns: {
+          upcoming_briefings: number;
+          fresh_matching_stories_ready: number;
+          fresh_relevant_waiting_clustering: number;
+          fresh_relevant_waiting_analysis: number;
+          under_supplied_briefings: number;
+          next_deadline: string | null;
+        }[];
+      };
       /** One event's demand, as the single predicate the queue inlines (0068). */
       event_has_demand: {
         Args: { p_event_id: string };

@@ -3,7 +3,7 @@ import { definePlugin } from "nitro";
 import { describe, runScheduled } from "@/lib/pipeline/cron";
 import type { ServerEnv } from "@/lib/supabase/admin";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { recordOps } from "@/lib/server/ops";
+import { recordBriefingReadiness, recordOps } from "@/lib/server/ops";
 
 /**
  * Wires Cloudflare's Cron Trigger to the pipeline.
@@ -51,6 +51,10 @@ export default definePlugin((nitro) => {
         const db = createAdminClient(env as ServerEnv | undefined);
         const failed =
           "report" in result && "failed" in result.report ? Number(result.report.failed) : 0;
+        const readiness =
+          result.stage === "match" || result.stage === "digest"
+            ? recordBriefingReadiness(db)
+            : Promise.resolve();
         await Promise.all([
           recordOps(db, "cron:heartbeat", "healthy", {
             cron: controller.cron,
@@ -61,6 +65,7 @@ export default definePlugin((nitro) => {
             stage: result.stage,
             failed,
           }),
+          readiness,
         ]);
       } catch (error) {
         // Nothing is listening for a throw from a cron, and an unhandled

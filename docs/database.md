@@ -30,6 +30,7 @@ Postgres via Supabase. Migrations are applied in numeric order.
 | `0044_ai_cost_ceiling.sql`               | Atomic global monthly AI dollar ceiling alongside the token ceiling                                                                                                                          |
 | `0045_launch_blocker_repair.sql`         | Idempotent 0042 drift repair; ordered Stripe lifecycle, demand-aware selection, capacity deferral, delivery leases, transactional alerts and operational status                              |
 | `0067_history_entitlement.sql`           | `history_window_start()` on the digests policy, downgrade grace, `history_months()`, grace-aware purge, `user_events` pruning, corpus 400→420 days — see [history-retention.md](history-retention.md) |
+| `0075_deadline_aware_pipeline.sql`       | Demand/deadline priority queues for clustering and analysis, a fixed low-priority background lane, and briefing-readiness metrics                                                            |
 
 ---
 

@@ -299,16 +299,17 @@ drops CI-ref titles; cluster parks leftovers as failed events.
 50 subrequests on the free plan and 1000 on paid; `SCHEDULED_LIMIT` is 24 sources, which
 is roughly 120 subrequests. **On the free plan this must come down**, and it is the only
 one of the three that must: there are seven stages — ingestion every fifteen
-minutes, clustering at `4,34`, classification at `10,40`, analysis at `47,53`,
-matching at `25,55`, digest every five minutes, and a daily dormant sweep —
+minutes, clustering at `2,17,32,47`, classification at `8,23,38,53`, analysis at
+`9,24,39,54`, matching at `14,29,44,59`, digest every five minutes, and a daily dormant sweep —
 carried by **three** triggers, because Cloudflare registers three per Worker and
 silently drops the rest. The last five share `STAGES_CRON` and are told apart by
 the minute. Classification (0068) is free — deterministic keyword matching, no
 model — and sits between clustering and analysis because it is what decides
 which events analysis is allowed to see. The two model stages are
 bounded by money and wall-clock rather than by subrequests. Clustering does 12 articles a
-run and analysis 6 events, roughly 35 subrequests, and neither tries to drain its backlog
-unattended.
+run and analysis 6 events, roughly 35 subrequests. Demand and approaching briefing
+deadlines fill their priority lanes; unrelated work remains in a fixed background slice,
+so neither tries to drain its backlog unattended.
 
 **The topic pool grew on 25 August 2026.** Linux, Hardware, Developer tools and Consumer
 tech were added (`0009_alerts.sql`) so new analysis has somewhere to put game reviews and

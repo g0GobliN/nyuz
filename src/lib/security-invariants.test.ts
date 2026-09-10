@@ -244,6 +244,8 @@ describe("expensive functions are not callable from a browser", () => {
     // enumerate months it is not allowed to read.
     "history_months",
     "pending_events_with_demand",
+    "priority_articles_to_cluster",
+    "briefing_readiness",
     "release_ai_reservation",
     "claim_subscription_checkout",
     "release_subscription_checkout",
@@ -273,6 +275,30 @@ describe("expensive functions are not callable from a browser", () => {
     // and a policy cannot express "may update one column, only upward".
     // Documented in database.md; asserted so a future sweep does not "fix" it.
     expect(joined).not.toMatch(/revoke all on function public\.increment_post_view/i);
+  });
+});
+
+describe("deadline-aware pipeline queues", () => {
+  const migration = readFileSync("supabase/migrations/0075_deadline_aware_pipeline.sql", "utf8");
+
+  it("prioritises active-reader demand and scheduled briefing deadlines", () => {
+    expect(migration).toContain("priority_articles_to_cluster");
+    expect(migration).toContain("event_topic_candidates");
+    expect(migration).toContain("user_custom_sources");
+    expect(migration).toContain("d.kind = 'briefing'");
+    expect(migration).toContain("min(d.scheduled_for)");
+  });
+
+  it("keeps background capacity fixed instead of filling unused demand slots", () => {
+    expect(migration).toContain("br.lane_rank <= greatest(0, sizes.batch - sizes.live_slots)");
+    expect(migration).not.toContain("sizes.batch - (select count(*)::integer from live)");
+  });
+
+  it("warns only when fresh relevant work is still upstream", () => {
+    expect(migration).toContain("fresh_matching_stories_ready");
+    expect(migration).toContain("fresh_relevant_waiting_clustering");
+    expect(migration).toContain("fresh_relevant_waiting_analysis");
+    expect(migration).toContain("s.clustering + s.analysis > 0");
   });
 });
 

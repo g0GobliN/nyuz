@@ -40,15 +40,23 @@ describe("triggers.crons", () => {
 });
 
 describe("stageForMinute", () => {
-  it("keeps the offsets the separate schedules fired on", () => {
-    expect(stageForMinute(tuesday(9, 4))).toBe("cluster");
-    expect(stageForMinute(tuesday(9, 34))).toBe("cluster");
-    expect(stageForMinute(tuesday(9, 10))).toBe("classify");
-    expect(stageForMinute(tuesday(9, 40))).toBe("classify");
-    expect(stageForMinute(tuesday(9, 47))).toBe("analyse");
-    expect(stageForMinute(tuesday(9, 53))).toBe("analyse");
-    expect(stageForMinute(tuesday(9, 25))).toBe("match");
-    expect(stageForMinute(tuesday(9, 55))).toBe("match");
+  it("runs a complete pipeline chain before every quarter-hour briefing boundary", () => {
+    expect(stageForMinute(tuesday(9, 2))).toBe("cluster");
+    expect(stageForMinute(tuesday(9, 17))).toBe("cluster");
+    expect(stageForMinute(tuesday(9, 32))).toBe("cluster");
+    expect(stageForMinute(tuesday(9, 47))).toBe("cluster");
+    expect(stageForMinute(tuesday(9, 8))).toBe("classify");
+    expect(stageForMinute(tuesday(9, 23))).toBe("classify");
+    expect(stageForMinute(tuesday(9, 38))).toBe("classify");
+    expect(stageForMinute(tuesday(9, 53))).toBe("classify");
+    expect(stageForMinute(tuesday(9, 9))).toBe("analyse");
+    expect(stageForMinute(tuesday(9, 24))).toBe("analyse");
+    expect(stageForMinute(tuesday(9, 39))).toBe("analyse");
+    expect(stageForMinute(tuesday(9, 54))).toBe("analyse");
+    expect(stageForMinute(tuesday(9, 14))).toBe("match");
+    expect(stageForMinute(tuesday(9, 29))).toBe("match");
+    expect(stageForMinute(tuesday(9, 44))).toBe("match");
+    expect(stageForMinute(tuesday(9, 59))).toBe("match");
   });
 
   it("orders the chain correctly within the hour", () => {
@@ -56,7 +64,7 @@ describe("stageForMinute", () => {
     // before it can be labelled, be labelled before the demand gate can say
     // whether understanding it is worth paying for, and be understood before it
     // has an importance to compare against a reader's threshold.
-    const order = [4, 10, 47, 25].map((m) => stageForMinute(tuesday(9, m)));
+    const order = [17, 23, 24, 29].map((m) => stageForMinute(tuesday(9, m)));
     expect(order).toEqual(["cluster", "classify", "analyse", "match"]);
   });
 

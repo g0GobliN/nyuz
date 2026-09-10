@@ -50,7 +50,11 @@ export default defineConfig({
           // and silently drops the rest. cron.test.ts holds this list to the
           // stages that read it.
           triggers: {
-            crons: ["*/15 * * * *", "*/5 * * * *", "0,4,10,25,34,40,47,53,55 * * * *"],
+            crons: [
+              "*/15 * * * *",
+              "*/5 * * * *",
+              "0,2,8,9,14,17,23,24,29,32,38,39,44,47,53,54,59 * * * *",
+            ],
           },
         },
       },

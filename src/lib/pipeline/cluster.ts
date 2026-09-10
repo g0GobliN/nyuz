@@ -38,6 +38,7 @@ import { aiCapacityRetryAt, completeRoutedJson, type SecretBag } from "@/lib/ai/
 import { loadAiRuntimeConfig } from "@/lib/ai/runtime-config";
 import type { Database, EventStatus } from "@/lib/supabase/types";
 import { verdictFor, type ConfidenceVerdict } from "./confidence";
+import { LIVE_LANE_DENOMINATOR, LIVE_LANE_NUMERATOR, LIVE_QUEUE_HOURS } from "./freshness";
 import { isVcsRef, shortlist, type Candidate } from "./shortlist";
 
 type Db = SupabaseClient<Database>;
@@ -257,7 +258,7 @@ function sum<T>(items: T[], of: (item: T) => number): number {
 type Unclustered = { id: string; title: string; published_at: string | null };
 
 /**
- * The batch, newest first.
+ * The batch, prioritised by active-reader demand and briefing deadline.
  *
  * Newest first because a briefing is about what just happened, and because recent
  * articles are the ones whose siblings are also still unclustered — clustering the
@@ -270,6 +271,18 @@ type Unclustered = { id: string; title: string; published_at: string | null };
  * They remain in the DB as historical data and may be retried when demand reappears.
  */
 async function selectArticles(db: Db, options: ClusterOptions): Promise<Unclustered[]> {
+  const ids = options.articleIds;
+  if (!ids || ids.length === 0) {
+    const { data, error } = await db.rpc("priority_articles_to_cluster", {
+      p_limit: options.limit ?? BATCH,
+      p_live_hours: LIVE_QUEUE_HOURS,
+      p_live_share: LIVE_LANE_NUMERATOR / LIVE_LANE_DENOMINATOR,
+      p_deadline_minutes: 120,
+    });
+    if (!error) return data ?? [];
+    console.warn(`demand-aware article selection: ${error.message} — using legacy selector`);
+  }
+
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60_000).toISOString();
   let query = db
     .from("articles")
@@ -282,7 +295,6 @@ async function selectArticles(db: Db, options: ClusterOptions): Promise<Uncluste
     .order("published_at", { ascending: false })
     .limit(options.limit ?? BATCH);
 
-  const ids = options.articleIds;
   if (ids && ids.length > 0) query = query.in("id", ids);
 
   const { data, error } = await query;
