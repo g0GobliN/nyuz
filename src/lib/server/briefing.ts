@@ -298,7 +298,7 @@ export type HistoryDay = {
 export type HistoryFeed = {
   /** Days of the one month in `month`, never the whole retention window. */
   days: HistoryDay[];
-  /** Every month with rows, readable or merely retained. Newest first. */
+  /** Every calendar month overlapping the current plan window. Newest first. */
   months: HistoryMonth[];
   /** Which month `days` belongs to, or null when there is no history at all. */
   month: string | null;
@@ -329,11 +329,10 @@ export type HistoryFeed = {
  * calls, asked for here because a server function runs with the service-role
  * client and RLS does not apply to it (see `./history`).
  *
- * The month list is the one call permitted to look past that window, and it
- * returns counts and bounds only. That is what lets a reader who downgraded
- * yesterday see "August 2026 · Locked" instead of an archive that appears to
- * have been deleted — while the days, headlines and stories of August stay
- * exactly as unreachable as the plan says they are.
+ * The month list uses that same boundary to generate each calendar month the
+ * plan reaches, including months with no briefings. It returns only bounds and
+ * counts from inside the window; retained rows from a previous plan stay out
+ * of both the selector and this response.
  *
  * Month bounds arrive already resolved in the reader's own timezone, so the
  * range scan below needs no date arithmetic and cannot disagree with the month
@@ -362,7 +361,7 @@ export const loadHistory = createServerFn({ method: "GET" })
     ]);
     const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.uno;
 
-    const bounds = await readHistoryMonths(actor.db, actor.id);
+    const bounds = await readHistoryMonths(actor.db, actor.id, windowStart);
     const now = new Date();
     const months = bounds.map((facts) => describeMonth(facts, now));
 

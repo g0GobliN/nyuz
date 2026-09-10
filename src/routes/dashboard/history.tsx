@@ -1,46 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Lock, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { useState } from "react";
+import { HistoryMonthSelector } from "@/components/dashboard/history-month-selector";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { Loading } from "@/components/loading";
-import { shortPlanName, type HistoryMonth } from "@/lib/history-window";
 import { loadHistory, searchStories, type HistoryDay } from "@/lib/server/briefing";
 import { useReveal } from "@/lib/use-reveal";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/history")({
   component: HistoryPage,
   head: () => ({ meta: [{ title: "History — nyuz" }] }),
 });
 
-/**
- * The archive, one month at a time.
- *
- * ---------------------------------------------------------------------------
- * Why months, and why the same layout for every plan
- * ---------------------------------------------------------------------------
- *
- * A year of daily briefings is 365 rows. Rendering that as one scroll was fine
- * while the only reader was on a seven-day window and unbearable the moment
- * anybody bought Omni, so months are the navigation and only the open one is
- * fetched. An Uno reader whose seven days straddle a month boundary simply has
- * two month rows, both readable — the entitlement is a date, and a month is
- * only ever a heading.
- *
- * There is deliberately no branch on the plan anywhere below. A month row is
- * locked when the server says the reader has rows there they may no longer
- * open, and someone who has always been Uno has no such rows, so they see
- * their seven days and nothing else. The twelve grey month rows that would
- * make a free plan feel like a locked door never get generated, because there
- * is nothing behind them to lock.
- *
- * What a downgraded reader sees instead is their own months, held for thirty
- * days, labelled with the plan that would genuinely bring each one back. That
- * plan is worked out from the real dates of the rows in the month — a month
- * whose days are 100 days old says Omni, because Plura's ninety would not
- * reach them, and promising otherwise would be a lie the reader pays for.
- */
+/** The archive, fetching only the selected month of the allowed window. */
 function HistoryPage() {
   const [q, setQ] = useState("");
   const [month, setMonth] = useState<string | null>(null);
@@ -131,26 +104,16 @@ function HistoryPage() {
           <div className="mt-10">
             {history.isLoading ? (
               <Loading label="Opening your archive" />
-            ) : months.length === 0 ? (
+            ) : readable === 0 ? (
               <EmptyState
                 title="No briefings yet."
                 body="Once a briefing is generated it lands here, including the quiet days."
               />
             ) : (
-              <div className="divide-y divide-hairline border-y border-hairline">
-                {months.map((m) => (
-                  <MonthRow
-                    key={m.key}
-                    month={m}
-                    open={m.key === showing}
-                    onOpen={() => setMonth(m.key)}
-                  >
-                    {m.key === showing ? (
-                      <Days days={m.key === openMonth ? days : []} loading={history.isFetching} />
-                    ) : null}
-                  </MonthRow>
-                ))}
-              </div>
+              <>
+                <HistoryMonthSelector months={months} selected={showing} onSelect={setMonth} />
+                <Days days={showing === openMonth ? days : []} loading={history.isFetching} />
+              </>
             )}
 
             {graceUntil ? <GraceNote until={graceUntil} /> : null}
@@ -159,84 +122,6 @@ function HistoryPage() {
         )}
       </div>
     </DashboardShell>
-  );
-}
-
-/**
- * One month.
- *
- * Readable months are buttons; a locked one is not, because there is nothing
- * behind it to open and a row that depresses and does nothing is worse than a
- * row that plainly says why.
- */
-function MonthRow({
-  month,
-  open,
-  onOpen,
-  children,
-}: {
-  month: HistoryMonth;
-  open: boolean;
-  onOpen: () => void;
-  children: React.ReactNode;
-}) {
-  const locked = month.state === "locked";
-  const title = cn("text-[15px] font-medium tracking-tight", locked && "text-muted-foreground");
-
-  return (
-    <section className={cn("reveal", open && "bg-surface-2/40")}>
-      {/* The name is the control, not the row: a partly-available month carries
-          a restore link, and an anchor inside a button is neither valid nor
-          operable with a keyboard. */}
-      <div className="flex items-baseline gap-3 px-1 py-4">
-        {locked ? (
-          <h2 className={title}>{month.label}</h2>
-        ) : (
-          <button type="button" onClick={onOpen} aria-expanded={open} className="text-left">
-            <h2 className={title}>{month.label}</h2>
-          </button>
-        )}
-        <MonthNote month={month} />
-        <span className="ml-auto text-[12.5px] tabular-nums text-muted-foreground">
-          {locked ? <Lock className="h-3.5 w-3.5" aria-hidden /> : month.count}
-        </span>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-/**
- * The line beside the month name.
- *
- * `restorePartial` is the honest case and the reason this is not a single
- * string: a ninety-day window can reach the start of a month and not its end,
- * and "Restore with Plura" would then be a promise the plan does not keep.
- */
-function MonthNote({ month }: { month: HistoryMonth }) {
-  if (month.state === "available") return null;
-
-  const plan = month.restorePlan ? shortPlanName(month.restorePlan) : null;
-  const restore = !plan
-    ? null
-    : month.restorePartial
-      ? `${plan} restores part of this month`
-      : `Restore with ${plan}`;
-
-  const prefix = month.state === "locked" ? "Locked" : "Partly available";
-
-  return (
-    <p className="text-[12.5px] text-muted-foreground">
-      {prefix}
-      {restore ? (
-        <>
-          {" · "}
-          <Link to="/dashboard/billing" className="underline-offset-2 hover:underline">
-            {restore}
-          </Link>
-        </>
-      ) : null}
-    </p>
   );
 }
 
@@ -320,8 +205,7 @@ function GraceNote({ until }: { until: string }) {
   });
   return (
     <p className="mt-6 text-[12.5px] leading-relaxed text-muted-foreground">
-      Your plan changed, so the months above are locked rather than gone. They stay recoverable
-      until {date}.
+      History from your previous plan stays recoverable until {date} if you change back.
     </p>
   );
 }

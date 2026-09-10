@@ -180,8 +180,8 @@ describe("a month of days is clamped to the window, not merely filtered by month
   });
 });
 
-describe("month metadata describes locked months without carrying them", () => {
-  it("maps the rpc's columns and nothing else", async () => {
+describe("month navigation stays inside the current window", () => {
+  it("keeps overlapping empty months but drops wholly older months", async () => {
     const db = new FakeDb(
       {},
       {
@@ -202,15 +202,23 @@ describe("month metadata describes locked months without carrying them", () => {
             locked_newest_at: daysAgo(8),
             locked_oldest_at: daysAgo(38),
           },
+          {
+            month_key: "2026-07",
+            starts_at: "2026-07-01T00:00:00.000Z",
+            ends_at: "2026-08-01T00:00:00.000Z",
+            available: 0,
+            locked_newest_at: daysAgo(40),
+            locked_oldest_at: daysAgo(68),
+          },
         ],
       },
     );
 
-    const months = await readHistoryMonths(db as never, USER);
+    const months = await readHistoryMonths(db as never, USER, UNO_WINDOW);
 
     expect(months.map((m) => m.monthKey)).toEqual(["2026-09", "2026-08"]);
-    expect(months[1]).toMatchObject({ available: 0, lockedNewestAt: daysAgo(8) });
-    // No titles, no digest ids, nothing that could be rendered as content.
+    expect(months[1]).toMatchObject({ available: 0, lockedNewestAt: null });
+    // No retained briefing timestamps, titles or digest ids cross the window.
     expect(Object.keys(months[1] ?? {}).sort()).toEqual([
       "available",
       "endsAt",

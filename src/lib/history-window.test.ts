@@ -80,6 +80,12 @@ describe("a month is labelled from its rows, not from its name", () => {
     expect(month.restorePlan).toBeNull();
   });
 
+  it("keeps an allowed month available when it has no briefings", () => {
+    const month = describeMonth(facts({ monthKey: "2026-09", available: 0 }), NOW);
+    expect(month.state).toBe("available");
+    expect(month.count).toBe(0);
+  });
+
   it("is partly available when the window cuts through it", () => {
     // A 90-day Plura window landing mid-June: some days inside, some outside.
     const month = describeMonth(

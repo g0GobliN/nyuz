@@ -126,7 +126,7 @@ export function shortPlanName(plan: PlanTier): string {
 export function describeMonth(facts: MonthFacts, now: Date, locale?: string): HistoryMonth {
   const hasLocked = facts.lockedNewestAt !== null;
   const state: MonthState =
-    facts.available === 0 ? "locked" : hasLocked ? "partially_available" : "available";
+    hasLocked && facts.available === 0 ? "locked" : hasLocked ? "partially_available" : "available";
 
   let restorePlan: PlanTier | null = null;
   let restorePartial = false;

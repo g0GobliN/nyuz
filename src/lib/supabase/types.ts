@@ -1402,8 +1402,8 @@ export type Database = {
         Returns: string;
       };
       /**
-       * Month metadata for the History page (0067). The one call allowed to see
-       * past the window, and the reason it may is that it returns no content.
+       * Calendar months in the current History window (0076), including empty
+       * months. The locked columns remain nullable for RPC compatibility.
        */
       history_months: {
         Args: { p_user: string };

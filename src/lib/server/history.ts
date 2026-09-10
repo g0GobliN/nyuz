@@ -15,11 +15,9 @@ import type { Database } from "@/lib/supabase/types";
  * PostgREST directly, as `plan-state.ts` does — and protects nothing at all
  * here. Every server-side read has to apply the window itself.
  *
- * Doing that inline at four call sites is how the original gap happened:
- * `loadHistory` filtered, and `loadDigestStories`, `searchStories` and
- * `loadStory` did not. Collecting the queries here means the boundary is
- * applied in one file, and the tests can drive that file against a fake
- * PostgREST without a framework in the way.
+ * Doing that inline at call sites is how the original gap happened. Collecting
+ * the queries here means the boundary is applied in one file, and the tests
+ * can drive that file against a fake PostgREST without a framework in the way.
  *
  * The window itself is never computed in TypeScript. It comes from
  * `history_window_start()`, the same function the RLS policy calls, so the two
@@ -51,8 +49,12 @@ export async function historyWindowStart(db: Db, userId: string): Promise<string
   return data;
 }
 
-/** Month metadata, including months that exist but are no longer readable. */
-export async function readHistoryMonths(db: Db, userId: string): Promise<MonthBounds[]> {
+/** Calendar months that overlap the reader's current history window. */
+export async function readHistoryMonths(
+  db: Db,
+  userId: string,
+  windowStart: string,
+): Promise<MonthBounds[]> {
   const { data, error } = await db.rpc("history_months", { p_user: userId });
   if (error) throw new Error(`reading history months: ${error.message}`);
   const rows = (data ?? []) as {
@@ -63,14 +65,17 @@ export async function readHistoryMonths(db: Db, userId: string): Promise<MonthBo
     locked_newest_at: string | null;
     locked_oldest_at: string | null;
   }[];
-  return rows.map((row) => ({
-    monthKey: row.month_key,
-    startsAt: row.starts_at,
-    endsAt: row.ends_at,
-    available: row.available ?? 0,
-    lockedNewestAt: row.locked_newest_at,
-    lockedOldestAt: row.locked_oldest_at,
-  }));
+  const boundary = Date.parse(windowStart);
+  return rows
+    .filter((row) => Number.isFinite(boundary) && Date.parse(row.ends_at) > boundary)
+    .map((row) => ({
+      monthKey: row.month_key,
+      startsAt: row.starts_at,
+      endsAt: row.ends_at,
+      available: row.available ?? 0,
+      lockedNewestAt: null,
+      lockedOldestAt: null,
+    }));
 }
 
 /** The later of two instants, as an ISO string. */
