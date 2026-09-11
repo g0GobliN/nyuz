@@ -236,7 +236,9 @@ The stages:
    25 August 2026. `src/lib/pipeline/digest.ts` schedules on the reader's timezone,
    writes `digest_items.why_it_matters` (the only per-reader model spend), skips with
    zero items when nothing matched, and sends email through Resend with `deliveries`
-   retry. A quiet day is emailed as a quiet day, not padded. Cron `*/5 * * * *`.
+   retry. A quiet day is emailed as a quiet day, not padded. Cron `* * * * *`,
+   generating on every fifth minute and delivering on all of them, so the tick
+   itself is not a source of lateness (0077).
    `npm run pipeline -- digest --user ID --now` builds a slot immediately.
 7. ~~**Breaking alerts** — out-of-schedule send for a newly matched event.~~ Built
    25 August 2026. `digests.kind = 'alert'`, no model call (`generation_tokens = 0`),

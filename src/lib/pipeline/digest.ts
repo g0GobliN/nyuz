@@ -97,6 +97,97 @@ const MAX_ATTEMPTS = 5;
 const RETRY_BACKOFF_MINUTES = [2, 6, 18, 54];
 
 /**
+ * How far ahead of `scheduled_for` generation may start.
+ *
+ * This is the whole of the timing fix. `scheduled_for` is a *delivery*
+ * deadline — the reader picked 07:30, so 07:30 is when the briefing must be in
+ * their hands, not when a worker may begin paying for model calls. Opening the
+ * generation window early means a retryable failure has somewhere to retry to
+ * that is not the reader's morning: a 429 at T-10 is retried at T-5 and the
+ * briefing still lands at T.
+ *
+ * Ten minutes rather than an hour because the other half of the promise is that
+ * the briefing is current. Everything matched between T-10 and T misses this
+ * briefing and leads the next one, which is the same trade `selectItems`
+ * already makes at T; widening the window widens that gap for no extra
+ * resilience, since the retries that matter all fit inside two cron ticks.
+ */
+const PREPARE_LEAD_MINUTES = 10;
+
+/**
+ * How late a briefing may be delivered before it is abandoned instead.
+ *
+ * A briefing is a claim about a moment. Production has sent one three hours and
+ * twenty minutes after its slot and parked another for three weeks, and neither
+ * is a briefing — the first is a surprise and the second is an artefact. Past
+ * this bound the slot is closed with a recorded reason and nothing is sent.
+ *
+ * Nothing is lost by that. `briefed_at` is written at delivery, so every story
+ * an abandoned slot would have carried is still unbriefed and leads the
+ * reader's next briefing, which is the same "store, don't force" rule the
+ * pre-analysis demand gate uses.
+ */
+const MAX_LATENESS_MINUTES = 120;
+
+/**
+ * The lease a scheduled delivery is claimed under.
+ *
+ * Two minutes, against `STALE_MINUTES`' fifteen, because the two leases are
+ * protecting different things. Fifteen minutes is right for generation, where a
+ * live worker really can hold a claim that long and re-entering would buy the
+ * same model call twice. A send is seconds of work, and a worker that dies
+ * mid-send leaves a briefing the reader is already owed locked behind a claim
+ * nobody holds — which is exactly how an on-time 22:30:26 briefing was
+ * delivered at 22:50:14.
+ *
+ * Re-attempting after two minutes is safe because both channels that carry a
+ * briefing are idempotent: the email is sent under
+ * `Idempotency-Key: digest:<id>:email` and the push carries the digest id as
+ * its `tag`, so a duplicate collapses at the provider and in the reader's
+ * notification centre rather than arriving twice.
+ */
+const DELIVERY_LEASE_MINUTES = 2;
+
+/**
+ * How far before the deadline a delivery may still be treated as due.
+ *
+ * Cron ticks are not exact. A trigger scheduled for 07:30:00 can be handed to
+ * the Worker at 07:29:59, and a strict `deadline > now` comparison reads that
+ * as "not yet" and makes the reader wait a whole extra tick for the sake of one
+ * second. The window is two seconds because that is the size of the jitter, not
+ * a tolerance for early delivery: at two seconds nobody perceives the briefing
+ * as early, and at a minute they would.
+ */
+const DELIVERY_TICK_GRACE_MS = 2_000;
+
+/**
+ * Claims a digest may take before the slot is given up on.
+ *
+ * Only reached by failures that are *not* the model's — a model that will not
+ * answer no longer fails a briefing at all (see `generateOne`). This bounds the
+ * genuinely broken case, a database that will not accept the items, so a
+ * poisoned row cannot be retried on every tick until its slot expires.
+ */
+const MAX_GENERATION_ATTEMPTS = 3;
+
+/**
+ * How long a `generating` claim on a digest is honoured.
+ *
+ * Five minutes, not `STALE_MINUTES`' fifteen, and the reason it can be this
+ * short is that re-entering a digest buys nothing: every paid step inside it —
+ * the shared impact, the translation — is claimed separately and only ever from
+ * `pending`, which `digest-cost-safety.test.ts` holds the code to.
+ *
+ * Fifteen was survivable while generation began at the deadline, because by
+ * then the briefing was late whatever happened. It is not survivable now that
+ * generation begins at `scheduled_for - PREPARE_LEAD_MINUTES`: a worker that
+ * dies at T-10 holding a fifteen-minute claim would block the retry until T+5,
+ * turning the head start into a delay. At five minutes the crash is retried at
+ * T-5 and the reader still gets their briefing at T.
+ */
+const GENERATION_LEASE_MINUTES = 5;
+
+/**
  * When a delivery that has just failed its `attempts`th try may be tried again.
  *
  * The ±25% jitter is the point of the function, not a detail: without it every
@@ -158,7 +249,8 @@ export type DigestOptions = {
   immediate?: boolean | undefined;
 };
 
-export type DigestDecision = "generated" | "skipped" | "failed" | "paused" | "held" | "deferred";
+export type DigestDecision =
+  "generated" | "skipped" | "failed" | "paused" | "held" | "deferred" | "expired";
 
 export type DigestOutcome = {
   userId: string;
@@ -180,6 +272,7 @@ export type DigestReport = {
   failed: number;
   paused: number;
   deferred: number;
+  expired: number;
   sent: number;
   retried: number;
   tokens: number;
@@ -308,6 +401,7 @@ export async function digest(db: Db, options: DigestOptions = {}): Promise<Diges
   let failed = 0;
   let paused = 0;
   let deferred = 0;
+  let expired = 0;
   let sent = 0;
   let retried = 0;
   let tokens = 0;
@@ -321,6 +415,7 @@ export async function digest(db: Db, options: DigestOptions = {}): Promise<Diges
     else if (outcome.decision === "failed") failed += 1;
     else if (outcome.decision === "paused") paused += 1;
     else if (outcome.decision === "deferred") deferred += 1;
+    else if (outcome.decision === "expired") expired += 1;
 
     // Dispatch this slot before another reader's generation or the retry
     // backlog can turn a 07:30 promise into a later five-minute cron slot.
@@ -352,6 +447,7 @@ export async function digest(db: Db, options: DigestOptions = {}): Promise<Diges
     failed,
     paused,
     deferred,
+    expired,
     sent,
     retried,
     tokens,
@@ -423,14 +519,28 @@ type DueRow = {
   scheduled_for: string;
   status: DigestStatus;
   generation_deferred_until: string | null;
+  generation_attempts: number;
+  kind: string | null;
+  generation_started_at: string | null;
 };
 
+/**
+ * Digests whose *generation* window is open.
+ *
+ * The window opens `PREPARE_LEAD_MINUTES` before `scheduled_for` and this is
+ * the only place that lead is applied. Delivery is gated separately, on
+ * `scheduled_for` itself, in `deliverDue` — the two used to be one instant, and
+ * fusing them is what let a failure after 07:30 move the reader's 07:30.
+ */
 async function loadDue(db: Db, now: Date, options: DigestOptions): Promise<DueRow[]> {
-  const stale = new Date(now.getTime() - STALE_MINUTES * 60_000).toISOString();
+  const stale = new Date(now.getTime() - GENERATION_LEASE_MINUTES * 60_000).toISOString();
+  const windowOpen = new Date(now.getTime() + PREPARE_LEAD_MINUTES * 60_000).toISOString();
   let query = db
     .from("digests")
-    .select("digest_id, user_id, scheduled_for, status, generation_deferred_until")
-    .lte("scheduled_for", now.toISOString())
+    .select(
+      "digest_id, user_id, scheduled_for, status, generation_deferred_until, generation_attempts, kind, generation_started_at",
+    )
+    .lte("scheduled_for", windowOpen)
     .or(`status.eq.scheduled,and(status.eq.generating,generated_at.is.null)`)
     .or(`generation_deferred_until.is.null,generation_deferred_until.lte.${now.toISOString()}`)
     .order("scheduled_for", { ascending: true })
@@ -443,13 +553,17 @@ async function loadDue(db: Db, now: Date, options: DigestOptions): Promise<DueRo
 
   return ((data ?? []) as DueRow[]).filter((row) => {
     if (row.status === "scheduled") return true;
-    // generating with no generated_at is a crashed claim; honour STALE_MINUTES
-    // via scheduled_for being in the past is not enough — we only reclaim if
-    // the row is old enough that a live worker cannot still hold it. The
-    // filter above cannot express last_updated, so we compare scheduled_for
-    // against stale as a floor: a digest that became due more than fifteen
-    // minutes ago and is still generating is abandoned.
-    return row.status === "generating" && row.scheduled_for < stale;
+    if (row.status !== "generating") return false;
+    // `generating` with no `generated_at` is a claim whose worker has not come
+    // back. Whether it may be retaken is a question about the *claim's* age, and
+    // `generation_started_at` is when the claim was made — the column exists
+    // because this used to be answered with `scheduled_for`, which is a
+    // different question and a worse answer: it could not tell a claim taken
+    // ten minutes early from one taken an hour late, and it left early
+    // generation unable to recover before the deadline it was meant to protect.
+    // Rows written before that column existed still fall back to it.
+    const claimedAt = row.generation_started_at ?? row.scheduled_for;
+    return claimedAt < stale;
   });
 }
 
@@ -481,6 +595,24 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     tokens: 0,
     sent: 0,
   };
+
+  const now = options.now ?? new Date();
+  const lateByMs = now.getTime() - Date.parse(due.scheduled_for);
+
+  // A briefing far enough past its own slot is no longer the thing the reader
+  // asked for. Close it, record why, and send nothing — its stories keep
+  // `briefed_at` unset and lead the next briefing. Alerts are exempt: their
+  // `scheduled_for` is the instant they were raised, not a promise about a
+  // clock time, and a late alert is still the alert.
+  if (due.kind !== "alert" && lateByMs > MAX_LATENESS_MINUTES * 60_000) {
+    const lateMinutes = Math.round(lateByMs / 60_000);
+    if (options.dryRun !== true) await expireSlot(db, due.digest_id, lateMinutes);
+    return {
+      ...base,
+      decision: "expired",
+      detail: `slot missed by ${lateMinutes} minutes; stories roll into the next briefing`,
+    };
+  }
 
   const prefs = await loadPref(db, due.user_id);
   if (prefs === null) {
@@ -519,53 +651,48 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
 
   const briefs = await loadBriefs(db, picked);
 
-  let ready: ImpactResult[];
-  let tokens: number;
+  // ---------------------------------------------------------------------------
+  // Enrichment is optional. The briefing is not.
+  // ---------------------------------------------------------------------------
+  //
+  // `why_it_matters` is one shared sentence per story. It used to be able to
+  // stop a briefing three ways — a provider 429 deferred the whole digest
+  // fifteen minutes, an exhausted monthly budget deferred it to the first of
+  // the next month, and an impact still being written elsewhere dropped every
+  // story and turned the briefing into a quiet day that was not quiet.
+  //
+  // None of those are reasons the reader's 07:30 should move. A model that will
+  // not answer costs the sentence, never the story and never the slot: whatever
+  // impacts exist are used, the rest ship without one, and the reason is
+  // recorded so the lateness that did not happen is still visible.
+  let impacts: ImpactResult[] = [];
+  let tokens = 0;
+  let enrichment: string | null = null;
   try {
     const resolved = await resolveImpacts(db, briefs, options);
-    ready = resolved.ready;
+    impacts = resolved.ready;
     tokens = resolved.tokens;
   } catch (error) {
-    const floor = error instanceof TruncatedCompletionError ? error.reasoningTokens : 0;
-    const retryAt = aiCapacityRetryAt(error, options.now ?? new Date());
-    if (options.dryRun !== true) {
-      if (retryAt !== null) await deferDigest(db, due.digest_id, retryAt);
-      else await finish(db, due.digest_id, "failed", 0, floor);
-    }
-    return {
-      ...base,
-      tokens: floor,
-      decision: retryAt === null ? "failed" : "deferred",
-      detail:
-        retryAt === null
-          ? `model: ${error instanceof Error ? error.message : String(error)}`
-          : `temporary AI capacity; retry after ${retryAt.toISOString()}`,
-    };
+    tokens = error instanceof TruncatedCompletionError ? error.reasoningTokens : 0;
+    enrichment = error instanceof Error ? error.message : String(error);
+    // A batch that threw part-way through may still have completed chunks, and
+    // other workers write the same shared rows. Read back what exists.
+    impacts = await completedImpacts(db, briefs);
   }
 
-  if (ready.length === 0) {
-    // Every picked story's shared explanation is still being written elsewhere,
-    // or permanently failed. Nothing is lost: briefed_at stays unset below, so
-    // these events are picked up again by this reader's next scheduled digest.
-    if (options.dryRun !== true) {
-      await finish(db, due.digest_id, "skipped", 0, tokens);
-      await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
-    }
-    return {
-      ...base,
-      tokens,
-      decision: "skipped",
-      detail: "no story's shared explanation is ready yet",
-    };
+  const byImpact = new Map(impacts.map((item) => [item.eventId, item.text] as const));
+  const unenriched = briefs.filter((brief) => !byImpact.has(brief.eventId)).length;
+  if (enrichment === null && unenriched > 0) {
+    enrichment = `${unenriched} shared explanation${unenriched === 1 ? "" : "s"} not ready`;
   }
 
   if (options.dryRun === true) {
     return {
       ...base,
-      items: ready.length,
+      items: briefs.length,
       tokens,
       decision: "generated",
-      detail: `${ready.length} stories (dry run)`,
+      detail: `${briefs.length} stories (dry run)`,
     };
   }
 
@@ -582,12 +709,9 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
       .maybeSingle();
 
     if (translationFlag?.enabled === true) {
-      const byId = new Map(ready.map((r) => [r.eventId, r.text]));
       const translated = await translateEvents(
         db,
-        briefs
-          .filter((b) => byId.has(b.eventId))
-          .map((b) => translatable(b, byId.get(b.eventId) ?? null)),
+        briefs.map((b) => translatable(b, byImpact.get(b.eventId) ?? null)),
         language,
         {
           ...(options.secrets ? { secrets: options.secrets } : {}),
@@ -598,19 +722,27 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     }
   }
 
-  const rows = ready.map((item, position) => ({
+  // Every story the matcher chose, in its ranked position. A story with no
+  // shared explanation yet carries an empty one — `why_it_matters` is
+  // `not null default ''`, and the templates already render a story without it.
+  const rows = briefs.map((brief, position) => ({
     digest_id: due.digest_id,
-    event_id: item.eventId,
+    event_id: brief.eventId,
     position,
-    why_it_matters: item.text,
+    why_it_matters: byImpact.get(brief.eventId) ?? "",
   }));
 
   const { error } = await db
     .from("digest_items")
     .upsert(rows, { onConflict: "digest_id,event_id" });
   if (error) {
-    await finish(db, due.digest_id, "failed", 0, tokens);
-    return { ...base, tokens, decision: "failed", detail: `writing items: ${error.message}` };
+    const outcome = await failGeneration(db, due, `writing items: ${error.message}`, tokens);
+    return {
+      ...base,
+      tokens,
+      decision: outcome === "failed" ? "failed" : "deferred",
+      detail: `writing items: ${error.message}`,
+    };
   }
 
   await db
@@ -619,19 +751,49 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     .eq("user_id", due.user_id)
     .in(
       "event_id",
-      ready.map((item) => item.eventId),
+      briefs.map((brief) => brief.eventId),
     );
 
-  await finish(db, due.digest_id, "ready", ready.length, tokens);
+  await finish(db, due.digest_id, "ready", briefs.length, tokens, enrichment);
   await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
 
   return {
     ...base,
-    items: ready.length,
+    items: briefs.length,
     tokens,
     decision: "generated",
-    detail: `${ready.length} stories`,
+    detail:
+      enrichment === null
+        ? `${briefs.length} stories`
+        : `${briefs.length} stories, ${unenriched} without a shared explanation (${enrichment})`,
   };
+}
+
+/**
+ * The shared explanations that already exist for these events.
+ *
+ * Used only on the failure path, where `resolveImpacts` threw and the question
+ * is no longer "can we write the missing ones" but "what do we already have".
+ * A read that itself fails yields nothing rather than propagating: at this
+ * point the briefing ships either way.
+ */
+async function completedImpacts(db: Db, briefs: EventBrief[]): Promise<ImpactResult[]> {
+  try {
+    const rows = await loadImpacts(
+      db,
+      briefs.map((brief) => brief.eventId),
+    );
+    const out: ImpactResult[] = [];
+    for (const brief of briefs) {
+      const row = rows.get(brief.eventId);
+      if (row?.status === "complete" && row.text) {
+        out.push({ eventId: brief.eventId, text: row.text });
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -881,7 +1043,7 @@ async function claimDigest(db: Db, due: DueRow, options: DigestOptions): Promise
 
   const { data, error } = await db
     .from("digests")
-    .update({ status: "generating" })
+    .update({ status: "generating", generation_started_at: new Date().toISOString() })
     .eq("digest_id", due.digest_id)
     .in("status", ["scheduled", "generating"])
     .select("digest_id");
@@ -897,6 +1059,7 @@ async function finish(
   status: DigestStatus,
   itemCount: number,
   tokens: number,
+  note: string | null = null,
 ): Promise<void> {
   const { error } = await db
     .from("digests")
@@ -905,6 +1068,10 @@ async function finish(
       item_count: itemCount,
       generation_tokens: tokens,
       generation_deferred_until: null,
+      // Kept even on success when enrichment was degraded: a briefing that went
+      // out without its shared explanations is not a failure, but it is the
+      // thing to look at when a reader asks why theirs read thin.
+      generation_failure_reason: note,
       generated_at: new Date().toISOString(),
     })
     .eq("digest_id", digestId);
@@ -912,16 +1079,62 @@ async function finish(
   if (error) throw new Error(`finishing digest: ${error.message}`);
 }
 
-async function deferDigest(db: Db, digestId: string, retryAt: Date): Promise<void> {
+/**
+ * A generation attempt that produced nothing, recorded without moving the
+ * deadline.
+ *
+ * The replaced `deferDigest` wrote `generation_deferred_until`, and the value
+ * it wrote came from `aiCapacityRetryAt`: fifteen minutes for a 429, and the
+ * first of the next month for an exhausted budget. That policy is right for
+ * background impact generation, which has no deadline, and wrong for a
+ * briefing, which is nothing but a deadline. So there is no deferral window
+ * here at all — the row goes back to `scheduled` and the next tick retries it,
+ * against the same `scheduled_for` it has always had.
+ *
+ * Only genuinely broken attempts reach this: a model that will not answer no
+ * longer fails a briefing. `MAX_GENERATION_ATTEMPTS` stops a poisoned row from
+ * being retried on every tick until its slot expires.
+ */
+async function failGeneration(
+  db: Db,
+  due: DueRow,
+  reason: string,
+  tokens: number,
+): Promise<"failed" | "requeued"> {
+  const attempts = (due.generation_attempts ?? 0) + 1;
+  const exhausted = attempts >= MAX_GENERATION_ATTEMPTS;
+
   const { error } = await db
     .from("digests")
     .update({
-      status: "scheduled",
-      generation_deferred_until: retryAt.toISOString(),
-      generated_at: null,
+      status: exhausted ? "failed" : "scheduled",
+      generation_attempts: attempts,
+      generation_failure_reason: reason,
+      generation_tokens: tokens,
+      generated_at: exhausted ? new Date().toISOString() : null,
+    })
+    .eq("digest_id", due.digest_id);
+  if (error) throw new Error(`recording digest failure: ${error.message}`);
+
+  return exhausted ? "failed" : "requeued";
+}
+
+/**
+ * Closes a slot whose moment has passed, so nothing is sent for it.
+ *
+ * `scheduled_for` is deliberately untouched here as everywhere else: the record
+ * of what the reader was promised is what makes the miss measurable.
+ */
+async function expireSlot(db: Db, digestId: string, lateMinutes: number): Promise<void> {
+  const { error } = await db
+    .from("digests")
+    .update({
+      status: "failed",
+      generated_at: new Date().toISOString(),
+      generation_failure_reason: `missed slot by ${lateMinutes} minutes; not sent`,
     })
     .eq("digest_id", digestId);
-  if (error) throw new Error(`deferring digest: ${error.message}`);
+  if (error) throw new Error(`expiring digest: ${error.message}`);
 }
 
 async function loadPref(db: Db, userId: string): Promise<PrefRow | null> {
@@ -1083,7 +1296,7 @@ async function queueDeliveries(
   if (error) throw new Error(`queueing delivery: ${error.message}`);
 }
 
-type DeliveryReport = { sent: number; retried: number; byDigest: Map<string, number> };
+export type DeliveryReport = { sent: number; retried: number; byDigest: Map<string, number> };
 
 /**
  * Sends every queued email and Telegram delivery, optionally for one set of readers.
@@ -1114,11 +1327,26 @@ async function deliverDue(
   const { data, error } = await query;
   if (error) throw new Error(`reading deliveries: ${error.message}`);
 
+  const rows = data ?? [];
+  const deadlines = await deliveryDeadlines(
+    db,
+    rows.map((row) => row.digest_id),
+  );
+  const now = options.now ?? new Date();
+
   const byDigest = new Map<string, number>();
   let sent = 0;
   let retried = 0;
 
-  for (const row of data ?? []) {
+  for (const row of rows) {
+    // `scheduled_for` is the delivery deadline, and this is the only gate on
+    // it. Generation may have finished up to PREPARE_LEAD_MINUTES ago; a
+    // reader who asked for 07:30 must not be woken at 07:20 because the
+    // briefing happened to be ready early. A digest we cannot find a deadline
+    // for is let through, so the missing-digest path below still marks it.
+    const deadline = deadlines.get(row.digest_id);
+    if (deadline !== undefined && deadline - DELIVERY_TICK_GRACE_MS > now.getTime()) continue;
+
     if (options.userIds) {
       const { data: digestRow } = await db
         .from("digests")
@@ -1130,10 +1358,18 @@ async function deliverDue(
 
     const { data: claimed, error: claimError } = await db.rpc("claim_delivery", {
       p_id: row.id,
-      p_lease_minutes: STALE_MINUTES,
+      p_lease_minutes: DELIVERY_LEASE_MINUTES,
     });
     if (claimError) throw new Error(`claiming delivery: ${claimError.message}`);
     if (claimed !== true) continue;
+
+    // Claiming is not attempting. Stamped here, in its own statement, so that
+    // the gap between "a worker took this row" and "a provider was actually
+    // called" stays visible: a row claimed but never attempted is a worker that
+    // died holding it, and a row attempted but never delivered may have reached
+    // the provider. Collapsing the two would make those indistinguishable.
+    const { error: attemptError } = await db.rpc("mark_delivery_attempt", { p_id: row.id });
+    if (attemptError) throw new Error(`recording delivery attempt: ${attemptError.message}`);
 
     let result: "sent" | "retried" | "failed";
     try {
@@ -1142,7 +1378,7 @@ async function deliverDue(
       const attempts = row.attempts + 1;
       const detail = error instanceof Error ? error.message : String(error);
       const retry = attempts < MAX_ATTEMPTS;
-      await markDelivery(db, row.id, attempts, retry ? "queued" : "failed", detail);
+      await markDelivery(db, row.id, attempts, retry ? "queued" : "failed", detail, now);
       result = retry ? "retried" : "failed";
     }
     if (result === "sent") {
@@ -1156,11 +1392,34 @@ async function deliverDue(
   return { sent, retried, byDigest };
 }
 
+/**
+ * `scheduled_for` for each digest behind a batch of queued deliveries.
+ *
+ * One query for the batch rather than one per row: this runs on every
+ * five-minute tick, and the Workers subrequest budget is the reason every other
+ * read in this file is batched too.
+ */
+async function deliveryDeadlines(db: Db, digestIds: string[]): Promise<Map<string, number>> {
+  const ids = [...new Set(digestIds)];
+  if (ids.length === 0) return new Map();
+
+  const { data, error } = await db
+    .from("digests")
+    .select("digest_id, scheduled_for")
+    .in("digest_id", ids);
+  if (error) throw new Error(`reading delivery deadlines: ${error.message}`);
+
+  const out = new Map<string, number>();
+  for (const row of data ?? []) out.set(row.digest_id, Date.parse(row.scheduled_for));
+  return out;
+}
+
 async function sendOne(
   db: Db,
   row: { id: string; digest_id: string; channel: DeliveryChannel; attempts: number },
   options: DigestOptions,
 ): Promise<"sent" | "retried" | "failed"> {
+  const now = options.now ?? new Date();
   const { data: digestRow, error } = await db
     .from("digests")
     .select("digest_id, user_id, scheduled_for, status, item_count, kind")
@@ -1197,7 +1456,7 @@ async function sendOne(
 
   const attempts = row.attempts + 1;
   if (result.ok) {
-    await markDelivery(db, row.id, attempts, "sent", null);
+    await markDelivery(db, row.id, attempts, "sent", null, now);
     if (digestRow.status === "ready") {
       const { count } = await db
         .from("deliveries")
@@ -1212,11 +1471,11 @@ async function sendOne(
   }
 
   if (result.retryable && attempts < MAX_ATTEMPTS) {
-    await markDelivery(db, row.id, attempts, "queued", result.error);
+    await markDelivery(db, row.id, attempts, "queued", result.error, now);
     return "retried";
   }
 
-  await markDelivery(db, row.id, attempts, "failed", result.error);
+  await markDelivery(db, row.id, attempts, "failed", result.error, now);
   return "failed";
 }
 
@@ -1436,6 +1695,14 @@ async function markDelivery(
   attempts: number,
   status: "queued" | "sent" | "failed",
   lastError: string | null,
+  /**
+   * The run's clock, for scheduling the retry only.
+   *
+   * `delivered_at` below deliberately stays on the wall clock: it is the number
+   * the timing contract is measured against, so it has to be when the send
+   * actually happened and not when the invocation believes it is.
+   */
+  now: Date = new Date(),
 ): Promise<void> {
   const { error } = await db
     .from("deliveries")
@@ -1447,7 +1714,7 @@ async function markDelivery(
       // Only a re-queue carries a deadline. Clearing it on the terminal
       // statuses keeps a row that later gets requeued by hand from inheriting
       // a stale one and sitting out its first attempt.
-      next_attempt_at: status === "queued" ? nextAttemptAt(attempts) : null,
+      next_attempt_at: status === "queued" ? nextAttemptAt(attempts, now.getTime()) : null,
       delivered_at: status === "sent" ? new Date().toISOString() : null,
     })
     .eq("id", id);
@@ -1587,7 +1854,8 @@ export function describeDigest(report: DigestReport): string {
   const seconds = Math.round((Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000);
   return (
     `digest: ${report.generated} generated, ${report.skipped} skipped, ` +
-    `${report.failed} failed, ${report.paused} paused, ${report.deferred} capacity-deferred, ` +
+    `${report.failed} failed, ${report.paused} paused, ${report.deferred} retrying, ` +
+    `${report.expired} expired, ` +
     `${report.sent} sent, ${report.retried} retrying, ` +
     `${report.tokens} tokens, ${seconds}s`
   );

@@ -72,7 +72,7 @@ describe("scheduled delivery isolation", () => {
           },
         ],
       },
-      { claim_delivery: () => true },
+      { claim_delivery: () => true, mark_delivery_attempt: () => undefined },
     );
 
     const report = await flushDeliveries(asDb(db), {

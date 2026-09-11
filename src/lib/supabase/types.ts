@@ -281,6 +281,23 @@ export type AnalysisShadowLog = {
   created_at: string;
 };
 
+/** Shadow-mode metrics for adaptive evidence selection vs. the full article set (0056). */
+export type EvidenceShadowLog = {
+  id: number;
+  event_id: string;
+  full_article_count: number;
+  selected_article_count: number;
+  facts_preserved: number;
+  facts_lost: number;
+  conflicts_preserved: number;
+  source_attribution_preserved: boolean;
+  prompt_tokens_saved: number;
+  agreement_rate: number;
+  selected_indices: number[];
+  fact_preservation_detail: Json;
+  created_at: string;
+};
+
 /** Per-tier fetch interval (0032). A table so cadence is tunable without a deploy. */
 export type PollingTierRow = {
   tier: PollingTier;
@@ -563,8 +580,20 @@ export type Digest = {
   generation_tokens: number;
   /** Scheduled briefing vs out-of-schedule alert. Default `briefing`. */
   kind: DigestKind;
-  /** Work held by a temporary AI ceiling becomes eligible after this time (0045). */
+  /**
+   * Work held by a temporary AI ceiling becomes eligible after this time (0045).
+   *
+   * No longer written for briefings: a scheduled briefing is a deadline, and
+   * 0077 removed the policy that let an AI ceiling move one. Still read, so a
+   * row deferred under the old policy is honoured rather than re-run early.
+   */
   generation_deferred_until: string | null;
+  /** When a worker claimed this digest. May precede `scheduled_for` (0077). */
+  generation_started_at: string | null;
+  /** Claims made. A retry keeps `scheduled_for`, so this is where it shows (0077). */
+  generation_attempts: number;
+  /** Why the last attempt produced no briefing, or what it produced without (0077). */
+  generation_failure_reason: string | null;
 };
 
 export type DigestItem = {
@@ -587,6 +616,12 @@ export type Delivery = {
   processing_started_at: string | null;
   /** Earliest retry time. Null means eligible now; set with jittered backoff (0050). */
   next_attempt_at: string | null;
+  /** Most recent claim, kept after the lease is released (0077). */
+  claimed_at: string | null;
+  /** First provider send begun. Lateness is measured from the deadline to `delivered_at` (0077). */
+  first_attempt_at: string | null;
+  /** Most recent provider send begun (0077). */
+  last_attempt_at: string | null;
 };
 
 export type OpsStatus = {
@@ -820,6 +855,10 @@ export type Database = {
       polling_tiers: Table<PollingTierRow, "label" | "description">;
       cluster_shadow_log: Table<ClusterShadowLog, "id" | "agreed" | "created_at">;
       analysis_shadow_log: Table<AnalysisShadowLog, "id" | "has_opinion" | "created_at">;
+      evidence_shadow_log: Table<
+        EvidenceShadowLog,
+        "id" | "source_attribution_preserved" | "prompt_tokens_saved" | "created_at"
+      >;
       user_source_prefs: Table<UserSourcePref, "pref" | "created_at">;
       user_custom_sources: Table<UserCustomSource, "active" | "created_at" | "updated_at">;
       source_probe_log: Table<SourceProbeLog, "id" | "created_at">;
@@ -908,6 +947,9 @@ export type Database = {
         | "generation_tokens"
         | "kind"
         | "generation_deferred_until"
+        | "generation_started_at"
+        | "generation_attempts"
+        | "generation_failure_reason"
       >;
       digest_items: Table<DigestItem, "why_it_matters">;
       deliveries: Table<
@@ -920,6 +962,9 @@ export type Database = {
         | "created_at"
         | "processing_started_at"
         | "next_attempt_at"
+        | "claimed_at"
+        | "first_attempt_at"
+        | "last_attempt_at"
       >;
       feedback: Table<Feedback, "created_at">;
       saved_stories: Table<SavedStory, "saved_at">;
@@ -969,7 +1014,45 @@ export type Database = {
         "id" | "actor_id" | "actor_email" | "target_type" | "target_id" | "meta" | "created_at"
       >;
     };
-    Views: Record<string, never>;
+    Views: {
+      /**
+       * The briefing timing contract (0077): what the reader was promised, every
+       * step taken to honour it, and the lateness that resulted. Service role
+       * only — read by `npm run briefing:timing`.
+       */
+      briefing_timing: {
+        Row: {
+          digest_id: string;
+          user_id: string;
+          scheduled_timezone: string;
+          /** `YYYY-MM-DD HH:MM` in the reader's own zone. */
+          scheduled_local: string;
+          scheduled_utc: string;
+          generation_started_at: string | null;
+          generation_completed_at: string | null;
+          generation_attempts: number;
+          digest_status: DigestStatus;
+          item_count: number;
+          generation_failure_reason: string | null;
+          channel: DeliveryChannel | null;
+          delivery_claimed_at: string | null;
+          delivery_first_attempt_at: string | null;
+          delivery_last_attempt_at: string | null;
+          delivery_attempts: number | null;
+          delivery_status: DeliveryStatus | null;
+          delivered_at: string | null;
+          delivery_last_error: string | null;
+          /** Deadline to delivery. The number the contract is judged on. */
+          lateness_seconds: number | null;
+        };
+        /**
+         * Required by `GenericView`, and not optional: without it this object
+         * stops satisfying `GenericSchema` and *every* table in the file
+         * silently resolves to `never`.
+         */
+        Relationships: [];
+      };
+    };
     Functions: {
       /* Cost-cutting caches (0059, 0061, 0062). Service-role only: every one
          is `security definer` with execute revoked from anon and authenticated. */
@@ -1378,6 +1461,10 @@ export type Database = {
       claim_delivery: {
         Args: { p_id: string; p_lease_minutes?: number };
         Returns: boolean;
+      };
+      mark_delivery_attempt: {
+        Args: { p_id: string };
+        Returns: undefined;
       };
       record_ops_status: {
         Args: { p_key: string; p_status: string; p_detail?: Json };

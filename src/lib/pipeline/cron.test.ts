@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { DIGEST_CRON, INGEST_CRON, STAGES_CRON, stageForMinute } from "./cron";
+import { DIGEST_CRON, INGEST_CRON, STAGES_CRON, digestGenerates, stageForMinute } from "./cron";
 
 /**
  * Cloudflare registers three Cron Triggers per Worker — free plan and paid
@@ -27,6 +27,20 @@ describe("triggers.crons", () => {
 
   it("declares exactly the schedules the dispatcher answers to", () => {
     expect(declaredCrons().sort()).toEqual([INGEST_CRON, DIGEST_CRON, STAGES_CRON].sort());
+  });
+
+  it("delivers every minute so a deadline is never a tick away", () => {
+    // The reader's promise is resolved by whichever tick sends, so every minute
+    // has to be one. This is the whole reason DIGEST_CRON is not "*/5".
+    expect(DIGEST_CRON).toBe("* * * * *");
+    expect(declaredCrons()).toContain(DIGEST_CRON);
+  });
+
+  it("generates on every fifth minute and only sends on the rest", () => {
+    const generating = [...Array(60).keys()].filter((m) => digestGenerates(monday(9, m)));
+    // Twelve generating passes an hour is the old */5 cadence, unchanged: the
+    // extra ticks buy delivery resolution, not more model calls.
+    expect(generating).toEqual([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
   });
 
   it("gives every minute in the shared schedule something to do", () => {

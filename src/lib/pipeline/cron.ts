@@ -46,7 +46,13 @@ import type { TelegramEnv } from "@/lib/server/telegram/send";
 import type { PushEnv } from "@/lib/server/push/send";
 import { analyse, describeAnalysis, type AnalysisReport } from "./analyse";
 import { cluster, describeCluster, type ClusterReport } from "./cluster";
-import { describeDigest, digest, type DigestReport } from "./digest";
+import {
+  describeDigest,
+  digest,
+  flushDeliveries,
+  type DeliveryReport,
+  type DigestReport,
+} from "./digest";
 import { classify, describeClassify, type ClassifyReport } from "./classify";
 import { describeDormant, dormant, type DormantReport } from "./dormant";
 import { ingest, type IngestReport } from "./ingest";
@@ -149,13 +155,42 @@ export const MATCH_CRON = "14,29,44,59 * * * *";
 /**
  * Digest generation and delivery, after matching.
  *
- * Every five minutes rather than twice an hour, because send_at is a clock time
- * the reader chose. A half-hourly slot would smear 07:30 across half an hour;
- * five minutes is the coarsest cadence that still lands "at the time you asked".
- * Generation is capped per invocation the same way analysis is — this is the
- * stage that spends per reader.
+ * Every minute, because `send_at` is a clock time the reader chose and the tick
+ * that sends is the resolution of the promise: at five minutes, a briefing owed
+ * at 07:30 could not arrive before 07:35 without arriving before it was due.
+ * Only every fifth invocation generates — see `digestGenerates` — so the cost
+ * of the extra ticks is the delivery query alone.
  */
-export const DIGEST_CRON = "*/5 * * * *";
+export const DIGEST_CRON = "* * * * *";
+
+/**
+ * How often the expensive half of `DIGEST_CRON` runs, in minutes.
+ *
+ * The trigger fires every minute but only sends on most of them. Scheduling
+ * slots and generating briefings is the part that spends per reader, and five
+ * minutes remains the right cadence for it; sending is one indexed query that
+ * usually returns nothing.
+ *
+ * Splitting them is the last of the lateness. While the two shared a five
+ * minute tick, five minutes was the floor: a briefing finished at 07:20 for a
+ * 07:30 deadline still waited for the 07:35 tick, because 07:30's tick was the
+ * one that had to both generate and send. A fourth Cron Trigger would have been
+ * the obvious way to separate them and is not available — Cloudflare registers
+ * three and drops the rest — so the split is on the minute, as `STAGES_CRON`
+ * already does it.
+ */
+const GENERATION_EVERY_MINUTES = 5;
+
+/**
+ * Whether a `DIGEST_CRON` invocation should generate, or only send.
+ *
+ * Read off the schedule Cloudflare fired for rather than the wall clock, for
+ * the same reason `stageForMinute` is: an invocation that starts late still
+ * does the work of the minute it was scheduled for.
+ */
+export function digestGenerates(scheduledFor: Date): boolean {
+  return scheduledFor.getUTCMinutes() % GENERATION_EVERY_MINUTES === 0;
+}
 
 /**
  * Inactivity warning, automatic Uno pause, and retention purge, once a day.
@@ -205,6 +240,7 @@ export type ScheduledResult =
   | { stage: "analyse"; report: AnalysisReport }
   | { stage: "match"; report: MatchReport }
   | { stage: "digest"; report: DigestReport }
+  | { stage: "delivery"; report: DeliveryReport }
   | { stage: "dormant"; report: DormantReport }
   | { stage: "idle"; cron: string; minute: number }
   | { stage: "unknown"; cron: string };
@@ -276,6 +312,28 @@ async function runDigest(env: Env): Promise<ScheduledResult> {
   return { stage: "digest", report };
 }
 
+/**
+ * The sending half of `runDigest`, on its own tick.
+ *
+ * Generates nothing and schedules nothing: everything it sends was prepared by
+ * a `DIGEST_CRON` invocation ahead of the deadline. The delivery lease is what
+ * makes the two safe to overlap — whichever tick claims a row first is the one
+ * that sends it.
+ */
+async function runDelivery(env: Env): Promise<ScheduledResult> {
+  const report = await flushDeliveries(createAdminClient(env), {
+    ...(env
+      ? {
+          secrets: env as Record<string, string | undefined>,
+          email: env as EmailEnv,
+          telegram: env as TelegramEnv,
+          push: env as PushEnv,
+        }
+      : {}),
+  });
+  return { stage: "delivery", report };
+}
+
 async function runDormant(env: Env): Promise<ScheduledResult> {
   const report = await dormant(createAdminClient(env), {
     ...(env ? { email: env as EmailEnv } : {}),
@@ -331,7 +389,11 @@ export async function runScheduled(
   scheduledFor: Date = new Date(),
 ): Promise<ScheduledResult> {
   if (cron === INGEST_CRON) return runIngest(env);
-  if (cron === DIGEST_CRON) return runDigest(env);
+  // `runDigest` delivers as well as generates, so a generating minute needs no
+  // second pass.
+  if (cron === DIGEST_CRON) {
+    return digestGenerates(scheduledFor) ? runDigest(env) : runDelivery(env);
+  }
 
   if (cron === STAGES_CRON) {
     const stage = stageForMinute(scheduledFor);
@@ -387,6 +449,13 @@ export function describe(result: ScheduledResult): string {
   if (result.stage === "classify") return describeClassify(result.report);
   if (result.stage === "match") return describeMatch(result.report);
   if (result.stage === "digest") return describeDigest(result.report);
+  if (result.stage === "delivery") {
+    const { sent, retried } = result.report;
+    // Most minutes have nothing due. Saying so is the point: a silent log and a
+    // broken delivery tick look the same.
+    if (sent === 0 && retried === 0) return "delivery: nothing due";
+    return `delivery: ${sent} sent, ${retried} retried`;
+  }
   if (result.stage === "dormant") return describeDormant(result.report);
 
   const { report } = result;

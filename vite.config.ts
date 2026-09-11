@@ -42,9 +42,13 @@ export default defineConfig({
 
           // Must match INGEST_CRON, DIGEST_CRON and STAGES_CRON in
           // src/lib/pipeline/cron.ts, which dispatches on the schedule string
-          // and, for STAGES_CRON, on the minute. A mismatch is a cron that fires
-          // and does nothing, so the handler logs the unrecognised schedule
-          // rather than returning quietly.
+          // and, for STAGES_CRON and DIGEST_CRON, on the minute. A mismatch is a
+          // cron that fires and does nothing, so the handler logs the
+          // unrecognised schedule rather than returning quietly.
+          //
+          // DIGEST_CRON is every minute but only generates on every fifth: the
+          // trigger limit below is why that split is a minute check rather than
+          // a fourth entry in this array.
           //
           // Three, because Cloudflare registers three Cron Triggers per Worker
           // and silently drops the rest. cron.test.ts holds this list to the
@@ -52,7 +56,7 @@ export default defineConfig({
           triggers: {
             crons: [
               "*/15 * * * *",
-              "*/5 * * * *",
+              "* * * * *",
               "0,2,8,9,14,17,23,24,29,32,38,39,44,47,53,54,59 * * * *",
             ],
           },

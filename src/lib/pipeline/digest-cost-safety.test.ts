@@ -249,8 +249,16 @@ describe("the shared explanation is bought once, by whoever claims it", () => {
     expect(spy.impactCalls).toBe(0);
     // The row is left exactly as it was, for an operator, not silently retaken.
     expect(db.rows("event_impacts")[0]?.["status"]).toBe("generating");
-    // And the reader is not harmed: the story is simply held over.
-    expect(report.skipped).toBe(1);
+    // And the reader is not harmed. This used to read `report.skipped === 1` —
+    // the story was held over and the briefing went out empty. Holding the
+    // story over is the right answer for the *ledger* and the wrong one for the
+    // reader, who had matched it and was owed it at a time they chose. Since
+    // 0077 the briefing ships the story with an empty explanation rather than
+    // shipping nothing; the claim above is still what proves nothing was
+    // bought twice.
+    expect(report.generated).toBe(1);
+    expect(db.rows("digest_items")).toHaveLength(1);
+    expect(db.rows("digest_items")[0]?.["why_it_matters"]).toBe("");
   });
 
   it("does not retry an explanation that permanently failed", async () => {
