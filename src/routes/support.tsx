@@ -45,7 +45,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "How do alerts work?",
-    a: "On Plura and Omni plans, you can enable alerts for important stories. Configure this in Settings → Alerts. Uno plans do not include alerts.",
+    a: "Every plan includes important alerts, within its daily allowance. Configure them in Delivery settings.",
   },
 ];
 

@@ -62,7 +62,7 @@ function Sources() {
 
       <p className="mb-5 text-[12.5px] text-muted-foreground">
         {priorities} of {formatTopicLimit(prioritySourceLimit)} priority sources ·{" "}
-        {PLAN_NAMES[plan]} plan. Muting is unlimited.
+        {PLAN_NAMES[plan]} plan. You can mute any source.
       </p>
       {limitError ? (
         <p className="mb-5 text-[12.5px] font-medium">
@@ -187,6 +187,16 @@ function CustomSources() {
       {data && !canAdd ? (
         <p className="mt-5 text-[13px] leading-relaxed">
           Adding your own sources is included on Plura and Omni.
+        </p>
+      ) : null}
+      {data && data.used > data.limit ? (
+        <p className="mt-3 text-sm">
+          Your sources are preserved. Only the first {data.limit} active sources are monitored on
+          this plan. Remove sources or{" "}
+          <a href="/dashboard/billing" className="text-signal">
+            upgrade
+          </a>
+          .
         </p>
       ) : null}
 

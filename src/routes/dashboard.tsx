@@ -1,3 +1,4 @@
+import { DeviceManager } from "@/components/device-manager";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { PageLoading } from "@/components/loading";
@@ -54,5 +55,10 @@ function DashboardGuard() {
     return <PageLoading label="Checking your session" />;
   }
 
-  return <Outlet />;
+  return (
+    <>
+      <DeviceManager compact />
+      <Outlet />
+    </>
+  );
 }

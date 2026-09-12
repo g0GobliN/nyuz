@@ -1,3 +1,4 @@
+import { PLAN_LIMITS } from "@/lib/plans";
 import { Eyebrow } from "@/components/kit";
 
 /**
@@ -390,7 +391,7 @@ const MECHANICS_FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Can I add a source you don't already watch?",
-    a: "On a paid plan, yes — a local paper, a niche blog, a company's own updates. Plura includes five and Omni twenty-five. If another reader has already asked for the same feed, you simply share it. We check an address before we start using it, and we will tell you if it is not something we can read.",
+    a: `On a paid plan, yes — a local paper, a niche blog, a company's own updates. Plura includes ${PLAN_LIMITS.plura.customSources} and Omni ${PLAN_LIMITS.omni.customSources}. If another reader has already asked for the same feed, you simply share it. We check an address before we start using it, and we will tell you if it is not something we can read.`,
   },
   {
     q: "Can I read in a language other than English?",

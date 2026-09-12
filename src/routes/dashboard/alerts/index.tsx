@@ -56,37 +56,39 @@ function Alerts() {
               {off
                 ? "Everything waits for your next scheduled briefing."
                 : effectiveBreaking === "everything"
-                  ? `Matched events can interrupt you, up to ${limits.alertDailyCap} a day.`
+                  ? `Important matched events can interrupt you, up to ${limits.alertDailyCap} a day.`
                   : `Only events scoring 6 or higher interrupt you. Most days that is none — never more than ${limits.alertDailyCap} in a day.`}
             </p>
           </div>
         </div>
 
         <div className="mt-6 flex flex-wrap gap-2">
-          {(["important", "everything", "off"] as const).map((b) => {
-            const locked =
-              (limits.alerts === "none" && b !== "off") ||
-              (limits.alerts === "important" && b === "everything");
+          {(["important", "off"] as const).map((b) => {
             return (
               <Chip
                 key={b}
-                active={effectiveBreaking === b}
+                active={
+                  (effectiveBreaking === "everything" ? "important" : effectiveBreaking) === b
+                }
                 onClick={() => {
-                  if (!locked) void update({ breaking: b });
+                  void update({ breaking: b });
                 }}
               >
-                {b === "important" ? "Only important" : b === "everything" ? "Everything" : "Off"}
-                {locked ? ` · ${b === "everything" ? "Omni" : "Paid"}` : ""}
+                {b === "important" ? "Only important" : "Off"}
               </Chip>
             );
           })}
         </div>
-        {limits.alerts === "none" ? (
-          <p className="mt-4 text-[12.5px] text-muted-foreground">
-            Alerts are not included on {PLAN_NAMES[plan]}. Your daily briefing still carries every
-            matched story within its limit.
-          </p>
-        ) : null}
+        <p className="mt-4 text-sm">
+          <a
+            href={plan === "uno" ? "/dashboard/billing" : "/dashboard/topics"}
+            className="text-signal"
+          >
+            {plan === "uno"
+              ? "Personalize topic notifications with Plura"
+              : "Configure topic notification rules"}
+          </a>
+        </p>
       </section>
 
       <section className="mt-10">

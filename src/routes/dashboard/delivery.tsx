@@ -35,7 +35,7 @@ import { pushDetail, pushRowState } from "@/lib/push/device-state";
 import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 import { usePlan } from "@/lib/plan-state";
-import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
+import { PLAN_LIMITS, STANDARD_DELIVERY_TIME, allowedBreaking } from "@/lib/plans";
 
 export const Route = createFileRoute("/dashboard/delivery")({
   component: Delivery,
@@ -236,12 +236,18 @@ function Delivery() {
           <div className="grid gap-5 sm:grid-cols-2">
             <div>
               <label htmlFor="time" className="text-[13px] text-muted-foreground">
-                Delivery time
+                Delivery time{" "}
+                {!limits.customDeliveryTime && (
+                  <a href="/dashboard/billing" className="text-signal">
+                    · Customize with Plura
+                  </a>
+                )}
               </label>
               <input
                 id="time"
                 type="time"
-                value={prefs.time}
+                value={limits.customDeliveryTime ? prefs.time : STANDARD_DELIVERY_TIME}
+                disabled={!limits.customDeliveryTime}
                 onChange={(e) => touch({ time: e.target.value })}
                 className="mt-2 h-12 w-full rounded-2xl border border-input bg-background px-4 text-[16px] tabular-nums outline-none focus:border-signal"
               />
@@ -284,10 +290,16 @@ function Delivery() {
             <Channel
               icon={MessageCircle}
               label="Telegram"
-              detail={telegramDetail(telegramQ.data, prefs.channels.telegram)}
+              detail={
+                limits.telegram
+                  ? telegramDetail(telegramQ.data, prefs.channels.telegram)
+                  : "Available on Plura and Omni"
+              }
               on={prefs.channels.telegram}
               onToggle={() =>
-                touch({ channels: { ...prefs.channels, telegram: !prefs.channels.telegram } })
+                limits.telegram
+                  ? touch({ channels: { ...prefs.channels, telegram: !prefs.channels.telegram } })
+                  : window.location.assign("/dashboard/billing")
               }
               extra={<TelegramConnect />}
             />
@@ -297,7 +309,7 @@ function Delivery() {
               detail={
                 mounted
                   ? pushDetail(pushRowState(pushQ.data, deviceOn))
-                  : "One notice per story. Tap to read, dismiss the rest. Your dashboard still has everything."
+                  : "A notification when your briefing is ready, plus important alerts you enable."
               }
               on={deviceOn}
               onToggle={() => void togglePush()}
@@ -332,7 +344,7 @@ function Delivery() {
 
         <Panel title="Frequency">
           <div className="flex flex-wrap gap-2">
-            {(["daily", "weekly"] as const).map((f) => (
+            {(["daily"] as const).map((f) => (
               <Chip key={f} active={prefs.frequency === f} onClick={() => touch({ frequency: f })}>
                 {f === "daily" ? "Daily briefing" : "Weekly roundup"}
               </Chip>
@@ -342,34 +354,28 @@ function Delivery() {
           <div className="mt-7">
             <p className="text-[13px] text-muted-foreground">Breaking alerts</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {(["important", "everything", "off"] as const).map((b) => {
-                const locked =
-                  (limits.alerts === "none" && b !== "off") ||
-                  (limits.alerts === "important" && b === "everything");
+              {(["important", "off"] as const).map((b) => {
                 return (
                   <Chip
                     key={b}
-                    active={effectiveBreaking === b}
+                    active={
+                      (effectiveBreaking === "everything" ? "important" : effectiveBreaking) === b
+                    }
                     onClick={() => {
-                      if (!locked) touch({ breaking: b });
+                      touch({ breaking: b });
                     }}
                   >
-                    {b === "important"
-                      ? "Only important"
-                      : b === "everything"
-                        ? "Everything"
-                        : "Off"}
-                    {locked ? ` · ${b === "everything" ? "Omni" : "Paid"}` : ""}
+                    {b === "important" ? "Only important" : "Off"}
                   </Chip>
                 );
               })}
             </div>
             <p className="mt-3 text-[12.5px] leading-relaxed text-muted-foreground">
               {limits.alerts === "none"
-                ? "Alerts are a paid feature. On Uno, stories wait for the next scheduled briefing."
+                ? "Every plan includes important alerts within its daily allowance."
                 : limits.alerts === "important"
                   ? `Only what you would regret missing arrives outside your schedule. Most days that is nothing at all, and never more than ${limits.alertDailyCap} in a day.`
-                  : `Choose important or everything, with a ceiling of ${limits.alertDailyCap} alerts a day.`}
+                  : `Important alerts follow your topic rules, with a ceiling of ${limits.alertDailyCap} alerts a day.`}
             </p>
           </div>
         </Panel>

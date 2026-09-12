@@ -11,7 +11,7 @@ import { TimezoneSelect } from "@/components/timezone-select";
 import { PageLoading } from "@/components/loading";
 import { useAuth } from "@/lib/auth";
 import { usePlan } from "@/lib/plan-state";
-import { formatTopicLimit } from "@/lib/plans";
+import { PLAN_LIMITS, STANDARD_DELIVERY_TIME, formatTopicLimit } from "@/lib/plans";
 import { sendWelcome } from "@/lib/server/account";
 import { startFirstBriefing } from "@/lib/server/briefing";
 import { usePrefs, type Prefs } from "@/lib/prefs-store";
@@ -46,7 +46,7 @@ function Onboarding() {
   const search = Route.useSearch();
   const { prefs, update, hydrated, accountLoaded } = usePrefs();
   const { session, loading: sessionLoading } = useAuth();
-  const { topicLimit, loading: planLoading } = usePlan();
+  const { plan, topicLimit, loading: planLoading } = usePlan();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Prefs | null>(null);
 
@@ -118,7 +118,17 @@ function Onboarding() {
       // Awaited, unlike everything else here. The backfill matches against
       // `user_topics`, so running it before the save lands would match an empty
       // topic list and decide this reader is interested in nothing.
-      await update({ ...draft, onboarded: true });
+      await update({
+        ...draft,
+        frequency: "daily",
+        time: PLAN_LIMITS[plan].customDeliveryTime ? draft.time : STANDARD_DELIVERY_TIME,
+        channels: {
+          ...draft.channels,
+          telegram: PLAN_LIMITS[plan].telegram && draft.channels.telegram,
+          whatsapp: false,
+        },
+        onboarded: true,
+      });
 
       // Fire and forget. The welcome email is not worth blocking on, and
       // `sendWelcome` is idempotent — a signed-out visitor finishing onboarding
@@ -292,6 +302,8 @@ function StepIgnore({ draft, patch }: StepProps) {
 }
 
 function StepSchedule({ draft, patch }: StepProps) {
+  const { plan } = usePlan();
+  const customTime = PLAN_LIMITS[plan].customDeliveryTime;
   const toggleDay = (d: string) =>
     patch({
       days: draft.days.includes(d) ? draft.days.filter((x) => x !== d) : [...draft.days, d],
@@ -307,7 +319,8 @@ function StepSchedule({ draft, patch }: StepProps) {
           <input
             id="time"
             type="time"
-            value={draft.time}
+            value={customTime ? draft.time : STANDARD_DELIVERY_TIME}
+            disabled={!customTime}
             onChange={(e) => patch({ time: e.target.value })}
             className="mt-2 h-12 w-full rounded-2xl border border-input bg-surface px-4 text-[16px] tabular-nums outline-none focus:border-signal"
           />
@@ -360,14 +373,15 @@ const CHANNELS = [
     key: "push",
     label: "Notifications",
     icon: Bell,
-    note: "One notice per story. Allow them in Delivery after you finish.",
+    note: "A notice when your briefing is ready. Allow them in Delivery after you finish.",
   },
 ] as const;
 
 function StepChannels({ draft, patch }: StepProps) {
+  const { plan } = usePlan();
   return (
     <div className="mt-8 space-y-3">
-      {CHANNELS.map((c) => {
+      {CHANNELS.filter((c) => c.key !== "telegram" || PLAN_LIMITS[plan].telegram).map((c) => {
         const on = draft.channels[c.key];
         const Icon = c.icon;
         return (

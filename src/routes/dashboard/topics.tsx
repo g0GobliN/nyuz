@@ -1,3 +1,4 @@
+import { TopicControls } from "@/components/topic-controls";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronDown, PauseCircle, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -24,25 +25,10 @@ export const Route = createFileRoute("/dashboard/topics")({
   head: () => ({ meta: [{ title: "Topics — nyuz" }] }),
 });
 
-type TopicConfig = {
-  importance: "Everything" | "Notable" | "Only major";
-  frequency: "Daily" | "Weekly" | "Breaking only";
-  keywords: string;
-  exclude: string;
-};
-
-const DEFAULT_CONFIG: TopicConfig = {
-  importance: "Notable",
-  frequency: "Daily",
-  keywords: "",
-  exclude: "",
-};
-
 function Topics() {
   const { prefs, update } = usePrefs();
   const { plan, topicLimit, loading: planLoading } = usePlan();
   const [open, setOpen] = useState<string | null>(null);
-  const [configs, setConfigs] = useState<Record<string, TopicConfig>>({});
   const [limitPrompt, setLimitPrompt] = useState(false);
 
   // The server clips on save and match. Anything already stored past the cap
@@ -61,10 +47,6 @@ function Topics() {
   };
   const remove = (t: string) =>
     update({ topics: prefs.topics.filter((x) => topicSlug(x) !== topicSlug(t)) });
-
-  const cfg = (t: string) => configs[t] ?? DEFAULT_CONFIG;
-  const setCfg = (t: string, p: Partial<TopicConfig>) =>
-    setConfigs((c) => ({ ...c, [t]: { ...cfg(t), ...p } }));
 
   return (
     <DashboardShell title="Topics">
@@ -110,7 +92,6 @@ function Topics() {
 
         {prefs.topics.map((t, i) => {
           const isOpen = open === t;
-          const c = cfg(t);
           // Order is the weighting the product has: the tail is what gets
           // dropped, which is what the billing page means by "lowest-weighted".
           const paused = i >= topicLimit;
@@ -138,7 +119,7 @@ function Topics() {
                     </span>
                   ) : null}
                   <span className="text-[12px] text-muted-foreground">
-                    {c.importance} · {c.frequency}
+                    {paused ? "Saved for a higher plan" : "Following"}
                   </span>
                   <ChevronDown
                     className={cn(
@@ -162,32 +143,7 @@ function Topics() {
               >
                 <div className="overflow-hidden">
                   <div className="space-y-5 border-t border-hairline px-5 py-5">
-                    <Segmented
-                      label="How much of it"
-                      value={c.importance}
-                      options={["Everything", "Notable", "Only major"]}
-                      onChange={(v) => setCfg(t, { importance: v as TopicConfig["importance"] })}
-                    />
-                    <Segmented
-                      label="How often"
-                      value={c.frequency}
-                      options={["Daily", "Weekly", "Breaking only"]}
-                      onChange={(v) => setCfg(t, { frequency: v as TopicConfig["frequency"] })}
-                    />
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <Field
-                        label="Keywords to prioritise"
-                        placeholder="release, pricing, GA"
-                        value={c.keywords}
-                        onChange={(v) => setCfg(t, { keywords: v })}
-                      />
-                      <Field
-                        label="Keywords to exclude"
-                        placeholder="rumour, leak"
-                        value={c.exclude}
-                        onChange={(v) => setCfg(t, { exclude: v })}
-                      />
-                    </div>
+                    <TopicControls topic={t} plan={plan} />
                   </div>
                 </div>
               </div>
@@ -245,63 +201,5 @@ function Topics() {
         </DialogContent>
       </Dialog>
     </DashboardShell>
-  );
-}
-
-function Segmented({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div>
-      <p className="text-[12.5px] text-muted-foreground">{label}</p>
-      <div className="mt-2 inline-flex flex-wrap gap-1 rounded-full border border-hairline bg-surface-2 p-1">
-        {options.map((o) => (
-          <button
-            key={o}
-            onClick={() => onChange(o)}
-            className={cn(
-              "rounded-full px-3.5 py-1.5 text-[12.5px] transition-all duration-300",
-              value === o
-                ? "bg-foreground text-background"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {o}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  placeholder,
-  value,
-  onChange,
-}: {
-  label: string;
-  placeholder: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div>
-      <label className="text-[12.5px] text-muted-foreground">{label}</label>
-      <input
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-2 h-10 w-full rounded-xl border border-input bg-surface px-3.5 text-[16px] outline-none placeholder:text-muted-foreground focus:border-signal md:text-[13.5px]"
-      />
-    </div>
   );
 }
