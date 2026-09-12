@@ -204,6 +204,12 @@ function AiStatusCard({
                   ? "No top-up recorded"
                   : `${usd(data.credit.remainingUsd)} left`}
             </p>
+            <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+              Provider-credit gate:{" "}
+              <span className={data.creditGateEnabled ? "text-foreground" : "text-signal"}>
+                {data.creditGateEnabled ? "Enforcing" : "Off (advisory only)"}
+              </span>
+            </p>
             {data.blocker.kind === "none" &&
             (data.credit.status === "low" || data.credit.status === "exhausted") ? (
               <p className="mt-2 text-[11.5px] leading-relaxed text-signal">
@@ -286,9 +292,23 @@ function AiStatusCard({
           </div>
         </div>
 
-        {data.credit.status === "exhausted" ? (
+        {data.blocker.kind === "credit_exhausted" ? (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-signal px-4 py-3 text-[12px]">
-            <p>Provider credit is exhausted. Recharge the provider, then record the top-up.</p>
+            {/* Text comes from the same derivation that decided to block, so
+                this can never say something the enforcement logic disagrees
+                with. */}
+            <p>{data.blockerLabel}</p>
+            <a href="#record-topup" className={buttonClass("outline", "sm")}>
+              Record top-up
+            </a>
+          </div>
+        ) : data.credit.status === "exhausted" && !data.creditGateEnabled ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border px-4 py-3 text-[12px] text-muted-foreground">
+            <p>
+              Provider credit is exhausted, but the provider-credit gate is off, so this is advisory
+              only — no AI call is being refused on this ground. Turn the gate on in AI runtime once
+              funded, or record a top-up regardless to keep the balance accurate.
+            </p>
             <a href="#record-topup" className={buttonClass("outline", "sm")}>
               Record top-up
             </a>

@@ -140,6 +140,49 @@ function statusOf(
   return nearlyGone || soon ? "low" : "ok";
 }
 
+/**
+ * The provider-credit gate, mirrored from `reserve_ai_tokens` (migration 0080).
+ *
+ * This is not what enforces anything — the SQL function does that, atomically,
+ * under the same advisory lock as every other cap, gated on the
+ * `provider_credit_gate_enabled` feature flag. This copy exists so the
+ * arithmetic has one place that is unit-tested without a database, and so a
+ * future edit to either side is more likely to be noticed than silently
+ * diverge. Keep both in sync; a mismatch here is a mismatch nobody would see
+ * until it double-charged or double-refused a call.
+ *
+ * Well-defined with zero recorded top-ups: `toppedUpMicrousd` and
+ * `spentSinceFirstTopupMicrousd` are both naturally zero in that case (there
+ * is no "first top-up" for spend to be measured since), so this returns
+ * exactly zero — not `null`, not a special case. Whether that zero actually
+ * refuses anything is entirely `creditRefusesReservation`'s `gateEnabled`
+ * argument; this function only ever answers "how much is there".
+ */
+export function providerCreditAvailableMicrousd(input: {
+  toppedUpMicrousd: number;
+  spentSinceFirstTopupMicrousd: number;
+}): number {
+  return input.toppedUpMicrousd - input.spentSinceFirstTopupMicrousd;
+}
+
+/**
+ * Whether `reserve_ai_tokens` would refuse a call of this estimated cost on
+ * provider-credit grounds alone.
+ *
+ * `gateEnabled` is `provider_credit_gate_enabled` — while it is off this
+ * always returns `false`, deliberately: an unfunded balance must never block
+ * a deployment that has not opted in. The monthly safety cap and daily caps
+ * are unaffected either way and keep applying regardless of this flag.
+ */
+export function creditRefusesReservation(
+  gateEnabled: boolean,
+  availableMicrousd: number,
+  estimateMicrousd: number,
+): boolean {
+  if (!gateEnabled) return false;
+  return estimateMicrousd > availableMicrousd;
+}
+
 export const SPEND_WINDOW_KEYS = ["hour", "day", "week", "month"] as const;
 export type SpendWindowKey = (typeof SPEND_WINDOW_KEYS)[number];
 

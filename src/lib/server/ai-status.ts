@@ -21,6 +21,7 @@ export type AiBlocker =
   | { kind: "kill_switch" }
   | { kind: "monthly_usd"; spentUsd: number; ceilingUsd: number }
   | { kind: "monthly_tokens"; usedTokens: number; budgetTokens: number }
+  | { kind: "credit_exhausted"; remainingUsd: number; toppedUpUsd: number }
   | { kind: "daily_cap"; daySpent: number; dayCap: number; model: string }
   | { kind: "user_budget"; userUsed: number; userCap: number }
   | { kind: "unknown" };
@@ -67,6 +68,14 @@ export type AiRuntimeStatus = {
     burnUsdPerDay: number | null;
     daysRemaining: number | null;
   };
+  /**
+   * Whether `provider_credit_gate_enabled` (0080) is actually enforcing
+   * anything right now. Shown unconditionally — an operator needs to see this
+   * is off even when nothing else is wrong, because off is a deliberate
+   * exception (development, migration, emergency) and not a state a
+   * production deployment should sit in unnoticed.
+   */
+  creditGateEnabled: boolean;
 };
 
 /**
@@ -100,9 +109,11 @@ export function deriveAiStatus(params: {
   dayCapFlash: number;
   killSwitchOn: boolean;
   creditRemainingUsd: number;
+  creditToppedUpUsd: number;
   creditBurnUsdPerDay: number | null;
   creditDaysRemaining: number | null;
   creditStatus: AiCreditStatus | "unknown";
+  creditGateEnabled: boolean;
   ceilingSource: ValueSource;
   tokenBudgetSource: ValueSource;
 }): AiRuntimeStatus {
@@ -143,6 +154,38 @@ export function deriveAiStatus(params: {
     );
   }
 
+  // Independent of the safety cap above: recorded provider top-up credit
+  // (0080) is an operating budget that does not reset monthly and that a
+  // top-up, not this cap, refills. Only reported as an actual blocker while
+  // `provider_credit_gate_enabled` is on — off is a deliberate, explicit
+  // exception (development, migration, emergency), and an unfunded balance
+  // must never look "blocked" for a deployment that opted out of the gate.
+  //
+  // "unrecorded" blocks here too when the gate is on: with no top-up ever
+  // recorded, enforced available credit is exactly zero (see 0080), which is
+  // the point of making this an explicit flag rather than an implicit skip —
+  // a production deployment cannot spend by accident before someone funds it.
+  if (
+    params.creditGateEnabled &&
+    (params.creditStatus === "exhausted" || params.creditStatus === "unrecorded")
+  ) {
+    const unfunded = params.creditStatus === "unrecorded";
+    return makeStatus(
+      "blocked",
+      {
+        kind: "credit_exhausted",
+        remainingUsd: params.creditRemainingUsd,
+        toppedUpUsd: params.creditToppedUpUsd,
+      },
+      unfunded
+        ? "Provider-credit gate is on but no top-up has ever been recorded. Every AI call is being refused until you record one, or turn the gate off for development, migration or emergency use."
+        : `Provider credit exhausted. ${formatUsd(Math.max(params.creditRemainingUsd, 0))} left of ${formatUsd(params.creditToppedUpUsd)} topped up. Record a top-up to resume — the monthly safety cap is separate and unaffected.`,
+      null,
+      usedPct,
+      params,
+    );
+  }
+
   for (const [model, daySpent, dayCap] of [
     ["deepseek-v4-flash", params.daySpentFlash, params.dayCapFlash],
     ["deepseek-v4-pro", daySpentPro, dayCapPro],
@@ -159,6 +202,9 @@ export function deriveAiStatus(params: {
     }
   }
 
+  // Reachable with "exhausted" only when the gate is off (already returned,
+  // blocked, above otherwise) — still worth flagging as a warning, the same
+  // advisory this reported before 0080 existed.
   let status: AiStatus = "healthy";
   const maxUsedPct = Math.max(usedPct, tokensBudget > 0 ? (tokensUsed / tokensBudget) * 100 : 0);
   if (maxUsedPct >= NEAR_LIMIT_PCT) status = "near_limit";
@@ -195,6 +241,7 @@ export function deriveAiStatus(params: {
       burnUsdPerDay: params.creditBurnUsdPerDay,
       daysRemaining: params.creditDaysRemaining,
     },
+    creditGateEnabled: params.creditGateEnabled,
   };
 }
 
@@ -232,6 +279,7 @@ function makeStatus(
       burnUsdPerDay: params.creditBurnUsdPerDay,
       daysRemaining: params.creditDaysRemaining,
     },
+    creditGateEnabled: params.creditGateEnabled,
   };
 }
 
@@ -287,6 +335,18 @@ export const getAiStatus = createServerFn({ method: "GET" })
     if (killError) throw new Error(`Reading AI kill switch: ${killError.message}`);
     const killSwitchOn = killFlag?.enabled === true;
 
+    // 0080: off unless a row says otherwise, same fail-safe shape as the kill
+    // switch — a missing row must read as "not enforcing", never the reverse.
+    const { data: creditGateFlag, error: creditGateError } = await db
+      .from("feature_flags")
+      .select("enabled")
+      .eq("key", "provider_credit_gate_enabled")
+      .maybeSingle();
+    if (creditGateError) {
+      throw new Error(`Reading the provider-credit gate flag: ${creditGateError.message}`);
+    }
+    const creditGateEnabled = creditGateFlag?.enabled === true;
+
     const daily = await dailyCapsMicrousd(db);
     const now = new Date();
     const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -330,9 +390,11 @@ export const getAiStatus = createServerFn({ method: "GET" })
       dayCapFlash: daily.flash / 1_000_000,
       killSwitchOn,
       creditRemainingUsd: credit?.remainingUsd ?? 0,
+      creditToppedUpUsd: credit?.toppedUpUsd ?? 0,
       creditBurnUsdPerDay: credit?.burnUsdPerDay ?? null,
       creditDaysRemaining: credit?.daysRemaining ?? null,
       creditStatus: credit?.status ?? "unknown",
+      creditGateEnabled,
       ceilingSource: runtime.resolved["ai.monthly_cost_usd"].source,
       tokenBudgetSource: runtime.resolved["ai.monthly_token_budget"].source,
     });

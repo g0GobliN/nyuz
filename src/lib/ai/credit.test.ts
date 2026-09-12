@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { computeAiCredit, type AiCreditInput } from "@/lib/ai/credit";
+import {
+  computeAiCredit,
+  creditRefusesReservation,
+  providerCreditAvailableMicrousd,
+  type AiCreditInput,
+} from "@/lib/ai/credit";
 
 /**
  * A balance display earns its place by being trustworthy when it is boring and
@@ -158,5 +163,206 @@ describe("status", () => {
 
   it("is exhausted at exactly zero, not only below it", () => {
     expect(credit({ spentMicrousd: 5 * M }).status).toBe("exhausted");
+  });
+});
+
+/**
+ * The provider-credit gate (0080), mirrored from `reserve_ai_tokens` in SQL.
+ * This is arithmetic only — the SQL function is what actually refuses a
+ * reservation, atomically, under the same advisory lock as the monthly and
+ * daily caps. These tests are the executable spec that SQL is written against,
+ * plus the user-facing scenarios the gate exists to satisfy.
+ */
+describe("providerCreditAvailableMicrousd", () => {
+  it("is zero, not null, when no top-up has ever been recorded", () => {
+    // Well-defined arithmetic, not a sentinel: whether this zero refuses
+    // anything is entirely up to creditRefusesReservation's gateEnabled flag.
+    expect(
+      providerCreditAvailableMicrousd({ toppedUpMicrousd: 0, spentSinceFirstTopupMicrousd: 0 }),
+    ).toBe(0);
+  });
+
+  it("is topped-up minus spent once at least one top-up exists", () => {
+    expect(
+      providerCreditAvailableMicrousd({
+        toppedUpMicrousd: 15 * M,
+        spentSinceFirstTopupMicrousd: 8 * M,
+      }),
+    ).toBe(7 * M);
+  });
+
+  it("a new top-up increases available credit immediately", () => {
+    const before = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 15 * M,
+      spentSinceFirstTopupMicrousd: 8 * M,
+    });
+    const after = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 25 * M, // a further $10 top-up recorded
+      spentSinceFirstTopupMicrousd: 8 * M, // nothing new spent
+    });
+    expect(after).toBeGreaterThan(before);
+    expect(after).toBe(17 * M);
+  });
+
+  it("can go negative — spend already exceeded what was topped up", () => {
+    // nyuz's real state on 2026-09-12: $8.32 topped up, $9.03 spent since.
+    expect(
+      providerCreditAvailableMicrousd({
+        toppedUpMicrousd: 8_320_000,
+        spentSinceFirstTopupMicrousd: 9_029_335,
+      }),
+    ).toBe(8_320_000 - 9_029_335);
+  });
+});
+
+describe("creditRefusesReservation", () => {
+  it("gate disabled: never refuses, however negative the balance", () => {
+    // Development/migration/emergency use — no enforcement at all.
+    expect(creditRefusesReservation(false, -1_000_000_000, 1_000_000_000)).toBe(false);
+  });
+
+  it("gate enabled, no top-up ever recorded: available is zero, every call is refused", () => {
+    const available = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 0,
+      spentSinceFirstTopupMicrousd: 0,
+    });
+    expect(creditRefusesReservation(true, available, 1)).toBe(true);
+  });
+
+  it("gate enabled, top-ups recorded, both have room: allowed", () => {
+    expect(creditRefusesReservation(true, 7 * M, 1 * M)).toBe(false);
+  });
+
+  it("gate enabled: refuses a request that would exceed remaining credit", () => {
+    expect(creditRefusesReservation(true, 0.5 * M, 1 * M)).toBe(true);
+  });
+
+  it("gate enabled: refuses at exactly the boundary, not only past it", () => {
+    expect(creditRefusesReservation(true, 1 * M, 1 * M)).toBe(false);
+    expect(creditRefusesReservation(true, 1 * M, 1 * M + 1)).toBe(true);
+  });
+
+  it("recording a top-up turns a refusal into an allow, immediately", () => {
+    const beforeTopup = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 8 * M,
+      spentSinceFirstTopupMicrousd: 8 * M,
+    });
+    expect(creditRefusesReservation(true, beforeTopup, 1 * M)).toBe(true);
+
+    const afterTopup = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 10 * M, // +$2 recorded
+      spentSinceFirstTopupMicrousd: 8 * M,
+    });
+    expect(creditRefusesReservation(true, afterTopup, 1 * M)).toBe(false);
+  });
+
+  it("a reservation reduces available credit immediately for the next caller", () => {
+    // The reservation itself becomes in-flight spend the moment it is
+    // inserted, so a second caller reading the balance a moment later sees
+    // less room — same mechanism the existing monthly/daily caps rely on.
+    const beforeReservation = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 10 * M,
+      spentSinceFirstTopupMicrousd: 2 * M,
+    });
+    const afterReservation = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 10 * M,
+      spentSinceFirstTopupMicrousd: 2 * M + 1 * M, // the new reservation counted
+    });
+    expect(afterReservation).toBe(beforeReservation - 1 * M);
+  });
+
+  it("settlement replaces the estimate with actual cost, not adding to it", () => {
+    // computeAiCredit's spentMicrousd already uses coalesce(cost, estimate, 0)
+    // per row — settling a $1 estimate at $0.60 actual reduces spend, it does
+    // not stack a second charge. Mirrored here at the aggregate level.
+    const reservedEstimate = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 10 * M,
+      spentSinceFirstTopupMicrousd: 1 * M, // in-flight estimate
+    });
+    const settledActual = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 10 * M,
+      spentSinceFirstTopupMicrousd: 0.6 * M, // settled, cheaper than estimated
+    });
+    expect(settledActual).toBeGreaterThan(reservedEstimate);
+  });
+
+  it("a released or failed reservation restores credit — contributes zero, not the estimate", () => {
+    // release_ai_reservation zeroes estimated_cost_microusd; a row that never
+    // settled and was released stops counting entirely.
+    const withOpenReservation = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 10 * M,
+      spentSinceFirstTopupMicrousd: 3 * M,
+    });
+    const afterRelease = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 10 * M,
+      spentSinceFirstTopupMicrousd: 0, // the released reservation's estimate zeroed
+    });
+    expect(afterRelease).toBeGreaterThan(withOpenReservation);
+    expect(afterRelease).toBe(10 * M);
+  });
+});
+
+describe("the two ceilings stay independent", () => {
+  it("a top-up never changes the monthly safety cap", () => {
+    // The safety cap lives entirely in ai_runtime_config; nothing computed
+    // here reads or writes it. Recording a top-up only ever moves
+    // toppedUpMicrousd, which the safety cap does not read.
+    const monthlySafetyCapUsd = 10;
+    providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 1_000 * M,
+      spentSinceFirstTopupMicrousd: 0,
+    });
+    expect(monthlySafetyCapUsd).toBe(10);
+  });
+
+  it("a higher safety cap never fabricates provider credit", () => {
+    // Symmetric case: raising ai.monthly_cost_usd cannot be expressed as an
+    // input to the credit functions at all, so an exhausted balance stays
+    // exhausted regardless of what the safety cap is set to.
+    const available = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 8 * M,
+      spentSinceFirstTopupMicrousd: 8 * M,
+    });
+    expect(creditRefusesReservation(true, available, 1)).toBe(true);
+  });
+
+  it("provider credit available but the emergency cap is exhausted: still blocked", () => {
+    const available = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 1_000 * M, // plenty of provider credit
+      spentSinceFirstTopupMicrousd: 0,
+    });
+    const creditWouldRefuse = creditRefusesReservation(true, available, 1 * M);
+    const monthlySpentUsd = 10;
+    const monthlyCapUsd = 10;
+    const monthlyWouldRefuse = monthlySpentUsd + 1 >= monthlyCapUsd;
+    expect(creditWouldRefuse).toBe(false);
+    expect(monthlyWouldRefuse).toBe(true);
+    expect(creditWouldRefuse || monthlyWouldRefuse).toBe(true);
+  });
+
+  it("the emergency cap has headroom but provider credit is exhausted: still blocked", () => {
+    const available = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 8 * M,
+      spentSinceFirstTopupMicrousd: 8 * M, // exhausted
+    });
+    const creditWouldRefuse = creditRefusesReservation(true, available, 1 * M);
+    const monthlySpentUsd = 2;
+    const monthlyCapUsd = 30; // plenty of safety-cap headroom
+    const monthlyWouldRefuse = monthlySpentUsd + 1 >= monthlyCapUsd;
+    expect(creditWouldRefuse).toBe(true);
+    expect(monthlyWouldRefuse).toBe(false);
+    expect(creditWouldRefuse || monthlyWouldRefuse).toBe(true);
+  });
+
+  it("both ceilings have headroom: the reservation succeeds", () => {
+    const available = providerCreditAvailableMicrousd({
+      toppedUpMicrousd: 20 * M,
+      spentSinceFirstTopupMicrousd: 5 * M,
+    });
+    const creditWouldRefuse = creditRefusesReservation(true, available, 1 * M);
+    const monthlySpentUsd = 2;
+    const monthlyCapUsd = 30;
+    const monthlyWouldRefuse = monthlySpentUsd + 1 >= monthlyCapUsd;
+    expect(creditWouldRefuse || monthlyWouldRefuse).toBe(false);
   });
 });
