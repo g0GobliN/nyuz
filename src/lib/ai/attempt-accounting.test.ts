@@ -159,10 +159,32 @@ describe("every provider attempt is independently accounted", () => {
     expect(h.calls.filter((c) => c.name === "settle_ai_tokens")).toHaveLength(0);
     expect(h.calls.filter((c) => c.name === "release_ai_reservation")).toHaveLength(0);
   });
-  it("retains an unpriceable response and saves its measured usage", async () => {
-    const h = await harness(['{"ok":true}'], false, false, { model: "unknown-billed-model" });
-    await expect(h.run()).rejects.toMatchObject({ usage: { promptTokens: 100 } });
-    expect(h.calls.filter((c) => c.name === "record_ai_attempt")).toHaveLength(2);
-    expect(h.calls.filter((c) => c.name === "settle_ai_tokens")).toHaveLength(0);
+  it("settles a response whose model name the rate card does not recognise", async () => {
+    // Was: "retains an unpriceable response and saves its measured usage" —
+    // which asserted a rejection and NO settlement. That contract cost real
+    // money on 2026-09-10, when DeepSeek began echoing `deepseek-flash` for
+    // requests routed to `deepseek-v4-flash`. 266 calls were billed by the
+    // provider, priced to null here, and never settled: the measured tokens were
+    // lost and each pessimistic reservation stayed standing against the monthly
+    // ceiling. Refusing to settle does not un-spend the money — it only hides
+    // what was spent and holds ~4x its true cost against the cap.
+    const h = await harness(['{"ok":true}'], false, false, { model: "deepseek-flash" });
+    await expect(h.run()).resolves.toMatchObject({ usage: { promptTokens: 100 } });
+    const settlements = h.calls.filter((c) => c.name === "settle_ai_tokens");
+    expect(settlements).toHaveLength(1);
+    // Priced by the routed model, so the cost is a real number rather than null.
+    expect(Number(settlements[0]?.args["p_cost_microusd"])).toBeGreaterThan(0);
+    expect(settlements[0]?.args["p_prompt_tokens"]).toBe(100);
+  });
+
+  it("records the substituted model beside the one it was priced as", async () => {
+    const h = await harness(['{"ok":true}'], false, false, { model: "deepseek-flash" });
+    await h.run();
+    const attempt = h.calls
+      .filter((c) => c.name === "record_ai_attempt")
+      .map((c) => c.args["p_usage"] as { model?: string; priced_as?: string } | null)
+      .find((usage) => usage != null);
+    expect(attempt?.model).toBe("deepseek-flash");
+    expect(attempt?.priced_as).toBe("deepseek-v4-flash");
   });
 });

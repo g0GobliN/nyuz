@@ -5,7 +5,6 @@ import {
   alertWasOpened,
   nextAttemptAt,
   queuedChannels,
-  readWhys,
   selectItems,
   type MatchRow,
 } from "./digest";
@@ -71,44 +70,6 @@ describe("selectItems", () => {
 
   it("would rather send a short briefing than one the model tells you to skip", () => {
     expect(selectItems([match("a", 0), match("b", 0)], new Set(), 18, NOW)).toEqual([]);
-  });
-});
-
-describe("readWhys", () => {
-  const ids = ["e1", "e2"];
-
-  it("reads one paragraph per requested event", () => {
-    const items = readWhys(
-      {
-        items: [
-          { event_id: "e1", why_it_matters: "Your Next.js cache model just changed." },
-          { event_id: "e2", why_it_matters: "The chip allocation affects your GPU budget." },
-        ],
-      },
-      ids,
-    );
-    expect(items).toEqual([
-      { eventId: "e1", why: "Your Next.js cache model just changed." },
-      { eventId: "e2", why: "The chip allocation affects your GPU budget." },
-    ]);
-  });
-
-  it("refuses a reply that silently drops a story", () => {
-    expect(readWhys({ items: [{ event_id: "e1", why_it_matters: "Only one." }] }, ids)).toBeNull();
-  });
-
-  it("refuses an empty paragraph rather than inventing one", () => {
-    expect(
-      readWhys(
-        {
-          items: [
-            { event_id: "e1", why_it_matters: "Real." },
-            { event_id: "e2", why_it_matters: "  " },
-          ],
-        },
-        ids,
-      ),
-    ).toBeNull();
   });
 });
 

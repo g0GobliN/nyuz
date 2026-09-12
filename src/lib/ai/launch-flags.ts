@@ -23,14 +23,24 @@ type Db = SupabaseClient<Database>;
 /* ---------------------------------------------------------------------- */
 
 /**
- * The six AI call sites plus `unknown` for rows whose provenance we cannot
- * honestly map (pre-launch rows that pre-date feature tagging).
+ * Every AI call site, plus `unknown` for rows whose provenance we cannot
+ * honestly map (pre-launch rows that pre-date feature tagging — confirmed on
+ * 2026-09-12 to be history rather than a live untagged path: the newest such
+ * row is 2026-09-04T03:42 and the first labelled one is 2026-09-04T08:10).
  *
- * Keep in step with the `ai_usage_ledger_feature_check` constraint in
- * migration 0053 and the `AiFeature` type in `src/lib/supabase/types.ts`.
+ * Keep in step with the `ai_usage_ledger_feature_check` constraint, most
+ * recently widened in migration 0078, and the `AiFeature` type in
+ * `src/lib/supabase/types.ts`.
  */
 export type AiFeature =
-  "cluster" | "analyse" | "enrich" | "translate" | "impact" | "ask" | "unknown";
+  | "cluster"
+  | "analyse"
+  | "enrich"
+  | "translate"
+  | "impact"
+  | "ask"
+  | "understand_generation"
+  | "unknown";
 
 /* ---------------------------------------------------------------------- */
 /* Flag keys                                                              */

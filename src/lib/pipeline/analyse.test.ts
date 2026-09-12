@@ -672,3 +672,37 @@ describe("routing preserves reader-facing contract", () => {
     expect(true).toBe(true);
   });
 });
+
+describe("the analysis contract without the reader article (0078)", () => {
+  it("keeps every field the rest of the pipeline consumes", () => {
+    const text = contract(false);
+    // match.ts and alerts.ts read these two off the event row; dropping them
+    // would stop every briefing and every alert, not just shorten a page.
+    expect(text).toContain('"importance"');
+    expect(text).toContain('"novelty"');
+    // The briefing card is built from these.
+    expect(text).toContain('"what_happened"');
+    expect(text).toContain('"before_state"');
+    expect(text).toContain('"after_state"');
+    expect(text).toContain('"title"');
+    expect(text).toContain('"impact"');
+  });
+
+  it("does not ask for the understand block or the reader article", () => {
+    const text = contract(false);
+    expect(text).not.toContain('"one_sentence"');
+    expect(text).not.toContain('"paragraphs"');
+    expect(text).not.toContain('"relationships"');
+    expect(text).toContain('Do not include an "understand" key');
+  });
+
+  it("still asks for it when the flag says the background pass owns it", () => {
+    const text = contract(true);
+    expect(text).toContain('"understand"');
+    expect(text).toContain('"paragraphs"');
+  });
+
+  it("is materially shorter, which is the point", () => {
+    expect(contract(false).length).toBeLessThan(contract(true).length / 2);
+  });
+});

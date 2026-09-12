@@ -11,8 +11,14 @@ import {
   type CompleteResult,
   type ModelTier,
 } from "@/lib/ai/deepseek";
-import { aiCostCeilingMicrousd, aiCostMicrousd, isDeepSeekPeak } from "@/lib/ai/cost";
+import {
+  aiCostCeilingMicrousd,
+  aiCostMicrousd,
+  isDeepSeekPeak,
+  settlementRateModel,
+} from "@/lib/ai/cost";
 import { dailyCapsMicrousd } from "@/lib/ai/launch-flags";
+import type { AiFeature } from "@/lib/supabase/types";
 import { MICROUSD_PER_USD } from "@/lib/ai/budget";
 import { loadAiRuntimeConfig, type AiRuntimeConfig } from "@/lib/ai/runtime-config";
 import {
@@ -276,10 +282,17 @@ export type RoutedOptions = {
   meterUserId?: string;
   userMonthlyTokenCap?: number;
   /**
-   * Which of the six call sites is making this call (0053). Required so the
-   * ledger can answer "where exactly did my $X go?" per feature.
+   * Which call site is making this call (0053). Required, and deliberately not
+   * optional: the ledger has to be able to answer "where exactly did my $X go?"
+   * per feature, and a default would quietly recreate the Unattributed bucket.
+   *
+   * `AiFeature` includes `'unknown'` only because rows written before 0053
+   * exist and are honestly unattributable. Excluded here rather than merely
+   * discouraged: after this redesign there must be no such thing as a live
+   * unattributed call, and a convention that says so is weaker than a type that
+   * refuses to compile.
    */
-  feature: "cluster" | "analyse" | "enrich" | "translate" | "impact" | "ask" | "probe";
+  feature: Exclude<AiFeature, "unknown">;
   eventIds?: string[];
   articleId?: string;
   promptVersion?: string;
@@ -725,21 +738,30 @@ async function settleUsage(
   // Missing usage is an unknown charge, not a zero-dollar success.
   if (usage.usageReported === false) return;
   const db = createAdminClient(opts.secrets ?? secretsDefault());
-  const cost = aiCostMicrousd({
-    provider: route.providerSlug,
-    model: usage.model,
-    promptTokens: usage.promptTokens,
-    cachedPromptTokens: usage.cachedTokens,
-    completionTokens: usage.completionTokens,
-    // A call crossing a tariff boundary is charged conservatively at peak.
-    at: isDeepSeekPeak(new Date(started)) ? new Date(started) : new Date(),
-  });
+  // Price by the reported model, falling back to the routed one when the rate
+  // card does not recognise what came back — see `settlementRateModel`.
+  const pricingModel = settlementRateModel(route.providerSlug, usage.model, route.model);
+  const cost =
+    pricingModel === null
+      ? null
+      : aiCostMicrousd({
+          provider: route.providerSlug,
+          model: pricingModel,
+          promptTokens: usage.promptTokens,
+          cachedPromptTokens: usage.cachedTokens,
+          completionTokens: usage.completionTokens,
+          // A call crossing a tariff boundary is charged conservatively at peak.
+          at: isDeepSeekPeak(new Date(started)) ? new Date(started) : new Date(),
+        });
   if (opts.feature !== "ask") {
     const { error } = await db.rpc("record_ai_attempt", {
       p_id: reservation,
       p_meta: {},
       p_usage: {
         model: usage.model,
+        // Kept separate from `model` so an alias substitution is visible in the
+        // ledger rather than inferred from a cost that looks slightly wrong.
+        priced_as: pricingModel,
         prompt_tokens: usage.promptTokens,
         completion_tokens: usage.completionTokens,
         cached_tokens: usage.cachedTokens,
@@ -750,7 +772,27 @@ async function settleUsage(
     });
     if (error) throw new Error(`recording AI usage: ${error.message}`);
   }
-  if (cost === null) throw new AiUnpricedRouteError(route.providerSlug, usage.model);
+  // Settle even when the call could not be priced.
+  //
+  // This used to throw here instead, and throwing was the worse of the two
+  // mistakes available. The provider call has already happened and already cost
+  // money by this point; refusing to settle does not un-spend it, it only leaves
+  // `reserved_tokens` standing at the pessimistic estimate — so an unpriceable
+  // model both loses the real token counts AND holds several times its true cost
+  // against the monthly ceiling until the month rolls over. `settle_ai_tokens`
+  // has always accepted a null cost and stores it as null (0053:509), which is
+  // the honest record: measured tokens, unknown price. `unpricedCalls` on the
+  // spend panel already exists to surface exactly those rows.
+  if (cost === null) {
+    await recordOps(db, "ai:settle:unpriced", "warning", {
+      reservation,
+      capability: route.capability,
+      routed_model: route.model,
+      reported_model: usage.model,
+      provider: route.providerSlug,
+      feature: opts.feature,
+    });
+  }
   const { error } = await db.rpc("settle_ai_tokens", {
     p_id: reservation,
     p_prompt_tokens: usage.promptTokens,

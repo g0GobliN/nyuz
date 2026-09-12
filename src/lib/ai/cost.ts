@@ -42,6 +42,35 @@ function isPeakProvider(provider: string): boolean {
   return PROVIDER_PEAK.has(provider);
 }
 
+/**
+ * Which model name to price a finished call by.
+ *
+ * A completion reports the model that served it, and that is normally the one
+ * that was asked for. On 2026-09-10 it stopped being: DeepSeek began echoing
+ * `deepseek-flash` for requests routed to `deepseek-v4-flash`. The rate card
+ * has never heard of the short form, so every flash call that day priced to
+ * null — 266 provider calls that were really billed and never settled, with
+ * their pessimistic reservations left standing against the monthly ceiling.
+ *
+ * So: price by what the provider said when the rate card recognises it, and
+ * fall back to the model the route actually selected when it does not. The
+ * fallback is the honest answer rather than a guess — the route is the model
+ * this app chose, requested and has a published price for, and an alias of it
+ * coming back is not a reason to lose the number.
+ *
+ * Returns null when neither name is priceable. That is a real unpriced route
+ * and the caller must not invent a cost for it.
+ */
+export function settlementRateModel(
+  provider: string,
+  reportedModel: string,
+  routedModel: string,
+): string | null {
+  if (rateFor(provider, reportedModel)) return reportedModel;
+  if (rateFor(provider, routedModel)) return routedModel;
+  return null;
+}
+
 /** DeepSeek defines peak as weekdays 01:00–04:00 and 06:00–10:00 UTC. */
 export function isDeepSeekPeak(at: Date): boolean {
   const day = at.getUTCDay();

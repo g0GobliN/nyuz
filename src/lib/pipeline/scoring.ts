@@ -43,6 +43,19 @@ function countWords(text: string): number {
 export function scoreEvent(
   articles: { title: string; excerpt: string | null; published_at: string | null }[],
   facts: ExtractedFacts,
+  /**
+   * The moment to judge freshness from. Defaults to now, which is right for the
+   * pipeline and wrong for anything replaying history.
+   *
+   * The freshness term below is worth up to two points and turns negative past
+   * 72 hours. Scoring a three-week-old event against today's clock therefore
+   * marks it "old" no matter how urgent it was when it broke — so a shadow
+   * comparison run against already-analysed events would measure the
+   * deterministic scorer against a clock the AI never saw, and report a
+   * disagreement this module did not actually have. Callers replaying history
+   * must pass the event's own `analysed_at`.
+   */
+  now: Date = new Date(),
 ): EventSignals {
   const reasons: string[] = [];
   let importance = 0;
@@ -60,12 +73,13 @@ export function scoreEvent(
     reasons.push("multiple sources");
   }
 
-  const now = Date.now();
+  const evaluatedAt = now.getTime();
   const newestTimestamp = articles.reduce((max, a) => {
     const t = a.published_at ? new Date(a.published_at).getTime() : 0;
     return t > max ? t : max;
   }, 0);
-  const hoursOld = newestTimestamp > 0 ? (now - newestTimestamp) / (1000 * 60 * 60) : Infinity;
+  const hoursOld =
+    newestTimestamp > 0 ? (evaluatedAt - newestTimestamp) / (1000 * 60 * 60) : Infinity;
 
   if (hoursOld < 6) {
     importance += 1;

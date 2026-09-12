@@ -294,26 +294,17 @@ describe("the gates that cannot be driven from a unit test", () => {
    * The behaviour it depends on — a refused or absent reservation meaning no
    * provider call — is executed for real in `budget-gates.test.ts`.
    */
-  it("refuses Ask before the ask claim and before the model call", () => {
+  it("keeps Ask disabled without a claim or provider path", () => {
     const briefing = readFileSync("src/lib/server/briefing.ts", "utf8");
-    const handler = briefing.slice(briefing.indexOf("export const askStory"));
-
-    const gate = handler.indexOf('.eq("key", "ask_nyuz_enabled")');
-    const disabled = handler.indexOf('reason: "disabled"');
-    const claim = handler.indexOf('rpc("claim_ask"');
-    const call = handler.indexOf("completeRouted(");
-
-    expect(gate).toBeGreaterThan(-1);
-    expect(disabled).toBeGreaterThan(gate);
-    expect(claim).toBeGreaterThan(disabled);
-    expect(call).toBeGreaterThan(claim);
-  });
-
-  it("refuses Ask on the flag being anything other than explicitly true", () => {
-    const briefing = readFileSync("src/lib/server/briefing.ts", "utf8");
-    // A missing flag row, a null, a database error: all of them must read as
-    // off. `!== true` is what makes that true; `=== false` would not.
-    expect(briefing).toContain("if (askFlag?.enabled !== true)");
+    const handler = briefing.slice(
+      briefing.indexOf("export const askStory"),
+      briefing.indexOf("export const", briefing.indexOf("export const askStory") + 1),
+    );
+    expect(handler).toContain('reason: "disabled"');
+    expect(handler).not.toContain('rpc("claim_ask"');
+    expect(handler).not.toContain("completeRouted");
+    expect(handler).not.toContain("ask_nyuz_enabled");
+    expect(handler).toContain(".middleware([aiRateLimit])");
   });
 
   it("checks the kill switch before writing a reservation", () => {

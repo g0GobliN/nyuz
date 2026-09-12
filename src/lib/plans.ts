@@ -75,6 +75,16 @@ export type PlanLimits = {
   customSources: number;
   retention: string;
   retentionDays: number;
+  /**
+   * Story Ask is not part of V1, so this is 0 on every tier and `askModel` is
+   * null on every tier. Both are kept rather than deleted: they are the only
+   * per-reader AI entitlement the product has ever had, and the tier table
+   * reads more honestly with an explicit zero than with the concept missing.
+   *
+   * Nothing prices off these. `askStory` returns `disabled` before it reads a
+   * plan at all, so raising one of these numbers grants nothing until the
+   * endpoint is reinstated — which is deliberate.
+   */
   asksPerDay: number;
   askModel: PlanModel | null;
   /**
@@ -171,8 +181,8 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     customSources: 5,
     retention: "90-day history",
     retentionDays: 90,
-    asksPerDay: 10,
-    askModel: "flash",
+    asksPerDay: 0,
+    askModel: null,
     digestModel: "pro",
     storyCaps: { minimal: 5, focused: 10, broad: 18, deep: 30 },
     alerts: "important",
@@ -191,8 +201,8 @@ export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
     customSources: 25,
     retention: "1-year history",
     retentionDays: 365,
-    asksPerDay: 15,
-    askModel: "pro",
+    asksPerDay: 0,
+    askModel: null,
     digestModel: "pro",
     storyCaps: { minimal: 8, focused: 16, broad: 30, deep: 50 },
     alerts: "configurable",

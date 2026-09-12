@@ -120,6 +120,7 @@ describe("operational tables are unreachable from a browser entirely", () => {
     "operating_cost_settings",
     "cluster_shadow_log",
     "source_probe_log",
+    "event_understanding",
   ];
 
   for (const table of invisible) {
@@ -186,17 +187,27 @@ describe("paid shared work cannot be bought twice", () => {
     expect(analyse).toMatch(/\.is\("analysed_at", null\)/);
   });
 
-  it("claims shared impacts before generating them", () => {
-    const digest = readFileSync("src/lib/pipeline/digest.ts", "utf8");
-    expect(digest).toContain('status: "generating"');
-    expect(digest).toContain("claimImpacts");
+  it("keeps briefing and translation paths free of provider calls", () => {
+    for (const file of ["src/lib/pipeline/digest.ts", "src/lib/pipeline/translate.ts"]) {
+      const source = readFileSync(file, "utf8");
+      expect(source).not.toMatch(/await completeRouted(?:Json)?(?:<[^>]+>)?\s*\(/);
+    }
   });
 
-  it("claims translations before generating them", () => {
-    const translate = readFileSync("src/lib/pipeline/translate.ts", "utf8");
-    expect(translate).toContain('status: "generating"');
-    // Keyed on content_version too, so a claim cannot cover the wrong text.
-    expect(translate).toContain("content_version");
+  it("claims on-demand understanding before calling the provider", () => {
+    const source = readFileSync("src/lib/server/understanding.ts", "utf8");
+    expect(source.indexOf('db.rpc("claim_event_understanding"')).toBeLessThan(
+      source.indexOf("return generate("),
+    );
+    const sql = ALL_SQL.find((f) => f.name.startsWith("0078"))?.sql ?? "";
+    expect(sql).toContain("primary key (event_id, content_version)");
+    expect(sql).toContain("for update");
+    expect(sql).toMatch(
+      /revoke all on function public\.claim_event_understanding[\s\S]*?from public, anon, authenticated/,
+    );
+    expect(sql).toMatch(
+      /grant execute on function public\.claim_event_understanding[\s\S]*?to service_role/,
+    );
   });
 
   it("serialises a reader's own concurrent custom-source adds with a lock", () => {
@@ -309,27 +320,11 @@ describe("failure is bounded, not retried forever", () => {
     expect(analyse).toContain('options.retryFailed === true ? ["pending", "failed"] : ["pending"]');
   });
 
-  it("does not reclaim a failed impact or translation on the ordinary path", () => {
-    // Only a due 'pending' row is ever taken. 'failed' is left for a deliberate
-    // retry, so an unwritable one cannot bill on every run — and 'generating'
-    // is left alone at any age, so an aged claim cannot bill a second time
-    // either. See the stale-claim invariants below.
-    for (const file of ["src/lib/pipeline/digest.ts", "src/lib/pipeline/translate.ts"]) {
-      const src = readFileSync(file, "utf8");
-      expect(src).toContain('.eq("status", "pending")');
-    }
-  });
-
-  it("resumes a crashed digest without that resuming buying anything", () => {
-    // `loadDue`/`claimDigest` DO take back a digest row left `generating`, and
-    // that is correct: generating a digest is free. Every paid step inside it —
-    // the shared impact, the translation — is claimed separately and only from
-    // `pending`, so a resumed digest re-reads finished work and skips work
-    // another worker holds. This asserts the free/paid split stays that way.
+  it("resumes a crashed digest without buying AI", () => {
     const digest = readFileSync("src/lib/pipeline/digest.ts", "utf8");
-    const claimImpacts = digest.slice(digest.indexOf("async function claimImpacts"));
-    expect(claimImpacts).toContain('.eq("status", "pending")');
-    expect(claimImpacts.slice(0, claimImpacts.indexOf("}"))).not.toContain("generating,updated_at");
+    expect(digest).toContain('.in("status", ["scheduled", "generating"])');
+    expect(digest).not.toContain("completeRouted");
+    expect(digest).toContain("{ cacheOnly: true }");
   });
 });
 

@@ -201,11 +201,49 @@ export function detectComplexity(
  * This preserves provider prefix caching while keeping the prompt
  * content identical regardless of reasoning route.
  */
-function buildAnalyseSystemPrompt(system: string, useThinContract: boolean): string {
-  const contractText = useThinContract ? thinContract() : contract();
+/**
+ * How the ledger names the contract a call used.
+ *
+ * Worth distinguishing: "did dropping the understand block actually reduce
+ * output tokens" is a question somebody will ask of `request_meta` next month,
+ * and it cannot be answered if both contracts report themselves as "full".
+ */
+function contractLabel(useThinContract: boolean, understandInAnalysis: boolean): string {
+  if (useThinContract) return "thin";
+  return understandInAnalysis ? "full" : "analysis-only";
+}
+
+function buildAnalyseSystemPrompt(
+  system: string,
+  useThinContract: boolean,
+  understandInAnalysis = true,
+): string {
+  // Three contracts, not two. `thinContract` is the pre-existing reduction for
+  // routine events; `contract(false)` is the 0078 reduction that applies to
+  // every event once on-demand Understand is live — same analytical fields,
+  // without the reader-facing prose nobody has asked for yet.
+  const contractText = useThinContract ? thinContract() : contract(understandInAnalysis);
   // The prefix is deterministic and identical for all events with the
   // same contract type. The provider can cache this prefix.
   return `${system}\n\n${contractText}`;
+}
+
+/**
+ * Whether the background pass still writes the long reader article.
+ *
+ * Defaults to TRUE on any failure or missing row. The expensive behaviour is
+ * the safe default here: a flag read that fails should not silently strip
+ * content out of the product, and the operator turning this off is making a
+ * deliberate choice they can see in the console.
+ */
+async function loadUnderstandInAnalysis(db: Db): Promise<boolean> {
+  const { data, error } = await db
+    .from("feature_flags")
+    .select("enabled")
+    .eq("key", "understand_in_analysis")
+    .maybeSingle();
+  if (error || !data) return true;
+  return data.enabled !== false;
 }
 
 /**
@@ -441,7 +479,8 @@ Write plainly. No hype, no "in a move that", no restating the headline back.`;
  * articles instead of prose about news, which is the same class of breakage as
  * deleting the JSON shape.
  */
-export function contract(): string {
+export function contract(withUnderstand = true): string {
+  if (!withUnderstand) return analysisOnlyContract();
   return `Reply with JSON only, in exactly this shape:
 
 {
@@ -546,6 +585,67 @@ expected step that has now happened; 6-8 genuinely unexpected or first of
 its kind from this player; 9-10 nobody was predicting this.
 
 ${READER_ARTICLE_CONTRACT}`;
+}
+
+/**
+ * The full analytical contract, minus the reader-facing prose (0078).
+ *
+ * This is what the background pass asks for once Understand is generated on
+ * demand. Everything the rest of the pipeline consumes is still here and still
+ * shared per event:
+ *
+ *   - `importance` and `novelty` gate `match.ts` and `alerts.ts`;
+ *   - `what_happened`, `before_state` and `after_state` are the briefing card;
+ *   - `impact` is the shared "why this matters" line;
+ *   - `topics` and `tags` route the event to readers.
+ *
+ * What is gone is the `understand` block — the internal intelligence and, far
+ * more expensively, the 250-700 word `article`. That was the bulk of the output
+ * tokens on every analysis call and the part nobody sees unless they open the
+ * story. `understanding.ts` writes it on the first open instead, once, for
+ * everybody.
+ *
+ * Deliberately NOT merged with `thinContract`: that one drops analytical depth
+ * for events that do not warrant it, which is a judgement about the event. This
+ * drops presentation for events nobody has opened, which is a judgement about
+ * demand. They compose — a routine unopened event gets the thin contract — and
+ * collapsing them would make one flag change two unrelated things.
+ */
+function analysisOnlyContract(): string {
+  return `Reply with JSON only, in exactly this shape:
+
+{
+  "title": "one neutral line naming what happened, under 100 characters",
+  "what_happened": "one 50-90 word briefing paragraph containing only unique supported facts",
+  "before_state": "what was true before this, or null if the coverage does not say",
+  "after_state": "what is true now that was not before, or null",
+  "importance": 0,
+  "novelty": 0,
+  "impact": "1-2 sentences on why this matters to someone who tracks this space, or null"
+}
+
+Do not include an "understand" key. The long reader-facing article is written
+separately, only when a reader asks for it, and anything produced here would be
+discarded.
+
+what_happened is about the event, not the coverage. Name who did what
+("OpenAI wrote to the governor opposing SB 1047", never "an article
+reported that..."). Fewer than 50 words is correct when evidence is thin.
+
+impact is shared with every reader briefed to this event: what changes for
+someone in the field generally — a constraint that shifted, a decision this
+forces — not "this matters if you use X" and not a restatement of
+what_happened.
+
+importance, 0 to 10 — how much this changes for someone in the field:
+0-2 routine (point release, blog post, talk); 3-5 worth knowing in your area
+(notable launch, funding round); 6-8 matters to the whole field (major
+release, acquisition, outage with real consequences, regulatory decision);
+9-10 changes plans. Most weeks contain nothing above 8.
+
+novelty, 0 to 10 — how new: 0-2 already known or latest of many; 3-5
+expected step that has now happened; 6-8 genuinely unexpected or first of
+its kind from this player; 9-10 nobody was predicting this.`;
 }
 
 /**
@@ -664,6 +764,12 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
   const hasDemand = await loadDemand(db, events, options);
   const outcomes: EventOutcome[] = [];
 
+  // Read once for the run, not per event, for the same reason `maxTokens` is:
+  // a console save mid-batch must not make two events of one batch answer to
+  // different contracts. Default ON, so a deployment that has not taken 0078's
+  // flag rows behaves exactly as it did before.
+  const understandInAnalysis = await loadUnderstandInAnalysis(db);
+
   // Sequential, unlike stage 3 where it is a correctness requirement. Here it is a
   // spending decision: one call at a time is one call's worth of money committed at
   // a time, and an operator watching the output can stop it.
@@ -679,6 +785,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
         demand: hasDemand,
         maxTokens: runtime.analyseMaxTokens,
         analyseThinking: runtime.analyseThinking,
+        understandInAnalysis,
       }),
     );
   }
@@ -714,6 +821,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
             demand: hasDemand,
             maxTokens: runtime.analyseMaxTokens,
             analyseThinking: runtime.analyseThinking,
+            understandInAnalysis,
           }),
         );
       }
@@ -1011,6 +1119,16 @@ type Context = {
   maxTokens: number;
   /** Whether thinking is globally enabled for analysis (0072). */
   analyseThinking: boolean;
+  /**
+   * Whether the background pass still writes the long reader article (0078).
+   *
+   * False is the cheap state and the point of the change: importance, novelty,
+   * topics and `what_happened` are still produced here, because matching,
+   * ranking and alerts all read them, but the 200-700 words of prose are left
+   * to `understanding.ts` to generate if and when a reader opens the story.
+   * True restores the pre-0078 contract exactly, without a deploy.
+   */
+  understandInAnalysis: boolean;
 };
 
 type Coverage = {
@@ -1174,7 +1292,11 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
   const route: AnalyseRoute = ctx.analyseThinking ? complexity.route : "complex-thinking";
   const thinkingEnabled = ctx.analyseThinking ? complexity.route === "complex-thinking" : true;
 
-  const systemPrompt = buildAnalyseSystemPrompt(ctx.system, useThinContract);
+  const systemPrompt = buildAnalyseSystemPrompt(
+    ctx.system,
+    useThinContract,
+    ctx.understandInAnalysis,
+  );
 
   let hasEscalated = false;
 
@@ -1188,7 +1310,7 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
       user,
       feature: "analyse",
       eventIds: [event.id],
-      promptVersion: `${ANALYSIS_PROMPT_VERSION}:${useThinContract ? "thin" : "full"}`,
+      promptVersion: `${ANALYSIS_PROMPT_VERSION}:${contractLabel(useThinContract, ctx.understandInAnalysis)}`,
       sourceCount: selectedIndices.length,
       evidenceCharacters: selectedEvidenceText.length,
       invocationReason: "demanded_unanalysed_event",
@@ -1229,7 +1351,7 @@ async function runOne(db: Db, event: Pending, ctx: Context): Promise<EventOutcom
           user,
           feature: "analyse",
           eventIds: [event.id],
-          promptVersion: `${ANALYSIS_PROMPT_VERSION}:${useThinContract ? "thin" : "full"}`,
+          promptVersion: `${ANALYSIS_PROMPT_VERSION}:${contractLabel(useThinContract, ctx.understandInAnalysis)}`,
           sourceCount: selectedIndices.length,
           evidenceCharacters: selectedEvidenceText.length,
           invocationReason: "demanded_unanalysed_event",

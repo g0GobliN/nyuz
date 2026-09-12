@@ -48,7 +48,16 @@ export type AiCapability = "cluster" | "digest" | "reason";
  * uses the `cluster` tier), and only the `feature` distinguishes the two.
  */
 export type AiFeature =
-  "probe" | "cluster" | "analyse" | "enrich" | "translate" | "impact" | "ask" | "unknown";
+  | "probe"
+  | "cluster"
+  | "analyse"
+  | "enrich"
+  | "translate"
+  | "impact"
+  | "ask"
+  /** On-demand Understand generation, the reader-triggered call (0078). */
+  | "understand_generation"
+  | "unknown";
 
 type Table<Row, Optional extends keyof Row = never> = {
   Row: Row;
@@ -373,8 +382,21 @@ export type AiUsageLedger = {
   estimated_cost_microusd: number | null;
   reserved_tokens: number;
   created_at: string;
-  /** Which of the six call sites paid for this row (0053). Pre-launch rows are 'unknown'. */
+  /** Which call site paid for this row (0053). Pre-launch rows are 'unknown'. */
   feature: AiFeature;
+  /**
+   * Per-attempt telemetry written by `record_ai_attempt` (0070): request id,
+   * attempt number, event ids, prompt version, and `observed_usage` — the token
+   * counts and model the provider actually reported.
+   *
+   * `observed_usage` is written BEFORE settlement, which is what made the
+   * 2026-09-10 alias regression recoverable: 266 calls the provider had billed
+   * but settlement had refused to price still had their real numbers here. See
+   * `scripts/settle-stranded.ts`.
+   */
+  request_meta: Json;
+  reasoning_tokens: number;
+  latency_ms: number | null;
 };
 
 export type BillingLedger = {
@@ -432,6 +454,33 @@ export type EventImpact = {
 };
 
 export type TranslationStatus = "pending" | "generating" | "complete" | "failed";
+
+export type UnderstandingStatus = "generating" | "ready" | "failed";
+
+/**
+ * One cached reader explanation, keyed by event and material version (0078).
+ * No user appears in the key: a hundred readers of a story share this row.
+ */
+export type EventUnderstanding = {
+  event_id: string;
+  /** Deterministic hash of the event's material state — see event-version.ts. */
+  content_version: string;
+  status: UnderstandingStatus;
+  /** The `EventIntelligence` block, same shape the legacy column holds. */
+  payload: Json | null;
+  model: string | null;
+  prompt_version: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  /** The `ai_usage_ledger` row that priced this generation. Joined, not copied. */
+  usage_id: string | null;
+  source_count: number;
+  attempts: number;
+  failure_reason: string | null;
+  claimed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 /**
  * A cached language view of one event's canonical English text (0029).
@@ -909,6 +958,22 @@ export type Database = {
         | "updated_at"
         | "deferred_until"
       >;
+      event_understanding: Table<
+        EventUnderstanding,
+        | "status"
+        | "payload"
+        | "model"
+        | "prompt_version"
+        | "prompt_tokens"
+        | "completion_tokens"
+        | "usage_id"
+        | "source_count"
+        | "attempts"
+        | "failure_reason"
+        | "claimed_at"
+        | "created_at"
+        | "updated_at"
+      >;
       event_translations: Table<
         EventTranslation,
         | "style_version"
@@ -983,6 +1048,9 @@ export type Database = {
         | "reserved_tokens"
         | "created_at"
         | "feature"
+        | "request_meta"
+        | "reasoning_tokens"
+        | "latency_ms"
       >;
       billing_ledger: Table<BillingLedger, "refunded_cents" | "updated_at">;
       operating_cost_settings: Table<OperatingCostSetting, "updated_by" | "updated_at">;
@@ -1419,6 +1487,22 @@ export type Database = {
       release_ai_reservation: {
         Args: { p_id: string };
         Returns: boolean;
+      };
+      /**
+       * Single-flight claim for on-demand Understand (0078). The primary key on
+       * `event_understanding` is the lock, so concurrent readers of one uncached
+       * story cannot both buy a generation.
+       *
+       * Returns 'won' | 'generating' | 'ready' | 'failed'.
+       */
+      claim_event_understanding: {
+        Args: {
+          p_event_id: string;
+          p_content_version: string;
+          p_max_attempts?: number;
+          p_stale_after?: string;
+        };
+        Returns: string;
       };
       /** Clears reservations that never settled and recorded no usage (0047). */
       void_stale_ai_reservations: {

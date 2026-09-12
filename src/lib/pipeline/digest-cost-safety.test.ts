@@ -4,15 +4,13 @@ import { FakeDb, type Row } from "@/lib/test-support/fake-db";
 /**
  * What stage 7 refuses to pay for.
  *
- * Two paid things happen inside a briefing: the shared explanation of a story
- * (`event_impacts`, Pro) and the translation of that explanation into the
- * reader's language (Flash). Both are claimed before they are bought, and one
- * of them is switched off for launch. These tests count calls.
+ * Briefing assembly reads shared analysis and cached translations. It must not
+ * buy either an impact or a translation, regardless of dormant flag state.
+ * These tests count calls at both former paid boundaries.
  *
  * The briefing itself is free, and that matters for the concurrency case: a
  * digest row left `generating` by a crashed worker IS taken back, deliberately,
- * because resuming it costs nothing — every paid step inside it is claimed
- * separately and only from `pending`.
+ * because resuming it costs nothing.
  */
 
 const NOW = new Date();
@@ -167,13 +165,13 @@ describe("story translation is off, and the briefing does not notice", () => {
     expect(db.rows("digests")[0]?.["status"]).toBe("ready");
   });
 
-  it("calls the translator when the flag is on, which is what makes that zero mean something", async () => {
+  it("does not let the retired flag restore translation generation", async () => {
     const { spy, digest } = await withDoubles();
     const db = new FakeDb(tables({ translationFlag: true }));
 
     const report = await run(db, digest);
 
-    expect(spy.translateCalls).toBe(1);
+    expect(spy.translateCalls).toBe(0);
     expect(report.generated).toBe(1);
   });
 
@@ -187,7 +185,7 @@ describe("story translation is off, and the briefing does not notice", () => {
   });
 });
 
-describe("the shared explanation is bought once, by whoever claims it", () => {
+describe("shared explanations are read, never bought by a briefing", () => {
   it("uses the explanation that already exists, without calling anything", async () => {
     const { spy, digest } = await withDoubles();
     const db = new FakeDb(tables({}));
@@ -197,15 +195,16 @@ describe("the shared explanation is bought once, by whoever claims it", () => {
     expect(spy.impactCalls).toBe(0);
   });
 
-  it("backfills a missing explanation exactly once", async () => {
+  it("derives a factual line when the shared impact is missing", async () => {
     const { spy, digest } = await withDoubles();
     const db = new FakeDb(tables({ impact: null }));
 
     await run(db, digest);
 
-    expect(spy.impactCalls).toBe(1);
-    expect(spy.features).toEqual(["impact"]);
-    expect(db.rows("event_impacts")[0]?.["status"]).toBe("complete");
+    expect(spy.impactCalls).toBe(0);
+    expect(spy.features).toEqual([]);
+    expect(db.rows("event_impacts")).toHaveLength(0);
+    expect(db.rows("digest_items")[0]?.["why_it_matters"]).toBe("");
   });
 
   it("does not buy an explanation another worker is generating", async () => {
@@ -280,7 +279,7 @@ describe("the shared explanation is bought once, by whoever claims it", () => {
     expect(spy.impactCalls).toBe(0);
   });
 
-  it("waits for a deferred explanation's retry time, then buys it", async () => {
+  it("never buys a deferred explanation, before or after its retry time", async () => {
     const early = await withDoubles();
     const notYet = new FakeDb(
       tables({
@@ -310,6 +309,7 @@ describe("the shared explanation is bought once, by whoever claims it", () => {
       }),
     );
     await run(ready, due.digest);
-    expect(due.spy.impactCalls).toBe(1);
+    expect(due.spy.impactCalls).toBe(0);
+    expect(ready.rows("event_impacts")[0]?.["status"]).toBe("pending");
   });
 });

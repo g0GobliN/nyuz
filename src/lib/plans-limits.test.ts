@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isPredefinedTopic, keepUsableTopics } from "@/lib/coverage";
 import {
-  ASK_COOLDOWN_MS,
   PLAN_LIMITS,
   PLAN_TIERS,
   allowedBreaking,
@@ -51,9 +50,9 @@ describe("PLAN_LIMITS.asksPerDay", () => {
     expect(PLAN_LIMITS.uno.asksPerDay).toBe(0);
   });
 
-  it("gives paid plans a daily cap", () => {
-    expect(PLAN_LIMITS.plura.asksPerDay).toBe(10);
-    expect(PLAN_LIMITS.omni.asksPerDay).toBe(15);
+  it("gives paid plans no Ask calls in V1", () => {
+    expect(PLAN_LIMITS.plura.asksPerDay).toBe(0);
+    expect(PLAN_LIMITS.omni.asksPerDay).toBe(0);
   });
 
   it("keeps expensive features bounded per plan", () => {
@@ -83,14 +82,14 @@ describe("PLAN_LIMITS.asksPerDay", () => {
 });
 
 describe("plan feature routing", () => {
-  it("uses Flash for Uno digests and Plura Ask", () => {
+  it("retains the Uno digest route and disables Plura Ask", () => {
     expect(digestCapabilityFor(PLAN_LIMITS.uno.digestModel)).toBe("cluster");
-    expect(askCapabilityFor(PLAN_LIMITS.plura.askModel)).toBe("cluster");
+    expect(askCapabilityFor(PLAN_LIMITS.plura.askModel)).toBeNull();
   });
 
-  it("uses Omni routes for paid digests and Omni Ask", () => {
+  it("retains the paid digest route and disables Omni Ask", () => {
     expect(digestCapabilityFor(PLAN_LIMITS.plura.digestModel)).toBe("digest");
-    expect(askCapabilityFor(PLAN_LIMITS.omni.askModel)).toBe("reason");
+    expect(askCapabilityFor(PLAN_LIMITS.omni.askModel)).toBeNull();
   });
 
   it("clamps alert settings to the active plan", () => {
@@ -121,30 +120,10 @@ describe("decideAsk", () => {
     });
   });
 
-  it("refuses once the daily cap is hit", () => {
-    expect(
-      decideAsk({
-        flagOn: true,
-        plan: "plura",
-        usedToday: PLAN_LIMITS.plura.asksPerDay,
-        lastAt: null,
-        now,
-      }),
-    ).toEqual({ ok: false, reason: "quota" });
-  });
-
-  it("enforces a cooldown between calls", () => {
-    const lastAt = new Date(now.getTime() - ASK_COOLDOWN_MS / 2);
-    expect(decideAsk({ flagOn: true, plan: "plura", usedToday: 0, lastAt, now })).toEqual({
+  it.each(["plura", "omni"] as const)("refuses %s even with the retired flag enabled", (plan) => {
+    expect(decideAsk({ flagOn: true, plan, usedToday: 0, lastAt: null, now })).toEqual({
       ok: false,
-      reason: "cooldown",
-    });
-  });
-
-  it("allows a Plura call under the cap after the cooldown", () => {
-    const lastAt = new Date(now.getTime() - ASK_COOLDOWN_MS - 1);
-    expect(decideAsk({ flagOn: true, plan: "plura", usedToday: 0, lastAt, now })).toEqual({
-      ok: true,
+      reason: "plan",
     });
   });
 });

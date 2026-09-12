@@ -1,4 +1,13 @@
-export type PipelineOperation = "cluster" | "analyse" | "enrich" | "translate" | "impact" | "probe";
+/**
+ * The operations that spend money and therefore have per-call bounds.
+ *
+ * Deliberately not the same type as `AiFeature`: that one includes `unknown`,
+ * which exists only to describe pre-0053 ledger rows and can never be a live
+ * call. Anything callable must appear in `REQUEST_LIMITS` below, and the
+ * compiler enforces that by making this a `Record` over exactly this union.
+ */
+export type PipelineOperation =
+  "cluster" | "analyse" | "enrich" | "translate" | "impact" | "understand_generation" | "probe";
 
 // Estimates, not DeepSeek tokenization. Non-ASCII is counted by UTF-8 bytes
 // because dividing CJK characters by an English ratio undercounts badly.
@@ -28,6 +37,10 @@ export const REQUEST_LIMITS: Record<PipelineOperation, { normal: number; hard: n
   enrich: { normal: 9000, hard: 24000 },
   translate: { normal: 8000, hard: 16000 },
   impact: { normal: 6500, hard: 12000 },
+  // Reader-triggered, and the one call a person is waiting on. Bounded below
+  // analyse because its contract is shorter and its evidence is capped at
+  // MAX_EVIDENCE_ARTICLES in understanding.ts before it ever reaches here.
+  understand_generation: { normal: 8000, hard: 16000 },
 };
 
 export class AiRequestBudgetError extends Error {}

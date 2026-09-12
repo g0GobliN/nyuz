@@ -5,21 +5,17 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { humanError } from "@/lib/errors";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard/shell";
 import { StoryArticle } from "@/components/dashboard/story-article";
-import { LogoLoader, PanelLoading } from "@/components/loading";
-import { Button } from "@/components/kit";
+import { PanelLoading } from "@/components/loading";
 import { useFeedback } from "@/lib/feedback-store";
 import { useReadTracking } from "@/lib/use-engagement";
-import { usePlan } from "@/lib/plan-state";
 import type { QueueItem, ReadingQueue } from "@/lib/reading-queue";
 import { asQueueSource, useReadingQueue, type QueueSource } from "@/lib/use-reading-queue";
-import { loadStory, askStory } from "@/lib/server/briefing";
-import { getLaunchFlags } from "@/lib/server/settings";
+import { loadStory } from "@/lib/server/briefing";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/story/$id")({
@@ -32,12 +28,6 @@ export const Route = createFileRoute("/dashboard/story/$id")({
     meta: [{ title: "nyuz" }],
   }),
 });
-
-const PROMPTS = [
-  "Explain this like I'm a beginner.",
-  "How does this affect developers?",
-  "What should I do about it this week?",
-];
 
 /**
  * The reading column and its quiet source rail, shared by the article and by
@@ -77,7 +67,7 @@ function StoryDetail() {
   const { id } = Route.useParams();
   const storyQ = useQuery({
     queryKey: ["briefing", "story", id],
-    queryFn: () => loadStory({ data: { id } }),
+    queryFn: () => loadStory({ data: { id, prefetch: false } }),
     staleTime: 60_000,
   });
   const story = storyQ.data;
@@ -93,7 +83,6 @@ function StoryDetail() {
     reachedEnd.current = true;
   }, []);
 
-  const { asksPerDay, loading: planLoading } = usePlan();
   const { state, vote, toggleSaved } = useFeedback();
   const saved = story ? state.saved.includes(story.id) : false;
   const current = story ? state.votes[story.id] : undefined;
@@ -119,20 +108,15 @@ function StoryDetail() {
   useEffect(() => {
     if (!nextId) return;
     void queryClient.prefetchQuery({
-      queryKey: ["briefing", "story", nextId],
-      queryFn: () => loadStory({ data: { id: nextId } }),
+      queryKey: ["briefing", "story-preview", nextId],
+      // Speculative: the reader may never reach this story, so it must not
+      // trigger on-demand Understand generation (0078).
+      queryFn: () => loadStory({ data: { id: nextId, prefetch: true } }),
       staleTime: 60_000,
     });
   }, [queryClient, nextId]);
 
   useStoryShortcuts(queue, open);
-
-  const flagsQ = useQuery({
-    queryKey: ["launch", "flags"],
-    queryFn: () => getLaunchFlags(),
-    staleTime: 60_000,
-  });
-  const askEnabled = flagsQ.data?.askNyuz ?? false;
 
   if (storyQ.isLoading) {
     return (
@@ -171,9 +155,7 @@ function StoryDetail() {
 
         <div className={cn(READING_GRID, "mt-14")}>
           <div className="min-w-0 space-y-10">
-            {askEnabled && !planLoading && asksPerDay > 0 ? (
-              <AskPanel eventId={story.id} dailyLimit={asksPerDay} />
-            ) : null}
+            {/* Story Ask is not part of V1 — see askStory in server/briefing.ts. */}
             <QueuePager queue={queue} onOpen={open} />
           </div>
         </div>
@@ -337,96 +319,5 @@ function Key({ children }: { children: string }) {
     <kbd className="rounded border border-border px-1.5 py-0.5 font-sans text-[11px]">
       {children}
     </kbd>
-  );
-}
-
-function AskPanel({ eventId, dailyLimit }: { eventId: string; dailyLimit: number }) {
-  const [q, setQ] = useState("");
-  const [asking, setAsking] = useState(false);
-  const [answered, setAnswered] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const ask = async (prompt: string) => {
-    if (!prompt.trim() || asking) return;
-    setQ(prompt);
-    setAsking(true);
-    setAnswered(null);
-    setError(null);
-    try {
-      const result = await askStory({ data: { eventId, question: prompt } });
-      if (result.ok) setAnswered(result.answer);
-      else setError(result.detail);
-    } catch (err) {
-      setError(humanError(err, "The explanation could not be generated."));
-    } finally {
-      setAsking(false);
-    }
-  };
-
-  return (
-    <section id="ask" className="scroll-mt-24 border-t border-hairline pt-7">
-      <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-        <Sparkles className="h-3.5 w-3.5" /> Ask nyuz
-      </h2>
-      <p className="mt-3 text-[13.5px] leading-relaxed text-muted-foreground">
-        Ask anything about this event. Coding help and unrelated questions are refused. Your plan
-        includes up to {dailyLimit} questions per day.
-      </p>
-      <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-        Your question and this event are sent to our AI provider. Do not include personal or
-        confidential information.
-      </p>
-
-      <div className="mt-5 flex flex-wrap gap-2">
-        {PROMPTS.map((p) => (
-          <button
-            key={p}
-            onClick={() => void ask(p)}
-            className="rounded-full border border-border bg-surface px-3.5 py-1.5 text-[12.5px] transition-colors hover:border-foreground/25"
-          >
-            {p}
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-4 flex items-center gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void ask(q)}
-          placeholder="A question about this event"
-          className="h-11 flex-1 rounded-full border border-input bg-surface px-4 text-[16px] outline-none placeholder:text-muted-foreground focus:border-signal md:text-[14px]"
-        />
-        <Button size="sm" onClick={() => void ask(q)} disabled={asking || !q.trim()}>
-          {asking ? <LogoLoader className="h-4 w-4" tone="current" label="Asking" /> : "Ask"}
-        </Button>
-      </div>
-
-      {asking ? (
-        <div className="mt-5 space-y-2">
-          {[100, 92, 68].map((w) => (
-            <span
-              key={w}
-              className="block h-3 animate-pulse rounded-full bg-muted"
-              style={{ width: `${w}%` }}
-            />
-          ))}
-        </div>
-      ) : null}
-
-      {error ? (
-        <p className="mt-5 text-[13.5px] leading-relaxed text-muted-foreground">{error}</p>
-      ) : null}
-
-      {answered ? (
-        <div className="mt-5 space-y-4">
-          {answered.split(/\n\n+/).map((graf) => (
-            <p key={graf.slice(0, 48)} className="text-[14.5px] leading-relaxed">
-              {graf}
-            </p>
-          ))}
-        </div>
-      ) : null}
-    </section>
   );
 }
