@@ -1,3 +1,4 @@
+vi.mock("../device-install", () => ({ installId: () => "00000000-0000-4000-8000-000000000001" }));
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 const savePushSubscription = vi.fn();
@@ -69,7 +70,11 @@ describe("enablePush", () => {
     stubIosStandalone();
     await expect(enablePush(KEY)).resolves.toEqual({ ok: true });
     expect(savePushSubscription).toHaveBeenCalledWith({
-      data: { endpoint: "https://push.example/abc", keys: { p256dh: "p", auth: "a" } },
+      data: {
+        installId: "00000000-0000-4000-8000-000000000001",
+        endpoint: "https://push.example/abc",
+        keys: { p256dh: "p", auth: "a" },
+      },
     });
   });
 

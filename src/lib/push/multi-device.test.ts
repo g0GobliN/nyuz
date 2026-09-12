@@ -1,3 +1,4 @@
+vi.mock("../device-install", () => ({ installId: () => "00000000-0000-4000-8000-000000000001" }));
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -193,7 +194,11 @@ describe("enabling registers this browser without touching the others", () => {
 
     // A save, never a delete: registering here says nothing about the desktop.
     expect(savePushSubscription).toHaveBeenCalledWith({
-      data: { endpoint: PHONE, keys: { p256dh: "p", auth: "a" } },
+      data: {
+        installId: "00000000-0000-4000-8000-000000000001",
+        endpoint: PHONE,
+        keys: { p256dh: "p", auth: "a" },
+      },
     });
     expect(deletePushSubscription).not.toHaveBeenCalled();
   });
@@ -204,7 +209,11 @@ describe("enabling registers this browser without touching the others", () => {
     stubBrowser({ held: null, onSubscribe: () => subscription(PC) });
     await expect(enablePush(KEY)).resolves.toEqual({ ok: true });
     expect(savePushSubscription).toHaveBeenCalledWith({
-      data: { endpoint: PC, keys: { p256dh: "p", auth: "a" } },
+      data: {
+        installId: "00000000-0000-4000-8000-000000000001",
+        endpoint: PC,
+        keys: { p256dh: "p", auth: "a" },
+      },
     });
     expect(deletePushSubscription).not.toHaveBeenCalled();
   });
@@ -270,7 +279,11 @@ describe("a disabled device stays disabled", () => {
     await refreshPush();
 
     expect(savePushSubscription).toHaveBeenCalledWith({
-      data: { endpoint: PC, keys: { p256dh: "p", auth: "a" } },
+      data: {
+        installId: "00000000-0000-4000-8000-000000000001",
+        endpoint: PC,
+        keys: { p256dh: "p", auth: "a" },
+      },
     });
   });
 });
@@ -281,7 +294,7 @@ describe("the account stores one row per device", () => {
   it("keys rows on the endpoint, so a second device cannot replace the first", () => {
     // `onConflict: "user_id"` here would be the same bug in the database:
     // the phone's save would overwrite the desktop's row.
-    expect(account).toContain('onConflict: "endpoint"');
+    expect(account).toContain('onConflict: "user_id,install_id"');
     expect(account).not.toMatch(/onConflict:\s*"user_id"/);
 
     const sql = readFileSync("supabase/migrations/0014_push.sql", "utf8");

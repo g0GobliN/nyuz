@@ -1,3 +1,4 @@
+import { installId } from "../device-install";
 import { deletePushSubscription, savePushSubscription } from "@/lib/server/push/account";
 
 export function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -266,12 +267,14 @@ export async function enablePush(publicKey: string): Promise<EnablePushResult> {
   }
 
   try {
-    await savePushSubscription({ data: { endpoint, keys: { p256dh, auth } } });
+    await savePushSubscription({
+      data: { installId: installId(), endpoint, keys: { p256dh, auth } },
+    });
   } catch (error) {
     return {
       ok: false,
       reason: "save-failed",
-      error: "This device was registered but could not be saved. Try again in a moment.",
+      error: error instanceof Error ? error.message : "Could not register this device.",
       detail: String(error),
     };
   }
@@ -348,5 +351,7 @@ export async function refreshPush(): Promise<void> {
   const p256dh = json.keys?.["p256dh"] ?? (p256dhBuf ? keyB64(p256dhBuf) : "");
   const auth = json.keys?.["auth"] ?? (authBuf ? keyB64(authBuf) : "");
   if (!endpoint || !p256dh || !auth) return;
-  await savePushSubscription({ data: { endpoint, keys: { p256dh, auth } } });
+  await savePushSubscription({
+    data: { installId: installId(), endpoint, keys: { p256dh, auth } },
+  });
 }

@@ -1,9 +1,11 @@
+import { PlanAccessError } from "../plan-access";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { signedInOnly } from "@/lib/server/guard";
 import { pushConfigured, vapidPublicKey } from "./send";
 
 const subInput = z.object({
+  installId: z.string().uuid(),
   endpoint: z.string().url().max(2048),
   keys: z.object({
     p256dh: z.string().min(1).max(256),
@@ -46,8 +48,11 @@ export const getPushStatus = createServerFn({ method: "GET" })
 /**
  * Adds this device's endpoint to the account, leaving every other device be.
  *
- * The upsert conflicts on `endpoint`, not on `user_id`: one row per browser,
- * so a phone registering does not overwrite the desktop that registered first.
+ * The upsert conflicts on `(user_id, install_id)`, not on `user_id` alone: one
+ * row per browser, so a phone registering does not overwrite the desktop that
+ * registered first. Keying on the stable install id rather than the endpoint
+ * means a browser that rotates its push subscription updates its own row
+ * instead of inserting a second one.
  */
 export const savePushSubscription = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
@@ -56,16 +61,22 @@ export const savePushSubscription = createServerFn({ method: "POST" })
     if (!pushConfigured()) {
       return { configured: false, publicKey: null, count: 0 };
     }
+    const { data: registered, error: registrationError } = await context.actor.db.rpc(
+      "register_device",
+      { p_user_id: context.actor.id, p_install_id: data.installId, p_endpoint: data.endpoint },
+    );
+    if (registrationError) throw new PlanAccessError(registrationError.message);
     const { error } = await context.actor.db.from("push_subscriptions").upsert(
       {
         user_id: context.actor.id,
+        install_id: registered,
         endpoint: data.endpoint,
         p256dh: data.keys.p256dh,
         auth: data.keys.auth,
       },
-      { onConflict: "endpoint" },
+      { onConflict: "user_id,install_id" },
     );
-    if (error) throw new Error(error.message);
+    if (error) throw new PlanAccessError(error.message);
     const { count } = await context.actor.db
       .from("push_subscriptions")
       .select("id", { count: "exact", head: true })

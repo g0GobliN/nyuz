@@ -26,13 +26,13 @@ describe("push subscription registration is idempotent", () => {
     expect(sql).toMatch(/endpoint\s+text\s+unique\s+not\s+null/);
   });
 
-  it("upserts on that endpoint instead of inserting", () => {
+  it("upserts on the install id instead of inserting", () => {
     // Re-registering the same browser must land on the same row. `refreshPush`
     // fires on every dashboard mount, so this is the difference between one
     // row per device and one row per page view.
     const account = readFileSync("src/lib/server/push/account.ts", "utf8");
     expect(account).toContain(".upsert(");
-    expect(account).toContain('onConflict: "endpoint"');
+    expect(account).toContain('onConflict: "user_id,install_id"');
     expect(account).not.toMatch(/from\("push_subscriptions"\)\s*\.insert\(/);
   });
 
