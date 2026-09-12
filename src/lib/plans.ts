@@ -1,3 +1,5 @@
+import { LAUNCH_PLANS } from "./launch-plans";
+export { LAUNCH_PLANS, STANDARD_DELIVERY_TIME } from "./launch-plans";
 import type { PlanTier } from "@/lib/supabase/types";
 
 /**
@@ -36,9 +38,9 @@ import type { PlanTier } from "@/lib/supabase/types";
  * deliberately not here: that section says not to expose it at launch.
  */
 export const DEFAULT_PLAN_PRICES: Record<PlanTier, number> = {
-  uno: 0,
-  plura: 14.99,
-  omni: 29.99,
+  uno: LAUNCH_PLANS.uno.monthly,
+  plura: LAUNCH_PLANS.plura.monthly,
+  omni: LAUNCH_PLANS.omni.monthly,
 };
 
 /**
@@ -49,8 +51,8 @@ export const DEFAULT_PLAN_PRICES: Record<PlanTier, number> = {
  * fixed claim, so changing them here changes the copy with them.
  */
 export const DEFAULT_ANNUAL_PRICES: Record<Exclude<PlanTier, "uno">, number> = {
-  plura: 149.9,
-  omni: 299.9,
+  plura: LAUNCH_PLANS.plura.annual,
+  omni: LAUNCH_PLANS.omni.annual,
 };
 
 /** "$7.00" — the same two-decimal form Stripe shows. */
@@ -65,6 +67,16 @@ export type PlanModel = "flash" | "pro";
 export type AlertAccess = "none" | "important" | "configurable";
 
 export type PlanLimits = {
+  monthly: number;
+  annual: number;
+  storiesPerBriefing: number;
+  briefingsPerDay: number;
+  customDeliveryTime: boolean;
+  devices: number;
+  email: boolean;
+  push: boolean;
+  telegram: boolean;
+  notificationControl: "basic" | "standard" | "advanced";
   topics: number;
   prioritySources: number;
   /**
@@ -126,9 +138,6 @@ export type PlanLimits = {
    * archive are separate things a plan sells, and the moment they share one
    * number, changing either means changing both.
    *
-   * Uno is 0 because Uno has no breaking alerts at all, so there is no history
-   * to keep — not 7, which would imply a week of alerts nobody ever received.
-   *
    * INVARIANT: this must stay <= `retentionDays` for every plan.
    * `purge_expired_digests` deletes alerts and briefings alike at the BRIEFING
    * window, so a longer alert window would promise history the daily purge then
@@ -150,64 +159,62 @@ export type PlanLimits = {
  * somebody could pick eight topics on the Uno plan and not discover until they
  * opened billing that five of them were inert.
  *
- * `Infinity` rather than a large number or null: it compares correctly against a
- * count without any caller special-casing "unlimited", and it formats to
- * something obviously wrong if one ever forgets to.
+ * Every launch capability has a finite ceiling.
  */
 export const PLAN_LIMITS: Record<PlanTier, PlanLimits> = {
   uno: {
-    topics: 3,
-    prioritySources: 3,
+    ...LAUNCH_PLANS.uno,
     // Zero on purpose (plan2 §63): a free reader consumes the already-active
     // shared network. Adding a source creates a new crawler, which is the one
     // thing free growth must not be able to do.
-    customSources: 0,
     retention: "7-day history",
-    retentionDays: 7,
     asksPerDay: 0,
     askModel: null,
     digestModel: "flash",
-    storyCaps: { minimal: 3, focused: 6, broad: 10, deep: 18 },
-    alerts: "none",
-    alertDailyCap: 0,
-    alertRetentionDays: 0,
+    storyCaps: {
+      minimal: LAUNCH_PLANS.uno.storiesPerBriefing,
+      focused: LAUNCH_PLANS.uno.storiesPerBriefing,
+      broad: LAUNCH_PLANS.uno.storiesPerBriefing,
+      deep: LAUNCH_PLANS.uno.storiesPerBriefing,
+    },
+    alerts: "important",
+    alertRetentionDays: LAUNCH_PLANS.uno.retentionDays,
     inactivePauseDays: 30,
     // Reduced to 50K tokens for student budget. 400K per free user could become expensive.
     monthlyAiTokenCap: 50_000,
   },
   plura: {
-    topics: 15,
-    prioritySources: 15,
-    customSources: 5,
+    ...LAUNCH_PLANS.plura,
     retention: "90-day history",
-    retentionDays: 90,
     asksPerDay: 0,
     askModel: null,
     digestModel: "pro",
-    storyCaps: { minimal: 5, focused: 10, broad: 18, deep: 30 },
+    storyCaps: {
+      minimal: LAUNCH_PLANS.plura.storiesPerBriefing,
+      focused: LAUNCH_PLANS.plura.storiesPerBriefing,
+      broad: LAUNCH_PLANS.plura.storiesPerBriefing,
+      deep: LAUNCH_PLANS.plura.storiesPerBriefing,
+    },
     alerts: "important",
-    alertDailyCap: 10,
-    alertRetentionDays: 90,
+    alertRetentionDays: LAUNCH_PLANS.plura.retentionDays,
     inactivePauseDays: null,
     // Reduced for student budget. Increase after covering costs with paid users.
     monthlyAiTokenCap: 200_000,
   },
   omni: {
-    topics: Infinity,
-    prioritySources: Infinity,
-    // Finite where topics are not: each one is a real crawler on a schedule,
-    // so "unlimited" here would be an unbounded infrastructure commitment
-    // rather than a generous row limit (plan2 §18 — all tiers stay bounded).
-    customSources: 25,
+    ...LAUNCH_PLANS.omni,
     retention: "1-year history",
-    retentionDays: 365,
     asksPerDay: 0,
     askModel: null,
     digestModel: "pro",
-    storyCaps: { minimal: 8, focused: 16, broad: 30, deep: 50 },
+    storyCaps: {
+      minimal: LAUNCH_PLANS.omni.storiesPerBriefing,
+      focused: LAUNCH_PLANS.omni.storiesPerBriefing,
+      broad: LAUNCH_PLANS.omni.storiesPerBriefing,
+      deep: LAUNCH_PLANS.omni.storiesPerBriefing,
+    },
     alerts: "configurable",
-    alertDailyCap: 25,
-    alertRetentionDays: 365,
+    alertRetentionDays: LAUNCH_PLANS.omni.retentionDays,
     inactivePauseDays: null,
     // Reduced for student budget. Increase after covering costs with paid users.
     monthlyAiTokenCap: 500_000,
@@ -275,9 +282,9 @@ export function clipLabels<T>(labels: T[], limit: number): T[] {
   return labels.slice(0, Math.max(0, limit));
 }
 
-/** "3" or "unlimited" — never the literal Infinity. */
+/** Display a finite plan limit. */
 export function formatTopicLimit(limit: number): string {
-  return Number.isFinite(limit) ? String(limit) : "unlimited";
+  return String(limit);
 }
 
 /** The next plan up, or null at the top. What an upgrade prompt offers. */

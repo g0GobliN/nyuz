@@ -40,8 +40,8 @@ describe("clipLabels", () => {
     expect(clipLabels(["a", "b", "c", "d"], 3)).toEqual(["a", "b", "c"]);
   });
 
-  it("does not clip an unlimited plan", () => {
-    expect(clipLabels(["a", "b", "c"], Infinity)).toEqual(["a", "b", "c"]);
+  it("preserves a list shorter than its cap", () => {
+    expect(clipLabels(["a", "b", "c"], 30)).toEqual(["a", "b", "c"]);
   });
 });
 
@@ -56,19 +56,19 @@ describe("PLAN_LIMITS.asksPerDay", () => {
   });
 
   it("keeps expensive features bounded per plan", () => {
-    expect(PLAN_LIMITS.uno.storyCaps.deep).toBe(18);
-    expect(PLAN_LIMITS.plura.storyCaps.deep).toBe(30);
-    expect(PLAN_LIMITS.omni.storyCaps.deep).toBe(50);
-    expect(PLAN_LIMITS.uno.alerts).toBe("none");
+    expect(PLAN_LIMITS.uno.storyCaps.deep).toBe(5);
+    expect(PLAN_LIMITS.plura.storyCaps.deep).toBe(15);
+    expect(PLAN_LIMITS.omni.storyCaps.deep).toBe(25);
+    expect(PLAN_LIMITS.uno.alerts).toBe("important");
   });
 
   it("caps alerts per day, generously, on one window for every plan", () => {
     // Ceilings, not targets. Alerts reuse the shared event analysis and cost no
     // AI, so these exist to bound a bad day rather than to protect a budget —
     // what keeps Plura quiet is its importance floor, not this number.
-    expect(PLAN_LIMITS.uno.alertDailyCap).toBe(0);
-    expect(PLAN_LIMITS.plura.alertDailyCap).toBe(10);
-    expect(PLAN_LIMITS.omni.alertDailyCap).toBe(25);
+    expect(PLAN_LIMITS.uno.alertDailyCap).toBe(1);
+    expect(PLAN_LIMITS.plura.alertDailyCap).toBe(5);
+    expect(PLAN_LIMITS.omni.alertDailyCap).toBe(12);
   });
 
   it("differentiates Omni by sensitivity rather than by starving Plura", () => {
@@ -93,7 +93,7 @@ describe("plan feature routing", () => {
   });
 
   it("clamps alert settings to the active plan", () => {
-    expect(allowedBreaking("uno", "everything")).toBe("off");
+    expect(allowedBreaking("uno", "everything")).toBe("important");
     expect(allowedBreaking("plura", "everything")).toBe("important");
     expect(allowedBreaking("omni", "everything")).toBe("everything");
   });
@@ -129,18 +129,18 @@ describe("decideAsk", () => {
 });
 
 describe("alert retention", () => {
-  it("entitles nothing on uno, ninety days on plura, a year on omni", () => {
-    expect(PLAN_LIMITS.uno.alertRetentionDays).toBe(0);
+  it("entitles seven days on uno, ninety days on plura, a year on omni", () => {
+    expect(PLAN_LIMITS.uno.alertRetentionDays).toBe(7);
     expect(PLAN_LIMITS.plura.alertRetentionDays).toBe(90);
     expect(PLAN_LIMITS.omni.alertRetentionDays).toBe(365);
   });
 
-  it("gives uno no alert history rather than a week of it", () => {
+  it("gives Uno a week of important alert history", () => {
     // Uno has no breaking alerts at all — `claim_alert` returns 'plan' before
     // anything is written — so borrowing the seven-day briefing window would
     // advertise a week of alerts nobody ever received.
-    expect(PLAN_LIMITS.uno.alerts).toBe("none");
-    expect(PLAN_LIMITS.uno.alertRetentionDays).toBe(0);
+    expect(PLAN_LIMITS.uno.alerts).toBe("important");
+    expect(PLAN_LIMITS.uno.alertRetentionDays).toBe(7);
   });
 
   it("never promises alert history the purge would delete", () => {

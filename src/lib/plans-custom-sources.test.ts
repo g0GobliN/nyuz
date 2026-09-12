@@ -29,30 +29,25 @@ describe("custom source entitlements", () => {
 
   it("gives paid plans the caps plan2 §62 specifies", () => {
     expect(PLAN_LIMITS.plura.customSources).toBe(5);
-    expect(PLAN_LIMITS.omni.customSources).toBe(25);
+    expect(PLAN_LIMITS.omni.customSources).toBe(15);
   });
 
-  it("keeps every tier finite, unlike topics", () => {
+  it("keeps every tier finite, including topics", () => {
     // Each custom source is a real crawler on a schedule. "Unlimited" here
     // would be an unbounded infrastructure commitment rather than a generous
     // row limit — plan2 §18, all tiers stay bounded.
     for (const tier of PLAN_TIERS) {
       expect(Number.isFinite(PLAN_LIMITS[tier].customSources)).toBe(true);
     }
-    expect(PLAN_LIMITS.omni.topics).toBe(Infinity);
+    expect(PLAN_LIMITS.omni.topics).toBe(30);
   });
 
   it("matches the caps the database actually enforces", () => {
     // Reads the migration rather than trusting a comment in it. If somebody
     // changes one side, this fails — which is the whole point.
-    const claim = MIGRATION.slice(
-      MIGRATION.indexOf("cap := case"),
-      MIGRATION.indexOf("end;", MIGRATION.indexOf("cap := case")),
-    );
-
-    expect(claim).toContain(`when 'omni'      then ${PLAN_LIMITS.omni.customSources}`);
-    expect(claim).toContain(`when 'plura' then ${PLAN_LIMITS.plura.customSources}`);
-    expect(claim).toContain(`else ${PLAN_LIMITS.uno.customSources}`);
+    const sql = readFileSync("supabase/migrations/0081_launch_plan_values.sql", "utf8");
+    for (const tier of PLAN_TIERS)
+      expect(sql).toContain(`"customSources":${PLAN_LIMITS[tier].customSources}`);
   });
 
   it("treats a missing subscription row as uno in the database, not as unlimited", () => {
