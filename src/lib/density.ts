@@ -73,8 +73,8 @@ const DEEP: DensityLevel = {
   max: 101,
   label: "Deep",
   detail: "Everything with a plausible claim on your attention.",
-  count: "12–18",
-  cap: 18,
+  count: `Up to ${PLAN_LIMITS.uno.storiesPerBriefing}`,
+  cap: PLAN_LIMITS.uno.storiesPerBriefing,
   threshold: 0,
 };
 
@@ -84,8 +84,8 @@ export const LEVELS: DensityLevel[] = [
     max: 20,
     label: "Minimal",
     detail: "Only the things you would regret missing.",
-    count: "2–3",
-    cap: 3,
+    count: `Up to ${PLAN_LIMITS.uno.storiesPerBriefing}`,
+    cap: PLAN_LIMITS.uno.storiesPerBriefing,
     threshold: 6,
   },
   {
@@ -93,8 +93,8 @@ export const LEVELS: DensityLevel[] = [
     max: 45,
     label: "Focused",
     detail: "Clear developments in the areas you track.",
-    count: "4–6",
-    cap: 6,
+    count: `Up to ${PLAN_LIMITS.uno.storiesPerBriefing}`,
+    cap: PLAN_LIMITS.uno.storiesPerBriefing,
     threshold: 3,
   },
   {
@@ -102,8 +102,8 @@ export const LEVELS: DensityLevel[] = [
     max: 70,
     label: "Broad",
     detail: "Adds context and adjacent industry moves.",
-    count: "7–10",
-    cap: 10,
+    count: `Up to ${PLAN_LIMITS.uno.storiesPerBriefing}`,
+    cap: PLAN_LIMITS.uno.storiesPerBriefing,
     threshold: 1,
   },
   DEEP,

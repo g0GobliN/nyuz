@@ -217,9 +217,13 @@ function tables(over: { impact?: Row | null; digest?: Row } = {}): Record<string
     subscriptions: [{ user_id: "reader-1", plan: "uno" }],
     profiles: [{ id: "reader-1", email: "reader@example.test", name: "Reader" }],
     telegram_accounts: [],
+    registered_devices: [
+      { user_id: "reader-1", install_id: "install-1", first_seen: "2026-01-01" },
+    ],
     push_subscriptions: [
       {
         id: "device-1",
+        install_id: "install-1",
         user_id: "reader-1",
         endpoint: "https://push.example/device-1",
         p256dh: "key",

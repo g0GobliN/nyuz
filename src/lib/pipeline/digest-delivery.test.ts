@@ -62,9 +62,13 @@ describe("scheduled delivery isolation", () => {
           },
         ],
         articles: [],
+        registered_devices: [
+          { user_id: "reader-1", install_id: "install-1", first_seen: "2026-01-01" },
+        ],
         push_subscriptions: [
           {
             id: "device-1",
+            install_id: "install-1",
             user_id: "reader-1",
             endpoint: "https://push.example/device-1",
             p256dh: "key",

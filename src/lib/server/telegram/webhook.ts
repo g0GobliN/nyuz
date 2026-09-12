@@ -1,3 +1,4 @@
+import { PLAN_LIMITS } from "../../plans";
 import { createAdminClient, type ServerEnv } from "@/lib/supabase/admin";
 import { parseStartCommand } from "@/lib/telegram/format";
 import {
@@ -73,6 +74,13 @@ export async function handleTelegramWebhook(
     return new Response("ok");
   }
 
+  const { data: subscription, error: planError } = await db
+    .from("subscriptions")
+    .select("plan")
+    .eq("user_id", row.user_id)
+    .maybeSingle();
+  if (planError) return new Response("Plan unavailable", { status: 503 });
+  if (!PLAN_LIMITS[subscription?.plan ?? "uno"].telegram) return new Response("ok");
   await db.from("telegram_accounts").update({ chat_id: null }).eq("chat_id", chat);
   await db
     .from("telegram_accounts")

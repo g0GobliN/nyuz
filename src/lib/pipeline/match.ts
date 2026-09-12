@@ -729,10 +729,12 @@ export async function loadReaders(
             label: topic.label,
             kind: topic.kind,
             terms: topic.terms,
-            importance: f.importance,
+            importance:
+              PLAN_LIMITS[plan].notificationControl === "basic" ? "notable" : f.importance,
             weight: f.weight,
-            keywords: f.keywords,
-            excludeKeywords: f.exclude_keywords,
+            keywords: PLAN_LIMITS[plan].notificationControl === "advanced" ? f.keywords : [],
+            excludeKeywords:
+              PLAN_LIMITS[plan].notificationControl === "advanced" ? f.exclude_keywords : [],
           },
         ];
       }),

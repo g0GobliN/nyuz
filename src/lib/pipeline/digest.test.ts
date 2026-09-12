@@ -38,9 +38,9 @@ function match(
 
 describe("selectItems", () => {
   it("uses the agreed per-plan density caps", () => {
-    expect(capFor(100, "uno")).toBe(18);
-    expect(capFor(100, "plura")).toBe(30);
-    expect(capFor(100, "omni")).toBe(50);
+    expect(capFor(100, "uno")).toBe(5);
+    expect(capFor(100, "plura")).toBe(15);
+    expect(capFor(100, "omni")).toBe(25);
   });
   it("keeps the most relevant stories up to the density cap", () => {
     const picked = selectItems(

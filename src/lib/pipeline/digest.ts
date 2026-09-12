@@ -1,3 +1,5 @@
+import { PLAN_LIMITS, STANDARD_DELIVERY_TIME } from "../plans";
+import { alertDeliveryAllowed } from "./alert-entitlement";
 /**
  * Stage 7 — building a briefing, then sending it.
  *
@@ -403,18 +405,29 @@ async function scheduleUpcoming(db: Db, now: Date, options: DigestOptions): Prom
   if (error) throw new Error(`reading notification_preferences: ${error.message}`);
 
   const rows = (data ?? []) as PrefRow[];
+  if (rows.length === 0) return 0;
+  const { data: subscriptions, error: planError } = await db
+    .from("subscriptions")
+    .select("user_id, plan")
+    .in(
+      "user_id",
+      rows.map((row) => row.user_id),
+    );
+  if (planError) throw new Error(`Reading schedule plans: ${planError.message}`);
+  const plans = new Map((subscriptions ?? []).map((row) => [row.user_id, row.plan]));
   const scheduled: { user_id: string; scheduled_for: string; status: "scheduled" }[] = [];
 
   for (const row of rows) {
     if (row.paused) continue;
+    const plan = plans.get(row.user_id) ?? "uno";
     const slot = options.immediate
       ? now
       : nextSlot(
           {
-            sendAt: row.send_at,
+            sendAt: PLAN_LIMITS[plan].customDeliveryTime ? row.send_at : STANDARD_DELIVERY_TIME,
             timezone: row.timezone,
             days: row.days,
-            frequency: row.frequency,
+            frequency: "daily",
           },
           now,
         );
@@ -564,7 +577,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   const cap = capFor(prefs.density, plan);
   const matches = await loadMatches(db, due.user_id);
   const already = await alreadyBriefed(db, due.user_id);
-  const picked = selectItems(matches, already, cap, options.now ?? new Date(), prefs.frequency);
+  const picked = selectItems(matches, already, cap, options.now ?? new Date(), "daily");
 
   // The digest cache (0061) is deliberately not consulted. Skipping generation on
   // an unchanged event set is a P1 optimization; the table and RPCs stay dormant
@@ -1025,7 +1038,11 @@ export async function deliveryTargets(
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId),
   ]);
-  return { telegram: Boolean(telegram?.chat_id), push: (pushCount ?? 0) > 0 };
+  const plan = await planFor(db, userId);
+  return {
+    telegram: PLAN_LIMITS[plan].telegram && Boolean(telegram?.chat_id),
+    push: (pushCount ?? 0) > 0,
+  };
 }
 
 async function queueDeliveries(
@@ -1191,7 +1208,25 @@ async function sendOne(
     .eq("user_id", digestRow.user_id)
     .maybeSingle();
 
-  const items = await loadMailItems(db, row.digest_id, toLanguageTag(langRow?.language));
+  const plan = await planFor(db, digestRow.user_id);
+  if (
+    digestRow.kind === "alert" &&
+    !(await alertDeliveryAllowed(db, digestRow.user_id, row.digest_id, plan, now))
+  ) {
+    await db
+      .from("deliveries")
+      .update({ status: "failed", last_error: "Alert allowance changed or expired." })
+      .eq("id", row.id);
+    return "failed";
+  }
+  if (row.channel === "telegram" && !PLAN_LIMITS[plan].telegram) {
+    await db
+      .from("deliveries")
+      .update({ status: "failed", last_error: "Telegram is not included in the current plan." })
+      .eq("id", row.id);
+    return "failed";
+  }
+  const items = await loadMailItems(db, row.digest_id, "en");
   const origin = siteUrl(options.email);
   const first = items[0];
 
@@ -1361,10 +1396,21 @@ async function sendPushDelivery(
     return { ok: true as const };
   }
 
+  const plan = await planFor(db, digestRow.user_id);
+  const { data: devices, error: deviceError } = await db
+    .from("registered_devices")
+    .select("install_id")
+    .eq("user_id", digestRow.user_id)
+    .order("first_seen")
+    .order("install_id")
+    .limit(PLAN_LIMITS[plan].devices);
+  if (deviceError) throw new Error(deviceError.message);
+  const active = (devices ?? []).map((d) => d.install_id);
   const { data: rows } = await db
     .from("push_subscriptions")
     .select("id, endpoint, p256dh, auth")
-    .eq("user_id", digestRow.user_id);
+    .eq("user_id", digestRow.user_id)
+    .in("install_id", active);
   const subscriptions = rows ?? [];
   if (subscriptions.length === 0) {
     return { ok: false as const, error: "no push subscription", retryable: false };

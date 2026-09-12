@@ -1,3 +1,6 @@
+import { PlanAccessError } from "./plan-access";
+import { currentPlan, validatePlanPreferences, assertTopicAddition } from "./plan-access";
+import { STANDARD_DELIVERY_TIME } from "../plans";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { type Actor, signedInOnly } from "./guard";
@@ -32,7 +35,7 @@ const prefsInput = z.object({
   exclusions: z.array(z.string().min(1).max(80)).max(200).optional(),
   time: z
     .string()
-    .regex(/^\d{2}:\d{2}$/)
+    .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
     .optional(),
   // Constrained to zones the runtime can actually do arithmetic in. A free
   // string here is a briefing that silently never sends, because `nextSlot`
@@ -95,6 +98,16 @@ export const loadPreferences = createServerFn({ method: "GET" })
     return {
       ...DEFAULT_PREFS,
       ...stored,
+      time: PLAN_LIMITS[plan].customDeliveryTime
+        ? (stored.time ?? STANDARD_DELIVERY_TIME)
+        : STANDARD_DELIVERY_TIME,
+      frequency: "daily",
+      channels: {
+        ...DEFAULT_PREFS.channels,
+        ...stored.channels,
+        telegram: PLAN_LIMITS[plan].telegram && (stored.channels?.telegram ?? false),
+        whatsapp: false,
+      },
       breaking: allowedBreaking(plan, stored.breaking ?? DEFAULT_PREFS.breaking),
       name: profile.data?.display_name ?? "",
       topics: topicLabels,
@@ -115,6 +128,7 @@ export const savePreferences = createServerFn({ method: "POST" })
   .validator((input: unknown) => prefsInput.parse(input))
   .handler(async ({ data, context }): Promise<{ ok: boolean }> => {
     const { actor } = context;
+    validatePlanPreferences(await currentPlan(actor), data);
 
     if (data.name !== undefined || data.onboarded !== undefined) {
       await actor.db
@@ -161,9 +175,10 @@ export const savePreferences = createServerFn({ method: "POST" })
       if (data.paused !== undefined) patch["paused"] = row.paused;
       patch["updated_at"] = new Date().toISOString();
 
-      await actor.db
+      const { error } = await actor.db
         .from("notification_preferences")
         .upsert({ user_id: actor.id, ...patch }, { onConflict: "user_id" });
+      if (error) throw new PlanAccessError(error.message);
     }
 
     let followedSomethingNew = false;
@@ -300,6 +315,7 @@ async function replaceTopics(actor: Actor, labels: string[]): Promise<boolean> {
   // limited. Removing one still removes it normally. A custom topic is counted
   // here exactly like a predefined one — the allowance is over interests, and a
   // reader who could bypass it by typing their own would make it decorative.
+  assertTopicAddition(plan, slugs, new Set(existingSlugToId.keys()));
   const retainedExisting = slugs.filter((slug) => existingSlugToId.has(slug));
   const room = Number.isFinite(limit) ? Math.max(0, limit - retainedExisting.length) : Infinity;
   const admittedNew = slugs.filter((slug) => !existingSlugToId.has(slug)).slice(0, room);
@@ -325,7 +341,10 @@ async function replaceTopics(actor: Actor, labels: string[]): Promise<boolean> {
     await db.from("user_topics").delete().eq("user_id", userId).in("topic_id", toRemove);
   }
   if (toAdd.length > 0) {
-    await db.from("user_topics").insert(toAdd.map((topic_id) => ({ user_id: userId, topic_id })));
+    const { error } = await db
+      .from("user_topics")
+      .insert(toAdd.map((topic_id) => ({ user_id: userId, topic_id })));
+    if (error) throw new PlanAccessError(error.message);
   }
 
   return toAdd.length > 0;

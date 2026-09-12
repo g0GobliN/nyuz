@@ -6,7 +6,7 @@ import { orderEvidenceSources, remapEvidence } from "@/lib/pipeline/evidence-tex
 import { signedInOnly } from "./guard";
 import { backfill, WINDOW_HOURS } from "@/lib/pipeline/backfill";
 import { nextSlot } from "@/lib/pipeline/schedule";
-import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
+import { PLAN_LIMITS, STANDARD_DELIVERY_TIME, clipLabels } from "@/lib/plans";
 import { defaultMonthKey, describeMonth, type HistoryMonth } from "@/lib/history-window";
 import {
   digestInWindow,
@@ -770,6 +770,14 @@ export const setSourcePref = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }): Promise<{ ok: boolean; reason?: "plan" }> => {
     if (data.pref === "priority") {
+      const { data: existing, error: readError } = await context.actor.db
+        .from("user_source_prefs")
+        .select("pref")
+        .eq("user_id", context.actor.id)
+        .eq("source_id", data.sourceId)
+        .maybeSingle();
+      if (readError) throw new Error(readError.message);
+      if (existing?.pref === "priority") return { ok: true };
       const plan = await planOf(context.actor.db, context.actor.id);
       const cap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.uno.prioritySources;
       if (Number.isFinite(cap)) {
@@ -825,12 +833,13 @@ async function nextSend(db: Db, userId: string): Promise<string | null> {
     .eq("user_id", userId)
     .maybeSingle();
   if (!data || data.paused) return null;
+  const plan = await planOf(db, userId);
   const slot = nextSlot(
     {
-      sendAt: data.send_at,
+      sendAt: PLAN_LIMITS[plan].customDeliveryTime ? data.send_at : STANDARD_DELIVERY_TIME,
       timezone: data.timezone,
       days: data.days,
-      frequency: data.frequency,
+      frequency: "daily",
     },
     new Date(),
   );

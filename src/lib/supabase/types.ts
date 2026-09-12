@@ -699,6 +699,7 @@ export type TelegramAccount = {
 };
 
 export type PushEndpoint = {
+  install_id: string;
   id: string;
   user_id: string;
   endpoint: string;
@@ -839,6 +840,16 @@ export type DailyCount = {
 export type Database = {
   public: {
     Tables: {
+      registered_devices: Table<
+        {
+          user_id: string;
+          install_id: string;
+          label: string;
+          first_seen: string;
+          last_seen: string;
+        },
+        "label" | "first_seen" | "last_seen"
+      >;
       profiles: Table<
         Profile,
         | "display_name"
@@ -1122,6 +1133,15 @@ export type Database = {
       };
     };
     Functions: {
+      register_device: {
+        Args: {
+          p_user_id: string;
+          p_install_id: string;
+          p_label?: string;
+          p_endpoint?: string | null;
+        };
+        Returns: string;
+      };
       /* Cost-cutting caches (0059, 0061, 0062). Service-role only: every one
          is `security definer` with execute revoked from anon and authenticated. */
       /** Title-hash -> event id, or null on a miss. Skips a cluster model call. */

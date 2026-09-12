@@ -16,8 +16,8 @@ describe("shouldAlert", () => {
     expect(shouldAlert("off", 0)).toBe(false);
   });
 
-  it("sends every matched event on everything", () => {
-    expect(shouldAlert("everything", 0)).toBe(true);
+  it("keeps the important floor in configurable mode", () => {
+    expect(shouldAlert("everything", 0)).toBe(false);
     expect(shouldAlert("everything", 10)).toBe(true);
   });
 
@@ -29,9 +29,9 @@ describe("shouldAlert", () => {
 });
 
 describe("remainingImportantSlots", () => {
-  it("caps important alerts at ten per rolling day", () => {
-    expect(remainingImportantSlots(0)).toBe(10);
-    expect(remainingImportantSlots(9)).toBe(1);
+  it("caps important alerts at five per rolling day", () => {
+    expect(remainingImportantSlots(0)).toBe(5);
+    expect(remainingImportantSlots(4)).toBe(1);
     expect(remainingImportantSlots(10)).toBe(0);
     expect(remainingImportantSlots(30)).toBe(0);
   });
@@ -48,7 +48,7 @@ describe("remainingImportantSlots", () => {
     // The old rule was 3 per rolling 7 days: a third alert on Tuesday meant
     // silence until the following Tuesday. Seven genuinely important events in
     // one day must all be sendable.
-    expect(remainingImportantSlots(3)).toBeGreaterThanOrEqual(4);
+    expect(remainingImportantSlots(3)).toBe(2);
   });
 });
 
@@ -151,14 +151,12 @@ describe("paceAlerts", () => {
     expect(paceAlerts({ hits: [], recent: [], now })).toEqual([]);
   });
 
-  it("does not turn everything into important", () => {
-    // A reader on `everything` chose a broader mode. Pacing orders those hits;
-    // it must not reapply the importance floor and quietly narrow the setting.
+  it("keeps weak events out even with advanced controls", () => {
     const low = [
       { eventId: "a", importance: 0, eventAt: null },
       { eventId: "b", importance: 1, eventAt: null },
     ];
-    expect(low.every((h) => shouldAlert("everything", h.importance))).toBe(true);
+    expect(low.every((h) => shouldAlert("everything", h.importance))).toBe(false);
     expect(low.every((h) => shouldAlert("important", h.importance))).toBe(false);
     expect(paceAlerts({ hits: low, recent: [], now })).toHaveLength(2);
   });

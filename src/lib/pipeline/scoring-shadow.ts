@@ -148,7 +148,7 @@ export type RankingMetrics = {
 /**
  * Ranking agreement, measured two ways because they fail differently.
  *
- * `topNOverlap` is what a reader sees: a briefing is capped at 3-18 stories, so
+ * `topNOverlap` is what a reader sees: a briefing has a finite per-plan story cap, so
  * the only ordering question that reaches them is which events make the cut.
  * `pairwiseAgreement` is the underlying ordering quality, and catches a scorer
  * that picks the same set but shuffles it.

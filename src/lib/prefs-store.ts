@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
 import { startFirstBriefing } from "@/lib/server/briefing";
@@ -178,6 +179,12 @@ export function usePrefs() {
         await savePreferences({ data: patch as PrefsInput });
       } catch (error) {
         console.error(error);
+        toast.error(error instanceof Error ? error.message : "Could not save preferences.");
+        const saved = await loadPreferences().catch(() => null);
+        if (saved) {
+          setPrefs(saved);
+          writeLocal(saved);
+        }
       }
     },
     [user],

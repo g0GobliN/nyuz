@@ -16,7 +16,7 @@ import type { EmailEnv } from "@/lib/server/email/send";
 import type { TelegramEnv } from "@/lib/server/telegram/send";
 import type { PushEnv } from "@/lib/server/push/send";
 import type { BreakingMode, Database } from "@/lib/supabase/types";
-import { allowedBreaking } from "@/lib/plans";
+import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
 import { flushDeliveries, queuedChannels, deliveryTargets } from "./digest";
 import { FLASH_POLICY, ageHours } from "./freshness";
 
@@ -38,7 +38,7 @@ export const IMPORTANT_FLOOR = 6;
  * saying so. Quiet should mean nothing important happened, never that a quota
  * ran out days ago.
  */
-export const IMPORTANT_DAILY_CAP = 10;
+export const IMPORTANT_DAILY_CAP = PLAN_LIMITS.plura.alertDailyCap;
 
 /**
  * Anti-burst pacing. Not a volume limit on breaking news.
@@ -147,7 +147,7 @@ export type AlertReport = {
 
 export function shouldAlert(breaking: BreakingMode, importance: number): boolean {
   if (breaking === "off") return false;
-  if (breaking === "everything") return true;
+
   return importance >= IMPORTANT_FLOOR;
 }
 

@@ -1,3 +1,6 @@
+import { PlanAccessError } from "../plan-access";
+import { currentPlan } from "../plan-access";
+import { PLAN_LIMITS } from "../../plans";
 import { createServerFn } from "@tanstack/react-start";
 import { signedInOnly } from "@/lib/server/guard";
 import { getBotUsername, telegramConfigured } from "./send";
@@ -48,6 +51,8 @@ export const createTelegramLink = createServerFn({ method: "POST" })
       };
     }
 
+    if (!PLAN_LIMITS[await currentPlan(context.actor)].telegram)
+      throw new PlanAccessError("Telegram delivery is available on Plura and Omni.");
     const { data: existing } = await db
       .from("telegram_accounts")
       .select("chat_id")
