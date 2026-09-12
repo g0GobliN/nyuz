@@ -18,12 +18,16 @@
  * Writes nothing. Calls no model.
  */
 import { extractFacts } from "@/lib/pipeline/extract";
-import { scoreEvent } from "@/lib/pipeline/scoring";
+import { scoreEvent, scoreEventV2 } from "@/lib/pipeline/scoring";
 import { promotionVerdict, shadowReport, type ScoredPair } from "@/lib/pipeline/scoring-shadow";
 import { db, heading, main, say } from "./lib/db";
 
 const limitArg = process.argv.indexOf("--limit");
 const LIMIT = limitArg === -1 ? 5000 : Number(process.argv[limitArg + 1] ?? 5000);
+// v2 is the scorer under active development; --v1 compares against the
+// original for reference. Neither call ever reaches a model or writes a row.
+const USE_V1 = process.argv.includes("--v1");
+const scorer = USE_V1 ? scoreEvent : scoreEventV2;
 
 type EventRow = {
   id: string;
@@ -101,7 +105,7 @@ main(async () => {
     // Scored at the event's own analysis time. Using today's clock would mark
     // every historical event "old" and manufacture a disagreement.
     const at = event.analysed_at ? new Date(event.analysed_at) : new Date();
-    const signals = scoreEvent(articles, facts, at);
+    const signals = scorer(articles, facts, at);
 
     for (const reason of signals.reasons) {
       reasonsAll.set(reason, (reasonsAll.get(reason) ?? 0) + 1);
