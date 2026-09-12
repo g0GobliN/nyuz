@@ -1,3 +1,4 @@
+import { PLAN_CARDS } from "@/lib/plan-copy";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Check, ArrowRight } from "lucide-react";
 import { useState } from "react";
@@ -21,24 +22,11 @@ export const Route = createFileRoute("/pricing")({
       // Left as prose rather than interpolated from the loader: a search
       // snippet is cached for weeks, so a number in it goes stale in a place
       // nobody can see. The page body is where the live figures belong.
-      description: "Start free. Paid plans from $14.99/month. Relevance, not quantity.",
+      description: `Start free. Paid plans from ${formatUsd(DEFAULT_PLAN_PRICES.plura)}/month. Relevance, not quantity.`,
     }),
 });
 
-/**
- * Plan copy is hard-coded; the numbers are the Stripe catalogue in `plans.ts`.
- *
- * Feature lists are product decisions that need a deploy anyway — shipping
- * "WhatsApp delivery" as editable text would let someone promise a feature that
- * does not exist. Prices come from Stripe, not the console, so the page cannot
- * disagree with the invoice.
- *
- * The custom-source counts are read from `PLAN_LIMITS` for the same reason the
- * prices are read from the catalogue: that number is enforced by
- * `claim_custom_source` in Postgres, so a hard-coded one here would be a
- * promise the database refuses. The other counts stay literal because nothing
- * rejects a request for disagreeing with them.
- */
+/** Pricing and billing share feature copy generated from the canonical plan limits. */
 type Plan = {
   name: string;
   /** Which price to read. Uno has no key because its price is pinned to zero. */
@@ -49,56 +37,7 @@ type Plan = {
   popular?: boolean;
 };
 
-const PLANS: Plan[] = [
-  {
-    name: "nyuz Uno",
-    priceKey: "uno",
-    tagline: "See whether a briefing changes your morning.",
-    features: [
-      "3 topics and 3 priority sources",
-      "Up to 18 stories per briefing",
-      "Daily Flash briefing",
-      "Email delivery",
-      "7-day history",
-    ],
-    cta: "Start free",
-  },
-  {
-    name: "nyuz Plura",
-    priceKey: "plura",
-    tagline: "A nyuz shaped around what you actually do.",
-    features: [
-      "15 topics and 15 priority sources",
-      "Up to 30 stories per briefing",
-      "Pro-quality daily briefing",
-      "Custom delivery time",
-      `Important alerts, up to ${PLAN_LIMITS.plura.alertDailyCap} a day`,
-      // "Custom instructions" was here. The stored note has had no consumer
-      // since 0028 removed the per-reader digest prompt that was the only
-      // thing reading it — `notification_preferences.instructions` is still
-      // selected in digest.ts and then never used. Put this back the moment
-      // something applies it again, and not before.
-      `Add ${PLAN_LIMITS.plura.customSources} of your own sources`,
-      "90-day history",
-    ],
-    cta: "Start Plura",
-    popular: true,
-  },
-  {
-    name: "nyuz Omni",
-    priceKey: "omni",
-    tagline: "For people whose job is knowing first.",
-    features: [
-      "Unlimited topics and priority sources",
-      "Up to 50 stories per briefing",
-      "Pro-quality daily briefing",
-      `Configurable alerts, up to ${PLAN_LIMITS.omni.alertDailyCap} a day`,
-      `Add ${PLAN_LIMITS.omni.customSources} of your own sources`,
-      "1-year history",
-    ],
-    cta: "Start Omni",
-  },
-];
+const PLANS: Plan[] = PLAN_CARDS;
 
 /**
  * Resolves one plan's monthly and annual figures out of the settings blob.
@@ -139,7 +78,7 @@ function annualCaption(): string | null {
 const FAQ = [
   {
     q: "Is there an article limit?",
-    a: "There is no monthly article quota. Each briefing has a maximum set by your plan and density: up to 18 on Uno, 30 on Plura, or 50 on Omni. A quiet day can still be shorter.",
+    a: `There is no monthly article quota. Each briefing has a maximum set by your plan and density: up to ${PLAN_LIMITS.uno.storiesPerBriefing} on Uno, ${PLAN_LIMITS.plura.storiesPerBriefing} on Plura, or ${PLAN_LIMITS.omni.storiesPerBriefing} on Omni. A quiet day can still be shorter.`,
   },
   {
     q: "What happens on a quiet day?",
@@ -155,11 +94,7 @@ const FAQ = [
   },
   {
     q: "What are “sources of your own”?",
-    a: "Feeds nyuz isn't watching yet that you'd like it to — your local paper, a niche blog, a company's own updates. Plura includes 5 and Omni 25. If another reader has already asked for the same one, you simply share it.",
-  },
-  {
-    q: "What language is my briefing in?",
-    a: "English by default. You can choose Japanese, Hindi, Nepali, Korean or Simplified Chinese in your delivery settings, on any plan. English is the language nyuz reads in, so the others are translations of it, and the original reporting always stays in its own language and is always linked.",
+    a: `Feeds nyuz isn't watching yet that you'd like it to — your local paper, a niche blog, a company's own updates. Plura includes ${PLAN_LIMITS.plura.customSources} and Omni ${PLAN_LIMITS.omni.customSources}. If another reader has already asked for the same one, you simply share it.`,
   },
   {
     q: "What does upgrading actually get me?",
@@ -283,8 +218,8 @@ function Pricing() {
           </div>
 
           <p className="mt-8 text-center text-[13px] text-muted-foreground">
-            We do not limit how many stories you receive. The product is about relevance, not
-            quantity.
+            Story limits are ceilings. Briefings stay shorter when fewer fresh, relevant stories
+            qualify.
           </p>
         </Section>
 

@@ -1,3 +1,5 @@
+import { PLAN_CARDS } from "@/lib/plan-copy";
+import { DeviceManager } from "@/components/device-manager";
 import { createFileRoute } from "@tanstack/react-router";
 import { Check } from "lucide-react";
 import { useState } from "react";
@@ -20,40 +22,7 @@ export const Route = createFileRoute("/dashboard/billing")({
   head: () => ({ meta: [{ title: "Billing — nyuz" }] }),
 });
 
-const PLANS = [
-  {
-    id: "uno",
-    name: "nyuz Uno",
-    monthly: 0,
-    annual: 0,
-    ...PLAN_LIMITS.uno,
-    features: ["Up to 18 stories", "3 priority sources", "Flash briefing", "No alerts"],
-  },
-  {
-    id: "plura",
-    name: "nyuz Plura",
-    monthly: DEFAULT_PLAN_PRICES.plura,
-    annual: DEFAULT_ANNUAL_PRICES.plura,
-    ...PLAN_LIMITS.plura,
-    features: [
-      "Up to 30 stories",
-      "15 priority sources",
-      `Important alerts, up to ${PLAN_LIMITS.plura.alertDailyCap} a day`,
-    ],
-  },
-  {
-    id: "omni",
-    name: "nyuz Omni",
-    monthly: DEFAULT_PLAN_PRICES.omni,
-    annual: DEFAULT_ANNUAL_PRICES.omni,
-    ...PLAN_LIMITS.omni,
-    features: [
-      "Up to 50 stories",
-      "Unlimited priority sources",
-      `Configurable alerts, up to ${PLAN_LIMITS.omni.alertDailyCap} a day`,
-    ],
-  },
-] as const;
+const PLANS = PLAN_CARDS;
 
 function Billing() {
   const { prefs } = usePrefs();
@@ -64,7 +33,7 @@ function Billing() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const plan = PLANS.find((p) => p.id === current) ?? PLANS[0];
+  const plan = PLANS.find((p) => p.id === current) ?? PLANS[0]!;
 
   /**
    * Hands off to Stripe.
@@ -265,14 +234,6 @@ function Billing() {
                 ) : null}
               </p>
               <ul className="mt-5 flex-1 space-y-2">
-                <li className="flex items-start gap-2 text-[13.5px]">
-                  <Check className="mt-[3px] h-3.5 w-3.5 shrink-0 text-signal" />
-                  {p.topics === Infinity ? "Unlimited topics" : `${p.topics} topics`}
-                </li>
-                <li className="flex items-start gap-2 text-[13.5px]">
-                  <Check className="mt-[3px] h-3.5 w-3.5 shrink-0 text-signal" />
-                  {p.retention}
-                </li>
                 {p.features.map((f) => (
                   <li key={f} className="flex items-start gap-2 text-[13.5px]">
                     <Check className="mt-[3px] h-3.5 w-3.5 shrink-0 text-signal" />
@@ -333,6 +294,7 @@ function Billing() {
           one.
         </p>
       </section>
+      <DeviceManager />
     </DashboardShell>
   );
 }
