@@ -6,6 +6,7 @@ import {
   exclusionKey,
   isValidExclusion,
   MAX_EXCLUSION_LABEL,
+  MAX_EXCLUSIONS,
   type ExclusionRejection,
   removeExclusion,
   validateExclusionLabel,
@@ -15,6 +16,9 @@ import { IGNORE_POOL } from "@/lib/topics-pool";
 const REJECTION_COPY: Record<ExclusionRejection, string> = {
   empty: "",
   "too-long": `Keep it under ${MAX_EXCLUSION_LABEL} characters.`,
+  "too-short": "Use at least two characters.",
+  unusable: "Enter a subject or name, such as Football or Elon Musk.",
+  limit: `You can exclude up to ${MAX_EXCLUSIONS} subjects. Remove one to add another.`,
 };
 
 export type ExclusionPickerProps = {
@@ -31,6 +35,7 @@ export function ExclusionPicker({
   suggestions = IGNORE_POOL,
 }: ExclusionPickerProps) {
   const [query, setQuery] = useState("");
+  const atCap = selected.length >= MAX_EXCLUSIONS;
 
   const validated = validateExclusionLabel(query);
   const creatable = isValidExclusion(validated) ? validated : null;
@@ -59,17 +64,23 @@ export function ExclusionPicker({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key !== "Enter" || !creatable || duplicate) return;
+            if (e.key !== "Enter" || !creatable || duplicate || atCap) return;
             e.preventDefault();
             add(creatable.label);
           }}
           placeholder={placeholder}
           aria-label="Add a global exclusion"
+          aria-invalid={Boolean(rejection)}
           className="h-12 w-full bg-transparent text-[16px] outline-none placeholder:text-muted-foreground md:text-[15px]"
         />
       </div>
 
-      {creatable && !duplicate ? (
+      <p className="mt-3 text-[12.5px] text-muted-foreground" role="status">
+        {selected.length} of {MAX_EXCLUSIONS} exclusions.{" "}
+        {atCap ? REJECTION_COPY.limit : `2–${MAX_EXCLUSION_LABEL} characters each.`}
+      </p>
+
+      {creatable && !duplicate && !atCap ? (
         <div className="mt-4">
           <button
             onClick={() => add(creatable.label)}
@@ -103,7 +114,7 @@ export function ExclusionPicker({
         </div>
       ) : null}
 
-      {availableSuggestions.length > 0 ? (
+      {availableSuggestions.length > 0 && !atCap ? (
         <div className="mt-6">
           <p className="text-[12.5px] text-muted-foreground">Suggestions</p>
           <div className="mt-2 flex flex-wrap gap-2">

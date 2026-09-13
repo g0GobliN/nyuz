@@ -8,7 +8,12 @@ import { type KeptTopic, keepUsableTopics } from "@/lib/coverage";
 import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
 import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
 import { notificationRowToPrefs, prefsToNotificationRow } from "@/lib/preferences-map";
-import { keepUsableExclusions } from "@/lib/exclusions";
+import {
+  keepUsableExclusions,
+  MAX_EXCLUSIONS,
+  validateExclusionLabel,
+  isValidExclusion,
+} from "@/lib/exclusions";
 import { MAX_TOPIC_LABEL } from "@/lib/topics";
 import { isSupportedTimezone } from "@/lib/timezones";
 import { backfill } from "@/lib/pipeline/backfill";
@@ -32,7 +37,18 @@ const prefsInput = z.object({
   // purpose — a value between MAX_TOPIC_LABEL and 80 is received and refused
   // with a reason rather than silently truncated into a different subject.
   topics: z.array(z.string().min(1).max(80)).max(200).optional(),
-  exclusions: z.array(z.string().min(1).max(80)).max(200).optional(),
+  exclusions: z
+    .array(
+      z
+        .string()
+        .max(80)
+        .refine(
+          (value) => isValidExclusion(validateExclusionLabel(value)),
+          "Enter a meaningful exclusion of 2–80 characters.",
+        ),
+    )
+    .max(MAX_EXCLUSIONS)
+    .optional(),
   time: z
     .string()
     .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
@@ -111,7 +127,7 @@ export const loadPreferences = createServerFn({ method: "GET" })
       breaking: allowedBreaking(plan, stored.breaking ?? DEFAULT_PREFS.breaking),
       name: profile.data?.display_name ?? "",
       topics: topicLabels,
-      exclusions: (exclusions.data ?? []).map((row) => row.term),
+      exclusions: keepUsableExclusions((exclusions.data ?? []).map((row) => row.term)).kept,
       onboarded: Boolean(profile.data?.onboarded_at),
     };
   });
@@ -215,8 +231,8 @@ export const savePreferences = createServerFn({ method: "POST" })
   });
 
 /**
- * Exclusions carry no state of their own, so the cheap thing is also the correct
- * one: clear and reinsert. `user_topics` cannot be treated this way — see below.
+ * Replace exclusions atomically after validation; a failed write preserves the
+ * saved list. `user_topics` carries additional state and is handled separately.
  */
 async function replaceExclusions(actor: Actor, terms: string[]): Promise<void> {
   const { kept, refused } = keepUsableExclusions(terms);
@@ -228,11 +244,11 @@ async function replaceExclusions(actor: Actor, terms: string[]): Promise<void> {
     );
   }
 
-  await actor.db.from("user_exclusions").delete().eq("user_id", actor.id);
-  if (wanted.length === 0) return;
-  await actor.db
-    .from("user_exclusions")
-    .insert(wanted.map((term) => ({ user_id: actor.id, term })));
+  const { error } = await actor.db.rpc("replace_user_exclusions", {
+    p_user_id: actor.id,
+    p_terms: wanted,
+  });
+  if (error) throw new PlanAccessError("Could not save exclusions. Try again in a moment.");
 }
 
 /**

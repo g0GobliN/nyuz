@@ -97,6 +97,30 @@ npm run preview
 
 ## Secrets
 
+### Diagnosing production billing
+
+Run `npm run billing:check` with the deployment's configuration in `.env`. This
+only reads Stripe prices; it never creates a checkout or charges a customer.
+Local results describe that environment, not necessarily the deployed Worker.
+
+Production needs `STRIPE_SECRET_KEY` in live mode, a signing secret for the live
+webhook at `https://<your-domain>/api/stripe/webhook`, and these current price IDs:
+
+| Variable | Live USD price |
+| --- | --- |
+| `STRIPE_PRICE_PLURA_MONTHLY` | $14.99/month |
+| `STRIPE_PRICE_PLURA_ANNUAL` | $149.90/year |
+| `STRIPE_PRICE_OMNI_MONTHLY` | $29.99/month |
+| `STRIPE_PRICE_OMNI_ANNUAL` | $299.90/year |
+
+Old `STRIPE_PRICE_PERSONAL_*` and `STRIPE_PRICE_PRO_*` variables are not read by
+the current catalogue. Do not rename old price IDs into these slots: their amounts
+may differ. Configure the current live prices in Worker bindings and set
+`VITE_SITE_URL` to the customer-facing HTTPS origin for checkout return links.
+
+Apply migration `0084_exclusion_limits.sql` before deploying the exclusion
+validation changes; preference saves use its atomic replacement function.
+
 Set every server-side secret with `wrangler secret put` — never in `wrangler.json`, never
 in a table, never `VITE_`-prefixed, and **not in GitHub**.
 

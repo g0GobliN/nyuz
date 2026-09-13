@@ -4,6 +4,7 @@ import { z } from "zod";
 import { signedInOnly } from "./guard";
 import { currentPlan } from "./plan-access";
 import { PLAN_LIMITS } from "../plans";
+import { deviceErrorMessage } from "../device-errors";
 
 export const registerDevice = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
@@ -18,7 +19,7 @@ export const registerDevice = createServerFn({ method: "POST" })
       p_install_id: data.installId,
       p_endpoint: data.endpoint ?? null,
     });
-    if (error) throw new PlanAccessError(error.message);
+    if (error) throw new PlanAccessError(deviceErrorMessage(error));
     return { installId: id };
   });
 
@@ -32,7 +33,7 @@ export const listDevices = createServerFn({ method: "GET" })
       .eq("user_id", context.actor.id)
       .order("first_seen")
       .order("install_id");
-    if (error) throw new PlanAccessError(error.message);
+    if (error) throw new PlanAccessError("We couldn't load your devices. Please try again later.");
     return { devices: data ?? [], limit: PLAN_LIMITS[plan].devices, plan };
   });
 
@@ -45,6 +46,6 @@ export const removeDevice = createServerFn({ method: "POST" })
       .delete()
       .eq("user_id", context.actor.id)
       .eq("install_id", data.installId);
-    if (error) throw new PlanAccessError(error.message);
+    if (error) throw new PlanAccessError("We couldn't remove this device. Please try again later.");
     return { ok: true };
   });

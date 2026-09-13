@@ -30,6 +30,8 @@
  * received and refused here rather than truncated: half a topic is a different
  * topic, and storing one would create a canonical row nobody asked for.
  */
+import { isJunkSubject } from "./subject-input";
+
 export const MAX_TOPIC_LABEL = 60;
 
 /**
@@ -220,6 +222,7 @@ export function validateTopicLabel(raw: string): ValidatedTopic | { rejected: To
   const label = normaliseTopicLabel(raw);
   if (label === "") return { rejected: "empty" };
   if ([...label].length > MAX_TOPIC_LABEL) return { rejected: "too-long" };
+  if (isJunkSubject(raw)) return { rejected: "unusable" };
 
   if (!isUsableTopic(label)) return { rejected: "unusable" };
   const slug = topicSlug(label);

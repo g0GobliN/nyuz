@@ -19,6 +19,7 @@ import { useAuth } from "@/lib/auth";
  */
 
 export type PlanState = {
+  stripeManaged: boolean;
   plan: PlanTier;
   topicLimit: number;
   prioritySourceLimit: number;
@@ -35,6 +36,7 @@ export type PlanState = {
 };
 
 type SubscriptionRow = {
+  stripe_subscription_id: string | null;
   plan: PlanTier;
   cancel_at_period_end: boolean;
   current_period_end: string | null;
@@ -53,14 +55,19 @@ export function usePlan(): PlanState {
     queryFn: async (): Promise<SubscriptionRow> => {
       const { data, error } = await getSupabaseBrowserClient()
         .from("subscriptions")
-        .select("plan, cancel_at_period_end, current_period_end")
+        .select("plan, cancel_at_period_end, current_period_end, stripe_subscription_id")
         .maybeSingle();
 
       // Falling back to the most restrictive plan on error is the safe
       // direction: it warns somebody who did not need warning, rather than
       // silently letting an Uno reader build a briefing that will be truncated.
       if (error || !data)
-        return { plan: "uno", cancel_at_period_end: false, current_period_end: null };
+        return {
+          plan: "uno",
+          cancel_at_period_end: false,
+          current_period_end: null,
+          stripe_subscription_id: null,
+        };
       return data;
     },
   });
@@ -73,6 +80,7 @@ export function usePlan(): PlanState {
       : null;
 
   return {
+    stripeManaged: Boolean(data?.stripe_subscription_id),
     plan,
     topicLimit: limits.topics,
     prioritySourceLimit: limits.prioritySources,

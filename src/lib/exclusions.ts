@@ -1,6 +1,9 @@
-export const MAX_EXCLUSION_LABEL = 80;
+import { isJunkSubject } from "./subject-input";
 
-export type ExclusionRejection = "empty" | "too-long";
+export const MAX_EXCLUSION_LABEL = 80;
+export const MAX_EXCLUSIONS = 20;
+
+export type ExclusionRejection = "empty" | "too-long" | "too-short" | "unusable" | "limit";
 
 export type ValidatedExclusion = {
   label: string;
@@ -21,6 +24,8 @@ export function validateExclusionLabel(
   const label = normaliseExclusionLabel(raw);
   if (label === "") return { rejected: "empty" };
   if ([...label].length > MAX_EXCLUSION_LABEL) return { rejected: "too-long" };
+  if ([...label].length < 2) return { rejected: "too-short" };
+  if (isJunkSubject(raw)) return { rejected: "unusable" };
   return { label, key: exclusionKey(label) };
 }
 
@@ -45,6 +50,10 @@ export function keepUsableExclusions(labels: string[]): {
       continue;
     }
     if (seen.has(validated.key)) continue;
+    if (kept.length >= MAX_EXCLUSIONS) {
+      refused.push({ label: raw, reason: "limit" });
+      continue;
+    }
     seen.add(validated.key);
     kept.push(validated.label);
   }
@@ -53,6 +62,7 @@ export function keepUsableExclusions(labels: string[]): {
 }
 
 export function addExclusion(selected: string[], raw: string): string[] {
+  if (selected.length >= MAX_EXCLUSIONS) return selected;
   const validated = validateExclusionLabel(raw);
   if (!isValidExclusion(validated)) return selected;
   return keepUsableExclusions([...selected, validated.label]).kept;

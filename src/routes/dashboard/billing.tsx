@@ -28,7 +28,7 @@ function Billing() {
   const { prefs } = usePrefs();
   // The plan comes from the subscription row now, not from local state that
   // reset to "free" on every visit regardless of what the reader was paying.
-  const { plan: current, cancelsOn } = usePlan();
+  const { plan: current, cancelsOn, stripeManaged, loading } = usePlan();
   const [annual, setAnnual] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,7 +65,7 @@ function Billing() {
   };
 
   const upgrade = async (id: "plura" | "omni") => {
-    if (current === "uno") {
+    if (!stripeManaged) {
       await goTo(id, () =>
         startCheckout({ data: { plan: id, interval: annual ? "year" : "month" } }),
       );
@@ -112,14 +112,24 @@ function Billing() {
           </div>
           <div className="text-right">
             <p className="text-[13px] text-muted-foreground">
-              {plan.monthly === 0 ? "No payment method needed" : "Managed securely by Stripe"}
+              {loading
+                ? "Loading billing details…"
+                : plan.monthly === 0
+                  ? "No payment method needed"
+                  : stripeManaged
+                    ? "Managed securely by Stripe"
+                    : "No paid subscription"}
             </p>
             <p className="mt-1 text-[13px] tabular-nums">
-              {plan.monthly === 0
-                ? formatUsd(0)
-                : annual
-                  ? `${formatUsd(plan.annual)} / year`
-                  : `${formatUsd(plan.monthly)} / month`}
+              {loading
+                ? ""
+                : plan.monthly > 0 && !stripeManaged
+                  ? "Included with your account"
+                  : plan.monthly === 0
+                    ? formatUsd(0)
+                    : annual
+                      ? `${formatUsd(plan.annual)} / year`
+                      : `${formatUsd(plan.monthly)} / month`}
             </p>
           </div>
         </div>
@@ -248,7 +258,7 @@ function Billing() {
                 // The free tier is not something to check out of. Leaving a paid
                 // plan happens in Stripe's portal, where the proration and the
                 // cancellation date are Stripe's problem rather than ours.
-                disabled={active || busy !== null || (p.id === "uno" && current === "uno")}
+                disabled={loading || active || busy !== null || (p.id === "uno" && !stripeManaged)}
                 onClick={() => {
                   if (p.id === "uno") void manage();
                   else void upgrade(p.id as "plura" | "omni");
@@ -270,10 +280,10 @@ function Billing() {
       {error ? <p className="mt-5 text-[12.5px] text-destructive">{error}</p> : null}
 
       <p className="mt-5 text-[12.5px] text-muted-foreground">
-        {current === "uno"
+        {!stripeManaged
           ? "Payment is handled by Stripe. Your plan updates once the payment clears, which can take a few seconds after you return."
           : "Cancelling, resuming and changing your card are all handled in Stripe's billing portal."}
-        {current !== "uno" ? (
+        {stripeManaged ? (
           <>
             {" "}
             <button

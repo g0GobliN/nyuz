@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import { deviceErrorMessage } from "@/lib/device-errors";
 import { installId, rememberInstallId } from "@/lib/device-install";
 import { listDevices, registerDevice, removeDevice } from "@/lib/server/devices";
 
@@ -23,7 +24,7 @@ export function DeviceManager({ compact = false }: { compact?: boolean }) {
       rememberInstallId(result.installId);
       setCurrent(result.installId);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not register this device.");
+      setError(deviceErrorMessage(e));
     }
     await reload().catch(() => {});
   };
@@ -66,7 +67,12 @@ export function DeviceManager({ compact = false }: { compact?: boolean }) {
                   await removeDevice({ data: { installId: device.install_id } });
                   await reload();
                 } catch (e) {
-                  setError(e instanceof Error ? e.message : "Could not remove device.");
+                  setError(
+                    deviceErrorMessage(
+                      e,
+                      "We couldn't remove this device. Please try again later.",
+                    ),
+                  );
                 }
               }}
             >

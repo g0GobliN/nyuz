@@ -45,6 +45,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { keepUsableExclusions } from "@/lib/exclusions";
 import { floorFor, thresholdFor } from "@/lib/density";
 import { related } from "@/lib/relate";
 import type { EmailEnv } from "@/lib/server/email/send";
@@ -738,7 +739,9 @@ export async function loadReaders(
           },
         ];
       }),
-      exclusions: (exclusions ?? []).filter((e) => e.user_id === row.user_id).map((e) => e.term),
+      exclusions: keepUsableExclusions(
+        (exclusions ?? []).filter((e) => e.user_id === row.user_id).map((e) => e.term),
+      ).kept,
       sourcePrefs: new Map(effectiveSourcePrefs),
     };
   });

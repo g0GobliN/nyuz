@@ -1,4 +1,5 @@
 import { PlanAccessError } from "../plan-access";
+import { deviceErrorMessage } from "@/lib/device-errors";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { signedInOnly } from "@/lib/server/guard";
@@ -65,7 +66,7 @@ export const savePushSubscription = createServerFn({ method: "POST" })
       "register_device",
       { p_user_id: context.actor.id, p_install_id: data.installId, p_endpoint: data.endpoint },
     );
-    if (registrationError) throw new PlanAccessError(registrationError.message);
+    if (registrationError) throw new PlanAccessError(deviceErrorMessage(registrationError));
     const { error } = await context.actor.db.from("push_subscriptions").upsert(
       {
         user_id: context.actor.id,

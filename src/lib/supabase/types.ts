@@ -1133,6 +1133,10 @@ export type Database = {
       };
     };
     Functions: {
+      replace_user_exclusions: {
+        Args: { p_user_id: string; p_terms: string[] };
+        Returns: undefined;
+      };
       register_device: {
         Args: {
           p_user_id: string;

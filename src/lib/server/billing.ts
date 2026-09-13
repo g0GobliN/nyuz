@@ -44,9 +44,10 @@ export const startCheckout = createServerFn({ method: "POST" })
 
     const priceId = priceIdFor(data.plan, data.interval);
     if (!priceId) {
+      console.error(`Missing Stripe price configuration for ${data.plan}/${data.interval}`);
       return {
         ok: false,
-        error: "That plan is not available for purchase yet.",
+        error: "Payments are temporarily unavailable. Please contact support.",
       };
     }
 
@@ -69,7 +70,7 @@ export const startCheckout = createServerFn({ method: "POST" })
       );
       return {
         ok: false,
-        error: "That plan is not available for purchase yet.",
+        error: "Payments are temporarily unavailable. Please contact support.",
       };
     }
 
