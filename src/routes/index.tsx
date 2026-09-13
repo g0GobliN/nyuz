@@ -6,6 +6,7 @@ import { LinkButton, Section } from "@/components/kit";
 import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
 import { HeroPipeline, InterestDemo } from "@/components/landing/hero";
+import { HeroReaders } from "@/components/landing/readers";
 import { NoiseSection } from "@/components/landing/noise";
 import { HowItWorksRail, Comparison } from "@/components/landing/how-it-works";
 import { ProfileDemo, WhyDifferent, AiTrust, Infrastructure } from "@/components/landing/sections";
@@ -203,6 +204,9 @@ function Index() {
                 <HeroPipeline />
               )}
             </div>
+          </div>
+          <div className="hero-readers -mx-5 -mb-14 sm:-mx-8 sm:-mb-20" aria-hidden="true">
+            <HeroReaders />
           </div>
         </section>
 

@@ -205,6 +205,59 @@
   display: none;
 }
 
+/* The artwork follows the original hero content without changing its layout. */
+.hero-readers {
+  position: relative;
+  z-index: 0;
+  margin-top: -20px;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hero-readers-art {
+  position: relative;
+  left: 50%;
+  display: block;
+  width: calc(100% - 12px);
+  height: auto;
+  filter: grayscale(1);
+  transform: translateX(-50%);
+}
+
+.reader-portrait {
+  animation: reader-breathe 6s ease-in-out infinite;
+}
+
+/* On phones, show a few readers at a legible size instead of shrinking the
+   entire crowd. Leave breathing room below the delivery labels. */
+@media (width < 40rem) {
+  .hero-readers {
+    margin-top: 1.25rem;
+  }
+
+  .hero-readers-art {
+    width: 44rem;
+    max-width: none;
+  }
+}
+
+@keyframes reader-breathe {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(var(--reader-tilt));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reader-motion-layer {
+    display: none;
+  }
+}
+
 /* Motion */
 @keyframes rise {
   from {
