@@ -47,8 +47,7 @@ import type {
  *
  * Nothing here takes a user id. `context.actor.id` comes from a verified access
  * token, so a caller can only ever backfill themselves — and `backfill()` itself
- * refuses to analyse anything twice for one account, caps a run at three events,
- * and will not pay for an event whose headline names nothing the reader follows.
+ * finalizes at most three relevant pending events using deterministic code.
  * The brakes are in the pipeline module rather than in this file on purpose:
  * they have to hold for the CLI and the Worker too, not only for the browser.
  *
@@ -88,7 +87,7 @@ const PAGE = 24;
  * Everything this reader has matched, most relevant first.
  *
  * Ordered by `relevance` rather than `matched_at` because relevance is the
- * ordering the product promises — importance the model assigned, adjusted by how
+ * ordering the product promises — shared event importance, adjusted by how
  * many of *this* reader's interests the event touches. Sorting by arrival time
  * would be a feed, which is the thing being replaced.
  */
@@ -204,17 +203,14 @@ export type FirstBriefing = {
  * signing up, in which case the topics only exist server-side after that first
  * authenticated sync, and matching them before it would match an empty list.
  *
- * Safe to call repeatedly: the free pass is idempotent by construction, and the
- * paid one runs at most once per account.
+ * Safe to call repeatedly: matching is idempotent and finalization uses database claims.
  */
 export const startFirstBriefing = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
   .handler(async ({ context }): Promise<FirstBriefing> => {
     const report = await backfill(context.actor.db, { userId: context.actor.id });
 
-    // Logged rather than only returned. This is the one reader-triggered path
-    // that can spend model tokens, so the server keeps its own record of what it
-    // decided, independent of a browser that may have navigated away.
+    // Keep finalization visible even if the reader navigates away.
     if (report.analysed > 0) {
       console.log(`backfill: ${report.userId} analysed ${report.analysed} for ${report.tokens}`);
     }
@@ -505,10 +501,7 @@ export const loadStory = createServerFn({ method: "POST" })
     const windowStart = await historyWindowStart(actor.db, actor.id);
     if (!(await storyVisible(actor.db, actor.id, data.id, windowStart))) return null;
 
-    // A real open is the one moment this product is willing to spend money, so
-    // it happens before hydration: generating first means the reader gets the
-    // explanation on this request rather than on a second one.
-    if (data.prefetch !== true) await understandOnOpen(actor.db, data.id);
+    // Metadata reads and prefetch never initiate generation.
 
     const stories = await storiesFromEventIds(actor.db, actor.id, [data.id]);
     return stories[0] ?? null;
@@ -523,28 +516,84 @@ export const loadStory = createServerFn({ method: "POST" })
  * story itself. A story that renders without its long piece is a degraded page;
  * a story that 500s because a model call timed out is a broken one.
  */
-async function understandOnOpen(db: Db, eventId: string): Promise<void> {
-  try {
-    if (!(await understandOnDemandEnabled(db))) return;
-    const { data: event } = await db
-      .from("events")
-      .select("id, title, understand")
-      .eq("id", eventId)
-      .maybeSingle();
-    if (!event) return;
-    const { data: articles } = await db
-      .from("articles")
-      .select("id, title, excerpt, published_at, source_id")
-      .eq("event_id", eventId)
-      .order("published_at", { ascending: false, nullsFirst: false })
-      .limit(40);
-    await ensureUnderstanding(db, event, articles ?? [], {
-      outlets: await outletNames(db, articles ?? []),
-    });
-  } catch (error) {
-    console.error(`understand on open (${eventId}): ${String(error)}`);
-  }
-}
+export const generateStory = createServerFn({ method: "POST" })
+  .middleware([signedInOnly])
+  .validator((input: unknown) =>
+    parseInput(z.object({ id: z.string().uuid(), explicitOpen: z.literal(true) }), input),
+  )
+  .handler(
+    async ({
+      context,
+      data,
+    }): Promise<{ status: string; story: Story | null; reason?: string }> => {
+      const { actor } = context;
+      if (
+        !(await storyVisible(
+          actor.db,
+          actor.id,
+          data.id,
+          await historyWindowStart(actor.db, actor.id),
+        ))
+      )
+        return { status: "skipped", story: null };
+      if (!(await understandOnDemandEnabled(actor.db))) return { status: "skipped", story: null };
+      try {
+        const stories = await storiesFromEventIds(actor.db, actor.id, [data.id]);
+        const story = stories[0] ?? null;
+        if (!story) return { status: "skipped", story: null };
+        const event = await actor.db
+          .from("events")
+          .select("id,title,understand")
+          .eq("id", data.id)
+          .maybeSingle();
+        if (event.error || !event.data) return { status: "skipped", story };
+        const coverage: {
+          id: string;
+          title: string;
+          excerpt: string | null;
+          published_at: string | null;
+          source_id: string | null;
+        }[] = [];
+        for (let offset = 0; ; offset += 200) {
+          const page = await actor.db
+            .from("articles")
+            .select("id,title,excerpt,published_at,source_id")
+            .eq("event_id", data.id)
+            .order("id")
+            .range(offset, offset + 199);
+          if (page.error) return { status: "skipped", story };
+          coverage.push(...page.data);
+          if (page.data.length < 200) break;
+        }
+        const result = await ensureUnderstanding(actor.db, event.data, coverage, {
+          userId: actor.id,
+          explicitOpen: true,
+          outlets: await outletNames(actor.db, coverage),
+        });
+        if (story && "understanding" in result && result.understanding) {
+          const ids = result.understanding.analysisMeta?.sourceArticleIds ?? [];
+          const sources = [...story.sourceList].sort((a, b) => {
+            const x = ids.indexOf(a.articleId ?? ""),
+              y = ids.indexOf(b.articleId ?? "");
+            return (x < 0 ? Infinity : x) - (y < 0 ? Infinity : y);
+          });
+          story.sourceList = sources;
+          story.understand = result.understanding;
+        }
+        return {
+          status: result.status,
+          story,
+          ...("reason" in result ? { reason: result.reason } : {}),
+        };
+      } catch {
+        return {
+          status: "failed",
+          story: null,
+          reason: "Detailed coverage is temporarily unavailable",
+        };
+      }
+    },
+  );
 
 async function understandOnDemandEnabled(db: Db): Promise<boolean> {
   const { data } = await db
@@ -1050,6 +1099,7 @@ function joinLabels(labels: string[]): string {
 }
 
 type EventBits = {
+  publisher_count: number;
   id: string;
   title: string;
   what_happened: string;
@@ -1069,7 +1119,7 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
   const { data: events, error } = await db
     .from("events")
     .select(
-      "id, title, what_happened, importance, novelty, before_state, after_state, first_seen_at, last_updated_at, analysed_at, understand",
+      "id, title, what_happened, importance, novelty, before_state, after_state, first_seen_at, last_updated_at, analysed_at, understand, publisher_count",
     )
     .in("id", eventIds);
   if (error) throw new Error(`reading events: ${error.message}`);
@@ -1098,7 +1148,7 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
       remapEvidence(intelligence, sourceIds, coverage),
       coverage.length,
     );
-    const publishedAt = coverage[0]?.publishedAt ?? event.analysed_at ?? event.first_seen_at;
+    const publishedAt = event.first_seen_at;
     return [
       {
         id: event.id,
@@ -1112,12 +1162,13 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
           importance: asPercent(event.importance),
           novelty: asPercent(event.novelty),
         },
-        sources: coverage.length,
+        sources: event.publisher_count || new Set(coverage.map((c) => c.name)).size,
         topics: topics.get(id) ?? [],
         time: clockOf(publishedAt),
         publishedAt,
         updatedAt: event.last_updated_at,
         sourceList: coverage.map((c) => ({
+          articleId: c.id,
           name: c.name,
           at: clockOf(c.publishedAt),
           url: c.url,

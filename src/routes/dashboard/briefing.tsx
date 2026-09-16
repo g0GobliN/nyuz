@@ -163,7 +163,8 @@ function Briefing() {
       )}
 
       <p className="mt-8 text-center text-[12px] leading-relaxed text-muted-foreground">
-        Summaries are generated and can be wrong. Every story links to the reporting it came from.
+        Source descriptions and generated coverage can contain errors. Every story links to the
+        original reporting.
       </p>
     </DashboardShell>
   );

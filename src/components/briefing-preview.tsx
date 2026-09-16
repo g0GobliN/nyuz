@@ -62,7 +62,7 @@ export function BriefingPreview({
               <p className="mt-2 text-[13.5px] leading-relaxed text-muted-foreground">{s.what}</p>
             )}
             <p className="mt-3 text-[13px] leading-relaxed">
-              <span className="font-medium">Why it matters · </span>
+              <span className="font-medium">Why you're seeing this · </span>
               <span className="text-muted-foreground">{s.why}</span>
             </p>
             <p className="mt-2.5 text-[11.5px] text-muted-foreground">

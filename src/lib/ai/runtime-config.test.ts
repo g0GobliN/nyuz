@@ -28,14 +28,14 @@ describe("precedence", () => {
   });
 
   it("prefers the environment variable over the code default", () => {
-    const config = buildAiRuntimeConfig([], { AI_MONTHLY_COST_USD: "12" });
-    expect(config.monthlyCostUsd).toBe(12);
+    const config = buildAiRuntimeConfig([], { AI_MONTHLY_COST_USD: "9" });
+    expect(config.monthlyCostUsd).toBe(9);
     expect(config.resolved["ai.monthly_cost_usd"].source).toBe("environment");
   });
 
   it("prefers the database row over the environment variable", () => {
     const config = buildAiRuntimeConfig([row("ai.monthly_cost_usd", 8)], {
-      AI_MONTHLY_COST_USD: "12",
+      AI_MONTHLY_COST_USD: "9",
     });
     expect(config.monthlyCostUsd).toBe(8);
     expect(config.resolved["ai.monthly_cost_usd"].source).toBe("database");
@@ -57,7 +57,7 @@ describe("precedence", () => {
 
   it("falls back per setting, not all-or-nothing", () => {
     const config = buildAiRuntimeConfig([row("ai.analyse_max_tokens", 2048)], {
-      AI_MONTHLY_COST_USD: "12",
+      AI_MONTHLY_COST_USD: "9",
     });
     expect(config.resolved["ai.analyse_max_tokens"].source).toBe("database");
     expect(config.resolved["ai.monthly_cost_usd"].source).toBe("environment");
@@ -92,9 +92,9 @@ describe("out-of-range values", () => {
 
   it("skips a rejected database row and uses a usable environment value", () => {
     const config = buildAiRuntimeConfig([row("ai.monthly_cost_usd", 0.1)], {
-      AI_MONTHLY_COST_USD: "12",
+      AI_MONTHLY_COST_USD: "9",
     });
-    expect(config.monthlyCostUsd).toBe(12);
+    expect(config.monthlyCostUsd).toBe(9);
     expect(config.resolved["ai.monthly_cost_usd"].source).toBe("environment");
     // Reports the database row, not the env var: that is the one to go and fix.
     expect(config.resolved["ai.monthly_cost_usd"].invalid?.source).toBe("database");

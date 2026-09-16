@@ -31,6 +31,7 @@ import { alertDeliveryAllowed } from "./alert-entitlement";
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { suppressDeliveredDuplicates } from "./duplicates";
 import type { SecretBag } from "@/lib/ai/config";
 import { capFor } from "@/lib/density";
 import { reasonFor } from "./inclusion";
@@ -577,7 +578,15 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   const cap = capFor(prefs.density, plan);
   const matches = await loadMatches(db, due.user_id);
   const already = await alreadyBriefed(db, due.user_id);
-  const picked = selectItems(matches, already, cap, options.now ?? new Date(), "daily");
+  const ranked = selectItems(matches, already, matches.length, options.now ?? new Date(), "daily");
+  const distinct = await suppressDeliveredDuplicates(
+    db,
+    due.user_id,
+    ranked.map((r) => r.eventId),
+    now,
+    "briefing",
+  );
+  const picked = ranked.filter((r) => distinct.has(r.eventId)).slice(0, cap);
 
   // The digest cache (0061) is deliberately not consulted. Skipping generation on
   // an unchanged event set is a P1 optimization; the table and RPCs stay dormant
@@ -952,7 +961,9 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   const ids = picked.map((p) => p.eventId);
   const { data, error } = await db
     .from("events")
-    .select("id, title, what_happened, before_state, after_state, importance, novelty")
+    .select(
+      "id, title, what_happened, before_state, after_state, importance, novelty, publisher_count",
+    )
     .in("id", ids);
   if (error) throw new Error(`reading events: ${error.message}`);
 
@@ -999,7 +1010,7 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
         importance: event.importance,
         novelty: event.novelty,
         topics: topics.get(row.eventId) ?? [],
-        sourceCount: outlets.get(row.eventId)?.size ?? 0,
+        sourceCount: event.publisher_count || outlets.get(row.eventId)?.size || 0,
         relevance: row.relevance,
         matchedAt: row.matchedAt,
       },

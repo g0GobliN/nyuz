@@ -68,10 +68,13 @@ function install(options: {
 
   vi.doMock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn(() => client) }));
 
-  vi.stubGlobal("fetch", async () => {
-    harness.fetchCalls += 1;
-    throw new Error("the provider must not be reached in these tests");
-  });
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      harness.fetchCalls += 1;
+      throw new Error("the provider must not be reached in these tests");
+    }),
+  );
 
   return harness;
 }
@@ -93,6 +96,61 @@ afterEach(() => {
 });
 
 describe("a refused reservation is never followed by a provider call", () => {
+  it.each([
+    { DEEPSEEK_API_KEY: "" },
+    { DEEPSEEK_API_KEY: "   " },
+    { DEEPSEEK_API_KEY: "invalid\nheader" },
+    { DEEPSEEK_BASE_URL: "not-a-url" },
+    { DEEPSEEK_BASE_URL: "http://api.deepseek.com" },
+    { MODEL_REASON: " " },
+  ])(
+    "rejects invalid local configuration before reserving or counting a start: %j",
+    async (bad) => {
+      const harness = install({ reservationGranted: true });
+      const { completeRouted } = await import("@/lib/ai/config");
+      let paidAttempts = 0;
+      let userStarts = 0;
+      await expect(
+        completeRouted({
+          capability: "reason",
+          feature: "understand_generation",
+          user: "Evidence",
+          secrets: { ...SECRETS, ...bad },
+          beforeProvider: async () => {
+            paidAttempts++;
+            userStarts++;
+          },
+        }),
+      ).rejects.toThrow();
+      expect(reserveCalls(harness)).toHaveLength(0);
+      expect(harness.fetchCalls).toBe(0);
+      expect(paidAttempts).toBe(0);
+      expect(userStarts).toBe(0);
+    },
+  );
+
+  it.each([0, -1, 1.5, Number.NaN])(
+    "rejects invalid output ceiling %s before admission",
+    async (maxTokens) => {
+      const harness = install({ reservationGranted: true });
+      const { completeRouted } = await import("@/lib/ai/config");
+      const beforeProvider = vi.fn();
+      await expect(
+        completeRouted({
+          capability: "reason",
+          feature: "understand_generation",
+          user: "Evidence",
+          secrets: SECRETS,
+          maxTokens,
+          beforeProvider,
+        }),
+      ).rejects.toThrow("output limit");
+      expect(reserveCalls(harness)).toHaveLength(0);
+      expect(beforeProvider).not.toHaveBeenCalled();
+      expect(harness.fetchCalls).toBe(0);
+    },
+  );
+
   it("stops on a refusal, having asked exactly once", async () => {
     // `reserve_ai_tokens` returns null for every refusal it has: the daily
     // Flash cap, the daily Pro cap, the monthly token ceiling, the monthly cost

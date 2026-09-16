@@ -71,7 +71,7 @@ export class FakeDb {
     this.rpcCalls.push({ fn, args });
     const handler = this.rpcs[fn];
     if (!handler) return { data: null, error: { message: `no such function: ${fn}` } };
-    const out = handler(args);
+    const out = await handler(args);
     if (out instanceof Error) return { data: null, error: { message: out.message } };
     return { data: out, error: null };
   }
@@ -192,6 +192,7 @@ class FakeQuery implements PromiseLike<{
   private mode: Mode = { kind: "select", count: false };
   private ordering: { column: string; ascending: boolean } | null = null;
   private limitTo: number | null = null;
+  private offset = 0;
 
   constructor(
     private readonly db: FakeDb,
@@ -296,6 +297,12 @@ class FakeQuery implements PromiseLike<{
     return this;
   }
 
+  range(from: number, to: number): this {
+    this.offset = from;
+    this.limitTo = to - from + 1;
+    return this;
+  }
+
   async maybeSingle(): Promise<{ data: Row | null; error: null | { message: string } }> {
     const { data, error } = await this.run();
     return { data: data?.[0] ?? null, error };
@@ -376,7 +383,7 @@ class FakeQuery implements PromiseLike<{
         return ascending ? cmp : -cmp;
       });
     }
-    if (this.limitTo !== null) out = out.slice(0, this.limitTo);
+    if (this.limitTo !== null) out = out.slice(this.offset, this.offset + this.limitTo);
 
     this.db.hooks.afterSelect?.(this.table, out);
 

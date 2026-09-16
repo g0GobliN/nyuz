@@ -183,8 +183,10 @@ describe("paid shared work cannot be bought twice", () => {
   // rather than assumed by a process.
   it("claims events before analysing them", () => {
     const analyse = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
-    expect(analyse).toContain('status: "analysing"');
-    expect(analyse).toMatch(/\.is\("analysed_at", null\)/);
+    expect(analyse.indexOf('"claim_event_finalization"')).toBeLessThan(
+      analyse.indexOf('"finish_event_finalization"'),
+    );
+    expect(analyse).not.toContain("completeRouted");
   });
 
   it("keeps briefing and translation paths free of provider calls", () => {
@@ -196,8 +198,9 @@ describe("paid shared work cannot be bought twice", () => {
 
   it("claims on-demand understanding before calling the provider", () => {
     const source = readFileSync("src/lib/server/understanding.ts", "utf8");
-    expect(source.indexOf('db.rpc("claim_event_understanding"')).toBeLessThan(
-      source.indexOf("return generate("),
+    expect(source.indexOf('"claim_shared_story"')).toBeGreaterThan(-1);
+    expect(source.indexOf('"claim_shared_story"')).toBeLessThan(
+      source.indexOf("await completeRouted("),
     );
     const sql = ALL_SQL.find((f) => f.name.startsWith("0078"))?.sql ?? "";
     expect(sql).toContain("primary key (event_id, content_version)");
@@ -317,7 +320,7 @@ describe("failure is bounded, not retried forever", () => {
   // plan2 §71: never "cron sees failed -> pay again forever".
   it("excludes failed events from scheduled analysis", () => {
     const analyse = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
-    expect(analyse).toContain('options.retryFailed === true ? ["pending", "failed"] : ["pending"]');
+    expect(analyse).toContain('options.retryFailed ? ",status.eq.failed" : ""');
   });
 
   it("resumes a crashed digest without buying AI", () => {
@@ -373,16 +376,15 @@ describe("age is not permission to spend again", () => {
     // The exception is deliberate and must not be lost: an operator naming an
     // event by id can take one a crash left claimed, but still not one a live
     // worker holds.
-    const analyse = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
-    const forced = analyse.slice(analyse.indexOf("if (forced) {"));
-    expect(forced).toContain(
-      "status.in.(pending,failed),and(status.eq.analysing,last_updated_at.lt.",
-    );
+    const sql = readFileSync("supabase/migrations/0085_code_first_news.sql", "utf8");
+    expect(sql).toContain("finalization_lease_until<now()");
+    expect(sql).toContain("finalization_owner=p_owner and finalization_lease_until>now()");
   });
 
   it("claims analysis only in explicitly retryable states on the cron path", () => {
     const analyse = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
-    expect(analyse).toContain('update = update.in("status", ["pending", "failed"]);');
+    expect(analyse).toContain("metadata_dirty.eq.true,status.eq.pending,status.eq.analysing");
+    expect(analyse).not.toContain("completeRouted");
   });
 
   it("frees an abandoned reservation without re-buying the work", () => {
@@ -406,8 +408,8 @@ describe("launch repair concurrency and recovery", () => {
     expect(fn.indexOf("exists (")).toBeLessThan(fn.indexOf("limit greatest"));
 
     const analysis = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
-    expect(analysis).toContain('db.rpc("pending_events_with_demand"');
-    expect(analysis).not.toMatch(/pending_events_with_demand[\s\S]{0,500}events_with_demand/);
+    expect(analysis).not.toContain("pending_events_with_demand");
+    expect(analysis).toContain("metadata_dirty.eq.true");
   });
 
   it("persists capacity deferrals and makes them due automatically", () => {
@@ -415,9 +417,10 @@ describe("launch repair concurrency and recovery", () => {
       /analysis_deferred_until is null or e\.analysis_deferred_until <= now\(\)/,
     );
     const analysis = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
-    expect(analysis).toContain('status: "pending"');
-    expect(analysis).toContain("analysis_deferred_until: retryAt.toISOString()");
-    expect(analysis).toContain("analysis_deferred_until.lte");
+    expect(analysis).not.toContain("analysis_deferred_until.lte");
+    expect(analysis).not.toContain("completeRouted");
+    const current = readFileSync("supabase/migrations/0085_code_first_news.sql", "utf8");
+    expect(current).toContain("analysis_deferred_until=null");
   });
 
   it("uses recoverable delivery leases and transactional alert creation", () => {
@@ -597,7 +600,8 @@ describe("gates fail in the direction that keeps the product working", () => {
   it("spends no analysis tokens when demand cannot be evaluated", () => {
     // Fail closed on spend: pending events remain eligible for the next run.
     const analyse = readFileSync("src/lib/pipeline/analyse.ts", "utf8");
-    expect(analyse).toContain('decision: "demand_check_failed"');
+    expect(analyse).not.toContain("completeRouted");
+    expect(analyse).toContain("modelCalls: 0");
   });
 
   it("collects everything when demand or cadence cannot be evaluated", () => {
@@ -606,11 +610,10 @@ describe("gates fail in the direction that keeps the product working", () => {
     expect(ingest).toContain("uniform cadence");
   });
 
-  it("keeps asking the model when the cluster skip cannot be evaluated", () => {
-    // Fail closed here, and that is the correct direction: the risk is a
-    // wrong merge, so the fallback is the behaviour that has always been safe.
+  it("never asks a model when clustering is ambiguous", () => {
     const cluster = readFileSync("src/lib/pipeline/cluster.ts", "utf8");
-    expect(cluster).toContain("Fails closed");
+    expect(cluster).not.toContain("completeRouted");
+    expect(cluster).toContain("Conservative separate event");
   });
 });
 

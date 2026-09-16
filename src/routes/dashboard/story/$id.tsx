@@ -5,7 +5,7 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard/shell";
@@ -15,7 +15,7 @@ import { useFeedback } from "@/lib/feedback-store";
 import { useReadTracking } from "@/lib/use-engagement";
 import type { QueueItem, ReadingQueue } from "@/lib/reading-queue";
 import { asQueueSource, useReadingQueue, type QueueSource } from "@/lib/use-reading-queue";
-import { loadStory } from "@/lib/server/briefing";
+import { loadStory, generateStory } from "@/lib/server/briefing";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/story/$id")({
@@ -71,6 +71,15 @@ function StoryDetail() {
     staleTime: 60_000,
   });
   const story = storyQ.data;
+  const opened = useRef<string | null>(null);
+  const generation = useMutation({
+    mutationFn: (eventId: string) => generateStory({ data: { id: eventId, explicitOpen: true } }),
+    onSuccess: (result, eventId) => {
+      if (result.story) queryClient.setQueryData(["briefing", "story", eventId], result.story);
+    },
+    retry: false,
+  });
+  const initiateGeneration = generation.mutate;
 
   const reachedEnd = useRef(false);
   useReadTracking(story?.id, reachedEnd);
@@ -91,6 +100,23 @@ function StoryDetail() {
   const queue = useReadingQueue(from, story?.id, state);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!story || opened.current === id) return;
+    opened.current = id;
+    initiateGeneration(id);
+  }, [id, story, initiateGeneration]);
+  useEffect(() => {
+    if (generation.data?.status !== "waited") return;
+    let polls = 0;
+    const timer = setInterval(() => {
+      if (++polls > 15) {
+        clearInterval(timer);
+        return;
+      }
+      void queryClient.invalidateQueries({ queryKey: ["briefing", "story", id] });
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [generation.data?.status, id, queryClient]);
 
   const open = useCallback(
     (nextId: string) => {
@@ -143,6 +169,11 @@ function StoryDetail() {
       </div>
 
       <div className="animate-rise">
+        {generation.isPending && !story.understand?.article ? (
+          <p role="status" className="mt-6 text-sm text-muted-foreground">
+            Preparing detailed coverage…
+          </p>
+        ) : null}
         <StoryArticle
           story={story}
           saved={saved}

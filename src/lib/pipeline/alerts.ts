@@ -12,6 +12,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { suppressDeliveredDuplicates } from "./duplicates";
 import type { EmailEnv } from "@/lib/server/email/send";
 import type { TelegramEnv } from "@/lib/server/telegram/send";
 import type { PushEnv } from "@/lib/server/push/send";
@@ -220,7 +221,17 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
     options.userId,
     admitted.map((h) => h.eventId),
   );
-  const fresh = admitted.filter((h) => !known.has(h.eventId));
+  const distinct = await suppressDeliveredDuplicates(
+    db,
+    options.userId,
+    admitted
+      .filter((h) => !known.has(h.eventId))
+      .sort((a, b) => b.importance - a.importance)
+      .map((h) => h.eventId),
+    now,
+    "alert",
+  );
+  const fresh = admitted.filter((h) => !known.has(h.eventId) && distinct.has(h.eventId));
   if (fresh.length === 0) {
     return { ...empty, skipped: options.hits.length };
   }

@@ -102,7 +102,7 @@ export const MIN_COMPLETION_TOKENS = 1024;
  * review, not a text field. Raising this is one line; the point is that it is a
  * line someone reads.
  */
-export const MAX_AI_MONTHLY_COST_USD = 50;
+export const MAX_AI_MONTHLY_COST_USD = 10;
 
 /** Same idea for the token ceiling. ~5x the recommended 20M production value. */
 export const MAX_AI_MONTHLY_TOKEN_BUDGET = 100_000_000;
@@ -112,6 +112,12 @@ export const MAX_AI_MONTHLY_TOKEN_BUDGET = 100_000_000;
 /* ---------------------------------------------------------------------- */
 
 export type AiSettingKey =
+  | "ai.daily_cost_usd"
+  | "ai.story_concurrency"
+  | "ai.story_attempts"
+  | "ai.story_user_daily_starts"
+  | "ai.story_failure_cooldown_minutes"
+  | "ai.story_uncertain_cooldown_minutes"
   | "ai.monthly_cost_usd"
   | "ai.monthly_token_budget"
   | "ai.cluster_max_tokens"
@@ -168,10 +174,83 @@ export type AiSettingSpec = (NumberSetting | BooleanSetting | EnumSetting) & {
 
 export const AI_RUNTIME_SETTINGS: readonly AiSettingSpec[] = [
   {
+    key: "ai.daily_cost_usd",
+    label: "Daily AI ceiling",
+    description: "Hard UTC daily ceiling across all AI requests, including reservations.",
+    envVar: "",
+    kind: "number",
+    unit: "usd",
+    min: 0,
+    max: 0.5,
+    codeDefault: 0.5,
+    dangerous: true,
+  },
+  {
+    key: "ai.story_concurrency",
+    label: "Concurrent story generations",
+    description: "Maximum active shared story generations globally. Cached reading is unlimited.",
+    envVar: "",
+    kind: "number",
+    unit: "count",
+    min: 0,
+    max: 10,
+    codeDefault: 2,
+    dangerous: true,
+  },
+  {
+    key: "ai.story_attempts",
+    label: "Story paid attempts",
+    description: "Lifetime paid attempts per event version. Refreshing cannot reset this limit.",
+    envVar: "",
+    kind: "number",
+    unit: "count",
+    min: 0,
+    max: 3,
+    codeDefault: 3,
+    dangerous: true,
+  },
+  {
+    key: "ai.story_user_daily_starts",
+    label: "New generations per reader",
+    description: "Daily initiation allowance. Metadata, polling and cached reads do not count.",
+    envVar: "",
+    kind: "number",
+    unit: "count",
+    min: 0,
+    max: 100,
+    codeDefault: 10,
+    dangerous: true,
+  },
+  {
+    key: "ai.story_failure_cooldown_minutes",
+    label: "Failure cooldown",
+    description: "Minutes before another explicit open may retry a rejected generation.",
+    envVar: "",
+    kind: "number",
+    unit: "count",
+    min: 5,
+    max: 1440,
+    codeDefault: 30,
+    dangerous: true,
+  },
+  {
+    key: "ai.story_uncertain_cooldown_minutes",
+    label: "Uncertain outcome cooldown",
+    description:
+      "Minimum reconciliation cooldown for uncertain requests. They stay blocked until reconciled; spending remains reserved.",
+    envVar: "",
+    kind: "number",
+    unit: "count",
+    min: 60,
+    max: 10080,
+    codeDefault: 120,
+    dangerous: true,
+  },
+  {
     key: "ai.monthly_cost_usd",
     label: "Monthly safety cap",
     description:
-      "Maximum nyuz may spend in one calendar month. This is an emergency guard and does not add provider credit. Set it above routine usage; top-ups do not change it. Settled spend and in-flight reservations count toward this cap.",
+      "Hard UTC monthly AI ceiling. Settled spending and outstanding reservations count. Exhaustion pauses new detailed stories; news and cached reading continue.",
     envVar: "AI_MONTHLY_COST_USD",
     kind: "number",
     unit: "usd",

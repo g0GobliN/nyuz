@@ -76,9 +76,9 @@ function About() {
                 schedules — including sources readers add.
               </p>
               <p>
-                <strong className="text-foreground">3. AI finds the signal.</strong> Our system
-                connects related coverage into events, scores importance and novelty, and generates
-                concise summaries.
+                <strong className="text-foreground">3. Coverage becomes useful.</strong> Our system
+                groups closely related reports, ranks events, and selects concise source
+                descriptions. Deeper shared coverage can be prepared when you open a story.
               </p>
               <p>
                 <strong className="text-foreground">4. You get a briefing.</strong> Receive your

@@ -194,11 +194,11 @@ describe("briefing design", () => {
     expect(email.html).toContain("/logo-mark.png");
     expect(email.html).not.toContain("cid:");
     expect(email.html).toContain("OpenAI launched a realtime API");
-    expect(email.html).toContain("Why it matters to you");
+    expect(email.html).toContain("Why you're seeing this");
     expect(email.html).toContain("Read the full story on nyuz");
     expect(email.html).toContain("Open the rest on nyuz");
     expect(email.html).not.toContain("Hello Sam");
-    expect(email.html).toContain("Summaries are generated");
+    expect(email.html).toContain("Source descriptions and generated coverage can contain errors");
     expect(email.text).toContain("OpenAI launched a realtime API");
     expect(email.text).toContain("Read on nyuz:");
   });

@@ -21,7 +21,14 @@ export type Story = {
   publishedAt: string;
   /** Most recent evidence attachment or analysis update, when available. */
   updatedAt?: string;
-  sourceList: { name: string; at: string; url?: string; headline?: string; excerpt?: string }[];
+  sourceList: {
+    articleId?: string;
+    name: string;
+    at: string;
+    url?: string;
+    headline?: string;
+    excerpt?: string;
+  }[];
   before: string;
   after: string;
   timeline: { at: string; label: string }[];

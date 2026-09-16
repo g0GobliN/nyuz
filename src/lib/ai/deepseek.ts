@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { providerFetch, isTestRuntime } from "./transport";
 import { envValue } from "@/lib/runtime-env";
 
 /**
@@ -52,7 +53,8 @@ export function createDeepSeek(e?: AiEnv): OpenAI {
     );
   }
   return new OpenAI({
-    apiKey,
+    apiKey: isTestRuntime() ? "test-only" : apiKey,
+    fetch: providerFetch,
     baseURL: env(e, "DEEPSEEK_BASE_URL") ?? "https://api.deepseek.com",
     // Each attempt must acquire its own reservation in the routed caller.
     maxRetries: 0,
@@ -60,6 +62,7 @@ export function createDeepSeek(e?: AiEnv): OpenAI {
 }
 
 export class TruncatedCompletionError extends Error {
+  usageSettled = false;
   constructor(
     readonly model: string,
     readonly reasoningTokens: number,

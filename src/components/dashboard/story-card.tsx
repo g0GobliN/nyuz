@@ -75,7 +75,7 @@ export function StoryCard({
       {because || story.why ? (
         <div className="mt-4 rounded-2xl bg-surface-2 p-4">
           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-            Why it matters to you
+            Why you're seeing this
           </p>
           <p className="mt-2 text-[13.5px] leading-relaxed">
             {because ? <span>{because} </span> : null}

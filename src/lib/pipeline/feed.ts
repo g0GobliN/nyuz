@@ -72,7 +72,7 @@ export type ParsedFeed = {
  * Longest excerpt kept. Enough for the clustering model to tell two stories
  * apart, short enough that a thousand articles is not a megabyte of database.
  */
-const EXCERPT_LIMIT = 500;
+const EXCERPT_LIMIT = 4000;
 
 export function parseFeed(xml: string): ParsedFeed {
   // A UTF-8 BOM, or whitespace before the declaration, stops the format sniff

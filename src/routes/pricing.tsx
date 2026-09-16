@@ -86,7 +86,7 @@ const FAQ = [
   },
   {
     q: "Do you replace the original reporting?",
-    a: "No. Every story lists the sources it was built from and links out to them. Summaries are generated and can be wrong.",
+    a: "No. Every story links to its sources. Cards use source descriptions; deeper shared coverage may be generated on request and can be wrong.",
   },
   {
     q: "Can I change plans later?",

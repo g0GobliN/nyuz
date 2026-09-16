@@ -13,6 +13,7 @@ import tsConfigPaths from "vite-tsconfig-paths";
 export default defineConfig({
   plugins: [tsConfigPaths()],
   test: {
+    setupFiles: ["./src/test-setup.ts"],
     environment: "node",
     include: ["src/**/*.test.ts"],
     /**

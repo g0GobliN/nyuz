@@ -69,36 +69,10 @@ import { describeMatch, match, type MatchReport } from "./match";
  */
 const SCHEDULED_LIMIT = 12;
 
-/**
- * Articles clustered per scheduled invocation.
- *
- * Much smaller than ingestion's slice, and for a different reason. Ingestion is
- * bounded by subrequests; clustering is bounded by money and by time. Each article
- * costs a shortlist query, up to one model call, and one or two writes — so twelve
- * articles is around forty subrequests and twelve calls to a reasoning model, which
- * is the part that takes seconds rather than milliseconds.
- *
- * At four invocations an hour the demand lane can respond to briefing deadlines.
- * The database selector keeps the unrelated background lane fixed, so this
- * cadence does not turn quiet periods into extra model spend.
- */
+/** Free clustering remains bounded by the worker's subrequest limit. */
 const CLUSTER_LIMIT = 12;
 
-/**
- * Events analysed per scheduled invocation.
- *
- * Smaller again, and the tightest budget in the file, because this is the only
- * stage that calls the strongest configured model and the only one whose output a
- * reader will read as prose. Each event costs a coverage read, a claim, one model
- * call and one or two writes — call it five subrequests, so six events is around
- * thirty-five plus the shared reads. That fits inside the free plan's fifty, which
- * ingestion's slice does not.
- *
- * Six per invocation is not how the backlog gets cleared, and is not meant to be: an
- * operator runs `npm run pipeline -- analyse --limit N` and watches it. What this
- * number has to cover is the news of the last half hour, not the corpus — the
- * standing backlog is drained deliberately, by hand, because it is money.
- */
+/** Finalization is free; keep room for claim, coverage, topic and persistence queries. */
 const ANALYSE_LIMIT = 6;
 
 /**
@@ -341,20 +315,7 @@ async function runDormant(env: Env): Promise<ScheduledResult> {
   return { stage: "dormant", report };
 }
 
-/**
- * Clears reservations that never settled, before any stage tries to reserve.
- *
- * A model call that fails with a 5xx or a dropped connection keeps its
- * reservation as a conservative charge, because the provider may have generated
- * a reply nobody received. Nothing ever cleared those, so two days of provider
- * failure in August held 2.5M tokens and $5.45 against the monthly ceilings
- * having spent nothing, and the pipeline stopped for the rest of the month.
- *
- * One database call at the top of a run, and it costs nothing when the ledger is
- * clean. Failure is logged and swallowed: an unreapable ledger is a reason to
- * look at the ledger, not a reason to skip the run — `reserve_ai_tokens` applies
- * the same cutoff itself, so the ceiling is right either way.
- */
+/** Release positively unstarted old reservations; uncertain charges remain held. */
 async function reapStaleReservations(env: Env): Promise<void> {
   const { data, error } = await createAdminClient(env).rpc("void_stale_ai_reservations", {});
   if (error) {

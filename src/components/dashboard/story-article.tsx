@@ -166,8 +166,8 @@ export function StoryArticle({
             ))}
           </ol>
           <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">
-            nyuz is not the source. This explanation is generated — open the reporting before acting
-            on it.
+            nyuz is not the source. Source descriptions and generated coverage may contain errors.
+            Open the original reporting before acting on it.
           </p>
         </div>
 

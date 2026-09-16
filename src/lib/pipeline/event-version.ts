@@ -131,6 +131,18 @@ const DEVELOPMENT_MARKERS: { readonly marker: string; readonly pattern: RegExp }
   { marker: "fatalities", pattern: /\b(?:killed|dead|died|fatalities|death toll)\b/i },
 ];
 
+function hasAffirmativeDealConfirmation(text: string): boolean {
+  return (text.match(/[^.!?;\n]+[.!?;]?/g) ?? []).some(
+    (sentence) =>
+      /\bconfirmed\b/i.test(sentence) &&
+      !sentence.endsWith("?") &&
+      /\b(?:deal|agreement|acquisition|merger|takeover|acquire|buy|merge)\b/i.test(sentence) &&
+      !/\b(?:no|not|never|neither|without|unconfirmed|uncertain|unverified|if|whether|may|might|could|would|expected|reportedly|allegedly|rumou?rs?|awaiting|pending|yet|declined|refused)\b|\b\w+n['’]t\b/i.test(
+        sentence,
+      ),
+  );
+}
+
 /**
  * Casualty figures, which `extract.ts` does not cover.
  *
@@ -208,9 +220,11 @@ export type MaterialState = {
 export function materialState(coverageText: string, facts?: ExtractedFacts): MaterialState {
   const extracted = facts ?? extractFacts(coverageText, 0);
 
-  const markers = DEVELOPMENT_MARKERS.filter(({ pattern }) => pattern.test(coverageText)).map(
-    ({ marker }) => marker,
-  );
+  const markers = DEVELOPMENT_MARKERS.filter(({ marker, pattern }) =>
+    marker === "deal_confirmed"
+      ? hasAffirmativeDealConfirmation(coverageText)
+      : pattern.test(coverageText),
+  ).map(({ marker }) => marker);
 
   // Money, counts and percentages are the numbers whose size changes the story.
   // Versions, dates and CVSS scores are identity, not magnitude, and are folded
@@ -232,12 +246,7 @@ export function materialState(coverageText: string, facts?: ExtractedFacts): Mat
     if (value !== null) magnitudes.push(`casualty:${magnitudeBucket(value)}`);
   }
 
-  const entities = [
-    ...extracted.companies.map((c) => `co:${c.value}`),
-    ...extracted.countries.map((c) => `country:${c.value}`),
-    ...extracted.cves.map((c) => `cve:${c.value}`),
-    ...extracted.tickers.map((t) => `ticker:${t.value}`),
-  ];
+  const entities = [...extracted.cves.map((c) => `cve:${c.value}`)];
 
   return {
     markers: stableSet(markers),

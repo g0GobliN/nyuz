@@ -110,7 +110,7 @@ export function reasonFor(input: InclusionInput): InclusionReason {
 
   const topics = input.topics.filter((label) => label.trim().length > 0).slice(0, 3);
   if (input.sourceCount >= 2) {
-    const outlets = `${count(input.sourceCount)} independent outlet${input.sourceCount === 1 ? "" : "s"} reported this`;
+    const outlets = `${count(input.sourceCount)} publisher${input.sourceCount === 1 ? "" : "s"} reported this`;
     return {
       text: topics.length > 0 ? `${outlets}, in ${listOf(topics)}.` : `${outlets}.`,
       source: "coverage",

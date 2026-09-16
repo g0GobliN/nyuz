@@ -519,6 +519,10 @@ export type EventTranslation = {
 };
 
 export type EventRow = {
+  coverage_revision: number;
+  metadata_dirty: boolean;
+  article_count: number;
+  publisher_count: number;
   id: string;
   title: string;
   what_happened: string;
@@ -929,6 +933,10 @@ export type Database = {
       source_topics: Table<SourceTopic, "confidence" | "created_at" | "updated_at">;
       events: Table<
         EventRow,
+        | "coverage_revision"
+        | "metadata_dirty"
+        | "article_count"
+        | "publisher_count"
         | "id"
         | "what_happened"
         | "importance"
@@ -1133,6 +1141,64 @@ export type Database = {
       };
     };
     Functions: {
+      claim_article_cluster: { Args: { p_article_id: string; p_owner: string }; Returns: boolean };
+      release_article_cluster: {
+        Args: { p_article_id: string; p_owner: string };
+        Returns: undefined;
+      };
+      finish_article_cluster: {
+        Args: {
+          p_article_id: string;
+          p_owner: string;
+          p_event_id: string | null;
+          p_ignored: boolean;
+        };
+        Returns: string | null;
+      };
+      claim_event_finalization: { Args: { p_event_id: string; p_owner: string }; Returns: boolean };
+      finish_event_finalization: {
+        Args: {
+          p_event_id: string;
+          p_owner: string;
+          p_revision: number;
+          p_metadata: Json;
+          p_topics: string[];
+        };
+        Returns: boolean;
+      };
+      fail_event_finalization: {
+        Args: { p_event_id: string; p_owner: string };
+        Returns: undefined;
+      };
+      claim_shared_story: {
+        Args: { p_event_id: string; p_version: string; p_owner: string; p_user_id: string };
+        Returns: string;
+      };
+      begin_shared_story_attempt: {
+        Args: {
+          p_event_id: string;
+          p_version: string;
+          p_owner: string;
+          p_user_id: string;
+          p_usage_id: string;
+        };
+        Returns: boolean;
+      };
+      stage_shared_story: {
+        Args: { p_event_id: string; p_version: string; p_owner: string; p_payload: Json };
+        Returns: boolean;
+      };
+      finish_shared_story: { Args: { p_event_id: string; p_version: string }; Returns: boolean };
+      fail_shared_story: {
+        Args: {
+          p_event_id: string;
+          p_version: string;
+          p_owner: string;
+          p_reason: string;
+          p_uncertain: boolean;
+        };
+        Returns: undefined;
+      };
       replace_user_exclusions: {
         Args: { p_user_id: string; p_terms: string[] };
         Returns: undefined;

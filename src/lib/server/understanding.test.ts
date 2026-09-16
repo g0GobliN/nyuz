@@ -1,381 +1,287 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
-
-/**
- * The cost contract for on-demand Understand.
- *
- * Every test here is a statement about money: how many provider calls a given
- * sequence of reader actions is allowed to buy. A regression in this file is a
- * regression in the bill, which is why the assertions count calls rather than
- * inspect prose.
- */
-
-type Row = Record<string, unknown>;
-
-/**
- * A database stand-in with just enough behaviour to be wrong in the ways that
- * matter: the claim really is single-flight, and reads really do see writes.
- */
-function fakeDb(options: { legacy?: unknown; rows?: Row[] } = {}) {
-  const understanding: Row[] = [...(options.rows ?? [])];
-  const calls: string[] = [];
-
-  const api = {
-    understanding,
-    calls,
-    rpc: async (name: string, args: Record<string, unknown>) => {
-      calls.push(name);
-      if (name !== "claim_event_understanding") return { data: null, error: null };
-      const existing = understanding.find(
-        (r) =>
-          r["event_id"] === args["p_event_id"] &&
-          r["content_version"] === args["p_content_version"],
-      );
-      if (!existing) {
-        understanding.push({
-          event_id: args["p_event_id"],
-          content_version: args["p_content_version"],
-          status: "generating",
-          attempts: 1,
-          payload: null,
-        });
-        return { data: "won", error: null };
-      }
-      if (existing["status"] === "ready") return { data: "ready", error: null };
-      if (existing["status"] === "failed") return { data: "failed", error: null };
-      return { data: "generating", error: null };
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { FakeDb, asDb, type Row } from "@/lib/test-support/fake-db";
+import { ensureUnderstanding, storyEvidence } from "./understanding";
+import type { RoutedOptions } from "@/lib/ai/config";
+import { TruncatedCompletionError } from "@/lib/ai/deepseek";
+const provider = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/ai/config", () => ({
+  completeRouted: (opts: unknown) => provider(opts),
+  isDefinitelyUnbilledAiError: (e: { status?: number }) =>
+    [400, 401, 403, 429].includes(e?.status ?? 0),
+}));
+const prose = {
+  deck: { text: "The council approved a new public library.", evidence: [1] },
+  paragraphs: [
+    {
+      text: "The project includes a reading room and longer opening hours, according to the council announcement.",
+      evidence: [1],
     },
-    from: (table: string) => {
-      calls.push(`from:${table}`);
-      const filters: Row = {};
-      const builder: Record<string, unknown> = {
-        select: () => builder,
-        eq: (column: string, value: unknown) => {
-          filters[column] = value;
-          return builder;
-        },
-        in: () => builder,
-        order: () => builder,
-        limit: () => builder,
-        maybeSingle: async () => {
-          if (table !== "event_understanding") return { data: null, error: null };
-          const match = understanding.find((r) =>
-            Object.entries(filters).every(([k, v]) => r[k] === v),
-          );
-          return { data: match ?? null, error: null };
-        },
-        then: undefined,
-        upsert: async (row: Row) => {
-          const exists = understanding.find(
-            (r) =>
-              r["event_id"] === row["event_id"] && r["content_version"] === row["content_version"],
-          );
-          if (!exists) understanding.push({ ...row });
-          return { data: null, error: null };
-        },
-        update: (patch: Row) => {
-          const applied: Row = {};
-          const chain: Record<string, unknown> = {
-            eq: (column: string, value: unknown) => {
-              applied[column] = value;
-              return chain;
-            },
-          };
-          // The update lands when the chain is awaited.
-          (chain as { then: unknown }).then = (resolve: (v: unknown) => void) => {
-            for (const row of understanding) {
-              if (Object.entries(applied).every(([k, v]) => row[k] === v))
-                Object.assign(row, patch);
-            }
-            resolve({ data: null, error: null });
-          };
-          return chain;
-        },
-      };
-      // A ready-row read that filters on status uses the same maybeSingle path.
-      return builder as never;
-    },
-  };
-  return api;
-}
-
-const ARTICLES = [
+  ],
+};
+const event = { id: "e", title: "Council approves public library", understand: null };
+const articles = [
   {
-    id: "a1",
-    title: "Acme confirms Widget deal",
-    excerpt: "Acme has confirmed it will acquire Widget Co for $2 billion.",
-    published_at: "2026-09-12T00:00:00Z",
-    source_id: "s1",
+    id: "a",
+    title: event.title,
+    source_id: "s",
+    published_at: "2026-09-14T12:00:00Z",
+    excerpt:
+      "The council approved a new public library on Monday. The project includes a reading room and extended opening hours. Funding will come from the existing community development budget, according to the council's announcement. Construction is expected to begin next spring.",
   },
 ];
-
-/** A minimal but *valid* EventIntelligence payload, so parsing succeeds. */
-const PAYLOAD = {
-  coverage: "normal",
-  one_sentence: "Acme is buying Widget Co.",
-  article: {
-    deck: { text: "Acme has confirmed a deal for Widget Co.", evidence: [1] },
-    paragraphs: [{ text: "The acquisition was confirmed on Friday.", evidence: [1] }],
-  },
-};
-
-let provider: ReturnType<typeof vi.fn>;
-
-async function load(db: unknown) {
-  vi.doMock("@/lib/ai/config", () => ({
-    completeRoutedJson: provider,
-    AiBudgetExceededError: class extends Error {},
-  }));
-  vi.doMock("@/lib/ai/runtime-config", () => ({
-    loadAiRuntimeConfig: async () => ({ analyseMaxTokens: 4096 }),
-  }));
-  vi.doMock("@/lib/server/ops", () => ({ recordOps: async () => {} }));
-  const mod = await import("./understanding");
-  return { ...mod, db: db as never };
-}
-
-beforeEach(() => {
-  vi.resetModules();
-  provider = vi.fn(async () => ({
-    data: PAYLOAD,
-    usage: { model: "deepseek-v4-pro", promptTokens: 900, completionTokens: 500 },
-    usageId: "ledger-1",
-    route: {},
-  }));
-});
-
-describe("the first open pays, and nobody else does", () => {
-  it("makes exactly one provider call on the first uncached open", async () => {
-    const db = fakeDb();
-    const { ensureUnderstanding } = await load(db);
-    const result = await ensureUnderstanding(
-      db as never,
-      { id: "e1", title: "Acme confirms Widget deal", understand: null },
-      ARTICLES,
-    );
-    expect(result.status).toBe("generated");
-    expect(provider).toHaveBeenCalledTimes(1);
-  });
-
-  it("makes zero provider calls on the second open", async () => {
-    const db = fakeDb();
-    const { ensureUnderstanding } = await load(db);
-    const event = { id: "e1", title: "Acme confirms Widget deal", understand: null };
-    await ensureUnderstanding(db as never, event, ARTICLES);
-    provider.mockClear();
-    const second = await ensureUnderstanding(db as never, event, ARTICLES);
-    expect(second.status).toBe("cached");
-    expect(provider).not.toHaveBeenCalled();
-  });
-
-  it("makes zero further calls for a hundred more readers", async () => {
-    const db = fakeDb();
-    const { ensureUnderstanding } = await load(db);
-    const event = { id: "e1", title: "Acme confirms Widget deal", understand: null };
-    await ensureUnderstanding(db as never, event, ARTICLES);
-    provider.mockClear();
-    for (let reader = 0; reader < 100; reader++) {
-      await ensureUnderstanding(db as never, event, ARTICLES);
+function fixture() {
+  const db = new FakeDb({ event_understanding: [] });
+  const find = (a: Row) =>
+    db.rows("event_understanding").find((r) => r["content_version"] === a["p_version"]);
+  db.rpcs["claim_shared_story"] = (a) => {
+    const row = find(a);
+    if (row)
+      return row["phase"] === "persisting"
+        ? "persisting"
+        : row["status"] === "ready"
+          ? "ready"
+          : row["status"] === "failed"
+            ? "cooldown"
+            : "generating";
+    db.rows("event_understanding").push({
+      event_id: "e",
+      content_version: a["p_version"],
+      status: "generating",
+      phase: "claimed",
+      owner: a["p_owner"],
+      attempts: 0,
+    });
+    return "won";
+  };
+  db.rpcs["begin_shared_story_attempt"] = (a) => {
+    const r = find(a);
+    if (!r || r["owner"] !== a["p_owner"]) return false;
+    r["attempts"] = Number(r["attempts"]) + 1;
+    r["phase"] = "requesting";
+    return true;
+  };
+  db.rpcs["stage_shared_story"] = (a) => {
+    const r = find(a);
+    if (!r || r["owner"] !== a["p_owner"]) return false;
+    r["payload"] = a["p_payload"];
+    r["phase"] = "persisting";
+    return true;
+  };
+  db.rpcs["finish_shared_story"] = (a) => {
+    const r = find(a);
+    if (!r || r["phase"] !== "persisting") return false;
+    r["status"] = "ready";
+    r["phase"] = "ready";
+    r["prompt_version"] = "story:2";
+    r["owner"] = null;
+    return true;
+  };
+  db.rpcs["fail_shared_story"] = (a) => {
+    const r = find(a);
+    if (r && r["phase"] !== "persisting") {
+      r["status"] = "failed";
+      r["uncertain"] = a["p_uncertain"];
     }
-    expect(provider).not.toHaveBeenCalled();
-  });
-
-  it("labels the call understand_generation and never leaves it unattributed", async () => {
-    const db = fakeDb();
-    const { ensureUnderstanding } = await load(db);
-    await ensureUnderstanding(
-      db as never,
-      { id: "e1", title: "Acme confirms Widget deal", understand: null },
-      ARTICLES,
-    );
-    const sent = provider.mock.calls[0]?.[0] as { feature?: string; eventIds?: string[] };
-    expect(sent.feature).toBe("understand_generation");
-    expect(sent.eventIds).toStrictEqual(["e1"]);
+    return null;
+  };
+  return db;
+}
+const open = (db: FakeDb, userId = "A", evidence = articles) =>
+  ensureUnderstanding(asDb(db), event, evidence, { userId, explicitOpen: true });
+beforeEach(() => {
+  provider.mockReset();
+  provider.mockImplementation(async (opts: RoutedOptions) => {
+    await opts.beforeProvider?.("usage");
+    const result = {
+      content: JSON.stringify(prose),
+      model: "fake",
+      promptTokens: 200,
+      completionTokens: 100,
+      cachedTokens: 0,
+      reasoningTokens: 0,
+      attempt_count: 1,
+    };
+    try {
+      await opts.onResponse?.(result);
+    } catch {
+      /* The real meter still settles invalid output. */
+    }
+    return result;
   });
 });
-
-describe("existing content is reused, never regenerated", () => {
-  it("serves legacy events.understand without calling the provider", async () => {
-    const db = fakeDb();
-    const { ensureUnderstanding } = await load(db);
-    const result = await ensureUnderstanding(
-      db as never,
-      { id: "e1", title: "Acme confirms Widget deal", understand: PAYLOAD },
-      ARTICLES,
-    );
-    expect(result.status).toBe("cached");
-    expect(provider).not.toHaveBeenCalled();
+describe("reader-initiated global story cache", () => {
+  it("requests evidence-adaptive article length without imposing a minimum", async () => {
+    await open(fixture());
+    const options = provider.mock.calls[0]?.[0] as RoutedOptions;
+    expect(options.system).toContain("250–400 words");
+    expect(options.system).toContain("400–600 words");
+    expect(options.system).toContain("up to about 700 words");
+    expect(options.system).toContain("120–180 words");
+    expect(options.system).toContain("targets, not minimum word counts");
+    expect(options.system).toContain("never pad");
   });
-
-  it("adopts legacy content at the current version so later changes are detectable", async () => {
-    const db = fakeDb();
-    const { ensureUnderstanding } = await load(db);
-    await ensureUnderstanding(
-      db as never,
-      { id: "e1", title: "Acme confirms Widget deal", understand: PAYLOAD },
-      ARTICLES,
-    );
-    expect(db.understanding).toHaveLength(1);
-    expect(db.understanding[0]?.["prompt_version"]).toBe("legacy:analysis");
-    expect(provider).not.toHaveBeenCalled();
+  it("one generation serves a refresh and 100 later readers", async () => {
+    const db = fixture();
+    expect((await open(db)).status).toBe("generated");
+    expect((await open(db)).status).toBe("cached");
+    const readers = await Promise.all(Array.from({ length: 100 }, (_, i) => open(db, String(i))));
+    expect(readers.every((r) => r.status === "cached")).toBe(true);
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(db.rows("event_understanding")[0]?.["attempts"]).toBe(1);
   });
-
-  it("does not regenerate when another outlet publishes the same facts", async () => {
-    const db = fakeDb();
-    const { ensureUnderstanding } = await load(db);
-    const event = { id: "e1", title: "Acme confirms Widget deal", understand: PAYLOAD };
-    await ensureUnderstanding(db as never, event, ARTICLES);
-    provider.mockClear();
-    await ensureUnderstanding(db as never, event, [
-      ...ARTICLES,
+  it("simultaneous first readers do not start duplicate calls", async () => {
+    const db = fixture();
+    const result = await Promise.all(Array.from({ length: 100 }, (_, i) => open(db, String(i))));
+    expect(result.filter((r) => r.status === "generated")).toHaveLength(1);
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+  it("a material development earns one new version, not one per reader", async () => {
+    const db = fixture();
+    await open(db);
+    const changed = [
       {
-        id: "a2",
-        title: "Acme to buy Widget Co",
-        excerpt: "Acme has confirmed it will acquire Widget Co for $2 billion.",
-        published_at: "2026-09-12T01:00:00Z",
-        source_id: "s2",
+        ...articles[0]!,
+        excerpt: articles[0]!.excerpt + " The court ruled against the development.",
       },
+    ];
+    expect((await open(db, "B", changed)).status).toBe("generated");
+    await open(db, "C", changed);
+    expect(provider).toHaveBeenCalledTimes(2);
+  });
+  it("metadata/order/incidental company names do not repurchase coverage", async () => {
+    const db = fixture();
+    await open(db);
+    await open(db, "B", [
+      { ...articles[0]!, excerpt: articles[0]!.excerpt + " Apple declined to comment." },
     ]);
-    expect(provider).not.toHaveBeenCalled();
-  });
-});
-
-describe("concurrency", () => {
-  it("buys one generation when two readers open the same uncached story at once", async () => {
-    const db = fakeDb();
-    const { ensureUnderstanding } = await load(db);
-    const event = { id: "e1", title: "Acme confirms Widget deal", understand: null };
-    const [first, second] = await Promise.all([
-      ensureUnderstanding(db as never, event, ARTICLES),
-      ensureUnderstanding(db as never, event, ARTICLES),
-    ]);
-
-    // The assertion that matters. Which of the two won the claim is a race and
-    // not worth pinning; that only one of them paid is the whole point.
     expect(provider).toHaveBeenCalledTimes(1);
-
-    // The loser must still end up with words — either by waiting for the
-    // winner's row or by finding it already written. What it must never be is
-    // a second generation or a failure.
-    const outcomes = [first.status, second.status].sort();
-    expect(outcomes).toContain("generated");
-    expect(outcomes.some((outcome) => outcome === "cached" || outcome === "waited")).toBe(true);
   });
-
-  it("waits for an in-flight generation rather than starting a second one", async () => {
-    const db = fakeDb();
-    // A generation slow enough that the second reader genuinely arrives while
-    // the claim is still held, which is the case the single-flight exists for.
-    // Initialised to a no-op rather than null so control-flow analysis keeps it
-    // callable: TypeScript cannot see that the Promise executor runs eagerly.
-    let release = (): void => {};
-    const held = new Promise<void>((resolve) => {
-      release = () => resolve();
-    });
-    provider = vi.fn(async () => {
-      await held;
-      return {
-        data: PAYLOAD,
-        usage: { model: "deepseek-v4-pro", promptTokens: 900, completionTokens: 500 },
-        usageId: "ledger-1",
-        route: {},
-      };
-    });
-    const { ensureUnderstanding } = await load(db);
-    const event = { id: "e1", title: "Acme confirms Widget deal", understand: null };
-
-    const winner = ensureUnderstanding(db as never, event, ARTICLES);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const loser = ensureUnderstanding(db as never, event, ARTICLES);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    release();
-
-    const [a, b] = await Promise.all([winner, loser]);
-    expect(provider).toHaveBeenCalledTimes(1);
-    expect(a.status).toBe("generated");
-    expect(b.status).toBe("waited");
-    expect(b.status === "waited" ? b.understanding : null).not.toBeNull();
-  });
-});
-
-describe("failure is bounded", () => {
-  it("does not spend when the claim returns an unexpected result", async () => {
-    const db = fakeDb();
-    db.rpc = async () => ({ data: "unexpected", error: null });
-    const { ensureUnderstanding } = await load(db);
-    const result = await ensureUnderstanding(
-      db as never,
-      { id: "e1", title: "Acme", understand: null },
-      ARTICLES,
-    );
-    expect(result.status).toBe("skipped");
-    expect(provider).not.toHaveBeenCalled();
-  });
-  it("does not retry an event whose generation already failed too often", async () => {
-    const db = fakeDb({
-      rows: [
-        {
-          event_id: "e1",
-          content_version: "does-not-matter",
-          status: "failed",
-          attempts: 3,
-          payload: null,
-        },
-      ],
-    });
-    const { ensureUnderstanding } = await load(db);
-    // Force the stored row onto the version this event will compute by asking
-    // the claim to report 'failed' for anything it sees.
-    db.rpc = async () => ({ data: "failed", error: null });
-    const result = await ensureUnderstanding(
-      db as never,
-      { id: "e1", title: "Acme confirms Widget deal", understand: null },
-      ARTICLES,
-    );
-    expect(result.status).toBe("skipped");
-    expect(provider).not.toHaveBeenCalled();
-  });
-
-  it("never generates for an event with no coverage", async () => {
-    const db = fakeDb();
-    const { ensureUnderstanding } = await load(db);
-    const result = await ensureUnderstanding(
-      db as never,
-      { id: "e1", title: "Nothing", understand: null },
-      [],
-    );
-    expect(result.status).toBe("skipped");
-    expect(provider).not.toHaveBeenCalled();
-  });
-});
-
-describe("material changes and citations", () => {
-  it.each([null, PAYLOAD])(
-    "generates once for a material change after adopting or generating content",
-    async (legacy) => {
-      const db = fakeDb();
-      const { ensureUnderstanding } = await load(db);
-      const event = { id: "e1", title: "Acme deal", understand: legacy };
-      await ensureUnderstanding(db as never, event, ARTICLES);
-      provider.mockClear();
-      const changed = [
-        {
-          ...ARTICLES[0]!,
-          excerpt: "Acme has confirmed it will acquire Widget Co for $30 billion.",
-        },
-      ];
-      expect((await ensureUnderstanding(db as never, event, changed)).status).toBe("generated");
-      expect((await ensureUnderstanding(db as never, event, changed)).status).toBe("cached");
-      expect(provider).toHaveBeenCalledTimes(1);
-      expect(db.understanding).toHaveLength(2);
+  it.each(["capacity", "cooldown", "rate", "exhausted", "reconciliation"])(
+    "refuses %s without reaching the routed provider",
+    async (state) => {
+      const db = fixture();
+      db.rpcs["claim_shared_story"] = () => state;
+      expect((await open(db)).status).toBe("skipped");
+      expect(provider).not.toHaveBeenCalled();
     },
   );
-
-  it("stores article IDs in prompt order for citation remapping", async () => {
-    const db = fakeDb();
-    const { ensureUnderstanding } = await load(db);
-    await ensureUnderstanding(db as never, { id: "e1", title: "Acme", understand: null }, ARTICLES);
-    expect(db.understanding[0]?.["payload"]).toMatchObject({
-      analysisMeta: { sourceArticleIds: ["a1"], sourceCountAtAnalysis: 1 },
+  it("fails closed before transport if reservation is refused", async () => {
+    const db = fixture();
+    provider.mockRejectedValue(new Error("Budget exhausted"));
+    await open(db);
+    expect(db.rows("event_understanding")[0]?.["attempts"]).toBe(0);
+    expect(db.rpcCalls.some((r) => r.fn === "begin_shared_story_attempt")).toBe(false);
+  });
+  it("cached stories bypass initiation and budget controls", async () => {
+    const db = fixture();
+    await open(db);
+    db.rpcs["claim_shared_story"] = () => {
+      throw new Error("Budget exhausted");
+    };
+    expect((await open(db)).status).toBe("cached");
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+  it("rejects thin evidence and non-explicit opens before claiming", async () => {
+    const db = fixture();
+    await open(db, "A", [{ ...articles[0]!, excerpt: "Brief update." }]);
+    await ensureUnderstanding(asDb(db), event, articles, {
+      userId: "A",
+      explicitOpen: false as never,
     });
+    expect(db.rpcCalls).toHaveLength(0);
+    expect(provider).not.toHaveBeenCalled();
+    expect(storyEvidence(articles)).toHaveLength(1);
+  });
+  it("failed provider requests cannot retry on refresh", async () => {
+    const db = fixture();
+    provider.mockImplementation(async (opts: RoutedOptions) => {
+      await opts.beforeProvider?.("usage");
+      throw Object.assign(new Error("Rejected"), { status: 429 });
+    });
+    expect((await open(db)).status).toBe("failed");
+    expect((await open(db)).status).toBe("skipped");
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(db.rows("event_understanding")[0]?.["uncertain"]).toBe(false);
+  });
+  it("timeouts are uncertain, not free failures", async () => {
+    const db = fixture();
+    provider.mockImplementation(async (opts: RoutedOptions) => {
+      await opts.beforeProvider?.("usage");
+      throw new Error("Timeout");
+    });
+    await open(db);
+    await open(db);
+    expect(db.rows("event_understanding")[0]?.["uncertain"]).toBe(true);
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(db.rows("event_understanding")[0]?.["attempts"]).toBe(1);
+  });
+  it.each([true, false])(
+    "classifies truncation with settled usage=%s without an immediate retry",
+    async (usageSettled) => {
+      const db = fixture();
+      provider.mockImplementation(async (opts: RoutedOptions) => {
+        await opts.beforeProvider?.("usage");
+        const error = new TruncatedCompletionError(
+          "deepseek-v4-pro",
+          4000,
+          4096,
+          100,
+          4096,
+          0,
+          usageSettled,
+        );
+        error.usageSettled = usageSettled;
+        throw error;
+      });
+      expect((await open(db)).status).toBe("failed");
+      expect((await open(db)).status).toBe("skipped");
+      expect(db.rows("event_understanding")[0]?.["uncertain"]).toBe(!usageSettled);
+      expect(db.rows("event_understanding")[0]?.["attempts"]).toBe(1);
+      expect(provider).toHaveBeenCalledTimes(1);
+    },
+  );
+  it("keeps paid prose for the current reader and reconciles a staged save later", async () => {
+    const db = fixture();
+    const finish = db.rpcs["finish_shared_story"]!;
+    db.rpcs["finish_shared_story"] = () => new Error("DB write unavailable");
+    const first = await open(db);
+    expect(first.status).toBe("generated");
+    expect("understanding" in first && first.understanding?.article?.deck.text).toBe(
+      prose.deck.text,
+    );
+    db.rpcs["finish_shared_story"] = finish;
+    expect((await open(db)).status).toBe("cached");
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+  it("retries only persistence when staging fails, never pays again", async () => {
+    const db = fixture();
+    db.rpcs["stage_shared_story"] = () => new Error("DB outage");
+    expect((await open(db)).status).toBe("generated");
+    await open(db);
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+  it("does not buy JSON repair for malformed output", async () => {
+    const db = fixture();
+    provider.mockImplementation(async (opts: RoutedOptions) => {
+      await opts.beforeProvider?.("usage");
+      return { content: "bad JSON" };
+    });
+    expect((await open(db)).status).toBe("failed");
+    await open(db);
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+  it("returns already-paid output even if storage throws a network exception", async () => {
+    const db = fixture();
+    db.rpcs["stage_shared_story"] = () => {
+      throw new Error("Storage network unavailable");
+    };
+    expect((await open(db)).status).toBe("generated");
+    await open(db);
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+  it("repeated boilerplate cannot masquerade as sufficient evidence", () => {
+    expect(storyEvidence([{ ...articles[0]!, excerpt: "A brief update. ".repeat(100) }])).toEqual(
+      [],
+    );
   });
 });

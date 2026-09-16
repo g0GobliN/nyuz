@@ -93,7 +93,76 @@ async function harness(
 beforeEach(() => vi.resetModules());
 afterEach(() => vi.unstubAllGlobals());
 
+async function storyReader(secretOverrides: Record<string, string> = {}) {
+  const { FakeDb, asDb } = await import("@/lib/test-support/fake-db");
+  const { ensureUnderstanding } = await import("@/lib/server/understanding");
+  let failure: boolean | undefined;
+  const db = new FakeDb(
+    {},
+    {
+      claim_shared_story: () =>
+        failure === undefined ? "won" : failure ? "reconciliation" : "cooldown",
+      begin_shared_story_attempt: () => true,
+      fail_shared_story: (args) => {
+        failure = args["p_uncertain"] === true;
+      },
+    },
+  );
+  return {
+    db,
+    open: () =>
+      ensureUnderstanding(
+        asDb(db),
+        { id: "event", title: "Council approves library", understand: null },
+        [
+          {
+            id: "article",
+            title: "Council approves library",
+            source_id: "source",
+            published_at: "2026-09-16T12:00:00Z",
+            excerpt:
+              "The council approved a new public library on Monday. The project includes a reading room and extended opening hours. Funding will come from the existing community development budget, according to the council announcement. Construction is expected to begin next spring.",
+          },
+        ],
+        { userId: "reader", explicitOpen: true, secrets: { ...secrets, ...secretOverrides } },
+      ),
+  };
+}
+
 describe("every provider attempt is independently accounted", () => {
+  it("a missing credential never consumes a story attempt or user start", async () => {
+    const h = await harness([]);
+    const story = await storyReader({ DEEPSEEK_API_KEY: "" });
+    expect((await story.open()).status).toBe("skipped");
+    expect(h.fetch).not.toHaveBeenCalled();
+    expect(h.calls.some((c) => c.name === "reserve_ai_tokens")).toBe(false);
+    // This RPC owns both the lifetime increment and user-start insertion.
+    expect(story.db.rpcCalls.some((c) => c.fn === "begin_shared_story_attempt")).toBe(false);
+  });
+
+  it.each([false, true])(
+    "story transport failure uncertain=%s is classified after actual metering",
+    async (uncertain) => {
+      const h = await harness(
+        uncertain ? [new Error("network response lost")] : [""],
+        false,
+        false,
+        { finishReason: "length" },
+      );
+      const story = await storyReader();
+      expect((await story.open()).status).toBe("failed");
+      expect(story.db.rpcCalls.find((c) => c.fn === "fail_shared_story")?.args["p_uncertain"]).toBe(
+        uncertain,
+      );
+      expect(h.calls.filter((c) => c.name === "settle_ai_tokens")).toHaveLength(uncertain ? 0 : 1);
+      expect(story.db.rpcCalls.filter((c) => c.fn === "begin_shared_story_attempt")).toHaveLength(
+        1,
+      );
+      expect((await story.open()).status).toBe("skipped");
+      expect(h.fetch).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("meters the admin probe through the same reservation and settlement gate", async () => {
     const h = await harness([]);
     await h.probe(async () => {
@@ -149,13 +218,16 @@ describe("every provider attempt is independently accounted", () => {
   });
   it("rejects partial truncated JSON and accounts for its billed usage", async () => {
     const h = await harness(['{"ok":'], false, false, { finishReason: "length" });
-    await expect(h.run()).rejects.toMatchObject({ name: "TruncatedCompletionError" });
+    await expect(h.run()).rejects.toMatchObject({
+      name: "TruncatedCompletionError",
+      usageSettled: true,
+    });
     expect(h.fetch).toHaveBeenCalledTimes(1);
     expect(h.calls.filter((c) => c.name === "settle_ai_tokens")).toHaveLength(1);
   });
   it("retains a truncated response's reservation when usage is unavailable", async () => {
     const h = await harness([""], false, false, { finishReason: "length", omitUsage: true });
-    await expect(h.run()).rejects.toMatchObject({ usageReported: false });
+    await expect(h.run()).rejects.toMatchObject({ usageReported: false, usageSettled: false });
     expect(h.calls.filter((c) => c.name === "settle_ai_tokens")).toHaveLength(0);
     expect(h.calls.filter((c) => c.name === "release_ai_reservation")).toHaveLength(0);
   });

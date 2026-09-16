@@ -269,6 +269,8 @@ export async function resolvePrompt(
 }
 
 export type RoutedOptions = {
+  beforeProvider?: (reservation: string) => Promise<void>;
+  onResponse?: (result: CompleteResult) => Promise<void>;
   capability: ModelTier;
   user: string;
   /** Overrides the stored prompt. Omit to use `promptKey`, or neither for none. */
@@ -356,6 +358,27 @@ async function paidAttempt(
   requestId: string,
   send: (options: CompleteOptions) => Promise<CompleteResult> = complete,
 ): Promise<{ result: CompleteResult; reservation: string | null }> {
+  const key = (opts.secrets ?? secretsDefault())[route.apiKeyEnv];
+  if (!key?.trim()) throw new Error(`Missing ${route.apiKeyEnv || "provider API credential"}`);
+  try {
+    new Headers({ authorization: `Bearer ${key}` });
+  } catch {
+    throw new Error("Invalid provider credential format");
+  }
+  const endpoint = new URL(route.baseUrl);
+  if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password)
+    throw new Error("Invalid provider endpoint");
+  if (!route.providerSlug.trim() || !route.model.trim())
+    throw new Error("Missing provider or model configuration");
+  const outputLimit = call.maxTokens ?? route.maxTokens;
+  if (!Number.isSafeInteger(outputLimit) || outputLimit <= 0)
+    throw new Error("Invalid provider output limit");
+  if (
+    call.temperature !== undefined &&
+    (!Number.isFinite(call.temperature) || call.temperature < 0 || call.temperature > 2)
+  )
+    throw new Error("Invalid provider temperature");
+  call.signal?.throwIfAborted();
   if (opts.feature !== "ask") {
     try {
       checkRequestBudget(opts.feature, call.system ?? "", call.user, opts.budgetExceptionReason);
@@ -389,6 +412,7 @@ async function paidAttempt(
         p_id: reservation,
         p_meta: {
           request_id: requestId,
+          state: "reserved",
           attempt,
           provider: route.providerSlug,
           model: route.model,
@@ -416,18 +440,48 @@ async function paidAttempt(
     );
     if (error) {
       // No provider call has occurred, so this particular reservation is unbilled.
-      await releaseUnusedReservation(opts, reservation, { status: 400 });
+      await releaseUnusedReservation(opts, reservation, { status: 400 }, true);
       throw new Error(`recording AI attempt: ${error.message}`);
     }
   }
   let result: CompleteResult;
+  if (reservation) {
+    const marked = await createAdminClient(opts.secrets ?? secretsDefault()).rpc(
+      "record_ai_attempt",
+      {
+        p_id: reservation,
+        p_meta: { state: "started" },
+      },
+    );
+    if (marked.error) {
+      await releaseUnusedReservation(opts, reservation, { status: 400 }, true);
+      throw new Error("Could not record provider dispatch");
+    }
+  }
+  if (opts.beforeProvider) {
+    try {
+      call.signal?.throwIfAborted();
+      if (!reservation) throw new Error("Story spending requires a reservation");
+      await opts.beforeProvider(reservation);
+    } catch (error) {
+      await releaseUnusedReservation(opts, reservation, { status: 400 }, true);
+      throw error;
+    }
+  }
   try {
     result = await send(call);
   } catch (error) {
+    if (reservation)
+      await createAdminClient(opts.secrets ?? secretsDefault()).rpc("record_ai_attempt", {
+        p_id: reservation,
+        p_meta: { state: "failed", uncertain: !isDefinitelyUnbilledAiError(error) },
+      });
     const usage = completionUsageFromError(error);
     if (usage) {
       try {
         await settleUsage(opts, reservation, usage, route, started);
+        if (error instanceof TruncatedCompletionError && usage.usageReported !== false)
+          error.usageSettled = true;
       } catch (settlementError) {
         throw new CompletionUsageError(
           "Failed completion could not be settled",
@@ -439,6 +493,13 @@ async function paidAttempt(
     throw error;
   }
   try {
+    if (opts.onResponse) {
+      try {
+        await opts.onResponse(result);
+      } catch {
+        /* Settlement still records unusable or unsaved output. */
+      }
+    }
     await settleUsage(opts, reservation, result, route, started);
   } catch (error) {
     throw new CompletionUsageError("AI response received but settlement failed", result, error);
@@ -756,7 +817,7 @@ async function settleUsage(
   if (opts.feature !== "ask") {
     const { error } = await db.rpc("record_ai_attempt", {
       p_id: reservation,
-      p_meta: {},
+      p_meta: { state: "settled", uncertain: false },
       p_usage: {
         model: usage.model,
         // Kept separate from `model` so an alias substitution is visible in the
@@ -819,11 +880,14 @@ async function releaseUnusedReservation(
   opts: RoutedOptions,
   reservation: string | null,
   error: unknown,
+  beforeDispatch = false,
 ): Promise<void> {
   if (!reservation || !isDefinitelyUnbilledAiError(error)) return;
   const db = createAdminClient(opts.secrets ?? secretsDefault());
   const { error: releaseError } = await db.rpc("release_ai_reservation", { p_id: reservation });
   if (releaseError) console.error(`releasing unused AI reservation: ${releaseError.message}`);
+  else if (beforeDispatch)
+    await db.rpc("record_ai_attempt", { p_id: reservation, p_meta: { state: "voided" } });
 }
 
 /**

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cleanEvidence, orderEvidenceSources, remapEvidence } from "./evidence-text";
 import { selectEvidence, renderSelectedCoverage, type EvidenceArticle } from "./evidence-selection";
-import { contract, thinContract, renderAnalysisPayload, isEnrichmentEligible } from "./analyse";
-import { extractFacts } from "./extract";
 
 const article = (title: string, excerpt: string, kind = "news"): EvidenceArticle => ({
   title,
@@ -13,11 +11,6 @@ const article = (title: string, excerpt: string, kind = "news"): EvidenceArticle
 });
 
 describe("evidence correctness before compression", () => {
-  it("does not mistake already inspected duplicate sources for fresh evidence growth", () => {
-    expect(
-      isEnrichmentEligible({ sourceCountAtAnalysis: 1, coverageCountAtAnalysis: 12 }, 12),
-    ).toBe(false);
-  });
   it("removes repeated sentences and headlines without altering numbers or quotes", () => {
     expect(
       cleanEvidence(
@@ -86,21 +79,5 @@ describe("evidence correctness before compression", () => {
     expect(
       remapEvidence({ numbers: [{ evidence: [1, 2] }] }, ["removed", "b"], [{ id: "b" }]),
     ).toEqual({ numbers: [{ evidence: [1] }] });
-  });
-  it("keeps exactly one contract, including on thin requests", () => {
-    const user = renderAnalysisPayload(
-      "Deal",
-      "[1] The deal was approved.",
-      extractFacts("", 0),
-      { selectedIndices: [0], totalUniqueFacts: 0, totalFactsFull: 0, conflictsPreserved: 0 },
-      { totalFactsBefore: 0, totalFactsAfter: 0, factsRemoved: 0 },
-      new Map(),
-    );
-    expect(user).not.toContain("Reply with JSON");
-    expect(user).not.toContain('"understand"');
-    // The thin contract carries its own minimal understand block, holding the
-    // reader article. One either way is the point: the payload adds no second.
-    expect(`${thinContract()}\n${user}`.match(/"understand":/g)).toHaveLength(1);
-    expect(`${contract()}\n${user}`.match(/"understand":/g)).toHaveLength(1);
   });
 });

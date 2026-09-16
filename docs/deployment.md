@@ -1,5 +1,7 @@
 # Deployment
 
+The current [code-first news policy](code-first-news.md) requires migration 0085 before compatible application code. Background processing must make zero provider calls. Older AI-stage tuning guidance below is historical and must not override the $0.50 daily / $10 monthly launch ceilings.
+
 Target is **Cloudflare Workers**. `npm run build` produces a nitro bundle in `.output/`
 using the `cloudflare-module` preset.
 
@@ -106,12 +108,12 @@ Local results describe that environment, not necessarily the deployed Worker.
 Production needs `STRIPE_SECRET_KEY` in live mode, a signing secret for the live
 webhook at `https://<your-domain>/api/stripe/webhook`, and these current price IDs:
 
-| Variable | Live USD price |
-| --- | --- |
-| `STRIPE_PRICE_PLURA_MONTHLY` | $14.99/month |
-| `STRIPE_PRICE_PLURA_ANNUAL` | $149.90/year |
-| `STRIPE_PRICE_OMNI_MONTHLY` | $29.99/month |
-| `STRIPE_PRICE_OMNI_ANNUAL` | $299.90/year |
+| Variable                     | Live USD price |
+| ---------------------------- | -------------- |
+| `STRIPE_PRICE_PLURA_MONTHLY` | $14.99/month   |
+| `STRIPE_PRICE_PLURA_ANNUAL`  | $149.90/year   |
+| `STRIPE_PRICE_OMNI_MONTHLY`  | $29.99/month   |
+| `STRIPE_PRICE_OMNI_ANNUAL`   | $299.90/year   |
 
 Old `STRIPE_PRICE_PERSONAL_*` and `STRIPE_PRICE_PRO_*` variables are not read by
 the current catalogue. Do not rename old price IDs into these slots: their amounts

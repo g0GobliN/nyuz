@@ -70,27 +70,25 @@ const STAGES: Stage[] = [
     operation:
       "Headlines that look like they are covering the same thing are pulled into a shortlist first. Only that shortlist is looked at closely, and only to settle one question: is this the same story?",
     output: "One story, with every article that reported it kept alongside it.",
-    cost: "The first place AI is used, and only on a shortlist rather than on everything.",
-    model: true,
+    cost: "Deterministic headline and time checks. Uncertain matches stay separate.",
   },
   {
     n: "04",
-    title: "Check it is wanted",
-    input: "Stories waiting to be read, and the subjects people actually follow.",
+    title: "Classify",
+    input: "Source headlines, descriptions, and the topic taxonomy.",
     operation:
-      "Before anything slow happens, we check whether this is something anybody follows. If nobody does, it waits. The moment somebody starts following that subject, it is read — so nothing is thrown away, it simply is not read in advance for an audience of nobody.",
-    output: "A shorter queue: the stories somebody is genuinely waiting for.",
-    cost: "No AI. This is what keeps the next step affordable.",
+      "Topic rules identify relevant subjects from the reporting. These shared labels help match events to readers without sending personal interests to a model.",
+    output: "Topic candidates for each event.",
+    cost: "No AI. Text matching against the existing taxonomy.",
   },
   {
     n: "05",
-    title: "Understand",
+    title: "Complete the event",
     input: "One story and the articles covering it.",
     operation:
-      "One careful read: what happened, how things stood before, where they stand now, and how much of a departure it really is. The same read produces the line about what it changes.",
-    output: "A story worth putting in front of somebody, and the reason it is worth it.",
-    cost: "The second and last time AI is used without being asked. Once per story, however many people it eventually reaches.",
-    model: true,
+      "Select a representative headline and useful source description, finalize topics, and score freshness and coverage breadth. Multiple feeds from one publisher do not count as multiple publishers.",
+    output: "Shared event data ready for matching, ranking, and delivery.",
+    cost: "No AI. Source selection and scoring rules.",
   },
   {
     n: "06",
@@ -106,7 +104,7 @@ const STAGES: Stage[] = [
     title: "Put together and sent",
     input: "The few stories that cleared your threshold today.",
     operation:
-      "Your briefing is built from what has already been read — the summary and the line about what changed — in your order, at your density, within your plan's limits. If you read in another language, the translated version is reused rather than remade for you.",
+      "Your briefing selects stored events and source descriptions in your order, at your density, within your plan's limits. Alerts use the same stored information.",
     output: "A briefing, at your time, in your timezone, on your channel.",
     cost: "No AI writing happens here. This step is assembly.",
   },
@@ -117,12 +115,12 @@ export function PipelineStages() {
     <div>
       <Eyebrow>The pipeline, stage by stage</Eyebrow>
       <h2 className="display mt-3 max-w-2xl text-4xl sm:text-5xl">
-        Seven steps. Two of them use AI.
+        From sources to your briefing.
       </h2>
       <p className="mt-6 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-        The order matters more than any single step. The quick, obvious work happens first and
-        throws away as much as it can, so the slow work only ever sees what is left — and the last
-        step, the one that happens for every reader, is quick again.
+        News processing, matching, and delivery use ordinary code. Open a story to see its sources
+        immediately; deeper shared coverage can be prepared separately when evidence and capacity
+        allow.
       </p>
 
       <ol className="mt-12 space-y-3">
@@ -190,7 +188,7 @@ export function SharedAnalysis() {
     { label: "After normalisation", value: "8,120", width: 96 },
     { label: "Once grouped", value: "312 stories", width: 34 },
     { label: "Somebody follows it", value: "224 stories", width: 25 },
-    { label: "Read properly", value: "224 times", width: 25, signal: true },
+    { label: "Opened for deeper coverage", value: "20 stories", width: 12, signal: true },
     { label: "Above your threshold", value: "6 stories", width: 8, signal: true },
   ];
 
@@ -199,24 +197,24 @@ export function SharedAnalysis() {
       <div>
         <Eyebrow>Why it stays cheap</Eyebrow>
         <h2 className="display mt-3 text-4xl sm:text-5xl">
-          Understand a story once.
+          Prepare deeper coverage once.
           <br />
           Everyone it matters to reads it.
         </h2>
         <div className="mt-7 space-y-4 text-[14.5px] leading-relaxed text-muted-foreground">
           <p>
-            Thirty outlets covering one announcement is one story, and it gets read once. The
-            hundredth person to care about it does not set off a hundredth reading — they are
-            matched to something that already exists.
+            When reporting can be grouped confidently, it becomes a shared event. Its headline,
+            source description, and original links are immediately available.
           </p>
           <p>
             That is why the expensive part of nyuz grows with{" "}
-            <span className="text-foreground">how much happened today</span>, not with how many
-            people subscribed. Nothing is written separately for each reader.
+            <span className="text-foreground">which uncached stories readers open</span>, not with
+            repeated views. Generated coverage is shared, never personalized.
           </p>
           <p>
-            The one thing written just for you is the thing you ask for — what a particular story
-            means in your world. You press a button, and it does not happen otherwise.
+            With enough evidence and available capacity, opening a story can start a deeper article.
+            Later readers reuse it. If generation is unavailable, the sources and event remain
+            readable.
           </p>
         </div>
       </div>
@@ -277,15 +275,14 @@ const BEATS: Beat[] = [
   },
   {
     time: "14:10",
-    what: "Somebody is waiting for it",
-    detail:
-      "Before anything slow runs, we check this is a subject people actually follow. It is, so it goes ahead. Had nobody followed it, it would have waited until somebody did.",
+    what: "Topics identified",
+    detail: "Headline and source text are matched to the topic taxonomy. No model is involved.",
   },
   {
     time: "14:11",
-    what: "The story is read",
+    what: "The event is ready",
     detail:
-      "What happened, what it changes, how much of a departure it is, what it is about — all in one read. This is the only time it is read at length.",
+      "A representative headline, useful source description, topics, and deterministic importance score make the event ready for readers.",
   },
   {
     time: "14:11",
@@ -304,7 +301,7 @@ const BEATS: Beat[] = [
     time: "07:30",
     what: "You read one paragraph",
     detail:
-      "What happened and what it changes, in your briefing, with all thirty-eight sources one tap away. Want it in your own terms? Asking is one tap away too.",
+      "A concise source description reaches your briefing. Open it for original reporting and deeper shared coverage when available.",
     yours: true,
   },
 ];
@@ -371,7 +368,7 @@ const MECHANICS_FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Can the summary be wrong?",
-    a: "Yes. It is generated, and generated text can be wrong. This is why every story keeps its original sources, why nyuz never presents itself as the origin of a story, and why the link to the reporting is never more than one tap from the summary of it.",
+    a: "Yes. Source descriptions can contain errors, as can generated long-form coverage. Every story links to original reporting so you can check the evidence.",
   },
   {
     q: "What happens when a source stops working?",
@@ -383,11 +380,11 @@ const MECHANICS_FAQ: { q: string; a: string }[] = [
   },
   {
     q: "If the summary is the same for everyone, is my briefing still personal?",
-    a: "The choosing is yours; the writing is shared. Which stories reach you, in what order, at what threshold, with your exclusions applied — that part is yours and nobody else's. What a story changed is a fact about the story rather than about you, so it is written once and read by everyone it reaches. When you want the version that is about you, ask for it and you will get it.",
+    a: "Yes. Your topics, sources, exclusions, freshness preferences, and density determine what reaches you and in what order. Event descriptions and any generated long-form coverage are shared by everyone.",
   },
   {
     q: "What happens to a story nobody follows?",
-    a: "It waits. We do not read it in advance for an audience of nobody. If you start following that subject next week, it is read then and appears in your briefing like anything else — it is not thrown away in the meantime.",
+    a: "Its event data can still be collected and organized. No long article is generated until a reader opens it, and only when there is useful evidence and available capacity. Briefings still respect freshness limits.",
   },
   {
     q: "Can I add a source you don't already watch?",
@@ -395,7 +392,7 @@ const MECHANICS_FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Can I read in a language other than English?",
-    a: "You can choose your reading language in settings. English is the language nyuz reads in, so the others are translations of it — and the original reporting always stays in its own language, and is always linked.",
+    a: "Language preferences are stored, but new AI translations are not generated. Source reporting stays in its original language, with links to read it directly.",
   },
 ];
 

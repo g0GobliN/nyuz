@@ -41,3 +41,7 @@ supabase/.temp/
 .env
 .env.*
 !.env.example
+.freebuff
+.agents
+.claude
+.codex

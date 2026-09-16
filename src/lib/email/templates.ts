@@ -389,7 +389,7 @@ function storyText(item: BriefingItem): string {
     item.title,
     "",
     ...grafs,
-    ...(why ? ["", `Why it matters: ${why}`] : []),
+    ...(why ? ["", `Why you're seeing this: ${why}`] : []),
     "",
     `Read on nyuz: ${item.href}`,
   ].join("\n");
@@ -449,9 +449,7 @@ export function briefingEmail({
         quiet
           ? ""
           : [
-              pMuted(
-                "The rest of each piece — sources, the longer brief, and questions — is on nyuz.",
-              ),
+              pMuted("Sources and any available deeper coverage are on nyuz."),
               button("Open the rest on nyuz", href),
             ].join("\n"),
       ].join("\n"),
@@ -498,7 +496,7 @@ export function breakingEmail({
       disclaimer: true,
       body: [
         storyBrief({ index: 0, title, grafs: bodyGrafs, why: aside, href, last: true }),
-        pMuted("The full explanation, sources, and questions are on nyuz."),
+        pMuted("Sources and any available deeper coverage are on nyuz."),
         button("Open the rest on nyuz", href),
       ].join("\n"),
     }),

@@ -198,7 +198,7 @@ export const SECTION_LABELS: Record<SectionKey, string> = {
   comparison: "Comparison table",
   profileDemo: "Profile / briefing demo",
   whyDifferent: "Why nyuz is different",
-  aiTrust: "AI trust and limits",
+  aiTrust: "Shared coverage and sources",
   infrastructure: "Infrastructure and scale",
   sourceTransparency: "Source transparency",
   finalCta: "Closing call to action",
@@ -312,7 +312,7 @@ export type Footer = z.infer<typeof footerSchema>;
 
 export const FOOTER_DEFAULT: Footer = {
   blurb:
-    "nyuz connects and summarises updates from supported sources. Summaries are generated and can be wrong — every story keeps its original sources one tap away.",
+    "nyuz groups updates from supported sources and selects useful source descriptions. Deeper shared coverage can be generated on request. Every story links to the original reporting.",
   tagline: "Less information. More relevance. Zero searching.",
 };
 

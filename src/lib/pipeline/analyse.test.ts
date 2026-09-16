@@ -1,708 +1,82 @@
 import { describe, expect, it } from "vitest";
-import { TOPIC_POOL } from "@/lib/topics-pool";
-import { topicSlug } from "@/lib/topics";
-import {
-  contract,
-  detectComplexity,
-  isEnrichmentEligible,
-  isUnanalysable,
-  readAnalysis,
-  renderCoverage,
-  topicVocabulary,
-  type AnalyseRoute,
-} from "./analyse";
-import { assignTopics } from "./topic-assign";
-
-/**
- * What the model says, and what is written down because of it.
- *
- * The rest of `analyse.ts` is a conversation with Postgres and a language model, and
- * is verified against the real database instead. These two functions are pinned here
- * because they are where being wrong is silent.
- *
- * `readAnalysis` decides what reaches a reader as a fact. Its rule is that a reply
- * missing something essential is **refused, not repaired**. That direction matters:
- * an importance quietly defaulted to 0 hides a real event from everybody whose
- * density threshold is above zero, and one defaulted to 5 is a score no model
- * produced sitting in a column the matcher trusts. Refusing costs one repeated
- * analysis of one event and says so in the output.
- *
- * `renderCoverage` decides what the model is told. Its failure mode is claiming the
- * twelve articles shown are all the coverage there was.
- */
-
-const reply = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
-  title: "OpenAI opposes California's AI safety bill",
-  what_happened: "OpenAI sent a letter to the governor opposing SB 1047.",
-  before_state: "The bill was expected to pass without industry objection.",
-  after_state: "The largest lab in the state is on record against it.",
-  importance: 7,
-  novelty: 5,
-  topics: ["openai", "ai"],
-  impact: "Labs now have to plan for state-level AI safety rules, not just federal ones.",
-  ...over,
-});
-
-describe("readAnalysis", () => {
-  it("reads a well-formed reply", () => {
-    const analysis = readAnalysis(reply(), ["openai", "ai"], []);
-
-    expect(analysis).not.toBeNull();
-    expect(analysis?.whatHappened).toBe("OpenAI sent a letter to the governor opposing SB 1047.");
-    expect(analysis?.importance).toBe(7);
-    expect(analysis?.novelty).toBe(5);
-    expect(analysis?.topics).toEqual(["openai", "ai"]);
-    expect(analysis?.unknownTopics).toEqual([]);
-    expect(analysis?.impact).toBe(
-      "Labs now have to plan for state-level AI safety rules, not just federal ones.",
-    );
-  });
-
-  describe("impact", () => {
-    it("is optional -- a missing impact still leaves an analysable reply", () => {
-      // Unlike what_happened and the scores, impact has a fallback: digest.ts
-      // backfills it lazily. Refusing the whole analysis over one missing
-      // sentence would throw away real signal to protect a path that already
-      // exists for exactly this case.
-      const analysis = readAnalysis(reply({ impact: undefined }), [], []);
-      expect(analysis).not.toBeNull();
-      expect(analysis?.impact).toBeNull();
-    });
-
-    it("treats the model's null-shaped strings as null, same as before_state", () => {
-      expect(readAnalysis(reply({ impact: "unknown" }), [], [])?.impact).toBeNull();
-      expect(readAnalysis(reply({ impact: "   " }), [], [])?.impact).toBeNull();
-    });
-  });
-
-  describe("refusing rather than repairing", () => {
-    it("refuses a reply with no what_happened", () => {
-      // The one field with no substitute. There is nothing to show a reader.
-      expect(readAnalysis(reply({ what_happened: undefined }), [], [])).toBeNull();
-      expect(readAnalysis(reply({ what_happened: "   " }), [], [])).toBeNull();
-    });
-
-    it("refuses a reply with a missing or unparseable score", () => {
-      expect(readAnalysis(reply({ importance: undefined }), [], [])).toBeNull();
-      expect(readAnalysis(reply({ novelty: null }), [], [])).toBeNull();
-      expect(readAnalysis(reply({ importance: "high" }), [], [])).toBeNull();
-      expect(readAnalysis(reply({ novelty: Number.NaN }), [], [])).toBeNull();
-    });
-
-    it("refuses anything that is not an object", () => {
-      // What a model returns when it ignores the format: prose, a list, nothing.
-      expect(readAnalysis("The event about OpenAI.", [], [])).toBeNull();
-      expect(readAnalysis([reply()], [], [])).toBeNull();
-      expect(readAnalysis(null, [], [])).toBeNull();
-      expect(readAnalysis(undefined, [], [])).toBeNull();
-    });
-  });
-
-  describe("scores", () => {
-    it("clamps to the range the column allows", () => {
-      // `events.importance` has a `check (importance between 0 and 10)`, so an 11
-      // is not a bad score, it is a failed write of an otherwise good analysis.
-      expect(readAnalysis(reply({ importance: 11, novelty: -3 }), [], [])?.importance).toBe(10);
-      expect(readAnalysis(reply({ importance: 11, novelty: -3 }), [], [])?.novelty).toBe(0);
-    });
-
-    it("accepts a score written as a string", () => {
-      // A formatting slip by a model that got the judgement right. Paying for the
-      // reasoning a second time to punish the quote marks would be absurd.
-      expect(readAnalysis(reply({ importance: "8" }), [], [])?.importance).toBe(8);
-    });
-
-    it("keeps one decimal place and no more", () => {
-      expect(readAnalysis(reply({ importance: 6.44 }), [], [])?.importance).toBe(6.4);
-      expect(readAnalysis(reply({ importance: 6.46 }), [], [])?.importance).toBe(6.5);
-    });
-
-    it("keeps a genuine zero", () => {
-      // Distinct from a missing score, and the two must not collapse: 0 is the
-      // correct answer for a routine point release.
-      expect(readAnalysis(reply({ importance: 0 }), [], [])?.importance).toBe(0);
-    });
-  });
-
-  describe("topics and tags", () => {
-    it("uses code-assigned topics when provided", () => {
-      const analysis = readAnalysis(reply(), ["openai", "ai"], ["technology", "regulation"]);
-
-      expect(analysis?.topics).toEqual(["openai", "ai"]);
-      expect(analysis?.tags).toEqual(["technology", "regulation"]);
-      expect(analysis?.unknownTopics).toEqual([]);
-    });
-
-    it("falls back to empty arrays when code returns nothing", () => {
-      const analysis = readAnalysis(reply(), [], []);
-
-      expect(analysis?.topics).toEqual([]);
-      expect(analysis?.tags).toEqual([]);
-      expect(analysis?.unknownTopics).toEqual([]);
-    });
-
-    it("caps topics at MAX_TOPICS and tags at 8", () => {
-      const manyTopics = Array.from({ length: 10 }, (_, i) => `topic-${i}`);
-      const manyTags = Array.from({ length: 12 }, (_, i) => `tag-${i}`);
-      const analysis = readAnalysis(reply(), manyTopics, manyTags);
-
-      expect(analysis?.topics).toHaveLength(5);
-      expect(analysis?.tags).toHaveLength(8);
-    });
-  });
-
-  describe("the fields that are allowed to be absent", () => {
-    it("keeps null for a before or after state the coverage did not give", () => {
-      const analysis = readAnalysis(reply({ before_state: null, after_state: null }), [], []);
-
-      expect(analysis?.beforeState).toBeNull();
-      expect(analysis?.afterState).toBeNull();
-    });
-
-    it("reads a model's words for null as null", () => {
-      // A model told to answer null in JSON routinely answers with the word
-      // instead. Storing it would put "Unknown" on a story page in the position of
-      // a finding, under a real headline, next to real sources.
-      for (const evasion of ["null", "None", "unknown", "N/A", "Not stated", "not specified."]) {
-        expect(readAnalysis(reply({ before_state: evasion }), [], [])?.beforeState).toBeNull();
-      }
-    });
-
-    it("does not mistake real prose for an evasion", () => {
-      const analysis = readAnalysis(
-        { ...reply(), before_state: "No such rule existed in any US state." },
-        [],
-        [],
-      );
-
-      expect(analysis?.beforeState).toBe("No such rule existed in any US state.");
-    });
-
-    it("leaves the title null when the model did not give a usable one", () => {
-      // Null means "keep the placeholder from clustering". An empty string would
-      // replace a real headline with nothing at all.
-      expect(readAnalysis(reply({ title: "" }), [], [])?.title).toBeNull();
-      expect(readAnalysis(reply({ title: 12 }), [], [])?.title).toBeNull();
-    });
-
-    it("truncates an over-long title rather than refusing the analysis", () => {
-      const analysis = readAnalysis(reply({ title: "x".repeat(400) }), [], []);
-
-      expect(analysis?.title).toHaveLength(200);
-    });
-  });
-});
-
-const outlets = new Map([
-  ["s1", "TechCrunch"],
-  ["s2", "The Verge"],
+import { finalizeMetadata, publisherKey, type NewsArticle, type Publisher } from "./news-signals";
+import { shouldAlert } from "./alerts";
+const now = new Date("2026-09-14T12:00:00Z");
+const sources = new Map<string, Publisher>([
+  ["bbc", { id: "bbc", name: "BBC", homepage: "https://www.bbc.com", kind: "news" }],
+  [
+    "bbc-sport",
+    { id: "bbc-sport", name: "BBC Sport", homepage: "https://bbc.co.uk", kind: "news" },
+  ],
 ]);
-
-/** The shape `analyse.ts` reads out of `articles`, spelled out so the test is typed. */
-type Row = {
-  id: string;
-  title: string;
-  excerpt: string | null;
-  published_at: string | null;
-  source_id: string | null;
-};
-
-const article = (over: Partial<Row> = {}): Row => ({
-  id: "test-article-id",
-  title: "OpenAI opposes SB 1047",
-  excerpt: "The company wrote to the governor.",
-  published_at: "2026-08-21T09:00:00.000Z",
-  source_id: "s1",
-  ...over,
+const article = (id: string, source_id = "bbc"): NewsArticle => ({
+  id,
+  source_id,
+  title: "New community library opens to local residents",
+  excerpt: "The library opened today with extended hours and a new children's reading room.",
+  published_at: now.toISOString(),
+  url: "https://bbc.com/news/1",
 });
-
-describe("renderCoverage", () => {
-  it("numbers the articles from one and names the outlet and date", () => {
-    const rendered = renderCoverage([article(), article({ source_id: "s2" })], 2, outlets);
-
-    expect(rendered).toContain("1. OpenAI opposes SB 1047 (TechCrunch, 2026-08-21)");
-    expect(rendered).toContain("2. OpenAI opposes SB 1047 (The Verge, 2026-08-21)");
+describe("deterministic event metadata", () => {
+  it("selects natural source wording and a useful short excerpt, without prose generation", () => {
+    const a = article("1");
+    const m = finalizeMetadata([a], sources, now.toISOString(), now);
+    expect(m.title).toBe(a.title);
+    expect(a.excerpt).toContain(m.what_happened);
+    expect(m).not.toHaveProperty("understand");
+    expect(m).not.toHaveProperty("article");
   });
-
-  it("says how much coverage was withheld", () => {
-    // The honest half of this function. Saying "12 articles" when there are 30
-    // would have the model judge importance from a number that is really a cap.
-    const twelve = Array.from({ length: 12 }, () => article());
-
-    expect(renderCoverage(twelve, 30, outlets)).toContain(
-      "30 articles about one event. The 12 earliest are below.",
+  it("uses title fallback instead of fabricating missing evidence", () => {
+    const a = { ...article("1"), excerpt: null };
+    expect(finalizeMetadata([a], sources, now.toISOString(), now).what_happened).toBe(a.title);
+  });
+  it("counts five articles by one publisher as one publisher", () => {
+    const many = Array.from({ length: 5 }, (_, i) =>
+      article(String(i), i % 2 ? "bbc" : "bbc-sport"),
     );
-    expect(renderCoverage([article()], 1, outlets)).toContain("1 article about one event");
-  });
-
-  it("truncates a long excerpt and marks that it did", () => {
-    const rendered = renderCoverage([article({ excerpt: "word ".repeat(200) })], 1, outlets);
-
-    expect(rendered).toContain("...");
-    expect(rendered.length).toBeLessThan(600);
-  });
-
-  it("collapses the whitespace feeds arrive with", () => {
-    const rendered = renderCoverage([article({ excerpt: "  one\n\n  two\t three  " })], 1, outlets);
-
-    expect(rendered).toContain("one two three");
-  });
-
-  it("omits an excerpt or a source rather than printing a gap", () => {
-    const rendered = renderCoverage([article({ excerpt: null, source_id: null })], 1, outlets);
-
-    expect(rendered).toContain("1. OpenAI opposes SB 1047 (2026-08-21)");
-    expect(rendered).not.toContain("undefined");
-    expect(rendered).not.toContain("null");
-  });
-
-  it("handles a source that is no longer in the list", () => {
-    // A source row can be deleted while its articles remain. The prompt loses the
-    // outlet name and nothing else.
-    const rendered = renderCoverage([article({ source_id: "gone" })], 1, outlets);
-
-    expect(rendered).toContain("1. OpenAI opposes SB 1047 (2026-08-21)");
-  });
-});
-
-describe("isUnanalysable", () => {
-  it("refuses a single-article CI ref", () => {
-    expect(
-      isUnanalysable(
-        [{ title: "trunk/16ee93b8a9e7e2dd215a2f5d07eada25e31ec123: [vision hash]" }],
-        1,
-      ),
-    ).toBe(true);
-  });
-
-  it("does not refuse a version tag, which is a real release", () => {
-    expect(isUnanalysable([{ title: "v8.2.2" }], 1)).toBe(false);
-  });
-
-  it("does not refuse a real headline, or a cluster of more than one", () => {
-    expect(isUnanalysable([{ title: "OpenAI opposes California's AI safety bill" }], 1)).toBe(
-      false,
+    const m = finalizeMetadata(many, sources, now.toISOString(), now);
+    expect(m.article_count).toBe(5);
+    expect(m.publisher_count).toBe(1);
+    expect(m.importance).toBe(
+      finalizeMetadata([many[0]!], sources, now.toISOString(), now).importance,
     );
-    expect(
-      isUnanalysable(
-        [
-          { title: "trunk/16ee93b8a9e7e2dd215a2f5d07eada25e31ec123: [vision hash]" },
-          { title: "trunk/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: [other]" },
-        ],
-        2,
-      ),
-    ).toBe(false);
   });
-});
-
-describe("demand gate fail-closed behavior", () => {
-  it("distinguishes between inactive, error, and loaded demand states", () => {
-    // These are type-level tests to ensure the discriminated union works correctly
-    const inactive: { kind: "inactive" } = { kind: "inactive" };
-    const error: { kind: "error"; message: string } = { kind: "error", message: "RPC failed" };
-    const loaded: { kind: "loaded"; demanded: Set<string> } = {
-      kind: "loaded",
-      demanded: new Set(["event-1"]),
-    };
-
-    expect(inactive.kind).toBe("inactive");
-    expect(error.kind).toBe("error");
-    expect(loaded.kind).toBe("loaded");
-  });
-
-  it("error state prevents analysis by returning early", () => {
-    // This tests the decision logic: when demand.kind === "error",
-    // the function should return decision: "demand_check_failed"
-    // without proceeding to AI calls or database writes
-    const errorResult = {
-      kind: "error" as const,
-      message: "Database connection failed",
-    };
-
-    // The actual runOne function checks ctx.demand.kind === "error"
-    // and returns early with decision: "demand_check_failed"
-    expect(errorResult.kind).toBe("error");
-  });
-
-  it("loaded state with no demand for event skips analysis", () => {
-    const loadedResult = {
-      kind: "loaded" as const,
-      demanded: new Set<string>(["other-event"]),
-    };
-
-    // When ctx.demand.kind === "loaded" and !ctx.demand.demanded.has(event.id),
-    // the function returns decision: "no_demand"
-    expect(loadedResult.kind).toBe("loaded");
-    expect(loadedResult.demanded.has("event-1")).toBe(false);
-  });
-
-  it("loaded state with demand for event allows analysis", () => {
-    const loadedResult = {
-      kind: "loaded" as const,
-      demanded: new Set<string>(["event-1"]),
-    };
-
-    // When ctx.demand.kind === "loaded" and ctx.demand.demanded.has(event.id),
-    // analysis proceeds normally
-    expect(loadedResult.kind).toBe("loaded");
-    expect(loadedResult.demanded.has("event-1")).toBe(true);
-  });
-
-  it("inactive state allows analysis (gate bypassed)", () => {
-    const inactiveResult = { kind: "inactive" as const };
-
-    // When ctx.demand.kind === "inactive", analysis proceeds normally
-    // (gate off or --event bypass)
-    expect(inactiveResult.kind).toBe("inactive");
-  });
-});
-
-describe("contract", () => {
-  it("tells one_sentence not to carry a headline figure numbers should own", () => {
-    const prompt = contract();
-    // The fix for the OpenAI Daybreak $1B duplication: one_sentence and numbers
-    // must not both state the same headline figure. This pins the instruction's
-    // presence in the shipped prompt -- it cannot pin live model compliance,
-    // which needs a real call the AI budget guard currently blocks.
-    expect(prompt).toContain("one_sentence owns the relationship");
-    expect(prompt).toContain("numbers owns the");
-    expect(prompt.toLowerCase()).toContain("headline metric");
-  });
-});
-
-describe("isEnrichmentEligible", () => {
-  it("1 source, still 1 source: no refresh", () => {
-    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 1 }, 1)).toBe(false);
-  });
-
-  it("1 source grown to 2: no refresh", () => {
-    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 1 }, 2)).toBe(false);
-  });
-
-  it("1 source grown to 4: eligible", () => {
-    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 1 }, 4)).toBe(true);
-  });
-
-  it("1 source grown to 5: eligible", () => {
-    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 1 }, 5)).toBe(true);
-  });
-
-  it("2 sources grown to 4: eligible (meets both the floor and the 2x multiple)", () => {
-    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 2 }, 4)).toBe(true);
-  });
-
-  it("2 sources grown to 3: not eligible (below the 4-source floor)", () => {
-    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 2 }, 3)).toBe(false);
-  });
-
-  it("5 sources grown to 6: no refresh -- already past the thin-analysis floor", () => {
-    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 5 }, 6)).toBe(false);
-  });
-
-  it("7 sources grown to 8: no refresh -- this is not the case it exists for", () => {
-    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 7 }, 8)).toBe(false);
-  });
-
-  it("already enrichment-refreshed: never eligible again, regardless of growth", () => {
-    expect(
-      isEnrichmentEligible({ sourceCountAtAnalysis: 1, refreshedAfterEnrichment: true }, 50),
-    ).toBe(false);
-  });
-
-  it("legacy document with no analysis metadata: not eligible, never mass-queued", () => {
-    expect(isEnrichmentEligible(undefined, 50)).toBe(false);
-    expect(isEnrichmentEligible(null, 50)).toBe(false);
-    expect(isEnrichmentEligible({}, 50)).toBe(false);
-  });
-
-  it("malformed metadata (non-integer or non-numeric source count): not eligible", () => {
-    expect(isEnrichmentEligible({ sourceCountAtAnalysis: 1.5 }, 50)).toBe(false);
-    expect(isEnrichmentEligible({ sourceCountAtAnalysis: "1" }, 50)).toBe(false);
-  });
-});
-
-/**
- * The join between the topic assigner and the topics table.
- *
- * `assignTopics` returns editorial labels ("Open source"); the table is keyed for
- * the prompt by slug ("open-source"). Between 2026-09-02 and 2026-09-09 the map
- * held only slugs, so every lookup returned `undefined`, `event_topics` was never
- * written, and no reader matched anything analysed in that week. Nothing threw --
- * an empty row list is an empty upsert -- which is precisely why the rule is
- * pinned here rather than left to a live run.
- *
- * Rows are derived from `TOPIC_POOL` through `topicSlug`, not typed out again,
- * because that is the rule 0006 says its own slugs must obey. A fixture that
- * spelled them independently could agree with itself while disagreeing with the
- * database.
- */
-describe("topicVocabulary", () => {
-  const rows = TOPIC_POOL.map((label) => ({
-    id: `id-${topicSlug(label)}`,
-    slug: topicSlug(label),
-    label,
-  }));
-  const vocabulary = topicVocabulary(rows);
-
-  it("resolves every label assignTopics can return", () => {
-    for (const label of TOPIC_POOL) {
-      expect(vocabulary.ids.get(label.toLowerCase())).toBe(`id-${topicSlug(label)}`);
-    }
-  });
-
-  it("still resolves slugs, which is what the prompt speaks", () => {
-    expect(vocabulary.ids.get("open-source")).toBe("id-open-source");
-    expect(vocabulary.ids.get("next-js")).toBe("id-next-js");
-  });
-
-  it("offers the prompt slugs, never labels", () => {
-    expect(vocabulary.slugs).toContain("open-source");
-    expect(vocabulary.slugs).not.toContain("Open source");
-  });
-
-  it("resolves what assignTopics actually produces for a real headline", () => {
-    const assigned = assignTopics(
-      "NVIDIA unveils a new semiconductor architecture for AI data centres.",
+  it("uses distinct publisher breadth, not feed count", () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({
+      ...article(String(i), null as never),
+      url: `https://publisher${i}.com/story`,
+    }));
+    const m = finalizeMetadata(many, sources, now.toISOString(), now);
+    expect(m.publisher_count).toBe(5);
+    expect(m.importance).toBeGreaterThan(
+      finalizeMetadata([article("1")], sources, now.toISOString(), now).importance,
     );
-
-    expect(assigned.length).toBeGreaterThan(0);
-    // The property that matters: not one unresolvable name in the output.
-    for (const name of assigned) {
-      expect(vocabulary.ids.get(name.toLowerCase())).toBeDefined();
-    }
   });
-});
-
-// ---------------------------------------------------------------------------
-// Selective reasoning routing tests (0072)
-// ---------------------------------------------------------------------------
-
-describe("detectComplexity", () => {
-  it("classifies a straightforward product launch as routine", () => {
-    const facts = {
-      money: [],
-      percentages: [],
-      dates: [],
-      cves: [],
-      cvss: [],
-      versions: [{ value: "v2.0", label: "v2.0", evidence: [1] }],
-      counts: [],
-      companies: [{ value: "acme", label: "Acme", evidence: [1] }],
-      countries: [],
-      products: [{ value: "Widget", label: "Widget", evidence: [1] }],
-      tickers: [],
-      layoffs: [],
-      regulatoryActions: [],
-    };
-    const signals = {
-      importanceEstimate: 2,
-      noveltyEstimate: 3,
-      confidence: "high" as const,
-      reasons: ["single source"],
-    };
-    const result = detectComplexity(
-      facts,
-      { conflictsPreserved: 0, totalUniqueFacts: 1, totalFactsFull: 1 },
-      signals,
-      1,
-      [0],
-    );
-    expect(result.route).toBe("standard-no-thinking");
-    expect(result.reasons).toEqual([]);
-  });
-
-  it("classifies a legal ruling as complex", () => {
-    const facts = {
-      money: [],
-      percentages: [],
-      dates: [{ value: "2026-01-01", label: "2026-01-01", evidence: [1] }],
-      cves: [],
-      cvss: [],
-      versions: [],
-      counts: [],
-      companies: [],
-      countries: [],
-      products: [],
-      tickers: [],
-      layoffs: [],
-      regulatoryActions: [
-        { value: "Supreme Court ruling", label: "Supreme Court ruling", evidence: [1] },
+  it("preserves meaningful breaking qualification without treating ordinary items as emergencies", () => {
+    const ordinary = finalizeMetadata([article("1")], sources, now.toISOString(), now);
+    const urgent = finalizeMetadata(
+      [
+        {
+          ...article("2"),
+          title: "Major earthquake: 400 people killed, emergency declared",
+          excerpt:
+            "Authorities report 400 people killed in a major earthquake. Rescue operations continue.",
+        },
       ],
-    };
-    const signals = {
-      importanceEstimate: 8,
-      noveltyEstimate: 5,
-      confidence: "medium" as const,
-      reasons: ["regulatory action"],
-    };
-    const result = detectComplexity(
-      facts,
-      { conflictsPreserved: 0, totalUniqueFacts: 1, totalFactsFull: 1 },
-      signals,
-      3,
-      [0, 1, 2],
+      sources,
+      now.toISOString(),
+      now,
     );
-    expect(result.route).toBe("complex-thinking");
-    expect(result.reasons).toContain("regulatory_action");
+    expect(shouldAlert("important", urgent.importance)).toBe(true);
+    expect(shouldAlert("important", ordinary.importance)).toBe(false);
   });
-
-  it("classifies conflicting financial numbers as complex", () => {
-    const facts = {
-      money: [
-        { value: "$1B", label: "$1B", evidence: [1] },
-        { value: "$2B", label: "$2B", evidence: [2] },
-      ],
-      percentages: [],
-      dates: [],
-      cves: [],
-      cvss: [],
-      versions: [],
-      counts: [],
-      companies: [],
-      countries: [],
-      products: [],
-      tickers: [],
-      layoffs: [],
-      regulatoryActions: [],
-    };
-    const signals = {
-      importanceEstimate: 6,
-      noveltyEstimate: 4,
-      confidence: "low" as const,
-      reasons: ["financial figure"],
-    };
-    const result = detectComplexity(
-      facts,
-      { conflictsPreserved: 1, totalUniqueFacts: 2, totalFactsFull: 2 },
-      signals,
-      2,
-      [0, 1],
+  it("does not rejuvenate novelty when metadata refreshes", () => {
+    expect(finalizeMetadata([article("1")], sources, "2026-09-01T12:00:00Z", now).novelty).toBe(1);
+    expect(finalizeMetadata([article("1")], sources, now.toISOString(), now).novelty).toBe(7);
+  });
+  it("normalizes known publisher aliases", () => {
+    expect(publisherKey(article("1", "bbc"), sources)).toBe(
+      publisherKey(article("2", "bbc-sport"), sources),
     );
-    expect(result.route).toBe("complex-thinking");
-    expect(result.reasons).toContain("conflicting_numbers");
-  });
-
-  it("classifies a correction/update as complex", () => {
-    const facts = {
-      money: [],
-      percentages: [],
-      dates: [],
-      cves: [],
-      cvss: [],
-      versions: [],
-      counts: [],
-      companies: [],
-      countries: [],
-      products: [],
-      tickers: [],
-      layoffs: [],
-      regulatoryActions: [],
-    };
-    const signals = {
-      importanceEstimate: 5,
-      noveltyEstimate: 3,
-      confidence: "low" as const,
-      reasons: [],
-    };
-    // Low confidence alone triggers complex
-    const result = detectComplexity(
-      facts,
-      { conflictsPreserved: 0, totalUniqueFacts: 1, totalFactsFull: 1 },
-      signals,
-      2,
-      [0, 1],
-    );
-    expect(result.route).toBe("complex-thinking");
-    expect(result.reasons).toContain("low_confidence");
-  });
-
-  it("is conservative: uncertain events route to complex-thinking", () => {
-    // An event with no strong signals but some ambiguity should still
-    // route to complex-thinking (conservative default).
-    const facts = {
-      money: [],
-      percentages: [],
-      dates: [],
-      cves: [],
-      cvss: [],
-      versions: [],
-      counts: [],
-      companies: [],
-      countries: [],
-      products: [],
-      tickers: [],
-      layoffs: [],
-      regulatoryActions: [],
-    };
-    const signals = {
-      importanceEstimate: 3,
-      noveltyEstimate: 3,
-      confidence: "medium" as const,
-      reasons: [],
-    };
-    const result = detectComplexity(
-      facts,
-      { conflictsPreserved: 0, totalUniqueFacts: 1, totalFactsFull: 1 },
-      signals,
-      2,
-      [0, 1],
-    );
-    // Medium confidence + 2 sources + 3 reasons threshold not met
-    // But the conservative default means uncertain → complex
-    // Actually, with no strong signals and no conflicts, this should be routine
-    // because hasStrongSignal is false and hasEvidenceConflict is false
-    // and reasons.length < 3
-    expect(result.route).toBe("standard-no-thinking");
-  });
-});
-
-describe("routing preserves reader-facing contract", () => {
-  it("routine and complex routes use the same contract function", () => {
-    // Both routes use the same contract() or thinContract() based on
-    // the same signals. The only difference is thinking enabled/disabled.
-    // contract is imported at the top of this file.
-    expect(typeof contract).toBe("function");
-  });
-
-  it("thin/full decision is independent of thinking route", () => {
-    // The useThinContract decision is based solely on signals.confidence
-    // and signals.importanceEstimate, not on the reasoning route.
-    // This is verified by the detectComplexity tests above where
-    // the same signals produce the same thin/full decision.
-    expect(true).toBe(true);
-  });
-});
-
-describe("the analysis contract without the reader article (0078)", () => {
-  it("keeps every field the rest of the pipeline consumes", () => {
-    const text = contract(false);
-    // match.ts and alerts.ts read these two off the event row; dropping them
-    // would stop every briefing and every alert, not just shorten a page.
-    expect(text).toContain('"importance"');
-    expect(text).toContain('"novelty"');
-    // The briefing card is built from these.
-    expect(text).toContain('"what_happened"');
-    expect(text).toContain('"before_state"');
-    expect(text).toContain('"after_state"');
-    expect(text).toContain('"title"');
-    expect(text).toContain('"impact"');
-  });
-
-  it("does not ask for the understand block or the reader article", () => {
-    const text = contract(false);
-    expect(text).not.toContain('"one_sentence"');
-    expect(text).not.toContain('"paragraphs"');
-    expect(text).not.toContain('"relationships"');
-    expect(text).toContain('Do not include an "understand" key');
-  });
-
-  it("still asks for it when the flag says the background pass owns it", () => {
-    const text = contract(true);
-    expect(text).toContain('"understand"');
-    expect(text).toContain('"paragraphs"');
-  });
-
-  it("is materially shorter, which is the point", () => {
-    expect(contract(false).length).toBeLessThan(contract(true).length / 2);
   });
 });

@@ -62,7 +62,7 @@ const DIFFS = [
   },
   {
     title: "Sources are always one tap away",
-    body: "Summaries are generated, and generated text can be wrong. nyuz never presents itself as the origin of a story — the original reporting is never more than one tap from the summary of it.",
+    body: "Cards use source descriptions. Deeper coverage, when available, is generated on request and can be wrong. Original reporting is always linked.",
   },
   {
     title: "You control the volume, precisely",
@@ -119,7 +119,7 @@ const PIPE: { label: string; yours?: boolean }[] = [
   { label: "Collected through the day" },
   { label: "Duplicates merged" },
   { label: "One event, not thirty articles" },
-  { label: "Understood once" },
+  { label: "Source descriptions selected" },
   { label: "Weighed for importance" },
   { label: "Matched to what you follow", yours: true },
   { label: "Your briefing", yours: true },
@@ -131,15 +131,14 @@ export function AiTrust() {
       <div>
         <Eyebrow>Under the surface</Eyebrow>
         <h2 className="display mt-3 text-4xl sm:text-5xl">
-          AI does the boring work.
+          Your sources, brought together.
           <br />
           You get the useful part.
         </h2>
         <div className="mt-7 space-y-3 text-[14.5px] leading-relaxed text-muted-foreground">
           <p>
-            We don&apos;t ask AI to process the same coverage again for every person. Information is
-            collected once, the duplicates are folded together, and each event is understood a
-            single time — including the part about what it actually changes.
+            Coverage is collected once, closely related reports are grouped, and useful source
+            descriptions give you a quick way into each event.
           </p>
           <p>
             Working out which of those stories belong in your morning happens quietly on our side,
@@ -147,8 +146,9 @@ export function AiTrust() {
             it.
           </p>
           <p>
-            Nothing is written separately for each subscriber. That&apos;s what keeps your briefing
-            quick, and it&apos;s a good part of why nyuz costs what it does.
+            Open a story for its sources and, when enough reporting and generation capacity are
+            available, deeper shared coverage. Once prepared, that article is available to every
+            reader.
           </p>
         </div>
       </div>
@@ -179,7 +179,7 @@ export function Infrastructure() {
     ["Sources", "Curated feeds, plus the ones you add"],
     ["Collection", "Gathered and timestamped"],
     ["Duplicates", "Near-identical articles folded together"],
-    ["Understanding", "Each story read once, properly"],
+    ["Shared coverage", "Source descriptions now, deeper coverage on request"],
     ["Story record", "Kept, searchable, always attributed"],
     ["Your interests", "Matched on our side"],
     ["Your briefing", "Built from what has already been read"],
@@ -216,7 +216,7 @@ export function Infrastructure() {
         <div className="flex flex-col justify-between gap-5">
           <div className="rounded-3xl border border-hairline bg-surface-2 p-7">
             <p className="font-serif text-3xl leading-snug">
-              Understand an event once. Deliver it to everyone it matters to.
+              Organize coverage once. Share it with everyone it matters to.
             </p>
           </div>
           <div className="rounded-3xl border border-hairline bg-surface p-7">

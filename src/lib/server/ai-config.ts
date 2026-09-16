@@ -3,6 +3,7 @@ import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { adminOnly, audit, superadminOnly, AdminAuthError } from "@/lib/server/guard";
 import { invalidateRouteCache, meterProviderProbe } from "@/lib/ai/config";
+import { providerFetch, isTestRuntime } from "@/lib/ai/transport";
 import { ambientEnv } from "@/lib/runtime-env";
 import { loadAiRuntimeConfig } from "@/lib/ai/runtime-config";
 import type { AiCapability } from "@/lib/supabase/types";
@@ -537,9 +538,12 @@ export const probeProvider = createServerFn({ method: "POST" })
         "Reply with the single word: ready",
         ambientEnv(),
         async () => {
-          res = await fetch(url, {
+          res = await providerFetch(url, {
             method: "POST",
-            headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${isTestRuntime() ? "test-only" : key}`,
+            },
             body: JSON.stringify({
               model: data.model,
               max_tokens: data.maxTokens,

@@ -103,6 +103,30 @@ describe("the version changes on a real development", () => {
 });
 
 describe("materialState", () => {
+  it.each([
+    "The deal has not been confirmed.",
+    "No opening date has been confirmed.",
+    "Officials have yet to confirm the agreement.",
+    "The agreement may be confirmed tomorrow.",
+    "The deal is expected to be confirmed.",
+    "The deal hasn't been confirmed.",
+    "Has the deal been confirmed?",
+    "Officials declined to say whether the deal was confirmed.",
+  ])("does not buy a new version for non-affirmative confirmation: %s", async (later) => {
+    const original = "The council is considering plans for a new library.";
+    expect(materialState(later).markers).not.toContain("deal_confirmed");
+    expect(await contentVersion(`${original}\n${later}`)).toBe(await contentVersion(original));
+  });
+
+  it.each([
+    "The deal was confirmed.",
+    "Acme has confirmed it will acquire Widget Co.",
+    "The merger agreement has been confirmed by both companies.",
+  ])("retains meaningful affirmative confirmation: %s", async (later) => {
+    expect(materialState(later).markers).toContain("deal_confirmed");
+    expect(await contentVersion(later)).not.toBe(await contentVersion("The deal is in talks."));
+  });
+
   it("sorts and de-duplicates so coverage order cannot move the hash", () => {
     const state = materialState("Acme confirmed. Acme confirmed again. The court ruled.");
     expect(state.markers).toStrictEqual([...state.markers].sort());
