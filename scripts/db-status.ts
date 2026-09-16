@@ -53,6 +53,11 @@ main(async () => {
     row("pending and eligible", await n(events().is("analysed_at", null).eq("status", "pending"))),
   );
   say(row("failed", await n(events().is("analysed_at", null).eq("status", "failed"))));
+  const { data: topicless, error: topiclessError } = await db().rpc(
+    "complete_events_without_topics",
+  );
+  if (topiclessError) throw new Error(`complete_events_without_topics: ${topiclessError.message}`);
+  say(row("complete, no final topics", topicless ?? 0));
 
   // The shared-analysis property in one number. Tokens are recorded per event and
   // never re-spent, so this total is the entire model cost of understanding the

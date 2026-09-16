@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { topicsFor, type TopicRow } from "./classify";
+import { sourceSignalsFrom, topicsFor, type TopicRow } from "./classify";
 import { topicTerms } from "@/lib/topics";
 
 /**
@@ -130,5 +130,31 @@ describe("topicsFor", () => {
     expect(gaming).toContain(GAMING.id);
     expect(gaming).not.toContain(AI.id);
     expect(gaming).not.toContain(HEALTH.id);
+  });
+});
+
+describe("sourceSignalsFrom", () => {
+  it("folds a section feed into a signal the way loadSourceSignals always has", () => {
+    // The exact scenario Sports' "sport" strong term exists for: wire copy that
+    // names only clubs and players, reachable only through the publisher
+    // stating the subject in its section feed.
+    const signals = sourceSignalsFrom([
+      { id: "s1", name: "BBC Sport", feed_url: "https://bbc.co.uk/sport/rss.xml" },
+    ]);
+    expect(signals.get("s1")).toContain("BBC Sport");
+    expect(signals.get("s1")).toContain("sport");
+  });
+
+  it("gives analyse.ts's independent recompute the same reach classify.ts has", () => {
+    // Neither the title nor a plausible excerpt says "sport"; only the section
+    // feed does. Before the analyse.ts parity fix, this text alone (what
+    // analyse.ts built) would miss Sports even though classify.ts, folding the
+    // same signal in, would not -- the two writers of an event's topics would
+    // disagree on the same event.
+    const signals = sourceSignalsFrom([
+      { id: "s1", name: "BBC Sport", feed_url: "https://bbc.co.uk/sport/rss.xml" },
+    ]);
+    const title = "Griezmann scores twice as Atletico win at home";
+    expect(topicsFor({ title }, [signals.get("s1") ?? ""], [SPORTS])).toContain(SPORTS.id);
   });
 });

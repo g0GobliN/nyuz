@@ -249,4 +249,37 @@ describe("actual PostgreSQL financial and owner invariants", () => {
       ),
     ).toBe(2026);
   });
+  it("completes an event with no topics rather than failing it", async () => {
+    // Pins today's intentional behavior: an empty p_topics array is a no-op
+    // insert, not an error. If this ever changes to fail the event instead,
+    // that is a deliberate decision to make explicitly, not something that
+    // should happen by accident -- see 0087's read model for why every
+    // complete event with zero event_topics rows means "classifier found
+    // nothing", not "the write failed silently".
+    expect(await scalar("select claim_event_finalization($1,$2) as v", [event, owner])).toBe(true);
+    const metadata = {
+      title: "Source title",
+      what_happened: "Source description",
+      importance: 3,
+      novelty: 1,
+      article_count: 1,
+      publisher_count: 1,
+      tags: [],
+    };
+    expect(
+      await scalar("select finish_event_finalization($1,$2,0,$3,$4) as v", [
+        event,
+        owner,
+        JSON.stringify(metadata),
+        [],
+      ]),
+    ).toBe(true);
+    expect(await scalar("select status::text as v from events where id=$1", [event])).toBe(
+      "complete",
+    );
+    expect(
+      await scalar("select analysed_at is not null as v from events where id=$1", [event]),
+    ).toBe(true);
+    expect(await scalar("select count(*)::integer as v from event_topics")).toBe(0);
+  });
 });

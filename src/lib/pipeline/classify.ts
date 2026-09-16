@@ -220,12 +220,15 @@ async function selectEvents(db: Db, options: ClassifyOptions): Promise<EventRow[
  * word; the host is not, or every `theguardian.com` story would carry
  * "guardian" into the signal for no gain.
  */
-async function loadSourceSignals(db: Db): Promise<Map<string, string>> {
-  const { data, error } = await db.from("sources").select("id, name, feed_url");
-  if (error) throw new Error(`reading sources: ${error.message}`);
-
+/**
+ * Pure so `analyse.ts` can build the same signal from rows it already fetched,
+ * instead of duplicating this logic or paying for a second query.
+ */
+export function sourceSignalsFrom(
+  rows: readonly { id: string; name: string; feed_url: string }[],
+): Map<string, string> {
   const byId = new Map<string, string>();
-  for (const row of data ?? []) {
+  for (const row of rows) {
     let path = "";
     try {
       path = new URL(row.feed_url).pathname.replaceAll(/[^\p{L}\p{N}]+/gu, " ");
@@ -237,6 +240,12 @@ async function loadSourceSignals(db: Db): Promise<Map<string, string>> {
     byId.set(row.id, `${row.name} ${path}`.trim());
   }
   return byId;
+}
+
+async function loadSourceSignals(db: Db): Promise<Map<string, string>> {
+  const { data, error } = await db.from("sources").select("id, name, feed_url");
+  if (error) throw new Error(`reading sources: ${error.message}`);
+  return sourceSignalsFrom(data ?? []);
 }
 
 /** Every article attached to these events, plus its source's section, for the haystack. */

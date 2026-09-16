@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import type { SecretBag } from "@/lib/ai/config";
 import { finalizeMetadata, type NewsArticle, type Publisher } from "./news-signals";
-import { topicsFor, type TopicRow } from "./classify";
+import { topicsFor, sourceSignalsFrom, type TopicRow } from "./classify";
 import { assignTags } from "./topic-assign";
 import { isVcsRef } from "./shortlist";
 import { LIVE_QUEUE_HOURS, liveLaneSize } from "./freshness";
@@ -89,7 +89,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
   };
   const [events, sourceRows, topicRows] = await Promise.all([
     select(),
-    db.from("sources").select("id,name,homepage,kind"),
+    db.from("sources").select("id,name,homepage,kind,feed_url"),
     db.from("topics").select("id,slug,label,terms"),
   ]);
   for (const result of [events, sourceRows, topicRows])
@@ -97,6 +97,10 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
   const sources = new Map(
     (sourceRows.data ?? []).map((source) => [source.id, source as Publisher]),
   );
+  // Same haystack classify.ts folds a section signal into ("BBC Sport", etc.),
+  // so this independent recompute never lands narrower than the candidates it
+  // unions with below -- see topic-assign.ts and classify.ts for why.
+  const sourceSignals = sourceSignalsFrom(sourceRows.data ?? []);
   const topics = (topicRows.data ?? []) as TopicRow[];
   const outcomes: EventOutcome[] = [];
   for (const event of events.data ?? []) {
@@ -142,6 +146,17 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
         throw new Error("No usable news coverage");
       const metadata = finalizeMetadata(articles, sources, event.first_seen_at, now);
       const text = articles.map((a) => a.title + " " + (a.excerpt ?? ""));
+      // Once per distinct source, matching classify.ts: repeating "BBC Sport"
+      // for every article would not change any match, only inflate the text.
+      const seenSource = new Set<string>();
+      for (const article of articles) {
+        const signal =
+          article.source_id === null ? undefined : sourceSignals.get(article.source_id);
+        if (signal !== undefined && !seenSource.has(signal)) {
+          seenSource.add(signal);
+          text.push(signal);
+        }
+      }
       const topicIds = topicsFor(metadata, text, topics);
       const candidates = await db
         .from("event_topic_candidates")

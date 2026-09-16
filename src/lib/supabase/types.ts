@@ -1550,6 +1550,14 @@ export type Database = {
           calls: number;
         }[];
       };
+      /**
+       * Added in 0087. Complete events with zero `event_topics` rows -- always
+       * "classifier found nothing", never a silent promotion failure.
+       */
+      complete_events_without_topics: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
       ai_spend_this_month: {
         Args: Record<string, never>;
         Returns: {
