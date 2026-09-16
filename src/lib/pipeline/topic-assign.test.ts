@@ -152,6 +152,94 @@ describe("assignTopics", () => {
   });
 });
 
+/**
+ * Four real production headlines that reached `status = 'complete'` with no
+ * `event_topics` row. The AI-agent case is fixed by this file's "ai agent"
+ * phrases; Rail, EV chargers and Army are fixed by the taxonomy expansion
+ * (Transport/Automotive/Military/Crime) below -- none of them are forced into
+ * a loosely-related existing topic via a generic word.
+ */
+describe("assignTopics: real complete-events-with-no-topics production cases", () => {
+  it("does not read AI into the bare headline alone", () => {
+    // No article text beyond the headline itself gives no phrase to match --
+    // an honest limit of title-only matching, not something this file can fix.
+    expect(assignTopics("Your Agent Aced the Task. Will It Do It Again?")).not.toContain("AI");
+  });
+
+  it("reads AI once the aggregated coverage names the phrase", () => {
+    // classify.ts's haystack is title + every article's excerpt, not the
+    // headline alone -- this is what a real excerpt for this story looks like.
+    const text =
+      "Your Agent Aced the Task. Will It Do It Again? " +
+      "Benchmarks for AI agents rarely test whether an agentic AI system can " +
+      "repeat a win, only whether it can win once.";
+    expect(assignTopics(text)).toContain("AI");
+  });
+
+  it("reads Transport out of the rail passenger-rights story", () => {
+    expect(
+      assignTopics(
+        "Rail passengers get automatic right to switch operators for free when trains are cancelled",
+      ),
+    ).toEqual(["Transport"]);
+  });
+
+  it("reads Automotive out of the EV charger supply/demand report", () => {
+    expect(
+      assignTopics("Demand for EV chargers is outstripping supply, says ChargePoint report"),
+    ).toEqual(["Automotive"]);
+  });
+
+  it("reads both Military and Crime out of the court-martial story", () => {
+    const topics = assignTopics(
+      "Army officers 'let down' soldier over sexual assault claim before she killed herself, court martial told",
+    );
+    expect(topics).toContain("Military");
+    expect(topics).toContain("Crime");
+  });
+});
+
+/**
+ * Negative fixtures for the 7 new topics, straight from the ambiguous-word
+ * hazards named when this taxonomy was expanded -- each is a plausible
+ * headline that must NOT get the new label, because it only contains the
+ * kind of generic bare word the strong/weak split exists to keep out.
+ */
+describe("assignTopics: new topics do not read into ambiguous common words", () => {
+  it("does not read Transport into 'track' or 'route'", () => {
+    expect(assignTopics("The company is on track to beat earnings")).not.toContain("Transport");
+    expect(assignTopics("Training route for developers")).not.toContain("Transport");
+  });
+
+  it("does not read Automotive into 'drive' or 'engineer'", () => {
+    expect(assignTopics("Drive business growth")).not.toContain("Automotive");
+    expect(assignTopics("Engineer productivity")).not.toContain("Automotive");
+  });
+
+  it("does not read Energy into bare 'power' or 'energy'", () => {
+    expect(assignTopics("Political power")).not.toContain("Energy");
+    expect(assignTopics("High-energy performance")).not.toContain("Energy");
+  });
+
+  it("does not read Crime into a book review", () => {
+    expect(assignTopics("Crime novel wins literary award")).not.toContain("Crime");
+  });
+
+  it("does not read Military into the idiom 'army of volunteers'", () => {
+    expect(assignTopics("An army of volunteers cleaned up the park")).not.toContain("Military");
+  });
+
+  it("does not read Education into 'machine learning training'", () => {
+    expect(assignTopics("Machine learning training improves model accuracy")).not.toContain(
+      "Education",
+    );
+  });
+
+  it("does not read Travel into the verb 'travel'", () => {
+    expect(assignTopics("Data packets travel across the network")).not.toContain("Travel");
+  });
+});
+
 describe("assignTags", () => {
   it("assigns funding tag", () => {
     const tags = assignTags("The company raised $50 million in a Series B round.");

@@ -27,6 +27,13 @@ export const TOPIC_POOL = [
   "Hardware",
   "Developer tools",
   "Consumer tech",
+  "Transport",
+  "Automotive",
+  "Energy",
+  "Crime",
+  "Military",
+  "Education",
+  "Travel",
 ] as const;
 
 export const IGNORE_POOL = [

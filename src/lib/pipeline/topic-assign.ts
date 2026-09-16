@@ -254,6 +254,12 @@ const TOPIC_KEYWORDS: Record<string, TopicVocabulary> = {
       "llm",
       "large language model",
       "chatbot",
+      // The bare word "agent" is deliberately absent -- free agent, estate
+      // agent, secret agent, double agent. These phrases are unambiguous.
+      "ai agent",
+      "ai agents",
+      "agentic ai",
+      "coding agent",
     ],
     weak: ["generative", "prompt", "inference", "training data", "model parameter"],
   },
@@ -375,6 +381,118 @@ const TOPIC_KEYWORDS: Record<string, TopicVocabulary> = {
   "Consumer tech": {
     strong: ["smartphone", "tablet", "laptop", "wearable", "smart home", "iot"],
     weak: ["consumer", "desktop", "device", "app", "mobile"],
+  },
+  Transport: {
+    strong: [
+      "rail passenger",
+      "rail passengers",
+      "train service",
+      "train operator",
+      "train operators",
+      "public transport",
+      "public transportation",
+      "railway",
+      "metro system",
+      "transit system",
+    ],
+    // Bare "station", "line" and "route" are deliberately absent -- none of
+    // them are evidence for Transport on their own.
+    weak: ["commuter", "subway", "tram", "bus route", "train station"],
+  },
+  Automotive: {
+    strong: [
+      "electric vehicle",
+      "electric vehicles",
+      "ev charger",
+      "ev chargers",
+      "ev charging",
+      "car manufacturer",
+      "car manufacturers",
+      "automaker",
+      "automakers",
+      "vehicle recall",
+    ],
+    weak: ["carmaker", "dealership", "combustion engine", "hybrid vehicle"],
+  },
+  Energy: {
+    strong: [
+      "power grid",
+      "renewable energy",
+      "energy market",
+      "electricity prices",
+      "solar power",
+      "wind power",
+      "oil production",
+      "gas supply",
+      "energy crisis",
+    ],
+    // Bare "power" and "energy" are deliberately absent -- "political power"
+    // and "high-energy performance" are not Energy news.
+    weak: ["utility company", "power plant", "fossil fuel", "battery storage"],
+  },
+  Crime: {
+    strong: [
+      "murder investigation",
+      "stabbing",
+      "robbery",
+      "armed robbery",
+      "arrested",
+      "police investigation",
+      "criminal charges",
+      "homicide",
+      "manslaughter",
+      "burglary",
+      "sexual assault",
+    ],
+    // "crime" alone stays weak: "crime novel" and "true crime podcast" are not
+    // Crime news, so it never carries the topic without a second signal.
+    weak: ["suspect", "detective", "crime scene", "prosecutor", "crime"],
+  },
+  Military: {
+    strong: [
+      "armed forces",
+      "defence ministry",
+      "defense ministry",
+      "court martial",
+      "war crimes",
+      "military coup",
+      "air force",
+      "airstrike",
+      "air strikes",
+    ],
+    // "army", "navy", "military" and "soldier" are all real English words with
+    // common non-military senses -- "an army of volunteers", "navy blue",
+    // "soldier on", "military-grade encryption" -- so none of them is strong.
+    weak: ["army", "navy", "military", "soldier", "soldiers", "troops", "veteran"],
+  },
+  Education: {
+    strong: [
+      "university",
+      "universities",
+      "tuition fees",
+      "education ministry",
+      "school funding",
+      "student loan",
+      "student loans",
+    ],
+    // "college" (as in Electoral College) and bare "student" are ambiguous.
+    weak: ["college", "professor", "curriculum", "classroom", "scholarship", "student"],
+  },
+  Travel: {
+    strong: [
+      "tourism",
+      "tourist",
+      "tourists",
+      "travel restrictions",
+      "visa-free travel",
+      "airline passenger",
+      "airline passengers",
+      "holiday destination",
+      "hotel industry",
+    ],
+    // Bare "travel" is deliberately absent -- "data packets travel across the
+    // network" is not Travel news.
+    weak: ["visa", "resort", "itinerary", "vacation"],
   },
 };
 
