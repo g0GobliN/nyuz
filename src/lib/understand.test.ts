@@ -604,6 +604,277 @@ describe("legacyEventIntelligence", () => {
     expect(intel.unknowns).toEqual([]);
     expect(intel.conflicts).toEqual([]);
   });
+
+  const wordsOf = (intel: EventIntelligence) =>
+    [
+      intel.oneSentence,
+      ...intel.newDevelopments.map((s) => s.text),
+      ...intel.context.map((s) => s.text),
+    ]
+      .join(" ")
+      .trim()
+      .split(/\s+/).length;
+
+  it("reaches a substantial word count for a multi-source event with real evidence", () => {
+    const intel = legacyEventIntelligence({
+      what: "Nvidia agreed to acquire Hugging Face for $13 billion in a deal announced Monday.",
+      sources: [
+        {
+          name: "Reuters",
+          excerpt:
+            "Nvidia announced Monday it has agreed to acquire Hugging Face for $13 billion in cash and stock. The deal is expected to close in the first quarter, pending regulatory approval. Hugging Face will continue operating as an independent subsidiary, according to the announcement.",
+        },
+        {
+          name: "Bloomberg",
+          excerpt:
+            "Nvidia's acquisition of Hugging Face values the AI startup at $13 billion, according to people familiar with the matter. The deal marks Nvidia's largest acquisition to date. Regulators in the US and EU are expected to review the transaction closely.",
+        },
+        {
+          name: "The Verge",
+          excerpt:
+            "Hugging Face, known for its open-source AI model hub, will keep its branding after the Nvidia deal closes. The company said 40% of its engineering team will report directly to Nvidia's AI infrastructure division. No layoffs are planned as part of the transition.",
+        },
+      ],
+    });
+    expect(wordsOf(intel)).toBeGreaterThanOrEqual(80);
+    expect(intel.coverage).not.toBe("thin");
+  });
+
+  it("stays conservative for a single-source event rather than padding it", () => {
+    const intel = legacyEventIntelligence({
+      what: "A startup raised a seed round.",
+      sources: [{ name: "TechCrunch", excerpt: "A startup raised a $2 million seed round." }],
+    });
+    expect(wordsOf(intel)).toBeLessThan(60);
+  });
+
+  it("merges near-duplicate reporting across sources into one fact, keeping every source's evidence", () => {
+    const intel = legacyEventIntelligence({
+      what: "",
+      sources: [
+        {
+          name: "Outlet A",
+          excerpt: "OpenAI announced a new flagship model today with major improvements.",
+        },
+        {
+          name: "Outlet B",
+          excerpt: "OpenAI has announced a new flagship model today with major improvements.",
+        },
+        {
+          name: "Outlet C",
+          excerpt: "OpenAI announced today a new flagship model with major improvements.",
+        },
+      ],
+    });
+    const merged = intel.newDevelopments.find((s) => /flagship model/.test(s.text));
+    expect(merged?.evidence).toEqual([1, 2, 3]);
+    expect(intel.newDevelopments.filter((s) => /flagship model/.test(s.text))).toHaveLength(1);
+  });
+
+  it("states outlet coverage only when there is an actual fact behind it", () => {
+    const withFacts = legacyEventIntelligence({
+      what: "Something happened.",
+      sources: [
+        { name: "A", excerpt: "The company confirmed the change will take effect next month." },
+        { name: "B", excerpt: "The company confirmed the change will take effect next month." },
+      ],
+    });
+    expect(withFacts.context.some((c) => /outlets are currently reporting/.test(c.text))).toBe(
+      true,
+    );
+
+    const withoutExcerpts = legacyEventIntelligence({
+      what: "Something happened.",
+      sources: [{ name: "A" }, { name: "B" }],
+    });
+    expect(
+      withoutExcerpts.context.some((c) => /outlets are currently reporting/.test(c.text)),
+    ).toBe(false);
+  });
+
+  it("surfaces named companies and products mentioned in the excerpts", () => {
+    const intel = legacyEventIntelligence({
+      what: "A funding round closed.",
+      sources: [
+        {
+          name: "A",
+          excerpt:
+            "OpenAI's ChatGPT integration with Microsoft Azure expanded this week under a new agreement.",
+        },
+      ],
+    });
+    const mention = intel.context.find((c) => c.text.startsWith("The coverage centers on"));
+    expect(mention?.text).toContain("OpenAI");
+    expect(mention?.evidence).toEqual([1]);
+  });
+
+  it("extracts money and percentage figures actually present in the excerpts, without inventing values", () => {
+    const intel = legacyEventIntelligence({
+      what: "A deal closed.",
+      sources: [
+        {
+          name: "A",
+          excerpt: "The deal is worth $13 billion, a 40% premium over the last valuation.",
+        },
+      ],
+    });
+    expect(intel.numbers.some((n) => n.value.includes("13"))).toBe(true);
+    expect(intel.numbers.some((n) => n.value === "40%")).toBe(true);
+  });
+
+  it("adds related nyuz coverage only when it is supplied", () => {
+    const withRelated = legacyEventIntelligence({
+      what: "A follow-up development occurred.",
+      sources: [{ name: "A", excerpt: "The company confirmed a follow-up development this week." }],
+      relatedEvents: [{ title: "The original announcement last month" }],
+    });
+    expect(
+      withRelated.context.some((c) => c.text.includes("The original announcement last month")),
+    ).toBe(true);
+
+    const withoutRelated = legacyEventIntelligence({
+      what: "A follow-up development occurred.",
+      sources: [{ name: "A", excerpt: "The company confirmed a follow-up development this week." }],
+    });
+    expect(withoutRelated.context.some((c) => c.text.includes("nyuz has also covered"))).toBe(
+      false,
+    );
+  });
+
+  it("preserves attribution and uncertainty language from the source text", () => {
+    const intel = legacyEventIntelligence({
+      what: "A claim was made.",
+      sources: [
+        {
+          name: "A",
+          excerpt:
+            "The company reportedly plans to lay off staff next quarter, according to two people familiar with the matter.",
+        },
+      ],
+    });
+    const merged = [...intel.newDevelopments, ...intel.context].map((s) => s.text).join(" ");
+    expect(merged).toContain("reportedly");
+    expect(merged).toContain("according to");
+  });
+
+  it("reaches a genuinely long-form word count when enriched evidence is available (400+ words)", () => {
+    const perSource: Record<string, string[]> = {
+      Reuters: [
+        "Nvidia announced Monday it has agreed to acquire Hugging Face for $13 billion in a combination of cash and newly issued stock.",
+        "The deal is expected to close in the first quarter of next year, pending regulatory approval from both US and EU competition authorities.",
+        "Hugging Face will continue operating as an independent subsidiary after the deal closes, the two companies said in a joint statement.",
+        "The acquisition values Hugging Face at roughly three and a half times its last private funding round, which closed in 2024.",
+        "Nvidia's chief executive said in a call with investors that the deal reflects growing demand for open-source AI infrastructure worldwide.",
+        "Shares of Nvidia rose 2% in after-hours trading following the announcement, while Hugging Face's existing investors declined to comment.",
+        "The transaction marks Nvidia's largest acquisition to date, surpassing its previous record deal in the networking hardware sector.",
+      ],
+      Bloomberg: [
+        "Nvidia plans to integrate Hugging Face's popular open-source model hub directly into its own AI infrastructure and cloud platform.",
+        "Roughly 40% of Hugging Face's current engineering team will report directly to Nvidia's AI infrastructure division once the deal closes.",
+        "No layoffs are planned as part of the transition, according to an internal memo circulated to staff and seen by reporters.",
+        "The companies said existing enterprise contracts and open-source hosting commitments will remain unchanged throughout the transition period.",
+        "People familiar with the matter said exploratory talks between the two companies began quietly earlier this year, before accelerating in recent weeks.",
+        "Wall Street analysts said the deal meaningfully strengthens Nvidia's competitive position against rival cloud AI infrastructure providers.",
+        "The purchase price represents a significant premium over what some analysts had previously estimated the startup was worth.",
+      ],
+      "The Verge": [
+        "Hugging Face's two co-founders will join Nvidia's leadership team in senior roles as part of the acquisition agreement.",
+        "The platform hosts hundreds of thousands of openly licensed AI models that are used daily by developers around the world.",
+        "Nvidia said it will continue funding Hugging Face's free open-source hosting tier for independent developers after the deal closes.",
+        "Competing cloud infrastructure providers declined to comment on how the acquisition might affect their own existing AI partnerships.",
+        "The companies said they expect the technical transition to be completed without disruption to existing platform users or paying customers.",
+        "Regulators in Brussels are expected to review the proposed deal closely under the European Union's newly adopted AI-sector merger guidelines.",
+        "Industry observers said the acquisition could accelerate consolidation among AI infrastructure providers over the coming year.",
+      ],
+    };
+    const intel = legacyEventIntelligence({
+      what: "Nvidia agreed to acquire Hugging Face for $13 billion in a deal announced Monday.",
+      sources: Object.entries(perSource).map(([name, facts]) => ({
+        name,
+        enrichedEvidence: facts.map((text) => ({ kind: "fact" as const, text })),
+      })),
+      relatedEvents: [{ title: "Nvidia's previous AI infrastructure acquisition last year" }],
+    });
+
+    const words = wordsOf(intel);
+    expect(words).toBeGreaterThanOrEqual(400);
+    expect(intel.coverage).toBe("rich");
+  });
+
+  it("routes an uncertain evidence unit into unknowns rather than presenting it as established fact", () => {
+    const intel = legacyEventIntelligence({
+      what: "A deal was reported.",
+      sources: [
+        {
+          name: "A",
+          enrichedEvidence: [
+            { kind: "fact", text: "The company confirmed the deal is valued at $500 million." },
+            {
+              kind: "uncertain",
+              text: "The company declined to comment on the exact closing date.",
+            },
+          ],
+        },
+      ],
+    });
+    expect(intel.unknowns).toContain("The company declined to comment on the exact closing date.");
+    expect(intel.newDevelopments.some((s) => s.text.includes("declined to comment"))).toBe(false);
+  });
+
+  it("renders an enriched quote as an attributed statement", () => {
+    const intel = legacyEventIntelligence({
+      what: "An executive commented on the deal.",
+      sources: [
+        {
+          name: "A",
+          enrichedEvidence: [
+            {
+              kind: "quote",
+              text: "We could not be more excited about this partnership",
+              attribution: "Maria Chen",
+            },
+          ],
+        },
+      ],
+    });
+    expect(
+      intel.newDevelopments.some(
+        (s) => s.text === 'Maria Chen said: "We could not be more excited about this partnership"',
+      ),
+    ).toBe(true);
+  });
+
+  it("falls back to the excerpt for a source that was not enriched, alongside one that was", () => {
+    const intel = legacyEventIntelligence({
+      what: "",
+      sources: [
+        {
+          name: "Enriched Outlet",
+          enrichedEvidence: [
+            { kind: "fact", text: "The enriched fact about the deal appears here in detail." },
+          ],
+        },
+        {
+          name: "RSS-only Outlet",
+          excerpt: "The RSS-only outlet's excerpt sentence appears here as well.",
+        },
+      ],
+    });
+    const texts = intel.newDevelopments.map((s) => s.text);
+    expect(texts.some((t) => t.includes("enriched fact about the deal"))).toBe(true);
+    expect(texts.some((t) => t.includes("RSS-only outlet's excerpt"))).toBe(true);
+  });
+
+  it("never carries a statement longer than a short attributed excerpt", () => {
+    const longExcerpt = `${"This sentence repeats important context about the deal and its terms. ".repeat(10)}`;
+    const intel = legacyEventIntelligence({
+      what: "A deal was reported.",
+      sources: [{ name: "A", excerpt: longExcerpt }],
+    });
+    for (const statement of [...intel.newDevelopments, ...intel.context]) {
+      expect(statement.text.length).toBeLessThanOrEqual(320);
+    }
+  });
 });
 
 describe("novelSentences", () => {

@@ -121,6 +121,7 @@ describe("operational tables are unreachable from a browser entirely", () => {
     "cluster_shadow_log",
     "source_probe_log",
     "event_understanding",
+    "article_evidence",
   ];
 
   for (const table of invisible) {

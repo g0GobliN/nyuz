@@ -1,17 +1,29 @@
 import type { Story } from "@/lib/story";
 import type { ArticleParagraph, ReaderArticle } from "@/lib/reader-article";
+import { legacyEventIntelligence } from "@/lib/understand";
 
 function sentence(text: string): string {
   const clean = text.replace(/\s+/g, " ").trim();
   return clean && !/[.!?…]$/.test(clean) ? `${clean}.` : clean;
 }
 
-/** Prefer authored prose. Older events retain their facts without analytical UI. */
+/**
+ * Prefer authored prose. Without it, build a deterministic article from the
+ * source excerpts and related coverage already attached to the story -- this
+ * is what renders when AI never ran, is unavailable, or hasn't finished yet,
+ * so Read never depends on a live model call.
+ */
 export function composeArticle(story: Story): ReaderArticle {
   if (story.understand?.article) return story.understand.article;
 
-  const intel = story.understand;
-  const deck = { text: story.what.trim() || intel?.oneSentence || "", evidence: [] as number[] };
+  const intel =
+    story.understand ??
+    legacyEventIntelligence({
+      what: story.what,
+      sources: story.sourceList,
+      ...(story.relatedEvents ? { relatedEvents: story.relatedEvents } : {}),
+    });
+  const deck = { text: story.what.trim() || intel.oneSentence || "", evidence: [] as number[] };
   const paragraphs: ArticleParagraph[] = [];
   const seen = new Map<string, { evidence: number[] }>([[sentence(deck.text).toLowerCase(), deck]]);
   const add = (items: { text: string; evidence: number[] }[]) => {
@@ -40,8 +52,8 @@ export function composeArticle(story: Story): ReaderArticle {
   };
   const plain = (text: string) => ({ text, evidence: [] as number[] });
 
-  add([plain(story.before), plain(story.after), ...(intel?.newDevelopments ?? [])]);
-  if (intel) {
+  add([plain(story.before), plain(story.after), ...intel.newDevelopments]);
+  {
     add([plain(intel.oneSentence), ...intel.context]);
     add(intel.numbers.map((n) => ({ text: `${n.label}: ${n.value}`, evidence: n.evidence })));
     add(intel.overview.map((o) => ({ text: `${o.name}: ${o.detail}`, evidence: o.evidence })));

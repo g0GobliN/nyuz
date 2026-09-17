@@ -16,7 +16,7 @@ import {
   storyVisible,
 } from "./history";
 import { asPercent, clockOf, importanceBand, type Story } from "@/lib/story";
-import { readEventIntelligence } from "@/lib/understand";
+import { readEventIntelligence, type EvidenceUnit } from "@/lib/understand";
 import { ensureUnderstanding, readUnderstandingBatch } from "@/lib/server/understanding";
 import { aiRateLimit } from "./rate-limit";
 import type {
@@ -486,6 +486,68 @@ export const searchStories = createServerFn({ method: "GET" })
     );
   });
 
+const RELATED_EVENTS_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+
+/**
+ * Prior events sharing a real topic with this one, for the deterministic
+ * reader's background paragraph. Bounded to two round trips regardless of
+ * corpus size: one indexed lookup on `event_topics_topic_idx` for candidate
+ * ids, one `events` read for the handful that survive. Fails open -- a
+ * lookup error yields no related events rather than a broken page.
+ */
+async function relatedEventsFor(
+  db: Db,
+  eventId: string,
+  beforeIso: string,
+): Promise<{ id: string; title: string }[]> {
+  const own = await db.from("event_topics").select("topic_id").eq("event_id", eventId);
+  const topicIds = [...new Set((own.data ?? []).map((t) => t.topic_id))];
+  if (own.error || topicIds.length === 0) return [];
+
+  const overlap = await db
+    .from("event_topics")
+    .select("event_id")
+    .in("topic_id", topicIds)
+    .neq("event_id", eventId)
+    .limit(300);
+  if (overlap.error) return [];
+
+  const counts = new Map<string, number>();
+  for (const row of overlap.data ?? [])
+    counts.set(row.event_id, (counts.get(row.event_id) ?? 0) + 1);
+  if (counts.size === 0) return [];
+
+  const cutoff = new Date(new Date(beforeIso).getTime() - RELATED_EVENTS_WINDOW_MS).toISOString();
+  const candidates = await db
+    .from("events")
+    .select("id, title, first_seen_at, status")
+    .in("id", [...counts.keys()].slice(0, 100))
+    .eq("status", "complete")
+    .gte("first_seen_at", cutoff)
+    .lt("first_seen_at", beforeIso);
+  if (candidates.error) return [];
+
+  return candidates.data
+    .sort(
+      (a, b) =>
+        (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0) ||
+        b.first_seen_at.localeCompare(a.first_seen_at),
+    )
+    .slice(0, 2)
+    .map((e) => ({ id: e.id, title: e.title }));
+}
+
+/**
+ * Attach related-event background only when the deterministic reader will
+ * actually use it -- an authored article never renders it, so a story that
+ * already has one skips the extra round trip.
+ */
+async function withRelatedEvents(db: Db, story: Story): Promise<Story> {
+  if (story.understand?.article) return story;
+  const relatedEvents = await relatedEventsFor(db, story.id, story.publishedAt);
+  return relatedEvents.length ? { ...story, relatedEvents } : story;
+}
+
 export const loadStory = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
   .validator((input: unknown) =>
@@ -521,7 +583,8 @@ export const loadStory = createServerFn({ method: "POST" })
     // Metadata reads and prefetch never initiate generation.
 
     const stories = await storiesFromEventIds(actor.db, actor.id, [data.id]);
-    return stories[0] ?? null;
+    const story = stories[0] ?? null;
+    return story ? await withRelatedEvents(actor.db, story) : null;
   });
 
 /**
@@ -599,7 +662,7 @@ export const generateStory = createServerFn({ method: "POST" })
         }
         return {
           status: result.status,
-          story,
+          story: await withRelatedEvents(actor.db, story),
           ...("reason" in result ? { reason: result.reason } : {}),
         };
       } catch {
@@ -1191,6 +1254,7 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
           url: c.url,
           headline: c.headline,
           ...(c.excerpt ? { excerpt: c.excerpt } : {}),
+          ...(c.enrichedEvidence ? { enrichedEvidence: c.enrichedEvidence } : {}),
         })),
         before: event.before_state ?? "",
         after: event.after_state ?? "",
@@ -1211,7 +1275,34 @@ type Coverage = {
   headline: string;
   publishedAt: string;
   excerpt: string;
+  enrichedEvidence?: EvidenceUnit[];
 };
+
+/**
+ * Article-page enrichment (0090), joined in as a second query rather than a
+ * PostgREST embed: `article_evidence` is one row per article keyed on
+ * `article_id`, and most events have no enriched rows yet (the stage ships
+ * flag-gated), so a left-join-shaped embed would return a null object for
+ * almost every card while still costing the same round trip either way.
+ */
+async function enrichedEvidenceFor(
+  db: Db,
+  articleIds: string[],
+): Promise<Map<string, EvidenceUnit[]>> {
+  const out = new Map<string, EvidenceUnit[]>();
+  if (articleIds.length === 0) return out;
+  const { data, error } = await db
+    .from("article_evidence")
+    .select("article_id, evidence")
+    .in("article_id", articleIds)
+    .eq("status", "enriched");
+  if (error) return out;
+  for (const row of data ?? []) {
+    const evidence = Array.isArray(row.evidence) ? (row.evidence as unknown as EvidenceUnit[]) : [];
+    if (evidence.length) out.set(row.article_id, evidence);
+  }
+  return out;
+}
 
 async function articlesFor(db: Db, eventIds: string[]): Promise<Map<string, Coverage[]>> {
   const { data, error } = await db
@@ -1221,15 +1312,30 @@ async function articlesFor(db: Db, eventIds: string[]): Promise<Map<string, Cove
     .order("published_at", { ascending: true, nullsFirst: false });
   if (error) throw new Error(`reading articles: ${error.message}`);
 
+  const rows = data ?? [];
+  const evidence = await enrichedEvidenceFor(
+    db,
+    rows.map((r) => r.id),
+  );
+
   const out = new Map<string, Coverage[]>();
-  for (const row of data ?? []) {
+  for (const row of rows) {
     if (!row.event_id) continue;
     const name = (row.sources as { name?: string } | null)?.name ?? "Unattributed";
     const publishedAt = row.published_at ?? "";
     const excerpt = (row.excerpt ?? "").trim();
     const list = out.get(row.event_id) ?? [];
     if (!list.some((c) => c.url === row.url)) {
-      list.push({ id: row.id, name, url: row.url, headline: row.title, publishedAt, excerpt });
+      const enrichedEvidence = evidence.get(row.id);
+      list.push({
+        id: row.id,
+        name,
+        url: row.url,
+        headline: row.title,
+        publishedAt,
+        excerpt,
+        ...(enrichedEvidence ? { enrichedEvidence } : {}),
+      });
     }
     out.set(row.event_id, list);
   }

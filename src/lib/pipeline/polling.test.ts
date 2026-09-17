@@ -32,6 +32,9 @@ const source = (over: Partial<Source> = {}): Source => ({
   last_demand_at: NOW.toISOString(),
   last_new_content_at: NOW.toISOString(),
   polling_tier: "normal",
+  enrichment_allowed: null,
+  robots_checked_at: null,
+  enrichment_failure_count: 0,
   ...over,
 });
 

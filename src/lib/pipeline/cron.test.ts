@@ -84,8 +84,13 @@ describe("stageForMinute", () => {
 
   it("checks inactive Uno readers daily at noon", () => {
     expect(stageForMinute(monday(12, 0))).toBe("dormant");
-    expect(stageForMinute(monday(13, 0))).toBeNull();
     expect(stageForMinute(tuesday(12, 0))).toBe("dormant");
+  });
+
+  it("runs article enrichment on the other 23 minute-zero firings a day", () => {
+    expect(stageForMinute(monday(13, 0))).toBe("enrich");
+    expect(stageForMinute(tuesday(0, 0))).toBe("enrich");
+    expect(stageForMinute(tuesday(23, 0))).toBe("enrich");
   });
 
   it("has nothing to do on a minute no stage claims", () => {

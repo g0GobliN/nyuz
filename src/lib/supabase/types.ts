@@ -231,6 +231,10 @@ export type Source = {
   last_new_content_at: string | null;
   /** Learned cadence band (0032). Set by `recompute_polling_tiers`, never by hand. */
   polling_tier: PollingTier;
+  /** Whether this domain's robots.txt permits article-page enrichment (0090). Null = not yet checked. */
+  enrichment_allowed: boolean | null;
+  robots_checked_at: string | null;
+  enrichment_failure_count: number;
 };
 
 export type PollingTier = "hot" | "normal" | "low" | "cold" | "paused";
@@ -478,6 +482,22 @@ export type EventUnderstanding = {
   attempts: number;
   failure_reason: string | null;
   claimed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Short structured facts extracted from one article's own public page (0090).
+ * `evidence` never holds the fetched HTML or full article text -- see the
+ * table comment in the 0090 migration.
+ */
+export type ArticleEvidence = {
+  article_id: string;
+  status: "pending" | "enriched" | "unavailable" | "blocked" | "failed";
+  evidence: Json;
+  source_word_count: number;
+  attempts: number;
+  extracted_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -915,6 +935,19 @@ export type Database = {
         | "last_demand_at"
         | "last_new_content_at"
         | "polling_tier"
+        | "enrichment_allowed"
+        | "robots_checked_at"
+        | "enrichment_failure_count"
+      >;
+      article_evidence: Table<
+        ArticleEvidence,
+        | "status"
+        | "evidence"
+        | "source_word_count"
+        | "attempts"
+        | "extracted_at"
+        | "created_at"
+        | "updated_at"
       >;
       polling_tiers: Table<PollingTierRow, "label" | "description">;
       cluster_shadow_log: Table<ClusterShadowLog, "id" | "agreed" | "created_at">;

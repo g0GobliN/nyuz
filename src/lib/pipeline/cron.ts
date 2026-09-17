@@ -57,6 +57,7 @@ import { classify, describeClassify, type ClassifyReport } from "./classify";
 import { describeDormant, dormant, type DormantReport } from "./dormant";
 import { ingest, type IngestReport } from "./ingest";
 import { describeMatch, match, type MatchReport } from "./match";
+import { describeEnrich, enrich, type EnrichReport } from "./enrich";
 
 /**
  * Feeds read per scheduled invocation.
@@ -179,12 +180,13 @@ export const DORMANT_CRON = "0 12 * * *";
  * The one trigger that carries every stage there is no trigger left for.
  *
  * Only the minutes the shared stages actually want, so an invocation that has
- * nothing to do is the exception rather than the rule — the single exception
- * being minute 0, which exists for a nudge that runs once a week.
+ * nothing to do is the exception rather than the rule — the exception being
+ * minute 0, which carries the once-a-week dormant nudge at noon and, on every
+ * other hour, article enrichment (see `stageForMinute`).
  */
 export const STAGES_CRON = "0,2,8,9,14,17,23,24,29,32,38,39,44,47,53,54,59 * * * *";
 
-type SharedStage = "cluster" | "classify" | "analyse" | "match" | "dormant";
+type SharedStage = "cluster" | "classify" | "analyse" | "match" | "dormant" | "enrich";
 
 /**
  * Which stage a `STAGES_CRON` invocation is for, or null when the answer is
@@ -199,10 +201,16 @@ export function stageForMinute(scheduledFor: Date): SharedStage | null {
   if (minute === 8 || minute === 23 || minute === 38 || minute === 53) return "classify";
   if (minute === 9 || minute === 24 || minute === 39 || minute === 54) return "analyse";
   if (minute === 14 || minute === 29 || minute === 44 || minute === 59) return "match";
-  // Noon UTC daily, as DORMANT_CRON said. The other 23 minute-zero firings are
-  // deliberately nothing at all.
-  if (minute === 0 && scheduledFor.getUTCHours() === 12) {
-    return "dormant";
+  if (minute === 0) {
+    // Noon UTC daily, as DORMANT_CRON said.
+    if (scheduledFor.getUTCHours() === 12) return "dormant";
+    // The other 23 minute-zero firings a day were previously idle. Article
+    // enrichment (0090) is its own real network fetch per article, so it gets
+    // its own tick with its own subrequest budget rather than sharing one of
+    // the four-times-an-hour slots above — reusing an already-idle minute
+    // keeps this change to a minute assignment, not a new registered trigger
+    // (there is no fourth one to register; see the module doc comment).
+    return "enrich";
   }
   return null;
 }
@@ -216,6 +224,7 @@ export type ScheduledResult =
   | { stage: "digest"; report: DigestReport }
   | { stage: "delivery"; report: DeliveryReport }
   | { stage: "dormant"; report: DormantReport }
+  | { stage: "enrich"; report: EnrichReport }
   | { stage: "idle"; cron: string; minute: number }
   | { stage: "unknown"; cron: string };
 
@@ -315,6 +324,12 @@ async function runDormant(env: Env): Promise<ScheduledResult> {
   return { stage: "dormant", report };
 }
 
+/** No `secrets` bag: enrichment calls no model, only `fetch` against article/robots URLs. */
+async function runEnrich(env: Env): Promise<ScheduledResult> {
+  const report = await enrich(createAdminClient(env));
+  return { stage: "enrich", report };
+}
+
 /** Release positively unstarted old reservations; uncertain charges remain held. */
 async function reapStaleReservations(env: Env): Promise<void> {
   const { data, error } = await createAdminClient(env).rpc("void_stale_ai_reservations", {});
@@ -333,6 +348,7 @@ async function runShared(stage: SharedStage, env: Env): Promise<ScheduledResult>
   if (stage === "classify") return runClassify(env);
   if (stage === "analyse") return runAnalyse(env);
   if (stage === "match") return runMatch(env);
+  if (stage === "enrich") return runEnrich(env);
   return runDormant(env);
 }
 
@@ -418,6 +434,7 @@ export function describe(result: ScheduledResult): string {
     return `delivery: ${sent} sent, ${retried} retried`;
   }
   if (result.stage === "dormant") return describeDormant(result.report);
+  if (result.stage === "enrich") return describeEnrich(result.report);
 
   const { report } = result;
   const seconds = Math.round((Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000);

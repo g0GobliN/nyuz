@@ -28,12 +28,20 @@ export type Story = {
     url?: string;
     headline?: string;
     excerpt?: string;
+    /** Structured facts from the article's own page, when enrichment ran (0090). */
+    enrichedEvidence?: EvidenceUnit[];
   }[];
   before: string;
   after: string;
   timeline: { at: string; label: string }[];
   /** Shared, structured event knowledge. Absent for events analysed before 0046. */
   understand?: EventIntelligence;
+  /**
+   * Prior nyuz events sharing a real topic overlap, for the deterministic
+   * reader's background paragraph. Only attached when there is no authored
+   * article to render instead -- see `relatedEventsFor` in briefing.ts.
+   */
+  relatedEvents?: { id: string; title: string }[];
   matched?: string[];
   /**
    * Why this reader specifically is seeing this event, when it's genuinely true.
@@ -62,4 +70,4 @@ export function clockOf(iso: string): string {
   if (Number.isNaN(date.getTime())) return "";
   return `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
 }
-import type { EventIntelligence } from "@/lib/understand";
+import type { EventIntelligence, EvidenceUnit } from "@/lib/understand";

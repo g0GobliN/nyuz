@@ -35,6 +35,8 @@ vi.mock("@tanstack/react-start", () => ({
   },
 }));
 import { generateStory, loadHomeFeed, loadStory, startFirstBriefing } from "./briefing";
+import { composeArticle } from "@/lib/editorial";
+import type { Story } from "@/lib/story";
 const run = async (fn: unknown, db: FakeDb, data?: unknown) => {
   const result = await (fn as (input: unknown) => Promise<unknown>)({
     context: { actor: { id: READER_ID, db: asDb(db) } },
@@ -148,5 +150,94 @@ describe("reader flows never buy background synthesis", () => {
     const feed = (await run(loadHomeFeed, db)) as { source: string; stories: unknown[] };
     expect(feed.source).toBe("empty");
     expect(feed.stories).toHaveLength(0);
+  });
+});
+
+describe("Read never depends on a live AI call", () => {
+  it("renders a substantial deterministic article when AI is completely unavailable", async () => {
+    paid.mockClear();
+    const db = newsPipelineFixture();
+    seedPendingNews(db);
+    db.rows("articles").push({
+      id: "a2",
+      event_id: EVENT_ID,
+      title: "OpenAI releases new model for developers",
+      excerpt:
+        "OpenAI's new model is available today through the API and ChatGPT, the company said. Pricing starts at $20 per million tokens, a 40% reduction from the prior release, according to the announcement.",
+      source_id: "s2",
+      sources: { name: "Second Outlet" },
+      published_at: new Date().toISOString(),
+      url: "https://second.example.com/report",
+    });
+    await run(startFirstBriefing, db);
+
+    const story = (await run(loadStory, db, { id: EVENT_ID, prefetch: false })) as Story;
+    expect(story).toBeTruthy();
+    expect(story.understand?.article).toBeUndefined();
+
+    const article = composeArticle(story);
+    const words = [article.deck.text, ...article.paragraphs.map((p) => p.text)]
+      .join(" ")
+      .trim()
+      .split(/\s+/).length;
+
+    expect(article.paragraphs.length).toBeGreaterThan(0);
+    expect(words).toBeGreaterThanOrEqual(60);
+    expect(paid).not.toHaveBeenCalled();
+  });
+
+  it("still returns a usable story when the AI provider genuinely fails mid-generation", async () => {
+    const db = newsPipelineFixture();
+    seedPendingNews(db);
+    await run(startFirstBriefing, db);
+    db.rpcs["claim_shared_story"] = () => "won";
+    db.rpcs["begin_shared_story_attempt"] = () => true;
+    db.rpcs["fail_shared_story"] = () => true;
+
+    const result = (await run(generateStory, db, {
+      id: EVENT_ID,
+      explicitOpen: true,
+    })) as { status: string; story: Story | null };
+
+    expect(paid).toHaveBeenCalled();
+    expect(result.story).toBeTruthy();
+    const article = composeArticle(result.story!);
+    expect(article.paragraphs.length).toBeGreaterThan(0);
+  });
+
+  it("attaches genuinely related prior coverage by shared topic, for background", async () => {
+    const db = newsPipelineFixture();
+    seedPendingNews(db);
+    await run(startFirstBriefing, db);
+
+    const priorId = "33333333-3333-4333-8333-333333333333";
+    db.rows("events").push({
+      id: priorId,
+      title: "OpenAI announced its previous model",
+      first_seen_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+      status: "complete",
+      analysed_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+      classified_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+      coverage_revision: 1,
+      understand: null,
+    });
+    db.rows("event_topics").push({ event_id: priorId, topic_id: "t", topics: { label: "OpenAI" } });
+
+    const story = (await run(loadStory, db, { id: EVENT_ID, prefetch: false })) as Story;
+    expect(story.relatedEvents?.some((r) => r.id === priorId)).toBe(true);
+
+    const body = composeArticle(story)
+      .paragraphs.map((p) => p.text)
+      .join(" ");
+    expect(body).toContain("OpenAI announced its previous model");
+  });
+
+  it("does not attach related coverage when no other event shares a topic", async () => {
+    const db = newsPipelineFixture();
+    seedPendingNews(db);
+    await run(startFirstBriefing, db);
+
+    const story = (await run(loadStory, db, { id: EVENT_ID, prefetch: false })) as Story;
+    expect(story.relatedEvents ?? []).toEqual([]);
   });
 });

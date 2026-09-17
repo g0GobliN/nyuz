@@ -244,4 +244,93 @@ describe("composeArticle", () => {
 
     expect(composeArticle(story)).toEqual(composeArticle(story));
   });
+
+  describe("without any analysis (AI never ran or is unavailable)", () => {
+    it("builds a substantial article from the source excerpts alone", () => {
+      const story = makeStory({
+        understand: undefined as never,
+        sourceList: [
+          {
+            name: "Reuters",
+            at: "10:00",
+            excerpt:
+              "Nvidia announced Monday it has agreed to acquire Hugging Face for $13 billion in cash and stock. The deal is expected to close in the first quarter, pending regulatory approval.",
+          },
+          {
+            name: "Bloomberg",
+            at: "11:00",
+            excerpt:
+              "Nvidia's acquisition of Hugging Face values the AI startup at $13 billion, according to people familiar with the matter. Regulators in the US and EU are expected to review the deal.",
+          },
+          {
+            name: "The Verge",
+            at: "12:00",
+            excerpt:
+              "Hugging Face will keep operating under its own brand after the deal closes. The company said 40% of its engineering team will report to Nvidia's AI division.",
+          },
+        ],
+      });
+
+      const article = composeArticle(story);
+      const words = [article.deck.text, ...article.paragraphs.map((p) => p.text)]
+        .join(" ")
+        .trim()
+        .split(/\s+/).length;
+
+      expect(article.paragraphs.length).toBeGreaterThan(1);
+      expect(words).toBeGreaterThanOrEqual(60);
+      expect(article.paragraphs.every((p) => p.evidence.length > 0 || p.text.length > 0)).toBe(
+        true,
+      );
+    });
+
+    it("stays thin for a single unhelpful source rather than inventing content", () => {
+      const story = makeStory({
+        understand: undefined as never,
+        what: "",
+        sourceList: [{ name: "Source One", at: "10:00" }],
+      });
+
+      const article = composeArticle(story);
+
+      expect(article.paragraphs).toEqual([]);
+    });
+
+    it("adds a background paragraph from related nyuz coverage when supplied", () => {
+      const story = makeStory({
+        understand: undefined as never,
+        sourceList: [
+          {
+            name: "Reuters",
+            at: "10:00",
+            excerpt: "The company confirmed the second phase of its plan will begin next month.",
+          },
+        ],
+        relatedEvents: [{ id: "prior-1", title: "The company announced phase one last quarter" }],
+      });
+
+      const body = composeArticle(story)
+        .paragraphs.map((p) => p.text)
+        .join(" ");
+      expect(body).toContain("The company announced phase one last quarter");
+    });
+
+    it("never fabricates related coverage when none is supplied", () => {
+      const story = makeStory({
+        understand: undefined as never,
+        sourceList: [
+          {
+            name: "Reuters",
+            at: "10:00",
+            excerpt: "The company confirmed the second phase of its plan will begin next month.",
+          },
+        ],
+      });
+
+      const body = composeArticle(story)
+        .paragraphs.map((p) => p.text)
+        .join(" ");
+      expect(body).not.toContain("nyuz has also covered");
+    });
+  });
 });

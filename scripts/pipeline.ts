@@ -31,6 +31,10 @@
  *   npm run pipeline -- digest --skip-send    write the briefing, do not email it
  *   npm run pipeline -- dormant               nudge readers who have not visited in a week
  *   npm run pipeline -- dormant --dry-run     print who would be nudged, send nothing
+ *   npm run pipeline -- enrich --limit 3      fetch and extract facts for three articles, no AI
+ *   npm run pipeline -- enrich --dry-run      decide and print, write nothing
+ *   npm run pipeline -- enrich --article ID   one article, bypassing the feature flag,
+ *                                              for checking a known case
  *
  * The same functions the scheduled Worker calls, with the same arguments. There is
  * no separate code path for running it manually, because a manual run whose
@@ -60,6 +64,7 @@ import { classify, type ClassifyReport } from "@/lib/pipeline/classify";
 import { cluster, type ArticleOutcome, type ClusterReport } from "@/lib/pipeline/cluster";
 import { digest, type DigestReport } from "@/lib/pipeline/digest";
 import { dormant, type DormantReport } from "@/lib/pipeline/dormant";
+import { enrich, type EnrichReport } from "@/lib/pipeline/enrich";
 import { ingest, type IngestReport, type SourceOutcome } from "@/lib/pipeline/ingest";
 import { match, type MatchReport, type MissReason } from "@/lib/pipeline/match";
 import { db, fail, heading, main, row, say } from "./lib/db.ts";
@@ -73,6 +78,7 @@ const STAGES = [
   "backfill",
   "digest",
   "dormant",
+  "enrich",
 ] as const;
 type Stage = (typeof STAGES)[number];
 
@@ -118,6 +124,7 @@ main(async () => {
     if (stage === "backfill") await runBackfill(args);
     if (stage === "digest") await runDigest(args);
     if (stage === "dormant") await runDormant(args);
+    if (stage === "enrich") await runEnrich(args);
   }
 
   say();
@@ -479,6 +486,45 @@ function printDormant(report: DormantReport, dryRun: boolean): void {
   say(row("skipped", report.skipped));
   say(row("failed", report.failed));
   say(row("seconds", Math.round(seconds)));
+}
+
+async function runEnrich(args: string[]): Promise<void> {
+  const limit = numberFlag(args, "--limit");
+  const article = stringFlag(args, "--article");
+  const dryRun = args.includes("--dry-run");
+
+  heading(dryRun ? "Enrich (dry run — nothing is written)" : "Enrich");
+
+  const report = await enrich(db(), {
+    dryRun,
+    ...(limit === null ? {} : { limit }),
+    ...(article === null ? {} : { articleId: article }),
+  });
+
+  printEnrich(report);
+}
+
+function printEnrich(report: EnrichReport): void {
+  for (const outcome of report.outcomes) {
+    say(`${outcome.decision.padEnd(11)} ${outcome.articleId}  ${outcome.detail}`);
+  }
+
+  const seconds = (Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000;
+  heading("Summary");
+  say(row("considered", report.considered));
+  say(row("enriched", report.enriched));
+  say(row("blocked (robots)", report.blocked));
+  say(row("unavailable", report.unavailable));
+  say(row("failed", report.failed));
+  say(row("skipped", report.skipped));
+  say(row("evidence units", report.evidenceUnits));
+  say(row("seconds", seconds.toFixed(1)));
+
+  const reasons = Object.entries(report.reasons).filter(([reason]) => reason !== "success");
+  if (reasons.length) {
+    heading("By reason");
+    for (const [reason, count] of reasons) say(row(reason, count ?? 0));
+  }
 }
 
 function printBackfill(report: BackfillReport): void {
