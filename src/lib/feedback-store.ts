@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { clearFeedback, loadFeedback, saveStory, saveVote } from "@/lib/server/feedback";
+import {
+  clearFeedback,
+  loadFeedback,
+  saveDismissed,
+  saveMutedTopic,
+  saveStory,
+  saveVote,
+} from "@/lib/server/feedback";
 import type { FeedbackVote } from "@/lib/feedback-weights";
 
 export type Vote = "useful" | "not-useful";
@@ -18,42 +25,18 @@ export const EMPTY_FEEDBACK: FeedbackState = {
   mutedTopics: [],
 };
 
-const KEY = "nyuz.feedback.v1";
-
 /**
- * The reader's signals.
+ * The reader's signals — votes, saves, dismissals, and muted topics are all
+ * server state now, keyed by user, so the same reader sees the same feed on
+ * every device. `feedback`, `saved_stories`, `dismissed_stories`, and
+ * `muted_topics` each carry one; a vote also moves `user_topics.weight`
+ * before the call returns.
  *
- * This used to describe itself as standing in for the personalisation loop:
- * everything went to `localStorage` and stopped there, so a thumb was a UI state
- * change and nothing more, and clearing site data threw away every judgement a
- * reader had ever made. `feedback` and `saved_stories` now carry the two signals
- * that have tables, and a vote moves `user_topics.weight` before the call
- * returns.
- *
- * ---------------------------------------------------------------------------
- * Two kinds of signal, on purpose
- * ---------------------------------------------------------------------------
- *
- *   - **Votes and saves are server state.** They survive a new browser, and they
- *     are what the pipeline reads. The server is the truth.
- *   - **Dismissals and muted topics stay local.** There is no table for either,
- *     and adding one is DDL, which cannot be applied from a development machine
- *     here (see docs/plan.md). They are also genuinely session-shaped — hiding a
- *     card you have already read is not a lasting statement about a topic.
- *
- * Keeping the split explicit matters more than the storage detail: a reader who
- * mutes a topic expects that to persist, so when `user_topics.muted` is wired to
- * this, `mutedTopics` moves to the first group and the local copy goes away.
- *
- * ---------------------------------------------------------------------------
- * Optimistic, and what happens when the write loses
- * ---------------------------------------------------------------------------
- *
- * A thumb has to respond instantly, so state moves first and the request follows.
- * If the request fails, the local change is rolled back rather than left showing
- * a vote the server never took — a thumb that looks recorded and is not is worse
- * than one that visibly did not stick, because the reader has no reason to try
- * again.
+ * Optimistic: state moves first and the request follows. If the request
+ * fails, the local change is rolled back rather than left showing an action
+ * the server never took — a thumb that looks recorded and is not is worse
+ * than one that visibly did not stick, because the reader has no reason to
+ * try again.
  */
 export function useFeedback() {
   const [state, setState] = useState<FeedbackState>(EMPTY_FEEDBACK);
@@ -62,17 +45,6 @@ export function useFeedback() {
   useEffect(() => {
     let live = true;
 
-    // Local first, so dismissals and mutes are right immediately even if the
-    // network is slow or the reader is signed out.
-    let local = EMPTY_FEEDBACK;
-    try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) local = { ...EMPTY_FEEDBACK, ...(JSON.parse(raw) as Partial<FeedbackState>) };
-    } catch {
-      /* ignore */
-    }
-    if (live) setState(local);
-
     void loadFeedback()
       .then((server) => {
         if (!live) return;
@@ -80,11 +52,13 @@ export function useFeedback() {
           ...prev,
           votes: fromServerVotes(server.votes),
           saved: server.saved,
+          dismissed: server.dismissed,
+          mutedTopics: server.mutedTopics,
         }));
       })
       .catch(() => {
-        // Signed out, or the read failed. The local half is already showing and
-        // votes simply will not persist until there is a session.
+        // Signed out, or the read failed. Nothing persists until there is a
+        // session; the page just shows everything, unfiltered.
       })
       .finally(() => {
         if (live) setHydrated(true);
@@ -93,22 +67,6 @@ export function useFeedback() {
     return () => {
       live = false;
     };
-  }, []);
-
-  /** Writes local-only fields through to `localStorage`. */
-  const writeLocal = useCallback((fn: (prev: FeedbackState) => FeedbackState) => {
-    setState((prev) => {
-      const next = fn(prev);
-      try {
-        localStorage.setItem(
-          KEY,
-          JSON.stringify({ dismissed: next.dismissed, mutedTopics: next.mutedTopics }),
-        );
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
   }, []);
 
   const vote = useCallback((id: string, v: Vote) => {
@@ -159,38 +117,49 @@ export function useFeedback() {
     });
   }, []);
 
-  const dismiss = useCallback(
-    (id: string) =>
-      writeLocal((p) => ({
-        ...p,
-        dismissed: p.dismissed.includes(id) ? p.dismissed : [...p.dismissed, id],
-      })),
-    [writeLocal],
-  );
+  const dismiss = useCallback((id: string) => {
+    setState((prev) =>
+      prev.dismissed.includes(id) ? prev : { ...prev, dismissed: [...prev.dismissed, id] },
+    );
+    void saveDismissed({ data: { eventId: id, dismissed: true } }).catch(() => {
+      setState((prev) => ({ ...prev, dismissed: prev.dismissed.filter((x) => x !== id) }));
+    });
+  }, []);
 
-  const restore = useCallback(
-    (id: string) => writeLocal((p) => ({ ...p, dismissed: p.dismissed.filter((x) => x !== id) })),
-    [writeLocal],
-  );
+  const restore = useCallback((id: string) => {
+    setState((prev) => ({ ...prev, dismissed: prev.dismissed.filter((x) => x !== id) }));
+    void saveDismissed({ data: { eventId: id, dismissed: false } }).catch(() => {
+      setState((prev) =>
+        prev.dismissed.includes(id) ? prev : { ...prev, dismissed: [...prev.dismissed, id] },
+      );
+    });
+  }, []);
 
-  const muteTopic = useCallback(
-    (topic: string) =>
-      writeLocal((p) => ({
-        ...p,
-        mutedTopics: p.mutedTopics.includes(topic)
-          ? p.mutedTopics.filter((x) => x !== topic)
-          : [...p.mutedTopics, topic],
-      })),
-    [writeLocal],
-  );
+  const muteTopic = useCallback((topic: string) => {
+    let nowMuted = false;
+
+    setState((prev) => {
+      nowMuted = !prev.mutedTopics.includes(topic);
+      return {
+        ...prev,
+        mutedTopics: nowMuted
+          ? [...prev.mutedTopics, topic]
+          : prev.mutedTopics.filter((x) => x !== topic),
+      };
+    });
+
+    void saveMutedTopic({ data: { topic, muted: nowMuted } }).catch(() => {
+      setState((prev) => ({
+        ...prev,
+        mutedTopics: nowMuted
+          ? prev.mutedTopics.filter((x) => x !== topic)
+          : [...prev.mutedTopics, topic],
+      }));
+    });
+  }, []);
 
   const reset = useCallback(() => {
     setState(EMPTY_FEEDBACK);
-    try {
-      localStorage.removeItem(KEY);
-    } catch {
-      /* ignore */
-    }
     // Clears the stored votes and returns every topic weight to base. Without
     // this, "reset" would erase what the reader can see and keep what the
     // pipeline reads.

@@ -65,6 +65,16 @@ const saveInput = z.object({
   saved: z.boolean(),
 });
 
+const dismissInput = z.object({
+  eventId: z.string().uuid(),
+  dismissed: z.boolean(),
+});
+
+const muteTopicInput = z.object({
+  topic: z.string().min(1).max(80),
+  muted: z.boolean(),
+});
+
 const engagementInput = z.object({
   eventId: z.string().uuid(),
   /** Times the story was rendered to the reader since the last flush. */
@@ -93,9 +103,16 @@ function clampSmallInt(value: number): number {
 export type ReaderFeedback = {
   votes: Record<string, FeedbackVote>;
   saved: string[];
+  dismissed: string[];
+  mutedTopics: string[];
 };
 
-export const EMPTY_READER_FEEDBACK: ReaderFeedback = { votes: {}, saved: [] };
+export const EMPTY_READER_FEEDBACK: ReaderFeedback = {
+  votes: {},
+  saved: [],
+  dismissed: [],
+  mutedTopics: [],
+};
 
 /* ---------------------------------------------------------------------- */
 /* Reads                                                                  */
@@ -108,25 +125,37 @@ export const EMPTY_READER_FEEDBACK: ReaderFeedback = { votes: {}, saved: [] };
 export const loadFeedback = createServerFn({ method: "GET" })
   .middleware([signedInOnly])
   .handler(async ({ context }): Promise<ReaderFeedback> => {
-    const [votes, saved] = await Promise.all([
+    const [votes, saved, dismissed, mutedTopics] = await Promise.all([
       context.actor.db.from("feedback").select("event_id, vote").eq("user_id", context.actor.id),
       context.actor.db
         .from("saved_stories")
         .select("event_id")
         .eq("user_id", context.actor.id)
         .order("saved_at", { ascending: false }),
+      context.actor.db
+        .from("dismissed_stories")
+        .select("event_id")
+        .eq("user_id", context.actor.id),
+      context.actor.db.from("muted_topics").select("topic").eq("user_id", context.actor.id),
     ]);
 
     // A read failure here means an empty feedback panel, not a broken page. The
     // story itself has already rendered by the time this resolves.
-    if (votes.error || saved.error) return EMPTY_READER_FEEDBACK;
+    if (votes.error || saved.error || dismissed.error || mutedTopics.error) {
+      return EMPTY_READER_FEEDBACK;
+    }
 
     const map: Record<string, FeedbackVote> = {};
     for (const row of votes.data ?? []) {
       map[row.event_id] = row.vote as FeedbackVote;
     }
 
-    return { votes: map, saved: (saved.data ?? []).map((row) => row.event_id) };
+    return {
+      votes: map,
+      saved: (saved.data ?? []).map((row) => row.event_id),
+      dismissed: (dismissed.data ?? []).map((row) => row.event_id),
+      mutedTopics: (mutedTopics.data ?? []).map((row) => row.topic),
+    };
   });
 
 /* ---------------------------------------------------------------------- */
@@ -190,6 +219,58 @@ export const saveStory = createServerFn({ method: "POST" })
     // Saving is a bookmark, not a judgement. It deliberately does not move a
     // weight: people save things to read later, including stories they are not
     // sure about, and reading that as approval would teach the wrong lesson.
+    return { ok: true };
+  });
+
+export const saveDismissed = createServerFn({ method: "POST" })
+  .middleware([signedInOnly])
+  .validator((input: unknown) => dismissInput.parse(input))
+  .handler(async ({ context, data }): Promise<{ ok: true }> => {
+    const { actor } = context;
+
+    if (data.dismissed) {
+      const { error } = await actor.db
+        .from("dismissed_stories")
+        .upsert(
+          { user_id: actor.id, event_id: data.eventId },
+          { onConflict: "user_id,event_id", ignoreDuplicates: true },
+        );
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await actor.db
+        .from("dismissed_stories")
+        .delete()
+        .eq("user_id", actor.id)
+        .eq("event_id", data.eventId);
+      if (error) throw new Error(error.message);
+    }
+
+    return { ok: true };
+  });
+
+export const saveMutedTopic = createServerFn({ method: "POST" })
+  .middleware([signedInOnly])
+  .validator((input: unknown) => muteTopicInput.parse(input))
+  .handler(async ({ context, data }): Promise<{ ok: true }> => {
+    const { actor } = context;
+
+    if (data.muted) {
+      const { error } = await actor.db
+        .from("muted_topics")
+        .upsert(
+          { user_id: actor.id, topic: data.topic },
+          { onConflict: "user_id,topic", ignoreDuplicates: true },
+        );
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await actor.db
+        .from("muted_topics")
+        .delete()
+        .eq("user_id", actor.id)
+        .eq("topic", data.topic);
+      if (error) throw new Error(error.message);
+    }
+
     return { ok: true };
   });
 
@@ -271,6 +352,8 @@ export const clearFeedback = createServerFn({ method: "POST" })
 
     await actor.db.from("feedback").delete().eq("user_id", actor.id);
     await actor.db.from("saved_stories").delete().eq("user_id", actor.id);
+    await actor.db.from("dismissed_stories").delete().eq("user_id", actor.id);
+    await actor.db.from("muted_topics").delete().eq("user_id", actor.id);
 
     // Behaviour drives the weights too, so clearing only the votes would leave
     // the product personalising from data the reader believes they erased. The
