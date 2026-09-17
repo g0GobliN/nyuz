@@ -132,10 +132,7 @@ export const loadFeedback = createServerFn({ method: "GET" })
         .select("event_id")
         .eq("user_id", context.actor.id)
         .order("saved_at", { ascending: false }),
-      context.actor.db
-        .from("dismissed_stories")
-        .select("event_id")
-        .eq("user_id", context.actor.id),
+      context.actor.db.from("dismissed_stories").select("event_id").eq("user_id", context.actor.id),
       context.actor.db.from("muted_topics").select("topic").eq("user_id", context.actor.id),
     ]);
 

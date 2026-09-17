@@ -713,6 +713,12 @@ export type Feedback = {
 
 export type SavedStory = { user_id: string; event_id: string; saved_at: string };
 
+/** A plain "hide this" record, not a weight input (0089). Mirrors saved_stories' shape. */
+export type DismissedStory = { user_id: string; event_id: string; dismissed_at: string };
+
+/** Keyed by topic label text, not topic_id -- mutes a card's tag, not necessarily a followed topic (0089). */
+export type MutedTopic = { user_id: string; topic: string; muted_at: string };
+
 /** Chat id is written only by the bot webhook. No RLS write policy (0013). */
 export type TelegramAccount = {
   user_id: string;
@@ -1085,6 +1091,8 @@ export type Database = {
       >;
       feedback: Table<Feedback, "created_at">;
       saved_stories: Table<SavedStory, "saved_at">;
+      dismissed_stories: Table<DismissedStory, "dismissed_at">;
+      muted_topics: Table<MutedTopic, "muted_at">;
       ask_log: Table<AskLog, "id" | "created_at">;
       alert_claims: Table<AlertClaim, "created_at">;
       ai_usage_ledger: Table<
