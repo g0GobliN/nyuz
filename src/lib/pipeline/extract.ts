@@ -1,15 +1,22 @@
 /**
- * Deterministic entity and number extraction — shadow mode only.
+ * Deterministic entity and number extraction.
  *
  * This module extracts verifiable facts from article coverage text using
  * regex patterns and dictionaries. It does NOT interpret meaning — it only
  * extracts what is objectively present in the text.
  *
- * The results are compared against AI-extracted values in shadow mode.
- * No production output is affected until a category is proven safe.
- *
- * See docs/track.md phase 7 for the shadow measurement framework.
+ * Originally shadow-mode only, compared against AI-extracted values (see
+ * docs/track.md phase 7). Money/percentage/company/product/country extraction
+ * is now also used directly by the deterministic Read composer
+ * (understand.ts, evidence-extract.ts) -- promoted deliberately, since these
+ * categories are simple dictionary/regex matches with low ambiguity risk, not
+ * because the shadow comparison concluded anything about AI-extraction parity.
  */
+
+// Keep entity spelling stable across sources with different casing.
+function canonicalLookup(known: readonly string[]): Map<string, string> {
+  return new Map(known.map((name) => [name.toLowerCase(), name]));
+}
 
 // ---------------------------------------------------------------------------
 // Money values
@@ -336,6 +343,7 @@ const COMPANY_RE = new RegExp(
   `\\b(${KNOWN_COMPANIES.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`,
   "gi",
 );
+const COMPANY_NAMES = canonicalLookup(KNOWN_COMPANIES);
 
 export interface ExtractedCompany {
   value: string;
@@ -349,7 +357,7 @@ export function extractCompanies(text: string, articleIndex: number): ExtractedC
 
   let match;
   while ((match = COMPANY_RE.exec(text)) !== null) {
-    const name = match[0];
+    const name = COMPANY_NAMES.get(match[0].toLowerCase())!;
     if (seen.has(name)) continue;
     seen.add(name);
     results.push({ value: name, label: name, evidence: [articleIndex + 1] });
@@ -414,6 +422,7 @@ const COUNTRY_RE = new RegExp(
   `\\b(${KNOWN_COUNTRIES.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`,
   "gi",
 );
+const COUNTRY_NAMES = canonicalLookup(KNOWN_COUNTRIES);
 
 export interface ExtractedCountry {
   value: string;
@@ -427,7 +436,7 @@ export function extractCountries(text: string, articleIndex: number): ExtractedC
 
   let match;
   while ((match = COUNTRY_RE.exec(text)) !== null) {
-    const name = match[0];
+    const name = COUNTRY_NAMES.get(match[0].toLowerCase())!;
     if (seen.has(name)) continue;
     seen.add(name);
     results.push({ value: name, label: name, evidence: [articleIndex + 1] });
@@ -539,9 +548,13 @@ const KNOWN_PRODUCTS = [
 ];
 
 const PRODUCT_RE = new RegExp(
-  `\\b(${KNOWN_PRODUCTS.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`,
+  `\\b(${[...KNOWN_PRODUCTS]
+    .sort((a, b) => b.length - a.length)
+    .map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|")})\\b`,
   "gi",
 );
+const PRODUCT_NAMES = canonicalLookup(KNOWN_PRODUCTS);
 
 export interface ExtractedProduct {
   value: string;
@@ -555,7 +568,7 @@ export function extractProducts(text: string, articleIndex: number): ExtractedPr
 
   let match;
   while ((match = PRODUCT_RE.exec(text)) !== null) {
-    const name = match[0];
+    const name = PRODUCT_NAMES.get(match[0].toLowerCase())!;
     if (seen.has(name)) continue;
     seen.add(name);
     results.push({ value: name, label: name, evidence: [articleIndex + 1] });

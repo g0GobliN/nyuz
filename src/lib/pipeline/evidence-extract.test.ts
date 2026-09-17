@@ -59,6 +59,14 @@ describe("selectEvidenceUnits", () => {
     ).toBe(false);
   });
 
+  it("keeps factual newsletter reporting but excludes promotional quotes", () => {
+    const units = selectEvidenceUnits(
+      'The newsletter reached 400 paid subscribers during its first year of publication. "Subscribe to our newsletter for a 50% discount", said Alice Smith.',
+    );
+    expect(units.some((unit) => unit.text.includes("400 paid subscribers"))).toBe(true);
+    expect(units.some((unit) => unit.text.includes("50%"))).toBe(false);
+  });
+
   it("drops boilerplate sentences (subscribe prompts, cookie notices, share links)", () => {
     const text =
       "Sign up for our newsletter to get more stories like this delivered to your inbox every morning. " +

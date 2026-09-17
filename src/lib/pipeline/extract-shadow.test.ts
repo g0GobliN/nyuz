@@ -17,6 +17,23 @@ import {
   compareExtraction,
 } from "./extract";
 
+describe("canonical entities", () => {
+  it("merges case variants using dictionary spelling", () => {
+    expect(extractCompanies("SK hynix and SK HYNIX", 0).map((hit) => hit.value)).toEqual([
+      "SK Hynix",
+    ]);
+    expect(extractCountries("Japan and JAPAN", 0).map((hit) => hit.value)).toEqual(["Japan"]);
+    expect(extractProducts("claude and CLAUDE", 0).map((hit) => hit.value)).toEqual(["Claude"]);
+  });
+
+  it("keeps the longest known product name", () => {
+    expect(extractProducts("Claude 3.5 and GPT-4 Turbo", 0).map((hit) => hit.value)).toEqual([
+      "Claude 3.5",
+      "GPT-4 Turbo",
+    ]);
+  });
+});
+
 describe("extractMoney", () => {
   it("extracts dollar amounts with units", () => {
     const results = extractMoney("The company raised $13 billion in funding.", 0);
@@ -139,7 +156,7 @@ describe("extractProducts", () => {
     const results = extractProducts("GPT-5 and Claude 3 were released.", 0);
     const names = results.map((r) => r.value);
     expect(names).toContain("GPT-5");
-    expect(names).toContain("Claude");
+    expect(names).toContain("Claude 3");
   });
 });
 

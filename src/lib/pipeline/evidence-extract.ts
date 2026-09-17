@@ -5,7 +5,7 @@ import {
   extractCountries,
   extractProducts,
 } from "./extract";
-import { sentences, repeats, type EvidenceUnit } from "@/lib/understand";
+import { sentences, repeats, isEvidenceBoilerplate, type EvidenceUnit } from "@/lib/understand";
 
 /**
  * Turning one article's extracted main text into a bounded set of short,
@@ -35,9 +35,6 @@ const UNCERTAIN_PATTERNS = [
   /\bcould not immediately\b/i,
   /\bhas yet to\b/i,
 ];
-
-const BOILERPLATE_RE =
-  /subscribe|sign up|click here|read more|advertisement|cookie policy|all rights reserved|follow us on|share this article|related articles|newsletter/i;
 
 export function extractQuotes(text: string): { quote: string; attribution: string }[] {
   const out: { quote: string; attribution: string }[] = [];
@@ -90,13 +87,15 @@ export function selectEvidenceUnits(
   mainText: string,
   maxUnits = MAX_EVIDENCE_UNITS,
 ): EvidenceUnit[] {
-  const quotes = extractQuotes(mainText).slice(0, 3);
+  const quotes = extractQuotes(mainText)
+    .filter((q) => !isEvidenceBoilerplate(q.quote))
+    .slice(0, 3);
   const quoteKeys = quotes.map((q) => q.quote.toLowerCase());
 
   const candidates = sentences(mainText)
     .map((text) => text.trim())
     .filter((text) => text.length >= 40 && text.length <= 320)
-    .filter((text) => !BOILERPLATE_RE.test(text))
+    .filter((text) => !isEvidenceBoilerplate(text))
     .filter((text) => !quoteKeys.some((q) => text.toLowerCase().includes(q)));
 
   const scored = candidates

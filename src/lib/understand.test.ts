@@ -521,6 +521,46 @@ describe("intelligenceText", () => {
 });
 
 describe("legacyEventIntelligence", () => {
+  it("excludes RSS promotions from prose, entities, and numbers", () => {
+    const intel = legacyEventIntelligence({
+      what: "A factory will open next month.",
+      sources: [
+        {
+          excerpt:
+            "Subscribe to Microsoft's newsletter and save 50% on a $20 subscription. The post Apple launches a product appeared first on TechCrunch. The factory will employ 400 workers when production starts in October.",
+        },
+      ],
+    });
+    const output = JSON.stringify(intel);
+    expect(output).not.toMatch(/Microsoft|Apple|TechCrunch|50%|\$20/);
+    expect(intel.newDevelopments).toContainEqual({
+      text: "The factory will employ 400 workers when production starts in October.",
+      evidence: [1],
+      kind: "reported",
+    });
+  });
+
+  it("omits overlong claims instead of truncating their qualifications", () => {
+    const intel = legacyEventIntelligence({
+      what: "A deal was reported.",
+      sources: [
+        { excerpt: `${"The proposed deal has conditions ".repeat(12)}but was not approved.` },
+      ],
+    });
+    expect(intel.newDevelopments).toEqual([]);
+    expect(intel.context).toEqual([]);
+  });
+
+  it("preserves reporting about subscribers and newsletters", () => {
+    const intel = legacyEventIntelligence({
+      what: "The publisher released its results.",
+      sources: [
+        { excerpt: "The newsletter now has 400 paid subscribers following its launch last year." },
+      ],
+    });
+    expect(intel.newDevelopments).toHaveLength(1);
+  });
+
   it("creates intelligence from legacy event data", () => {
     const legacy = {
       what: "OpenAI released GPT-5 with improved reasoning capabilities and better performance on benchmarks.",

@@ -872,6 +872,18 @@ function joinNames(names: string[]): string {
   return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
 }
 
+export function isEvidenceBoilerplate(text: string): boolean {
+  return /\b(?:subscribe to|sign up for|click here|read more|continue reading|cookie policy|all rights reserved|follow us on|share this article|related articles)\b|\bthe post\b.*\bappeared first on\b|^(?:advertisement|image credit|photo credit)\b/i.test(
+    text,
+  );
+}
+
+function excerptSentences(source: LegacyEvidence): string[] {
+  return sentences(source.excerpt ?? "").filter(
+    (text) => !isEvidenceBoilerplate(text) && text.length <= 320,
+  );
+}
+
 /**
  * The text to scan for entities/numbers: an enriched source's own extracted
  * facts when it has them (richer, already fact-dense), else its RSS excerpt.
@@ -885,7 +897,7 @@ function combinedText(source: LegacyEvidence): string {
       .map((u) => u.text)
       .join(" ");
   }
-  return source.excerpt ?? "";
+  return excerptSentences(source).join(" ");
 }
 
 /** Named companies/products the sources actually mention, as one sentence rather than a tag list. */
@@ -968,10 +980,10 @@ function statementsFor(
     }
     return { statements, unknowns };
   }
-  const statements = sentences(source.excerpt ?? "")
+  const statements = excerptSentences(source)
     .filter((text) => text.length >= 40)
     .slice(0, EXCERPT_STATEMENTS_PER_SOURCE)
-    .map((text) => ({ text: text.slice(0, 320), evidence: [ref], kind: "reported" as const }));
+    .map((text) => ({ text, evidence: [ref], kind: "reported" as const }));
   return { statements, unknowns: [] };
 }
 
@@ -1008,7 +1020,7 @@ export function legacyEventIntelligence(input: {
 
   // Longer excerpts that don't qualify as new-development facts.
   const excerptContext = input.sources.flatMap((source, index) =>
-    sentences(source.excerpt ?? "")
+    excerptSentences(source)
       .filter((text) => text.length >= 60 && text.length < 200)
       .slice(0, 3)
       .map((text) => ({
