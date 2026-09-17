@@ -257,6 +257,23 @@ export const loadHomeFeed = createServerFn({ method: "GET" })
     }
 
     if (latest?.status === "skipped") {
+      // A skipped briefing is a verdict about the moment it ran, not a
+      // standing claim that nothing exists. Matching runs every ~15 minutes
+      // and the next briefing slot can be hours away, so without this check
+      // a story matched one minute after a skipped briefing is invisible
+      // until that next slot -- the reader's homepage says "nothing" while
+      // `user_events` already holds it.
+      const since = await loadMatchedStories(actor.db, actor.id, PAGE, latest.scheduled_for);
+      if (since.length > 0) {
+        return {
+          stories: since,
+          source: "matches",
+          digestStatus: latest.status,
+          scheduledFor: latest.scheduled_for,
+          nextAt,
+          windowHours: WINDOW_HOURS,
+        };
+      }
       return {
         stories: [],
         source: "empty",

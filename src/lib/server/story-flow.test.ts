@@ -34,7 +34,7 @@ vi.mock("@tanstack/react-start", () => ({
     return builder;
   },
 }));
-import { generateStory, loadStory, startFirstBriefing } from "./briefing";
+import { generateStory, loadHomeFeed, loadStory, startFirstBriefing } from "./briefing";
 const run = async (fn: unknown, db: FakeDb, data?: unknown) => {
   const result = await (fn as (input: unknown) => Promise<unknown>)({
     context: { actor: { id: READER_ID, db: asDb(db) } },
@@ -99,5 +99,54 @@ describe("reader flows never buy background synthesis", () => {
       },
     });
     expect(paid).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a fresh match instead of a stale skipped-briefing verdict", async () => {
+    // user follows a predefined topic, an event is complete with that topic,
+    // and it is within the matching freshness window -- the production case
+    // traced live: match.ts wrote the user_events row correctly, but the
+    // homepage kept showing "nothing matched" because the most recent
+    // resolved digest was `skipped` from before this match existed.
+    const db = newsPipelineFixture();
+    seedPendingNews(db);
+    expect(await run(startFirstBriefing, db)).toMatchObject({ analysed: 1, matched: 1 });
+
+    const digestRow = db.rows("digests")[0]!;
+    digestRow["status"] = "skipped";
+    digestRow["scheduled_for"] = new Date(Date.now() - 24 * 3_600_000).toISOString();
+    digestRow["item_count"] = 0;
+
+    const matchRow = db.rows("user_events").find((r) => r["user_id"] === READER_ID)!;
+    matchRow["matched_at"] = new Date().toISOString();
+    matchRow["briefed_at"] = null;
+
+    const feed = (await run(loadHomeFeed, db)) as {
+      stories: { id: string }[];
+      source: string;
+      digestStatus: string | null;
+    };
+    expect(feed.source).toBe("matches");
+    expect(feed.digestStatus).toBe("skipped");
+    expect(feed.stories.map((s) => s.id)).toContain(EVENT_ID);
+  });
+
+  it("still shows the quiet-day empty state when nothing matched since the skip", async () => {
+    const db = newsPipelineFixture();
+    seedPendingNews(db);
+    await run(startFirstBriefing, db);
+
+    const digestRow = db.rows("digests")[0]!;
+    digestRow["status"] = "skipped";
+    digestRow["item_count"] = 0;
+
+    const matchRow = db.rows("user_events").find((r) => r["user_id"] === READER_ID)!;
+    // Matched before the skipped briefing ran, so it was already considered
+    // and correctly found nothing -- not a fresh, un-briefed match.
+    matchRow["matched_at"] = new Date(Date.now() - 48 * 3_600_000).toISOString();
+    digestRow["scheduled_for"] = new Date(Date.now() - 24 * 3_600_000).toISOString();
+
+    const feed = (await run(loadHomeFeed, db)) as { source: string; stories: unknown[] };
+    expect(feed.source).toBe("empty");
+    expect(feed.stories).toHaveLength(0);
   });
 });
