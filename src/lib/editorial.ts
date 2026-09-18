@@ -1,10 +1,12 @@
 import type { Story } from "@/lib/story";
 import type { ArticleParagraph, ReaderArticle } from "@/lib/reader-article";
 import { legacyEventIntelligence } from "@/lib/understand";
+import { editorialNoise, selectReaderEvidence } from "./reader-evidence";
+import { relatedContext } from "./related-events";
 
 function sentence(text: string): string {
   const clean = text.replace(/\s+/g, " ").trim();
-  return clean && !/[.!?…]$/.test(clean) ? `${clean}.` : clean;
+  return clean && !/[.!?…]["”]?$/.test(clean) ? `${clean}.` : clean;
 }
 
 /**
@@ -15,6 +17,44 @@ function sentence(text: string): string {
  */
 export function composeArticle(story: Story): ReaderArticle {
   if (story.understand?.article) return story.understand.article;
+
+  if (!story.understand) {
+    const selection = selectReaderEvidence(story.title, story.sourceList);
+    const lead = selection.lead;
+    const fallback = !editorialNoise(story.what) ? story.what.trim() : "";
+    const outlet = new Set(story.sourceList.map((s) => s.name.trim().toLowerCase()));
+    const name = lead ? story.sourceList[lead.evidence[0]! - 1]?.name : undefined;
+    const leadText = lead?.text ?? fallback;
+    const deck = {
+      text:
+        lead && outlet.size === 1 && name
+          ? `According to ${name}, ${leadText.replace(/^(The|A|An)\b/, (s) => s.toLowerCase())}`
+          : leadText,
+      evidence: lead?.evidence ?? [],
+    };
+    const paragraphs: ArticleParagraph[] = [];
+    let words = leadText.split(/\s+/).length;
+    for (const fact of selection.facts) {
+      if (fact === lead) continue;
+      const size = fact.text.split(/\s+/).length;
+      if (words + size > 850) continue;
+      const prior = paragraphs.at(-1);
+      if (
+        prior &&
+        prior.evidence.some((ref) => fact.evidence.includes(ref)) &&
+        prior.text.split(/\s+/).length + size <= 75
+      ) {
+        prior.text += ` ${sentence(fact.text)}`;
+        prior.evidence = [...new Set([...prior.evidence, ...fact.evidence])];
+      } else paragraphs.push({ text: sentence(fact.text), evidence: [...fact.evidence] });
+      words += size;
+    }
+    for (const candidate of story.relatedEvents ?? []) {
+      const context = relatedContext({ title: story.title, summary: leadText }, candidate);
+      if (context) paragraphs.push({ text: sentence(context), evidence: [] });
+    }
+    return { deck, paragraphs };
+  }
 
   const intel =
     story.understand ??
@@ -32,7 +72,7 @@ export function composeArticle(story: Story): ReaderArticle {
     const paragraph = { text: "", evidence };
     for (const item of items) {
       const text = sentence(item.text);
-      if (!text) continue;
+      if (!text || editorialNoise(text)) continue;
       const key = text.toLowerCase();
       const existing = seen.get(key);
       if (existing) {
@@ -55,7 +95,13 @@ export function composeArticle(story: Story): ReaderArticle {
   add([plain(story.before), plain(story.after), ...intel.newDevelopments]);
   {
     add([plain(intel.oneSentence), ...intel.context]);
-    add(intel.numbers.map((n) => ({ text: `${n.label}: ${n.value}`, evidence: n.evidence })));
+    add(
+      intel.numbers.flatMap((n) =>
+        selectReaderEvidence(story.title, [{ excerpt: n.label }])
+          .facts.filter((f) => f.text.includes(n.value))
+          .map((f) => ({ text: f.text, evidence: n.evidence })),
+      ),
+    );
     add(intel.overview.map((o) => ({ text: `${o.name}: ${o.detail}`, evidence: o.evidence })));
     if (intel.comparison) {
       const comparison = intel.comparison;

@@ -115,27 +115,43 @@ describe("composeArticle", () => {
     const story = makeStory({
       understand: makeIntelligence({
         numbers: [
-          { value: "$1B", label: "Funding", evidence: [1] },
-          { value: "40%", label: "Growth", evidence: [2] },
+          {
+            value: "$1B",
+            label: "The company raised $1B in funding for its new factory.",
+            evidence: [1],
+          },
+          {
+            value: "40%",
+            label: "Revenue growth reached 40% during the last financial year.",
+            evidence: [2],
+          },
         ],
       }),
     });
-    const numbers = composeArticle(story).paragraphs.filter((p) => p.text.includes("Funding"));
+    const numbers = composeArticle(story).paragraphs.filter((p) => p.text.includes("funding"));
 
     expect(numbers).toHaveLength(1);
-    expect(numbers[0]?.text).toContain("Growth");
+    expect(numbers[0]?.text).toContain("growth reached 40%");
   });
 
   it("carries the evidence of every statement it merges into a paragraph", () => {
     const story = makeStory({
       understand: makeIntelligence({
         numbers: [
-          { value: "$1B", label: "Funding", evidence: [1] },
-          { value: "40%", label: "Growth", evidence: [3] },
+          {
+            value: "$1B",
+            label: "The company raised $1B in funding for its new factory.",
+            evidence: [1],
+          },
+          {
+            value: "40%",
+            label: "Revenue growth reached 40% during the last financial year.",
+            evidence: [3],
+          },
         ],
       }),
     });
-    const numbers = composeArticle(story).paragraphs.find((p) => p.text.includes("Funding"));
+    const numbers = composeArticle(story).paragraphs.find((p) => p.text.includes("funding"));
 
     expect(numbers?.evidence).toEqual([1, 3]);
   });
@@ -298,6 +314,7 @@ describe("composeArticle", () => {
 
     it("adds a background paragraph from related nyuz coverage when supplied", () => {
       const story = makeStory({
+        title: "Acme confirms the second phase of its plan",
         understand: undefined as never,
         sourceList: [
           {
@@ -306,13 +323,20 @@ describe("composeArticle", () => {
             excerpt: "The company confirmed the second phase of its plan will begin next month.",
           },
         ],
-        relatedEvents: [{ id: "prior-1", title: "The company announced phase one last quarter" }],
+        relatedEvents: [
+          {
+            id: "prior-1",
+            title: "Acme announced phase one",
+            summary: "Acme announced phase one last quarter.",
+          },
+        ],
       });
 
       const body = composeArticle(story)
         .paragraphs.map((p) => p.text)
         .join(" ");
-      expect(body).toContain("The company announced phase one last quarter");
+      expect(body).toContain("Previously, Acme announced phase one last quarter.");
+      expect(body).not.toContain("nyuz has also covered");
     });
 
     it("never fabricates related coverage when none is supplied", () => {

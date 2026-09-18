@@ -205,7 +205,7 @@ describe("Read never depends on a live AI call", () => {
     expect(article.paragraphs.length).toBeGreaterThan(0);
   });
 
-  it("attaches genuinely related prior coverage by shared topic, for background", async () => {
+  it("attaches prior coverage with a shared central entity and factual summary", async () => {
     const db = newsPipelineFixture();
     seedPendingNews(db);
     await run(startFirstBriefing, db);
@@ -214,6 +214,7 @@ describe("Read never depends on a live AI call", () => {
     db.rows("events").push({
       id: priorId,
       title: "OpenAI announced its previous model",
+      what_happened: "OpenAI announced its previous model in August.",
       first_seen_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
       status: "complete",
       analysed_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),

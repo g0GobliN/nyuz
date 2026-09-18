@@ -1,10 +1,5 @@
 import { readReaderArticle, type ReaderArticle } from "@/lib/reader-article";
-import {
-  extractMoney,
-  extractPercentages,
-  extractCompanies,
-  extractProducts,
-} from "./pipeline/extract";
+import { centralTokens, editorialNoise, selectReaderEvidence } from "./reader-evidence";
 
 export type CoverageDepth = "thin" | "normal" | "rich";
 export type StatementKind = "reported" | "context" | "analysis";
@@ -767,24 +762,31 @@ export function sourceCountLabel(
 
 export type ReaderQuality = "thin" | "adequate" | "rich";
 
-/**
- * An internal quality signal for the deterministic reader, never shown to
- * users -- word count alone conflates "long" with "good", so this weighs
- * evidence breadth (facts + context, already deduped) and source count too.
- * `relatedEventCount` gets a modest, capped boost: real background prose,
- * but not a substitute for evidence about the event itself.
- */
+/** Only clean, unique factual evidence contributes to reader quality. */
 export function readerQuality(
-  intel: Pick<EventIntelligence, "newDevelopments" | "context">,
+  intel: Pick<EventIntelligence, "newDevelopments" | "context"> &
+    Partial<Pick<EventIntelligence, "oneSentence">>,
   sourceCount: number,
-  relatedEventCount = 0,
+  _relatedEventCount = 0,
 ): ReaderQuality {
-  const evidenceCount = intel.newDevelopments.length + intel.context.length;
-  const words =
-    intel.newDevelopments.reduce((total, item) => total + wordCount(item.text), 0) +
-    intel.context.reduce((total, item) => total + wordCount(item.text), 0) +
-    Math.min(relatedEventCount, 2) * 15;
-  if (evidenceCount >= 8 && sourceCount >= 2 && words >= 250) return "rich";
+  const raw = [...intel.newDevelopments, ...intel.context];
+  const anchor = centralTokens(intel.oneSentence ?? intel.newDevelopments[0]?.text ?? "");
+  const relevant = [
+    ...intel.newDevelopments,
+    ...intel.context.filter(
+      (item) =>
+        item.evidence.length > 0 &&
+        anchor.filter((token) => centralTokens(item.text).includes(token)).length >= 2,
+    ),
+  ];
+  const clean = selectReaderEvidence(
+    "",
+    relevant.map((item) => ({ excerpt: item.text })),
+  ).facts;
+  const evidenceCount = clean.length;
+  const words = clean.reduce((total, item) => total + wordCount(item.text), 0);
+  const noisy = raw.length - evidenceCount;
+  if (evidenceCount >= 8 && sourceCount >= 2 && words >= 250 && noisy === 0) return "rich";
   if (evidenceCount >= 3 && words >= 80) return "adequate";
   return "thin";
 }
@@ -843,263 +845,39 @@ export type LegacyEvidence = {
   enrichedEvidence?: EvidenceUnit[] | undefined;
 };
 
-/**
- * Like `dedupeStatements`, but a near-duplicate's evidence is folded into the
- * survivor instead of discarded -- three sources reporting the same fact reads
- * as one fact backed by three citations, not one fact backed by whichever
- * source happened to come first. Used where "N sources say the same thing"
- * needs to stay knowable after dedup, unlike the AI-authored path's dedup
- * (`dedupeAcrossSections`), which only ever needs to know a claim already has
- * a home.
- */
-function dedupeMergingEvidence<T extends { text: string; evidence: number[] }>(items: T[]): T[] {
-  const out: T[] = [];
-  for (const item of items) {
-    const existing = out.find((o) => repeats(o.text, item.text));
-    if (existing) {
-      for (const ref of item.evidence)
-        if (!existing.evidence.includes(ref)) existing.evidence.push(ref);
-      continue;
-    }
-    out.push({ ...item, evidence: [...item.evidence] });
-  }
-  return out;
-}
-
-function joinNames(names: string[]): string {
-  if (names.length === 1) return names[0]!;
-  if (names.length === 2) return `${names[0]} and ${names[1]}`;
-  return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
-}
-
 export function isEvidenceBoilerplate(text: string): boolean {
-  return /\b(?:subscribe to|sign up for|click here|read more|continue reading|cookie policy|all rights reserved|follow us on|share this article|related articles)\b|\bthe post\b.*\bappeared first on\b|^(?:advertisement|image credit|photo credit)\b/i.test(
-    text,
-  );
+  return editorialNoise(text);
 }
 
-function excerptSentences(source: LegacyEvidence): string[] {
-  return sentences(source.excerpt ?? "").filter(
-    (text) => !isEvidenceBoilerplate(text) && text.length <= 320,
-  );
-}
-
-/**
- * The text to scan for entities/numbers: an enriched source's own extracted
- * facts when it has them (richer, already fact-dense), else its RSS excerpt.
- * Quotes are excluded -- a quote's money/entity mentions are the speaker's
- * words, already carried verbatim in the quote itself.
- */
-function combinedText(source: LegacyEvidence): string {
-  if (source.enrichedEvidence?.length) {
-    return source.enrichedEvidence
-      .filter((u) => u.kind !== "quote")
-      .map((u) => u.text)
-      .join(" ");
-  }
-  return excerptSentences(source).join(" ");
-}
-
-/** Named companies/products the sources actually mention, as one sentence rather than a tag list. */
-function entityMentions(sources: LegacyEvidence[]): SupportedStatement | null {
-  const seen = new Map<string, number[]>();
-  sources.forEach((source, index) => {
-    const text = combinedText(source);
-    if (!text) return;
-    for (const hit of [...extractCompanies(text, index), ...extractProducts(text, index)]) {
-      seen.set(hit.value, [...(seen.get(hit.value) ?? []), index + 1]);
-    }
-  });
-  const names = [...seen.keys()].slice(0, 4);
-  if (names.length === 0) return null;
-  const evidence = [...new Set(names.flatMap((n) => seen.get(n) ?? []))].slice(0, 8);
-  return { text: `The coverage centers on ${joinNames(names)}.`, evidence, kind: "context" };
-}
-
-/**
- * Money amounts and percentages actually present in the sources, via
- * `extract.ts`'s regex matcher -- not attributed to a currency, since a
- * combined money match does not say which of $/€/£ it came from, and a wrong
- * symbol would be worse than none.
- */
-function extractedNumbers(sources: LegacyEvidence[]): KeyNumber[] {
-  const out: KeyNumber[] = [];
-  const seen = new Set<string>();
-  const push = (value: string, label: string, evidence: number) => {
-    const key = `${label}:${value}`.toLowerCase();
-    if (seen.has(key) || out.length >= 6) return;
-    seen.add(key);
-    out.push({ value, label, evidence: [evidence] });
-  };
-  sources.forEach((source, index) => {
-    const text = combinedText(source);
-    if (!text) return;
-    for (const hit of extractMoney(text, index)) push(hit.value, "Amount mentioned", index + 1);
-    for (const hit of extractPercentages(text, index)) {
-      push(hit.value, "Percentage mentioned", index + 1);
-    }
-  });
-  return out;
-}
-
-const EXCERPT_STATEMENTS_PER_SOURCE = 4;
-const ENRICHED_STATEMENTS_PER_SOURCE = 8;
-
-/**
- * One source's contribution to `newDevelopments`/`unknowns` -- its enriched
- * evidence units when it has them (already selected and fact-scored at
- * enrichment time, so a higher cap is safe), else sentences split from its
- * RSS excerpt exactly as before enrichment existed.
- */
-function statementsFor(
-  source: LegacyEvidence,
-  ref: number,
-): { statements: SupportedStatement[]; unknowns: string[] } {
-  const enriched = source.enrichedEvidence;
-  if (enriched && enriched.length > 0) {
-    const statements: SupportedStatement[] = [];
-    const unknowns: string[] = [];
-    let kept = 0;
-    for (const unit of enriched) {
-      if (unit.kind === "quote") {
-        if (!unit.attribution) continue;
-        statements.push({
-          text: `${unit.attribution} said: "${unit.text}"`,
-          evidence: [ref],
-          kind: "reported",
-        });
-        continue;
-      }
-      if (unit.kind === "uncertain") {
-        unknowns.push(unit.text);
-        continue;
-      }
-      if (kept >= ENRICHED_STATEMENTS_PER_SOURCE) continue;
-      statements.push({ text: unit.text, evidence: [ref], kind: "reported" });
-      kept += 1;
-    }
-    return { statements, unknowns };
-  }
-  const statements = excerptSentences(source)
-    .filter((text) => text.length >= 40)
-    .slice(0, EXCERPT_STATEMENTS_PER_SOURCE)
-    .map((text) => ({ text, evidence: [ref], kind: "reported" as const }));
-  return { statements, unknowns: [] };
-}
-
-/**
- * Deterministic fallback article for any event without model-authored prose --
- * a legacy analysis written before structured intelligence existed, a fresh
- * event whose on-demand generation never ran, or one opened while every AI
- * provider was unavailable. Built entirely from the source excerpts already
- * fetched, using `extract.ts`'s regex facts rather than a model, so it never
- * blocks on a provider and never requires one to exist. Deliberately produces
- * fewer blocks than an authored article rather than inventing depth: length
- * follows how much real evidence the excerpts hold, never a target.
- */
+/** Select factual evidence throughout the sources; metadata never becomes prose. */
 export function legacyEventIntelligence(input: {
+  title?: string;
   what: string;
   sources: LegacyEvidence[];
-  relatedEvents?: { title: string }[];
+  relatedEvents?: { title: string; summary?: string }[];
 }): EventIntelligence {
+  const selection = selectReaderEvidence(input.title ?? input.what, input.sources);
   const oneSentence =
-    briefingText(input.what) || "The available sources do not contain a usable summary.";
-
-  const anyEnriched = input.sources.some((s) => (s.enrichedEvidence?.length ?? 0) > 0);
-  const perSource = input.sources.map((source, index) => statementsFor(source, index + 1));
-  const rawStatements = perSource.flatMap((p) => p.statements);
-  const rawUnknowns = perSource.flatMap((p) => p.unknowns);
-
-  const newDevelopments = dedupeMergingEvidence(rawStatements)
-    .filter((item) => !repeats(item.text, oneSentence))
-    .slice(0, anyEnriched ? 28 : 12);
-
-  const unknowns = [...new Set(rawUnknowns)]
-    .filter((text) => !repeats(text, oneSentence))
-    .slice(0, 6);
-
-  // Longer excerpts that don't qualify as new-development facts.
-  const excerptContext = input.sources.flatMap((source, index) =>
-    excerptSentences(source)
-      .filter((text) => text.length >= 60 && text.length < 200)
-      .slice(0, 3)
-      .map((text) => ({
-        text: text.slice(0, 320),
-        evidence: [index + 1],
-        kind: "context" as const,
-      })),
-  );
-
-  // How many distinct outlets, not how many articles -- syndicated copies of
-  // one wire story must not read as independent confirmation. Only stated
-  // when there is an actual fact to attach it to, never as filler on its own.
-  const outlets = new Set(
-    input.sources.map((s) => s.name?.trim().toLowerCase()).filter((n): n is string => Boolean(n)),
-  );
-  const hasFacts = newDevelopments.length > 0 || excerptContext.length > 0;
-  const coverageStatement: SupportedStatement | null =
-    hasFacts && outlets.size > 1
-      ? {
-          text: `${outlets.size} outlets are currently reporting on this development.`,
-          evidence: [...new Set(newDevelopments.flatMap((s) => s.evidence))].slice(0, 8),
-          kind: "context",
-        }
-      : null;
-
-  // Genuinely related prior coverage, looked up deterministically by shared
-  // topics -- see `relatedEventsFor` in briefing.ts. Never fetched just to
-  // pad length; a caller only supplies this when a real relationship exists.
-  const related = (input.relatedEvents ?? []).slice(0, 2);
-  const relatedStatement: SupportedStatement | null =
-    related.length > 0
-      ? {
-          text: `nyuz has also covered related developments: ${joinNames(related.map((r) => r.title))}.`,
-          evidence: [],
-          kind: "context",
-        }
-      : null;
-
-  const entities = entityMentions(input.sources);
-  const context = dedupeMergingEvidence([
-    ...excerptContext,
-    ...(entities ? [entities] : []),
-    ...(coverageStatement ? [coverageStatement] : []),
-    ...(relatedStatement ? [relatedStatement] : []),
-  ])
-    .filter((item) => !repeats(item.text, oneSentence))
-    .slice(0, 8);
-
-  const numbers = extractedNumbers(input.sources);
-
-  const usableWords =
-    wordCount(oneSentence) +
-    newDevelopments.reduce((total, item) => total + wordCount(item.text), 0) +
-    context.reduce((total, item) => total + wordCount(item.text), 0) +
-    numbers.length * 3;
-  const coverage: CoverageDepth =
-    newDevelopments.length >= 6 && outlets.size >= 2 && usableWords >= 350
-      ? "rich"
-      : newDevelopments.length >= 3 && usableWords >= 100
-        ? "normal"
-        : "thin";
-
-  // No timeline: source counts are not dates. A legacy event either has the
-  // pipeline's own event timeline (which the page falls back to) or it has no
-  // timeline at all -- manufacturing one from "N sources covered this" would be
-  // filler dressed as evidence.
-
+    selection.lead?.text ||
+    (!editorialNoise(input.what) ? briefingText(input.what) : "") ||
+    "The available sources do not contain a usable summary.";
+  const newDevelopments: SupportedStatement[] = selection.facts
+    .filter((f) => !f.uncertain)
+    .map((f) => ({ text: f.text, evidence: f.evidence, kind: "reported" }));
+  const outlets = new Set(input.sources.map((s) => s.name?.trim().toLowerCase()).filter(Boolean));
+  const quality = readerQuality({ newDevelopments, context: [] }, outlets.size);
   return {
     version: 2,
-    coverage,
+    coverage: quality === "adequate" ? "normal" : quality,
     oneSentence,
-    numbers,
+    numbers: [],
     newDevelopments,
     relationships: null,
     audiences: [],
     whatNext: [],
-    context,
+    context: [],
     perspectives: [],
-    unknowns,
+    unknowns: selection.facts.filter((f) => f.uncertain).map((f) => f.text),
     watchNext: [],
     timeline: [],
     conflicts: [],

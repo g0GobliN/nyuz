@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { composeArticle } from "./editorial";
+import type { Story } from "./story";
 import {
   dedupeStatements,
   readEventIntelligence,
@@ -617,7 +619,8 @@ describe("legacyEventIntelligence", () => {
       ],
     };
     const intel = legacyEventIntelligence(legacy);
-    expect(intel.context.length).toBeGreaterThan(0);
+    expect(intel.newDevelopments.some((s) => s.text.includes("longer sentence"))).toBe(true);
+    expect(intel.context).toEqual([]);
   });
 
   it("does not manufacture a timeline from source counts", () => {
@@ -711,7 +714,7 @@ describe("legacyEventIntelligence", () => {
     expect(intel.newDevelopments.filter((s) => /flagship model/.test(s.text))).toHaveLength(1);
   });
 
-  it("states outlet coverage only when there is an actual fact behind it", () => {
+  it("keeps outlet support in citations rather than metadata prose", () => {
     const withFacts = legacyEventIntelligence({
       what: "Something happened.",
       sources: [
@@ -720,8 +723,9 @@ describe("legacyEventIntelligence", () => {
       ],
     });
     expect(withFacts.context.some((c) => /outlets are currently reporting/.test(c.text))).toBe(
-      true,
+      false,
     );
+    expect(withFacts.newDevelopments[0]?.evidence).toEqual([1, 2]);
 
     const withoutExcerpts = legacyEventIntelligence({
       what: "Something happened.",
@@ -743,9 +747,10 @@ describe("legacyEventIntelligence", () => {
         },
       ],
     });
-    const mention = intel.context.find((c) => c.text.startsWith("The coverage centers on"));
+    const mention = intel.newDevelopments.find((c) => c.text.includes("OpenAI"));
     expect(mention?.text).toContain("OpenAI");
     expect(mention?.evidence).toEqual([1]);
+    expect(JSON.stringify(intel)).not.toContain("The coverage centers on");
   });
 
   it("extracts money and percentage figures actually present in the excerpts, without inventing values", () => {
@@ -758,11 +763,13 @@ describe("legacyEventIntelligence", () => {
         },
       ],
     });
-    expect(intel.numbers.some((n) => n.value.includes("13"))).toBe(true);
-    expect(intel.numbers.some((n) => n.value === "40%")).toBe(true);
+    expect(intel.numbers).toEqual([]);
+    expect(intel.newDevelopments[0]?.text).toBe(
+      "The deal is worth $13 billion, a 40% premium over the last valuation.",
+    );
   });
 
-  it("adds related nyuz coverage only when it is supplied", () => {
+  it("does not turn supplied historical titles into context without a supported fact", () => {
     const withRelated = legacyEventIntelligence({
       what: "A follow-up development occurred.",
       sources: [{ name: "A", excerpt: "The company confirmed a follow-up development this week." }],
@@ -770,7 +777,7 @@ describe("legacyEventIntelligence", () => {
     });
     expect(
       withRelated.context.some((c) => c.text.includes("The original announcement last month")),
-    ).toBe(true);
+    ).toBe(false);
 
     const withoutRelated = legacyEventIntelligence({
       what: "A follow-up development occurred.",
@@ -839,6 +846,21 @@ describe("legacyEventIntelligence", () => {
     const words = wordsOf(intel);
     expect(words).toBeGreaterThanOrEqual(400);
     expect(intel.coverage).toBe("rich");
+    const article = composeArticle({
+      title: "Nvidia agrees to acquire Hugging Face for $13 billion",
+      what: intel.oneSentence,
+      sourceList: Object.entries(perSource).map(([name, facts]) => ({
+        name,
+        at: "",
+        enrichedEvidence: facts.map((text) => ({ kind: "fact" as const, text })),
+      })),
+    } as Story);
+    const output = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    expect(output.split(/\s+/).length).toBeGreaterThanOrEqual(400);
+    expect(output).not.toMatch(
+      /coverage centers on|Amount mentioned|nyuz has also covered|outlets are currently reporting/,
+    );
+    expect(article.paragraphs.every((p) => p.evidence.length > 0)).toBe(true);
   });
 
   it("routes an uncertain evidence unit into unknowns rather than presenting it as established fact", () => {

@@ -2,6 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { parseInput } from "@/lib/server/validate";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
+import { scoreRelatedEvent } from "@/lib/related-events";
+import { selectReaderEvidence } from "@/lib/reader-evidence";
+import { rankEventTopics } from "@/lib/pipeline/topic-assign";
 import { orderEvidenceSources, remapEvidence } from "@/lib/pipeline/evidence-text";
 import { signedInOnly } from "./guard";
 import { backfill, WINDOW_HOURS } from "@/lib/pipeline/backfill";
@@ -488,18 +491,13 @@ export const searchStories = createServerFn({ method: "GET" })
 
 const RELATED_EVENTS_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
-/**
- * Prior events sharing a real topic with this one, for the deterministic
- * reader's background paragraph. Bounded to two round trips regardless of
- * corpus size: one indexed lookup on `event_topics_topic_idx` for candidate
- * ids, one `events` read for the handful that survive. Fails open -- a
- * lookup error yields no related events rather than a broken page.
- */
+/** Topics bound the candidate lookup; semantic anchors decide acceptance. */
 async function relatedEventsFor(
   db: Db,
   eventId: string,
   beforeIso: string,
-): Promise<{ id: string; title: string }[]> {
+  story: Story,
+): Promise<NonNullable<Story["relatedEvents"]>> {
   const own = await db.from("event_topics").select("topic_id").eq("event_id", eventId);
   const topicIds = [...new Set((own.data ?? []).map((t) => t.topic_id))];
   if (own.error || topicIds.length === 0) return [];
@@ -520,7 +518,7 @@ async function relatedEventsFor(
   const cutoff = new Date(new Date(beforeIso).getTime() - RELATED_EVENTS_WINDOW_MS).toISOString();
   const candidates = await db
     .from("events")
-    .select("id, title, first_seen_at, status")
+    .select("id, title, what_happened, first_seen_at, status")
     .in("id", [...counts.keys()].slice(0, 100))
     .eq("status", "complete")
     .gte("first_seen_at", cutoff)
@@ -528,13 +526,23 @@ async function relatedEventsFor(
   if (candidates.error) return [];
 
   return candidates.data
-    .sort(
-      (a, b) =>
-        (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0) ||
-        b.first_seen_at.localeCompare(a.first_seen_at),
-    )
+    .map((e) => ({
+      event: e,
+      score: scoreRelatedEvent(
+        { title: story.title, summary: story.what, publishedAt: beforeIso },
+        { title: e.title, summary: e.what_happened, publishedAt: e.first_seen_at },
+        counts.get(e.id) ?? 0,
+      ),
+    }))
+    .filter((e) => e.score.accepted)
+    .sort((a, b) => b.score.finalScore - a.score.finalScore || a.event.id.localeCompare(b.event.id))
     .slice(0, 2)
-    .map((e) => ({ id: e.id, title: e.title }));
+    .map(({ event: e }) => ({
+      id: e.id,
+      title: e.title,
+      summary: e.what_happened,
+      publishedAt: e.first_seen_at,
+    }));
 }
 
 /**
@@ -544,7 +552,7 @@ async function relatedEventsFor(
  */
 async function withRelatedEvents(db: Db, story: Story): Promise<Story> {
   if (story.understand?.article) return story;
-  const relatedEvents = await relatedEventsFor(db, story.id, story.publishedAt);
+  const relatedEvents = await relatedEventsFor(db, story.id, story.publishedAt, story);
   return relatedEvents.length ? { ...story, relatedEvents } : story;
 }
 
@@ -1229,6 +1237,7 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
       coverage.length,
     );
     const publishedAt = event.first_seen_at;
+    const lead = selectReaderEvidence(event.title, coverage).lead?.text ?? "";
     return [
       {
         id: event.id,
@@ -1243,7 +1252,7 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
           novelty: asPercent(event.novelty),
         },
         sources: event.publisher_count || new Set(coverage.map((c) => c.name)).size,
-        topics: topics.get(id) ?? [],
+        topics: rankEventTopics(event.title, lead, topics.get(id) ?? []),
         time: clockOf(publishedAt),
         publishedAt,
         updatedAt: event.last_updated_at,

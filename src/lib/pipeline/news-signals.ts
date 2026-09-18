@@ -1,5 +1,6 @@
 import { extractFacts } from "./extract";
 import { scoreEventV2 } from "./scoring";
+import { editorialNoise, selectReaderEvidence } from "../reader-evidence";
 
 export type NewsArticle = {
   id: string;
@@ -151,7 +152,11 @@ export function finalizeMetadata(
   const novelty = age < 6 ? 7 : age < 24 ? 5 : age < 72 ? 3 : 1;
   return {
     title,
-    what_happened: short,
+    what_happened:
+      selectReaderEvidence(
+        title,
+        ranked.map((a) => ({ excerpt: a.excerpt ?? "" })),
+      ).lead?.text ?? (editorialNoise(short) ? title : short),
     importance: score.importanceEstimate,
     novelty,
     article_count: articles.length,

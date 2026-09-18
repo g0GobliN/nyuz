@@ -113,6 +113,7 @@ type CandidateSource = {
 
 type Candidate = {
   id: string;
+  title: string;
   url: string | null;
   sources: CandidateSource | null;
 };
@@ -150,7 +151,9 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
   const limit = options.limit ?? ENRICH_LIMIT;
   let query = db
     .from("articles")
-    .select("id, url, sources ( id, homepage, enrichment_allowed, enrichment_failure_count )")
+    .select(
+      "id, title, url, sources ( id, homepage, enrichment_allowed, enrichment_failure_count )",
+    )
     .not("event_id", "is", null)
     .not("url", "is", null)
     .order("published_at", { ascending: false });
@@ -296,7 +299,7 @@ async function enrichOne(
       };
     }
 
-    const units = selectEvidenceUnits(mainText);
+    const units = selectEvidenceUnits(mainText, undefined, article.title);
     if (!dryRun) {
       await finish(db, article.id, "enriched", units, wordCount);
       await recordSourceOutcome(db, source, true);

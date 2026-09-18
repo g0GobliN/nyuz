@@ -317,7 +317,7 @@ export function topicsFor(
   //
   //   custom — the reader's own terms, all of which must appear, which is the
   //     rule `match.ts` applies to the same rows.
-  const labels = new Set(assignTopics(raw).map((label) => label.toLowerCase()));
+  const labels = new Set(assignTopics(raw, event.title).map((label) => label.toLowerCase()));
   const signal = normaliseText(raw);
 
   const matched: string[] = [];

@@ -6,6 +6,7 @@ import {
   extractProducts,
 } from "./extract";
 import { sentences, repeats, isEvidenceBoilerplate, type EvidenceUnit } from "@/lib/understand";
+import { evidenceScore, rankEntities } from "../reader-evidence";
 
 /**
  * Turning one article's extracted main text into a bounded set of short,
@@ -86,9 +87,10 @@ export const MAX_EVIDENCE_UNITS = 12;
 export function selectEvidenceUnits(
   mainText: string,
   maxUnits = MAX_EVIDENCE_UNITS,
+  title = "",
 ): EvidenceUnit[] {
   const quotes = extractQuotes(mainText)
-    .filter((q) => !isEvidenceBoilerplate(q.quote))
+    .filter((q) => !isEvidenceBoilerplate(`${q.attribution} said: "${q.quote}"`))
     .slice(0, 3);
   const quoteKeys = quotes.map((q) => q.quote.toLowerCase());
 
@@ -98,10 +100,11 @@ export function selectEvidenceUnits(
     .filter((text) => !isEvidenceBoilerplate(text))
     .filter((text) => !quoteKeys.some((q) => text.toLowerCase().includes(q)));
 
+  const entities = rankEntities(title, [{ excerpt: mainText }]);
   const scored = candidates
     .map((text) => ({
       text,
-      score: factDensity(text),
+      score: evidenceScore(text, title, entities) + factDensity(text),
       uncertain: UNCERTAIN_PATTERNS.some((p) => p.test(text)),
     }))
     .sort((a, b) => b.score - a.score);

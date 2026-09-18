@@ -37,11 +37,11 @@ export type Story = {
   /** Shared, structured event knowledge. Absent for events analysed before 0046. */
   understand?: EventIntelligence;
   /**
-   * Prior nyuz events sharing a real topic overlap, for the deterministic
+   * Prior nyuz events sharing central entities or specific headline facts, for the deterministic
    * reader's background paragraph. Only attached when there is no authored
    * article to render instead -- see `relatedEventsFor` in briefing.ts.
    */
-  relatedEvents?: { id: string; title: string }[];
+  relatedEvents?: { id: string; title: string; summary?: string; publishedAt?: string }[];
   matched?: string[];
   /**
    * Why this reader specifically is seeing this event, when it's genuinely true.

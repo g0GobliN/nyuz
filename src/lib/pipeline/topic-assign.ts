@@ -589,7 +589,7 @@ const TAG_KEYWORDS: Record<string, string[]> = {
  * no model in the path, which is what makes the regression tests in
  * topic-assign.test.ts binding rather than indicative.
  */
-export function assignTopics(text: string): string[] {
+export function assignTopics(text: string, title = ""): string[] {
   const normalised = normaliseText(text).toLowerCase();
   const scored: { topic: string; strong: number; total: number }[] = [];
 
@@ -606,7 +606,40 @@ export function assignTopics(text: string): string[] {
 
   scored.sort((a, b) => b.strong - a.strong || b.total - a.total || a.topic.localeCompare(b.topic));
 
-  return scored.slice(0, MAX_ASSIGNED_TOPICS).map((s) => s.topic);
+  const labels = scored.map((s) => s.topic);
+  return (title ? rankEventTopics(title, "", labels) : labels).slice(0, MAX_ASSIGNED_TOPICS);
+}
+
+/** Display order is a central-event decision, never a database row order. */
+export function rankEventTopics(title: string, lead: string, labels: string[]): string[] {
+  const central = (text: string): string | undefined => {
+    if (
+      /\b(?:breach|ransomware|data (?:exposure|leak)|accessible outside)\b|\b(?:test|staging) environment\b.*\b(?:access|exposed|customer data)\b/i.test(
+        text,
+      )
+    )
+      return "Cybersecurity";
+    if (
+      /(?:[$€£]\s*[\d,.]+[^.!?]{0,35}\b(?:backing|funding|investment)|\b(?:raised|raises|secured|pledges|donations)\b[^.!?]{0,70}[$€£])/i.test(
+        text,
+      )
+    )
+      return "Funding";
+    if (/\b(?:election|parliament|senate|legislation|referendum)\b/i.test(text)) return "Politics";
+    return undefined;
+  };
+  const dominant = central(title) ?? central(lead);
+  const candidates = [...new Set([...labels, ...(dominant ? [dominant] : [])])];
+  const score = (label: string) => {
+    const vocabulary = TOPIC_KEYWORDS[label];
+    const hits = (text: string) =>
+      vocabulary
+        ? countMentions(normaliseText(text).toLowerCase(), vocabulary.strong) * 3 +
+          countMentions(normaliseText(text).toLowerCase(), vocabulary.weak ?? [])
+        : 0;
+    return (dominant === label ? 100 : 0) + hits(title) * 8 + hits(lead) * 3;
+  };
+  return candidates.sort((a, b) => score(b) - score(a) || a.localeCompare(b));
 }
 
 /** How many of these terms the text mentions. Distinct terms, not occurrences. */
