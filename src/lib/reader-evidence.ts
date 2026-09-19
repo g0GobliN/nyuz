@@ -10,12 +10,36 @@ export type ReaderSource = {
 };
 
 const ACTION =
-  /\b(?:is|are|was|were|has|have|had|said|says|announced|raised|raises|secured|gains?|reached|pledged|funded|backing|discovered|exposed|accessible|connected|restricted|released|launches?|launched|acquire[ds]?|approved|blocked|banned|hired|hires|includes?|reported|confirmed|will|plans?|requires?|remains?|allows?|supports?|offers?|runs?|running|uses?|used|built|found|started|spending|scores?|starts?|expanded|appears?|declined|rose|marks?|represents?|hosts?|values?|closed)\b/i;
+  /\b(?:is|are|was|were|has|have|had|said|says|announced|raised|raises|secured|gains?|reached|pledged|funded|backing|discovered|exposed|accessible|connected|restricted|released|launches?|launched|acquire[ds]?|approved|blocked|banned|hired|hires|includes?|reported|confirmed|will|plans?|requires?|remains?|allows?|supports?|offers?|runs?|running|uses?|used|built|found|started|spending|scores?|starts?|expanded|appears?|declined|rose|marks?|represents?|hosts?|values?|closed|expects?|yields?|produces?|increases?|decreases?)\b/i;
 const NOISE =
   /\b(?:welcome back|weekly column|this week['’]s (?:column|newsletter)|as regular readers know|subscribe to|sign up for|click here|read more|continue reading|cookie policy|all rights reserved|follow us on|share this article|related articles|the coverage centers on|amount mentioned|percentage mentioned|entity mentioned|source count|evidence suggests|nyuz has also covered)\b|\bthe post\b.*\bappeared first on\b|^(?:advertisement|image credit|photo credit|hopefully\b|the takeaway\b)/i;
 const VOICE = /\b(?:we|we['’](?:ve|re|ll|d)|our|ours|you|your|as I remember)\b/i;
 const COMMENTARY =
-  /\b(?:tales of woe|gaping hole|so swimmingly|popularity is undeniable|likely a contributing factor|more important changes are less|make so many enemies|gaining ground fast|winning supporters and boosters|just in case there was)\b|^Even if\b|^[^.!?]{1,45},[^.!?]{1,45}\sThe problem\b/i;
+  /\b(?:tales of woe|gaping hole|so swimmingly|popularity is undeniable|likely a contributing factor|more important changes are less|make so many enemies|gaining ground fast|winning supporters and boosters|just in case there was|eye[- ]popping|alarming valuations?|all[- ]encompassing|world away from|remember how to be|older,? less attractive)\b|^Even if\b|^[^.!?]{1,45},[^.!?]{1,45}\sThe problem\b/i;
+const DEPENDENT_OPENING =
+  /^(?:this|that|these|those|it|they|he|she|its|their|the figure|the result|the move|the change|using the same|use the same)\b/i;
+
+/**
+ * Remove a small, explicitly editorial set of modifiers without rewriting the
+ * underlying proposition. Rhetorical sentences are still rejected when their
+ * factual content cannot stand alone; this only helps when a clean claim is
+ * already present in the sentence.
+ */
+export function normalizeEvidenceText(text: string): string {
+  return text
+    .replace(/\bthat makes a [^,]+ remember how to be a [^,]+/gi, "")
+    .replace(/\bworld away from\b/gi, "different from")
+    .replace(/\beye[- ]popping\s+/gi, "")
+    .replace(/\balarming\s+(?=(?:valuations?|investments?|figures?)\b)/gi, "")
+    .replace(/\ball[- ]encompassing\s+/gi, "")
+    .replace(/\bolder,?\s+less attractive\s+/gi, "older ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+export function contextDependent(text: string): boolean {
+  return DEPENDENT_OPENING.test(text.trim()) || /\bthe figure\b/i.test(text);
+}
 
 /** Quoted speech belongs to its speaker, not the publication. */
 export function publisherVoice(text: string): boolean {
@@ -215,7 +239,70 @@ export type ReaderFact = {
   score: number;
   quote: boolean;
   uncertain: boolean;
+  /** Source-local position is retained in memory for safe context recovery. */
+  sourceOrder: number;
+  previousText?: string;
+  nextText?: string;
 };
+
+function recoverContext(text: string, previousText?: string): string {
+  const previousSubject = previousText?.match(
+    /^(?:The )?([A-Z][\w.-]*(?:\s+[A-Z][\w.-]*){0,2})\b/,
+  )?.[1];
+  if (!previousSubject) return text;
+  return text
+    .replace(/^The figure\b/i, "The figure described above")
+    .replace(/^That figure\b/i, "That figure described above")
+    .replace(/^Its\b/i, `${previousSubject}'s`)
+    .replace(/^It\b/i, previousSubject);
+}
+
+export type ReaderEvidenceBlock = {
+  facts: ReaderFact[];
+  role: "lead" | "price" | "supply" | "context" | "analysis" | "quote";
+};
+
+function blockRole(facts: ReaderFact[]): ReaderEvidenceBlock["role"] {
+  const text = facts.map((fact) => fact.text).join(" ");
+  if (facts.some((fact) => fact.quote)) return "quote";
+  if (/\b(?:price|cost|revenue|funding|percent|%)\b|[$€£]\s*\d/i.test(text)) return "price";
+  if (/\b(?:supply|capacity|shortage|production|manufactur|lead time)\b/i.test(text))
+    return "supply";
+  if (/\b(?:expects?|according to|analyst|research|said|warned)\b/i.test(text)) return "analysis";
+  if (/\b(?:because|as|driven|result|impact|effect)\b/i.test(text)) return "context";
+  return "context";
+}
+
+/** Group only compatible claims; this is a bounded in-memory editorial step. */
+export function groupReaderEvidence(facts: ReaderFact[], maxFacts = 4): ReaderEvidenceBlock[] {
+  const blocks: ReaderEvidenceBlock[] = [];
+  for (const fact of facts) {
+    const prior = blocks.at(-1);
+    const priorTokens = prior
+      ? new Set(prior.facts.flatMap((item) => centralTokens(item.text)))
+      : new Set<string>();
+    const shared = centralTokens(fact.text).some((token) => priorTokens.has(token));
+    const sameEvidence = prior?.facts.some((item) =>
+      item.evidence.some((ref) => fact.evidence.includes(ref)),
+    );
+    if (prior && (shared || sameEvidence) && prior.facts.length < maxFacts) {
+      prior.facts.push(fact);
+      prior.role = blockRole(prior.facts);
+    } else {
+      blocks.push({ facts: [fact], role: blockRole([fact]) });
+    }
+  }
+  return blocks;
+}
+
+/** A cheap diagnostic: exact sentence overlap is counted, while normal word/number overlap is not. */
+export function verbatimSourceRatio(output: string, facts: ReaderFact[]): number {
+  const outputSentences = new Set(readerSentences(output).map((text) => text.toLowerCase()));
+  const selected = facts.filter((fact) => fact.origin === "enriched");
+  if (selected.length === 0) return 0;
+  const copied = selected.filter((fact) => outputSentences.has(fact.text.toLowerCase())).length;
+  return copied / selected.length;
+}
 
 export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
   const entities = rankEntities(title, sources);
@@ -223,16 +310,25 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
   sources.forEach((source, index) => {
     let antecedent: string | undefined;
     // Use both existing evidence stores: an enrichment cap must not hide an RSS fact.
+    // The source-local neighbors are kept only in memory; they are never emitted as
+    // a paragraph and are used solely to repair a small, explicit context dependency.
     const units = [
-      ...(source.enrichedEvidence ?? []).map((u) => ({ ...u, origin: "enriched" as const })),
-      ...readerSentences(source.excerpt ?? "").map((text) => ({
+      ...(source.enrichedEvidence ?? []).map((u, order) => ({
+        ...u,
+        origin: "enriched" as const,
+        sourceOrder: order,
+      })),
+      ...readerSentences(source.excerpt ?? "").map((text, order) => ({
         text,
         kind: "fact",
         origin: "rss" as const,
         attribution: undefined,
+        sourceOrder: order,
       })),
     ];
-    for (const unit of units) {
+    for (const [unitIndex, unit] of units.entries()) {
+      const previousText = units[unitIndex - 1]?.text;
+      const nextText = units[unitIndex + 1]?.text;
       const quote = unit.kind === "quote" && !!unit.attribution;
       let text = quote
         ? `${unit.attribution} said: "${unit.text}"`
@@ -262,6 +358,13 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
       );
       if (identity) text = `${identity[1]}, better known as ${identity[2]}, is ${identity[3]}`;
       if (antecedent) text = text.replace(/^Its\b/, `${antecedent}'s`).replace(/^It\b/, antecedent);
+      if (contextDependent(text)) {
+        // Keep comparative/pronominal sentences only when their source-local
+        // context gives them an explicit subject. Never guess a missing noun.
+        if (!previousText || contextDependent(previousText)) continue;
+        text = recoverContext(text, previousText);
+      }
+      text = normalizeEvidenceText(text);
       const subject = entities.find(
         (e) => e.role !== "REPORTING_SOURCE" && text.replace(/^The /, "").startsWith(`${e.name} `),
       );
@@ -274,6 +377,9 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
           unit.kind === "quote" && !unit.attribution ? -100 : evidenceScore(text, title, entities),
         quote,
         uncertain: unit.kind === "uncertain",
+        sourceOrder: unit.sourceOrder,
+        ...(previousText ? { previousText } : {}),
+        ...(nextText ? { nextText } : {}),
       });
     }
   });
@@ -319,12 +425,17 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
   );
   const selected = new Set(ranked.slice(0, 28));
   const facts = accepted.filter((f) => selected.has(f));
+  const blocks = groupReaderEvidence(facts);
   return {
     rawCount: raw.length,
     rejectedCount: rejected,
     duplicateCount: duplicates,
+    contextDependencyRejections: raw.filter((fact) => contextDependent(fact.text)).length,
+    publisherVoiceRejections: raw.filter((fact) => editorialNoise(fact.text)).length,
+    composedFactCount: facts.length,
     entities,
     lead,
     facts,
+    blocks,
   };
 }

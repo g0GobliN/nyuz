@@ -34,19 +34,24 @@ export function composeArticle(story: Story): ReaderArticle {
     };
     const paragraphs: ArticleParagraph[] = [];
     let words = leadText.split(/\s+/).length;
-    for (const fact of selection.facts) {
-      if (fact === lead) continue;
-      const size = fact.text.split(/\s+/).length;
+    // Compose bounded evidence blocks rather than printing every selected
+    // sentence as its own paragraph. Blocks were grouped only on shared claims
+    // or shared citations, so this cannot invent a relationship between facts.
+    const blocks = selection.blocks
+      .map((block) => ({ ...block, facts: block.facts.filter((fact) => fact !== lead) }))
+      .filter((block) => block.facts.length > 0);
+    for (const block of blocks) {
+      const text = block.facts.map((fact) => sentence(fact.text)).join(" ");
+      const size = text.split(/\s+/).length;
       if (words + size > 850) continue;
+      const evidence = [...new Set(block.facts.flatMap((fact) => fact.evidence))];
       const prior = paragraphs.at(-1);
-      if (
-        prior &&
-        prior.evidence.some((ref) => fact.evidence.includes(ref)) &&
-        prior.text.split(/\s+/).length + size <= 75
-      ) {
-        prior.text += ` ${sentence(fact.text)}`;
-        prior.evidence = [...new Set([...prior.evidence, ...fact.evidence])];
-      } else paragraphs.push({ text: sentence(fact.text), evidence: [...fact.evidence] });
+      if (prior && prior.text.split(/\s+/).length + size <= 110 && block.role === "context") {
+        prior.text += ` ${text}`;
+        prior.evidence = [...new Set([...prior.evidence, ...evidence])];
+      } else {
+        paragraphs.push({ text, evidence });
+      }
       words += size;
     }
     for (const candidate of story.relatedEvents ?? []) {

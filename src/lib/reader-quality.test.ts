@@ -229,6 +229,49 @@ describe("production deterministic Read quality", () => {
     expect(textOf(s).split(/\s+/).length).toBeLessThan(60);
     expect(composeArticle(s).paragraphs).toEqual([]);
   });
+  it("neutralizes NOR/SLC publisher rhetoric while preserving numeric context and attribution", () => {
+    const s = story(1);
+    s.title = "NOR flash and SLC NAND prices rise as supply tightens";
+    s.what = "NOR flash and SLC NAND prices are rising as manufacturers shift capacity.";
+    s.sourceList = [
+      {
+        name: "TrendForce",
+        at: "",
+        excerpt:
+          "Contract prices for NOR flash and SLC NAND rose by 100% in the first half of 2026. TrendForce expects SLC NAND contract prices to rise another 120% to 170% in the second half of 2026 compared with the first half. The memory chip that makes a router remember how to be a router is a world away from the sleek GPUs used for artificial intelligence. Manufacturers are reducing wafer capacity devoted to SLC NAND in favor of higher-margin NAND products. Equipment lead times remain 12 to 15 months.",
+      },
+      {
+        name: "Morgan Stanley",
+        at: "",
+        excerpt:
+          "Morgan Stanley expects NOR flash supply to remain tight through 2026. JPMorgan also expects supply pressure to continue. Bryan Ao described the market as severe undersupply.",
+      },
+    ];
+    const article = composeArticle(s);
+    const output = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    expect(output).toContain("100%");
+    expect(output).toContain("120% to 170%");
+    expect(output).toContain("12 to 15 months");
+    expect(output).toContain("Morgan Stanley");
+    expect(output).not.toMatch(/router remember how to be a router|world away from|sleek GPUs/i);
+    expect(output).not.toMatch(
+      /eye[- ]popping|alarming valuations?|all[- ]encompassing|older, less attractive/i,
+    );
+    expect(output).not.toMatch(/(?:^|\s)the figure is closer to \$6,000 to \$8,000/i);
+    expect(output.split(/\s+/).length).toBeGreaterThan(70);
+  });
+
+  it("keeps a dependent comparison with its local antecedent and drops an orphan comparison", () => {
+    const selected = selectReaderEvidence("Wafer capacity shifts to SLC NAND", [
+      {
+        excerpt:
+          "The same wafer capacity used for SLC NAND yields about $6,000 to $8,000 in value. Using the same space to produce SLC and the figure is closer to $6,000 to $8,000. The figure is closer to $6,000 to $8,000.",
+      },
+    ]);
+    expect(selected.facts.some((fact) => /same wafer capacity/i.test(fact.text))).toBe(true);
+    expect(selected.facts.some((fact) => /^The figure/i.test(fact.text))).toBe(false);
+  });
+
   it("re-filters stored enriched facts and retains a unique RSS fact", () => {
     const selected = selectReaderEvidence("Acme raises funding", [
       {

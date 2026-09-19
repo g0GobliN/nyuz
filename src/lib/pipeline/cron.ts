@@ -366,6 +366,9 @@ async function recordScheduled(
                 : 0;
       const failed = typeof report["failed"] === "number" ? report["failed"] : 0;
       const skipped = typeof report["skipped"] === "number" ? report["skipped"] : 0;
+      const metricsRecorded = ["considered", "processed", "skipped", "failed"].filter(
+        (metric) => typeof report[metric] === "number",
+      );
       await createAdminClient(env)
         .from("pipeline_runs")
         .insert({
@@ -378,7 +381,7 @@ async function recordScheduled(
           processed,
           skipped,
           failed,
-          reason_counts: {},
+          reason_counts: { metrics_recorded: metricsRecorded },
         });
     }
     return result;
@@ -395,7 +398,10 @@ async function recordScheduled(
         processed: 0,
         skipped: 0,
         failed: 1,
-        reason_counts: { error: error instanceof Error ? error.message.slice(0, 240) : "unknown" },
+        reason_counts: {
+          metrics_recorded: ["failed"],
+          error: error instanceof Error ? error.message.slice(0, 240) : "unknown",
+        },
       });
     throw error;
   }
