@@ -124,6 +124,24 @@ export const MAX_DAILY_AGE_HOURS = DAILY_POLICY.maxHours;
 export const MAX_WEEKLY_AGE_HOURS = WEEKLY_POLICY.maxHours;
 
 /**
+ * Active work horizon for the current-news pipeline. This deliberately reuses
+ * the daily policy's hard ceiling instead of introducing a second 72h constant.
+ * Records older than this remain historical data, but normal workers must not
+ * select them as current work.
+ */
+export const ACTIVE_WORK_HORIZON_HOURS = MAX_DAILY_AGE_HOURS;
+
+export function activeCutoff(now: Date = new Date()): Date {
+  return new Date(now.getTime() - ACTIVE_WORK_HORIZON_HOURS * 3_600_000);
+}
+
+export function isActiveWorkTimestamp(at: string | null, now: Date = new Date()): boolean {
+  if (at === null) return false;
+  const parsed = Date.parse(at);
+  return !Number.isNaN(parsed) && parsed >= activeCutoff(now).getTime();
+}
+
+/**
  * Importance (0..10) at which a story may enter the exceptional band, and at
  * which an older story competes with today rather than waiting behind it.
  *
@@ -312,7 +330,7 @@ export function rankIntoLanes<T extends RankableItem>(
  * for its own cron. 48 hours leaves room for that pipeline latency without
  * letting the queue wander into material no briefing would accept anyway.
  */
-export const LIVE_QUEUE_HOURS = 48;
+export const LIVE_QUEUE_HOURS = ACTIVE_WORK_HORIZON_HOURS;
 
 /**
  * The share of each analysis batch reserved for live news.

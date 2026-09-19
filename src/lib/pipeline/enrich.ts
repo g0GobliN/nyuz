@@ -5,6 +5,7 @@ import { checkRobotsPermission } from "./robots";
 import { extractMainText } from "./html-text";
 import { selectEvidenceUnits } from "./evidence-extract";
 import type { EvidenceUnit } from "@/lib/understand";
+import { activeCutoff } from "./freshness";
 
 type Db = SupabaseClient<Database>;
 
@@ -157,7 +158,9 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
     .not("event_id", "is", null)
     .not("url", "is", null)
     .order("published_at", { ascending: false });
-  query = options.articleId ? query.eq("id", options.articleId) : query.limit(limit * 4);
+  query = options.articleId
+    ? query.eq("id", options.articleId)
+    : query.gte("published_at", activeCutoff(now).toISOString()).limit(limit * 4);
   const { data: candidates, error } = await query;
   if (error) throw new Error(`reading enrichment candidates: ${error.message}`);
 

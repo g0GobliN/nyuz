@@ -67,7 +67,10 @@ export function TimezoneSelect({
           <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+      <PopoverContent
+        className="w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-3rem)] p-0"
+        align="start"
+      >
         {/* cmdk's own filter is off: the list is searched and capped upstream,
             so only the rows that can match are ever mounted. */}
         <Command shouldFilter={false}>

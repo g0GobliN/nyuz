@@ -234,7 +234,10 @@ function Delivery() {
       >
         <Panel title="Time and place">
           <div className="grid gap-5 sm:grid-cols-2">
-            <div>
+            {/* min-w-0 lets the column shrink below the input's intrinsic
+                width: iOS gives input[type=time] a wide min-content size, and
+                without it the grid track overflows the panel. */}
+            <div className="min-w-0">
               <label htmlFor="time" className="text-[13px] text-muted-foreground">
                 Delivery time{" "}
                 {!limits.customDeliveryTime && (
@@ -249,10 +252,10 @@ function Delivery() {
                 value={limits.customDeliveryTime ? prefs.time : STANDARD_DELIVERY_TIME}
                 disabled={!limits.customDeliveryTime}
                 onChange={(e) => touch({ time: e.target.value })}
-                className="mt-2 h-12 w-full rounded-2xl border border-input bg-background px-4 text-[16px] tabular-nums outline-none focus:border-signal"
+                className="mt-2 h-12 w-full min-w-0 appearance-none rounded-2xl border border-input bg-background px-4 text-[16px] tabular-nums outline-none focus:border-signal"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label htmlFor="tz" className="text-[13px] text-muted-foreground">
                 Timezone
               </label>
@@ -626,9 +629,13 @@ function Channel({
       >
         <Icon className="h-4 w-4" />
       </span>
-      <span className="flex-1">
+      {/* min-w-0 lets this column shrink; break-words lets a long address
+          wrap instead of pushing the toggle outside the card. */}
+      <span className="min-w-0 flex-1">
         <span className="block text-[15px] font-medium">{label}</span>
-        <span className="mt-0.5 block text-[12.5px] text-muted-foreground">{detail}</span>
+        <span className="mt-0.5 block text-[12.5px] text-muted-foreground [overflow-wrap:anywhere]">
+          {detail}
+        </span>
       </span>
       <span
         className={cn(
@@ -655,7 +662,7 @@ function Channel({
         <button
           type="button"
           onClick={onToggle}
-          className="flex w-full items-center gap-4 p-4 text-left"
+          className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 p-4 text-left"
         >
           {row}
         </button>
@@ -669,7 +676,7 @@ function Channel({
       type="button"
       onClick={onToggle}
       className={cn(
-        "flex w-full items-center gap-4 rounded-2xl border p-4 text-left transition-all duration-300",
+        "grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 rounded-2xl border p-4 text-left transition-all duration-300",
         on ? "border-signal/50 bg-surface-2" : "border-hairline hover:border-border",
       )}
     >

@@ -52,23 +52,18 @@ type NavEntry = {
 
 const NAV: NavEntry[] = [
   { to: "/admin", label: "Overview", icon: BarChart3, exact: true },
-  { to: "/admin/users", label: "Users", icon: Users },
-  { to: "/admin/blog", label: "Blog", icon: FileText },
-  // Sources sits next to AI providers because the two are one job: what the
-  // pipeline reads, and what it thinks with.
+  { to: "/admin/operations", label: "Operations", icon: Activity },
+  { to: "/admin/diagnostics", label: "Diagnostics", icon: Activity },
   { to: "/admin/sources", label: "Sources", icon: Rss },
-  { to: "/admin/ai", label: "AI providers", icon: Cpu },
-  // Between providers and cost because it is the bridge: the budgets and
-  // ceilings that decide how much the thinking on either side of it may spend.
-  { to: "/admin/ai-runtime", label: "AI runtime", icon: SlidersHorizontal },
-  // Next to AI providers for the same reason: what the pipeline thinks with,
-  // and what that thinking costs.
-  { to: "/admin/cost", label: "Cost", icon: Coins },
-  { to: "/admin/content", label: "Site content", icon: LayoutTemplate },
-  // Next to site content because both are "what the outside world gets", and
-  // ahead of the audit log because it is the one an operator reaches for in a
-  // hurry — closing the doors is the emergency lever on this console.
+  { to: "/admin/users", label: "Users", icon: Users },
+  { to: "/admin/content", label: "Content", icon: LayoutTemplate },
+  { to: "/admin/blog", label: "Blog", icon: FileText },
   { to: "/admin/access", label: "Access", icon: DoorClosed },
+  // AI remains available, but it is a secondary subsystem: the core pipeline
+  // must be understandable and healthy even when AI is disabled.
+  { to: "/admin/ai", label: "AI providers", icon: Cpu },
+  { to: "/admin/ai-runtime", label: "AI runtime", icon: SlidersHorizontal },
+  { to: "/admin/cost", label: "AI cost", icon: Coins },
   { to: "/admin/audit", label: "Audit log", icon: ScrollText },
 ];
 

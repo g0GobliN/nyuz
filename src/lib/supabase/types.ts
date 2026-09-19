@@ -704,6 +704,21 @@ export type OpsStatus = {
   updated_at: string;
 };
 
+export type PipelineRun = {
+  id: string;
+  stage: string;
+  trigger: string;
+  started_at: string;
+  finished_at: string | null;
+  status: "running" | "healthy" | "warning" | "error";
+  considered: number;
+  processed: number;
+  skipped: number;
+  failed: number;
+  reason_counts: Json;
+  created_at: string;
+};
+
 export type Feedback = {
   user_id: string;
   event_id: string;
@@ -1119,6 +1134,18 @@ export type Database = {
         "id" | "note" | "occurred_at" | "created_by" | "created_at"
       >;
       ops_status: Table<OpsStatus, "detail" | "updated_at">;
+      pipeline_runs: Table<
+        PipelineRun,
+        | "id"
+        | "finished_at"
+        | "status"
+        | "considered"
+        | "processed"
+        | "skipped"
+        | "failed"
+        | "reason_counts"
+        | "created_at"
+      >;
       telegram_accounts: Table<
         TelegramAccount,
         "chat_id" | "connect_nonce" | "connect_expires_at" | "linked_at"
@@ -1509,6 +1536,11 @@ export type Database = {
       expire_stale_user_events: {
         Args: { p_days?: number; p_limit?: number };
         Returns: number;
+      };
+      /** Bounded, non-destructive expiration of stale ready briefings and queued deliveries (0091). */
+      expire_stale_work: {
+        Args: { p_limit?: number };
+        Returns: Json;
       };
       increment_post_view: {
         Args: { p_slug: string };

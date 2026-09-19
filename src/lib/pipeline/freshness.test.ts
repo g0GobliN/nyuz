@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTIVE_WORK_HORIZON_HOURS,
   CANDIDATE_EXPIRY_DAYS,
   DAILY_POLICY,
   FLASH_POLICY,
@@ -9,6 +10,7 @@ import {
   MAX_WEEKLY_AGE_HOURS,
   SIGNIFICANT_IMPORTANCE,
   WEEKLY_POLICY,
+  activeCutoff,
   ageHours,
   backlogLaneSize,
   bandFor,
@@ -234,12 +236,25 @@ describe("queue lanes", () => {
     expect(backlogLaneSize(0)).toBe(0);
   });
 
-  it("gives the analysis queue more room than a briefing accepts, for pipeline latency", () => {
-    // An event has to be clustered, classified, analysed and matched before a
-    // digest can pick it. A queue window tighter than the briefing's would
-    // discard events the briefing would still have taken.
-    expect(LIVE_QUEUE_HOURS).toBeGreaterThan(FRESH_WINDOW_HOURS);
-    expect(LIVE_QUEUE_HOURS).toBeLessThan(MAX_DAILY_AGE_HOURS);
+  it("uses the daily hard ceiling as the active worker horizon", () => {
+    expect(LIVE_QUEUE_HOURS).toBe(ACTIVE_WORK_HORIZON_HOURS);
+    expect(LIVE_QUEUE_HOURS).toBe(MAX_DAILY_AGE_HOURS);
+    expect(activeCutoff(NOW).toISOString()).toBe("2026-09-05T06:00:00.000Z");
+  });
+
+  it("keeps lane helpers safe for bounded callers", () => {
+    expect(liveLaneSize(6)).toBe(5);
+    expect(backlogLaneSize(6)).toBe(1);
+  });
+});
+
+describe("active work horizon", () => {
+  it.each([1, 48, 71])("keeps %dh-old work active", (hours) => {
+    expect(activeCutoff(NOW).getTime()).toBeLessThanOrEqual(new Date(hoursAgo(hours)).getTime());
+  });
+
+  it("rejects work older than the configured horizon", () => {
+    expect(new Date(hoursAgo(73)).getTime()).toBeLessThan(activeCutoff(NOW).getTime());
   });
 });
 

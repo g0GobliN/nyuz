@@ -26,6 +26,8 @@ import { Route as AdminAuditRouteImport } from './routes/admin/audit'
 import { Route as AdminBlogRouteImport } from './routes/admin/blog'
 import { Route as AdminContentRouteImport } from './routes/admin/content'
 import { Route as AdminCostRouteImport } from './routes/admin/cost'
+import { Route as AdminDiagnosticsRouteImport } from './routes/admin/diagnostics'
+import { Route as AdminOperationsRouteImport } from './routes/admin/operations'
 import { Route as AdminSourcesRouteImport } from './routes/admin/sources'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
 import { Route as BlogIndexRouteImport } from './routes/blog/index'
@@ -40,6 +42,7 @@ import { Route as DashboardSettingsRouteImport } from './routes/dashboard/settin
 import { Route as DashboardSourcesRouteImport } from './routes/dashboard/sources'
 import { Route as DashboardTopicsRouteImport } from './routes/dashboard/topics'
 import { Route as LegalDocRouteImport } from './routes/legal/$doc'
+import { Route as AdminStoryIdRouteImport } from './routes/admin/story/$id'
 import { Route as DashboardAlertsIndexRouteImport } from './routes/dashboard/alerts/index'
 import { Route as DashboardAlertsHistoryRouteImport } from './routes/dashboard/alerts/history'
 import { Route as DashboardStoryIdRouteImport } from './routes/dashboard/story/$id'
@@ -129,6 +132,16 @@ const AdminCostRoute = AdminCostRouteImport.update({
   path: '/cost',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminDiagnosticsRoute = AdminDiagnosticsRouteImport.update({
+  id: '/diagnostics',
+  path: '/diagnostics',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminOperationsRoute = AdminOperationsRouteImport.update({
+  id: '/operations',
+  path: '/operations',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminSourcesRoute = AdminSourcesRouteImport.update({
   id: '/sources',
   path: '/sources',
@@ -199,6 +212,11 @@ const LegalDocRoute = LegalDocRouteImport.update({
   path: '/legal/$doc',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminStoryIdRoute = AdminStoryIdRouteImport.update({
+  id: '/story/$id',
+  path: '/story/$id',
+  getParentRoute: () => AdminRoute,
+} as any)
 const DashboardAlertsIndexRoute = DashboardAlertsIndexRouteImport.update({
   id: '/alerts/',
   path: '/alerts/',
@@ -232,6 +250,8 @@ export interface FileRoutesByFullPath {
   '/admin/blog': typeof AdminBlogRoute
   '/admin/content': typeof AdminContentRoute
   '/admin/cost': typeof AdminCostRoute
+  '/admin/diagnostics': typeof AdminDiagnosticsRoute
+  '/admin/operations': typeof AdminOperationsRoute
   '/admin/sources': typeof AdminSourcesRoute
   '/admin/users': typeof AdminUsersRoute
   '/blog/$slug': typeof BlogSlugRoute
@@ -247,6 +267,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/blog/': typeof BlogIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/admin/story/$id': typeof AdminStoryIdRoute
   '/dashboard/alerts/history': typeof DashboardAlertsHistoryRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
   '/dashboard/alerts/': typeof DashboardAlertsIndexRoute
@@ -266,6 +287,8 @@ export interface FileRoutesByTo {
   '/admin/blog': typeof AdminBlogRoute
   '/admin/content': typeof AdminContentRoute
   '/admin/cost': typeof AdminCostRoute
+  '/admin/diagnostics': typeof AdminDiagnosticsRoute
+  '/admin/operations': typeof AdminOperationsRoute
   '/admin/sources': typeof AdminSourcesRoute
   '/admin/users': typeof AdminUsersRoute
   '/blog/$slug': typeof BlogSlugRoute
@@ -281,6 +304,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/blog': typeof BlogIndexRoute
   '/dashboard': typeof DashboardIndexRoute
+  '/admin/story/$id': typeof AdminStoryIdRoute
   '/dashboard/alerts/history': typeof DashboardAlertsHistoryRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
   '/dashboard/alerts': typeof DashboardAlertsIndexRoute
@@ -303,6 +327,8 @@ export interface FileRoutesById {
   '/admin/blog': typeof AdminBlogRoute
   '/admin/content': typeof AdminContentRoute
   '/admin/cost': typeof AdminCostRoute
+  '/admin/diagnostics': typeof AdminDiagnosticsRoute
+  '/admin/operations': typeof AdminOperationsRoute
   '/admin/sources': typeof AdminSourcesRoute
   '/admin/users': typeof AdminUsersRoute
   '/blog/$slug': typeof BlogSlugRoute
@@ -318,6 +344,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/blog/': typeof BlogIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/admin/story/$id': typeof AdminStoryIdRoute
   '/dashboard/alerts/history': typeof DashboardAlertsHistoryRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
   '/dashboard/alerts/': typeof DashboardAlertsIndexRoute
@@ -341,6 +368,8 @@ export interface FileRouteTypes {
     | '/admin/blog'
     | '/admin/content'
     | '/admin/cost'
+    | '/admin/diagnostics'
+    | '/admin/operations'
     | '/admin/sources'
     | '/admin/users'
     | '/blog/$slug'
@@ -356,6 +385,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/blog/'
     | '/dashboard/'
+    | '/admin/story/$id'
     | '/dashboard/alerts/history'
     | '/dashboard/story/$id'
     | '/dashboard/alerts/'
@@ -375,6 +405,8 @@ export interface FileRouteTypes {
     | '/admin/blog'
     | '/admin/content'
     | '/admin/cost'
+    | '/admin/diagnostics'
+    | '/admin/operations'
     | '/admin/sources'
     | '/admin/users'
     | '/blog/$slug'
@@ -390,6 +422,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/blog'
     | '/dashboard'
+    | '/admin/story/$id'
     | '/dashboard/alerts/history'
     | '/dashboard/story/$id'
     | '/dashboard/alerts'
@@ -411,6 +444,8 @@ export interface FileRouteTypes {
     | '/admin/blog'
     | '/admin/content'
     | '/admin/cost'
+    | '/admin/diagnostics'
+    | '/admin/operations'
     | '/admin/sources'
     | '/admin/users'
     | '/blog/$slug'
@@ -426,6 +461,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/blog/'
     | '/dashboard/'
+    | '/admin/story/$id'
     | '/dashboard/alerts/history'
     | '/dashboard/story/$id'
     | '/dashboard/alerts/'
@@ -567,6 +603,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCostRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/diagnostics': {
+      id: '/admin/diagnostics'
+      path: '/diagnostics'
+      fullPath: '/admin/diagnostics'
+      preLoaderRoute: typeof AdminDiagnosticsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/operations': {
+      id: '/admin/operations'
+      path: '/operations'
+      fullPath: '/admin/operations'
+      preLoaderRoute: typeof AdminOperationsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/sources': {
       id: '/admin/sources'
       path: '/sources'
@@ -665,6 +715,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LegalDocRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/story/$id': {
+      id: '/admin/story/$id'
+      path: '/story/$id'
+      fullPath: '/admin/story/$id'
+      preLoaderRoute: typeof AdminStoryIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/dashboard/alerts/': {
       id: '/dashboard/alerts/'
       path: '/alerts'
@@ -697,9 +754,12 @@ interface AdminRouteChildren {
   AdminBlogRoute: typeof AdminBlogRoute
   AdminContentRoute: typeof AdminContentRoute
   AdminCostRoute: typeof AdminCostRoute
+  AdminDiagnosticsRoute: typeof AdminDiagnosticsRoute
+  AdminOperationsRoute: typeof AdminOperationsRoute
   AdminSourcesRoute: typeof AdminSourcesRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminStoryIdRoute: typeof AdminStoryIdRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
@@ -710,9 +770,12 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminBlogRoute: AdminBlogRoute,
   AdminContentRoute: AdminContentRoute,
   AdminCostRoute: AdminCostRoute,
+  AdminDiagnosticsRoute: AdminDiagnosticsRoute,
+  AdminOperationsRoute: AdminOperationsRoute,
   AdminSourcesRoute: AdminSourcesRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminStoryIdRoute: AdminStoryIdRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)

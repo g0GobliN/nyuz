@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import type { SecretBag } from "@/lib/ai/config";
 import type { ConfidenceVerdict } from "./confidence";
-import { LIVE_LANE_DENOMINATOR, LIVE_LANE_NUMERATOR, LIVE_QUEUE_HOURS } from "./freshness";
+import { ACTIVE_WORK_HORIZON_HOURS, activeCutoff } from "./freshness";
 import { isVcsRef, shortlist } from "./shortlist";
 import { sameHeadline } from "./news-signals";
 type Db = SupabaseClient<Database>;
@@ -74,17 +74,15 @@ async function selectArticles(db: Db, options: ClusterOptions): Promise<Uncluste
   if (!ids || ids.length === 0) {
     const { data, error } = await db.rpc("priority_articles_to_cluster", {
       p_limit: options.limit ?? BATCH,
-      p_live_hours: LIVE_QUEUE_HOURS,
-      p_live_share: LIVE_LANE_NUMERATOR / LIVE_LANE_DENOMINATOR,
+      p_live_hours: ACTIVE_WORK_HORIZON_HOURS,
+      p_live_share: 1,
       p_deadline_minutes: 120,
     });
     if (!error) return data ?? [];
     console.warn(`demand-aware article selection: ${error.message} — using legacy selector`);
   }
 
-  const sevenDaysAgo = new Date(
-    (options.now ?? new Date()).getTime() - 7 * 24 * 60 * 60_000,
-  ).toISOString();
+  const activeSince = activeCutoff(options.now ?? new Date()).toISOString();
   let query = db
     .from("articles")
     .select("id, title, published_at")
@@ -93,7 +91,7 @@ async function selectArticles(db: Db, options: ClusterOptions): Promise<Uncluste
     .limit(options.limit ?? BATCH);
 
   if (ids && ids.length > 0) query = query.in("id", ids);
-  else query = query.gt("published_at", sevenDaysAgo);
+  else query = query.gte("published_at", activeSince);
 
   const { data, error } = await query;
   if (error) throw new Error(`selecting unclustered articles: ${error.message}`);

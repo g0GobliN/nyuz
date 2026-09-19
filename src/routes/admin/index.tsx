@@ -1,3 +1,5 @@
+/* eslint-disable prettier/prettier */
+
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -20,6 +22,7 @@ import {
 } from "@/components/admin/shell";
 import { Chip } from "@/components/kit";
 import { getDailyCounts, getOverview, getTopicUptake } from "@/lib/server/analytics";
+import { getOperationsSnapshot } from "@/lib/server/operations";
 import type { DailyCount } from "@/lib/supabase/types";
 
 export const Route = createFileRoute("/admin/")({ component: OverviewPage });
@@ -60,6 +63,12 @@ function OverviewPage() {
     queryKey: ["admin", "topics"],
     queryFn: () => getTopicUptake(),
     staleTime: 300_000,
+  });
+
+  const operations = useQuery({
+    queryKey: ["admin", "operations"],
+    queryFn: () => getOperationsSnapshot(),
+    staleTime: 30_000,
   });
 
   if (overview.isLoading) return <Loading label="Counting" />;
@@ -145,6 +154,34 @@ function OverviewPage() {
             <Stat label="Omni" value={formatNumber(d.revenue.byPlan.omni)} />
           </StatGrid>
         </Panel>
+
+        {operations.data ? (
+          <Panel title="Operations" note={operations.data.stateReason}>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <Pill
+                  tone={operations.data.state === "healthy" ? "outline" : "signal"}
+                >
+                  {operations.data.state === "partial_outage"
+                    ? "Partial outage"
+                    : operations.data.state.charAt(0).toUpperCase() + operations.data.state.slice(1)}
+                </Pill>
+                <span className="text-[13px] text-muted-foreground">
+                  {formatNumber(operations.data.throughput.incomingHour)} in ·{" "}
+                  {formatNumber(operations.data.throughput.processedHour)} processed this hour
+                </span>
+              </div>
+              <Link
+                to="/admin/operations"
+                className="inline-flex items-center gap-1 text-[13px] text-muted-foreground hover:text-foreground"
+              >
+                Open Operations <span aria-hidden>→</span>
+              </Link>
+            </div>
+          </Panel>
+        ) : operations.error ? (
+          <ErrorNote error={operations.error} />
+        ) : null}
 
         <Panel
           title="Activity trend"
@@ -289,8 +326,8 @@ function OverviewPage() {
 
         <div className="grid gap-5 lg:grid-cols-2">
           <Panel
-            title="AI spend"
-            note="Token counts recorded by the pipeline. Analysis is paid once per story no matter how many people receive it; generation is paid per briefing. That ratio is the whole cost model — if analysis is not dominant, the dedup step is not working."
+            title="AI subsystem"
+            note="Optional enhancement telemetry only. The deterministic pipeline is monitored under Operations; this panel preserves historical AI usage without treating it as the product's primary health signal."
           >
             <dl className="divide-y divide-[var(--hairline)] text-[13.5px]">
               <Row label="Analysis tokens" value={formatNumber(d.ai.analysisTokens)} />

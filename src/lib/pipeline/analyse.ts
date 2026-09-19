@@ -5,7 +5,7 @@ import { finalizeMetadata, type NewsArticle, type Publisher } from "./news-signa
 import { topicsFor, sourceSignalsFrom, type TopicRow } from "./classify";
 import { assignTags } from "./topic-assign";
 import { isVcsRef } from "./shortlist";
-import { LIVE_QUEUE_HOURS, liveLaneSize } from "./freshness";
+import { activeCutoff } from "./freshness";
 type Db = SupabaseClient<Database>;
 export type AnalyseOptions = {
   limit?: number | undefined;
@@ -78,14 +78,8 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
   const select = async () => {
     const limit = options.limit ?? 100;
     if (options.eventIds?.length) return base().in("id", options.eventIds).limit(limit);
-    const cutoff = new Date(now.getTime() - LIVE_QUEUE_HOURS * 3_600_000).toISOString();
-    const live = await base().gte("first_seen_at", cutoff).limit(liveLaneSize(limit));
-    if (live.error) return live;
-    const older = await base()
-      .lt("first_seen_at", cutoff)
-      .order("first_seen_at", { ascending: true })
-      .limit(limit - live.data.length);
-    return { data: [...live.data, ...(older.data ?? [])], error: older.error };
+    const cutoff = activeCutoff(now).toISOString();
+    return base().gte("first_seen_at", cutoff).limit(limit);
   };
   const [events, sourceRows, topicRows] = await Promise.all([
     select(),

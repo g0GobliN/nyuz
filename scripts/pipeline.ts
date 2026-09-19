@@ -67,6 +67,7 @@ import { dormant, type DormantReport } from "@/lib/pipeline/dormant";
 import { enrich, type EnrichReport } from "@/lib/pipeline/enrich";
 import { ingest, type IngestReport, type SourceOutcome } from "@/lib/pipeline/ingest";
 import { match, type MatchReport, type MissReason } from "@/lib/pipeline/match";
+import { expireStaleWork, type StaleWorkReport } from "@/lib/pipeline/stale-work";
 import { db, fail, heading, main, row, say } from "./lib/db.ts";
 
 const STAGES = [
@@ -79,6 +80,7 @@ const STAGES = [
   "digest",
   "dormant",
   "enrich",
+  "expire-stale",
 ] as const;
 type Stage = (typeof STAGES)[number];
 
@@ -125,6 +127,7 @@ main(async () => {
     if (stage === "digest") await runDigest(args);
     if (stage === "dormant") await runDormant(args);
     if (stage === "enrich") await runEnrich(args);
+    if (stage === "expire-stale") await runExpireStale(args);
   }
 
   say();
@@ -502,6 +505,21 @@ async function runEnrich(args: string[]): Promise<void> {
   });
 
   printEnrich(report);
+}
+
+async function runExpireStale(args: string[]): Promise<void> {
+  const limit = numberFlag(args, "--limit") ?? 500;
+  const dryRun = args.includes("--dry-run");
+  heading(dryRun ? "Expire stale work (dry run — nothing is written)" : "Expire stale work");
+  const report = await expireStaleWork(db(), { limit, dryRun });
+  printStaleWork(report);
+}
+
+function printStaleWork(report: StaleWorkReport): void {
+  say(row("briefings closed", report.expiredBriefings));
+  say(row("deliveries closed", report.expiredDeliveries));
+  say(row("limit", report.limit));
+  say(report.detail);
 }
 
 function printEnrich(report: EnrichReport): void {

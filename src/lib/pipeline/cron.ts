@@ -342,6 +342,65 @@ async function reapStaleReservations(env: Env): Promise<void> {
   }
 }
 
+async function recordScheduled(
+  env: Env,
+  cron: string,
+  task: () => Promise<ScheduledResult>,
+): Promise<ScheduledResult> {
+  const startedAt = new Date();
+  try {
+    const result = await task();
+    if (result.stage !== "idle" && result.stage !== "unknown") {
+      const report =
+        "report" in result ? (result.report as unknown as Record<string, unknown>) : {};
+      const considered = typeof report["considered"] === "number" ? report["considered"] : 0;
+      const processed =
+        typeof report["processed"] === "number"
+          ? report["processed"]
+          : typeof report["enriched"] === "number"
+            ? report["enriched"]
+            : typeof report["generated"] === "number"
+              ? report["generated"]
+              : typeof report["sent"] === "number"
+                ? report["sent"]
+                : 0;
+      const failed = typeof report["failed"] === "number" ? report["failed"] : 0;
+      const skipped = typeof report["skipped"] === "number" ? report["skipped"] : 0;
+      await createAdminClient(env)
+        .from("pipeline_runs")
+        .insert({
+          stage: result.stage,
+          trigger: cron === DIGEST_CRON ? "cron:digest" : "cron:stages",
+          started_at: startedAt.toISOString(),
+          finished_at: new Date().toISOString(),
+          status: failed > 0 ? "error" : skipped > 0 ? "warning" : "healthy",
+          considered,
+          processed,
+          skipped,
+          failed,
+          reason_counts: {},
+        });
+    }
+    return result;
+  } catch (error) {
+    await createAdminClient(env)
+      .from("pipeline_runs")
+      .insert({
+        stage: "unknown",
+        trigger: cron,
+        started_at: startedAt.toISOString(),
+        finished_at: new Date().toISOString(),
+        status: "error",
+        considered: 0,
+        processed: 0,
+        skipped: 0,
+        failed: 1,
+        reason_counts: { error: error instanceof Error ? error.message.slice(0, 240) : "unknown" },
+      });
+    throw error;
+  }
+}
+
 async function runShared(stage: SharedStage, env: Env): Promise<ScheduledResult> {
   if (stage === "cluster" || stage === "analyse") await reapStaleReservations(env);
   if (stage === "cluster") return runCluster(env);
@@ -365,17 +424,19 @@ export async function runScheduled(
   cron: string,
   scheduledFor: Date = new Date(),
 ): Promise<ScheduledResult> {
-  if (cron === INGEST_CRON) return runIngest(env);
+  if (cron === INGEST_CRON) return recordScheduled(env, cron, () => runIngest(env));
   // `runDigest` delivers as well as generates, so a generating minute needs no
   // second pass.
   if (cron === DIGEST_CRON) {
-    return digestGenerates(scheduledFor) ? runDigest(env) : runDelivery(env);
+    return recordScheduled(env, cron, () =>
+      digestGenerates(scheduledFor) ? runDigest(env) : runDelivery(env),
+    );
   }
 
   if (cron === STAGES_CRON) {
     const stage = stageForMinute(scheduledFor);
     if (!stage) return { stage: "idle", cron, minute: scheduledFor.getUTCMinutes() };
-    return runShared(stage, env);
+    return recordScheduled(env, cron, () => runShared(stage, env));
   }
 
   // The per-stage schedules are no longer registered triggers, but they stay
@@ -383,11 +444,13 @@ export async function runScheduled(
   // rather than depend on the minute the operator happened to run it.
   if (cron === CLUSTER_CRON || cron === ANALYSE_CRON) {
     await reapStaleReservations(env);
-    return cron === CLUSTER_CRON ? runCluster(env) : runAnalyse(env);
+    return recordScheduled(env, cron, () =>
+      cron === CLUSTER_CRON ? runCluster(env) : runAnalyse(env),
+    );
   }
-  if (cron === CLASSIFY_CRON) return runClassify(env);
-  if (cron === MATCH_CRON) return runMatch(env);
-  if (cron === DORMANT_CRON) return runDormant(env);
+  if (cron === CLASSIFY_CRON) return recordScheduled(env, cron, () => runClassify(env));
+  if (cron === MATCH_CRON) return recordScheduled(env, cron, () => runMatch(env));
+  if (cron === DORMANT_CRON) return recordScheduled(env, cron, () => runDormant(env));
 
   return { stage: "unknown", cron };
 }

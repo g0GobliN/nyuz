@@ -58,6 +58,10 @@ export type DormantReport = {
   deletedAccounts: number;
   /** Unbriefed matches marked ineligible by age (0068). Marked, not deleted. */
   expired: number;
+  /** Ready briefing slots closed after their delivery deadline. */
+  expiredBriefings: number;
+  /** Queued deliveries closed after their bounded retry window. */
+  expiredDeliveries: number;
   outcomes: DormantOutcome[];
 };
 
@@ -112,6 +116,8 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
   let purged = 0;
   let deletedAccounts = 0;
   let expired = 0;
+  let expiredBriefings = 0;
+  let expiredDeliveries = 0;
   if (options.dryRun !== true) {
     const { data, error } = await db.rpc("purge_expired_digests", { p_limit: 500 });
     if (error) console.error(`purging expired digests: ${error.message}`);
@@ -129,6 +135,22 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
     );
     if (accountError) console.error(`purging expired accounts: ${accountError.message}`);
     else deletedAccounts = accounts ?? 0;
+
+    const { data: staleWork, error: staleWorkError } = await db.rpc("expire_stale_work", {
+      p_limit: 500,
+    });
+    if (staleWorkError) {
+      console.error(`expiring stale work: ${staleWorkError.message}`);
+    } else if (staleWork && typeof staleWork === "object" && !Array.isArray(staleWork)) {
+      const values = staleWork as {
+        expired_briefings?: unknown;
+        expired_deliveries?: unknown;
+      };
+      expiredBriefings =
+        typeof values.expired_briefings === "number" ? values.expired_briefings : 0;
+      expiredDeliveries =
+        typeof values.expired_deliveries === "number" ? values.expired_deliveries : 0;
+    }
 
     // Briefing candidates that aged out without ever being sent (0068). Counted
     // separately from `purged` because nothing is destroyed here — the rows keep
@@ -156,6 +178,8 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
     purged,
     deletedAccounts,
     expired,
+    expiredBriefings,
+    expiredDeliveries,
     outcomes,
   };
 }
@@ -330,6 +354,7 @@ export function describeDormant(report: DormantReport): string {
     `dormant: ${report.considered} due, ${report.sent} warned, ${report.paused} paused, ` +
     `${report.skipped} skipped, ${report.failed} failed, ${report.purged} expired rows purged, ` +
     `${report.deletedAccounts} expired accounts deleted, ` +
-    `${report.expired} stale candidates retired, ${seconds}s`
+    `${report.expired} stale candidates retired, ${report.expiredBriefings} briefings expired, ` +
+    `${report.expiredDeliveries} deliveries expired, ${seconds}s`
   );
 }

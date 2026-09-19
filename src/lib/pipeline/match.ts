@@ -61,6 +61,7 @@ import type {
 import { matchesTerms, normaliseText } from "@/lib/topics";
 import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
 import { fireAlerts } from "./alerts";
+import { activeCutoff } from "./freshness";
 
 type Db = SupabaseClient<Database>;
 
@@ -769,16 +770,20 @@ async function topicIndex(db: Db): Promise<Map<string, IndexedTopic>> {
  * threshold and no topics to join, so matching it would be matching a placeholder.
  */
 async function loadCandidates(db: Db, options: MatchOptions): Promise<Candidate[]> {
+  const now = options.now ?? new Date();
+  const activeSince = activeCutoff(now);
   let query = db
     .from("events")
     .select("id, title, what_happened, importance, novelty, tags, analysed_at, first_seen_at")
     .not("analysed_at", "is", null)
     .eq("status", "complete")
+    .gte("first_seen_at", activeSince.toISOString())
     .order("analysed_at", { ascending: false })
     .limit(options.limit ?? CANDIDATES);
 
   if (options.sinceHours !== undefined) {
-    const since = new Date((options.now ?? new Date()).getTime() - options.sinceHours * 3_600_000);
+    const requestedSince = new Date(now.getTime() - options.sinceHours * 3_600_000);
+    const since = requestedSince > activeSince ? requestedSince : activeSince;
     query = query.gte("analysed_at", since.toISOString());
   }
 

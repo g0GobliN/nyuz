@@ -57,7 +57,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import { matchesTerms, normaliseText } from "@/lib/topics";
 import { assignTopics } from "./topic-assign";
-import { LIVE_QUEUE_HOURS, backlogLaneSize, liveLaneSize } from "./freshness";
+import { ACTIVE_WORK_HORIZON_HOURS, activeCutoff } from "./freshness";
 
 type Db = SupabaseClient<Database>;
 
@@ -179,7 +179,7 @@ async function selectEvents(db: Db, options: ClassifyOptions): Promise<EventRow[
 
   const limit = options.limit ?? CLASSIFY_LIMIT;
   const now = options.now ?? new Date();
-  const cutoff = new Date(now.getTime() - LIVE_QUEUE_HOURS * 3_600_000).toISOString();
+  const cutoff = activeCutoff(now).toISOString();
 
   const base = () => {
     let q = db.from("events").select(columns);
@@ -190,19 +190,10 @@ async function selectEvents(db: Db, options: ClassifyOptions): Promise<EventRow[
   const { data: live, error: liveError } = await base()
     .gte("first_seen_at", cutoff)
     .order("first_seen_at", { ascending: false })
-    .limit(liveLaneSize(limit));
+    .limit(limit);
   if (liveError) throw new Error(`selecting live events: ${liveError.message}`);
 
-  const backlogRoom = backlogLaneSize(limit) + (liveLaneSize(limit) - (live ?? []).length);
-  if (backlogRoom <= 0) return (live ?? []) as EventRow[];
-
-  const { data: old, error: oldError } = await base()
-    .lt("first_seen_at", cutoff)
-    .order("first_seen_at", { ascending: false })
-    .limit(backlogRoom);
-  if (oldError) throw new Error(`selecting backlog events: ${oldError.message}`);
-
-  return [...(live ?? []), ...(old ?? [])] as EventRow[];
+  return (live ?? []) as EventRow[];
 }
 
 /**
