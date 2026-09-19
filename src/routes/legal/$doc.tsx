@@ -116,7 +116,7 @@ const DOCS: Record<string, Doc> = {
         p: [
           "Deciding which stories belong in your briefing happens on our own systems, using what you have told us you care about. Your interests are not sent anywhere in order to do it.",
           "The stories themselves are read and summarised once, from the published reporting, before anyone is matched to them. Nothing about you goes into that, and your briefing is put together from those summaries on our side. Translations work the same way and are shared between readers of the same language.",
-          "The exception is when you ask a question about a story. To answer it, DeepSeek receives that story and the question you typed. It does not receive your name, your email address, your topic list, your exclusions, your history or the reason that story matched you. DeepSeek processes this material in China, so do not put personal or confidential information in a question.",
+          "The exception is when you ask a question about a story. To answer it, our AI provider receives that story and the question you typed. It does not receive your name, your email address, your topic list, your exclusions, your history or the reason that story matched you. Processing may take place in the provider's region, so do not put personal or confidential information in a question.",
         ],
       },
       {
@@ -374,10 +374,10 @@ const DOCS: Record<string, Doc> = {
               "Global edge",
             ],
             [
-              "DeepSeek",
+              "AI provider",
               "AI for grouping and summarising stories, translation, and answering questions you ask",
               "Published article text. When you ask a question: that story and your question. No name, email or account details.",
-              "People's Republic of China",
+              "Depends on the provider and service configuration",
             ],
             [
               "Resend",

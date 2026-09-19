@@ -46,6 +46,14 @@ export function NoiseSection() {
             Most mornings that&apos;s six stories. Some mornings it&apos;s one. Occasionally
             it&apos;s none, and we tell you that rather than padding it out.
           </p>
+          <p>
+            <a
+              href="/blog/why-i-built-nyuz"
+              className="text-foreground underline decoration-border underline-offset-4 transition-colors hover:decoration-signal"
+            >
+              Read why I built nyuz →
+            </a>
+          </p>
         </div>
       </div>
 

@@ -133,35 +133,27 @@ export const MATCH_CRON = "14,29,44,59 * * * *";
  * Every minute, because `send_at` is a clock time the reader chose and the tick
  * that sends is the resolution of the promise: at five minutes, a briefing owed
  * at 07:30 could not arrive before 07:35 without arriving before it was due.
- * Only every fifth invocation generates — see `digestGenerates` — so the cost
- * of the extra ticks is the delivery query alone.
+ * Every invocation generates and delivers. Generation is bounded per run, so
+ * using every minute is what drains a busy deadline queue instead of moving the
+ * later readers into five-minute batches.
  */
 export const DIGEST_CRON = "* * * * *";
 
 /**
- * How often the expensive half of `DIGEST_CRON` runs, in minutes.
- *
- * The trigger fires every minute but only sends on most of them. Scheduling
- * slots and generating briefings is the part that spends per reader, and five
- * minutes remains the right cadence for it; sending is one indexed query that
- * usually returns nothing.
- *
- * Splitting them is the last of the lateness. While the two shared a five
- * minute tick, five minutes was the floor: a briefing finished at 07:20 for a
- * 07:30 deadline still waited for the 07:35 tick, because 07:30's tick was the
- * one that had to both generate and send. A fourth Cron Trigger would have been
- * the obvious way to separate them and is not available — Cloudflare registers
- * three and drops the rest — so the split is on the minute, as `STAGES_CRON`
- * already does it.
+ * Generation runs on every minute tick. Each invocation remains bounded by the
+ * digest batch size, but a busy 07:30 deadline can now drain one batch per
+ * minute instead of waiting five minutes between batches. The ten-minute
+ * preparation window therefore has useful capacity for multiple readers.
  */
-const GENERATION_EVERY_MINUTES = 5;
+const GENERATION_EVERY_MINUTES = 1;
 
 /**
- * Whether a `DIGEST_CRON` invocation should generate, or only send.
+ * Whether a `DIGEST_CRON` invocation should generate.
  *
- * Read off the schedule Cloudflare fired for rather than the wall clock, for
- * the same reason `stageForMinute` is: an invocation that starts late still
- * does the work of the minute it was scheduled for.
+ * Kept as a small pure function so the cadence is explicit and testable. Read
+ * off the schedule Cloudflare fired for rather than the wall clock, for the
+ * same reason `stageForMinute` is: an invocation that starts late still does
+ * the work of the minute it was scheduled for.
  */
 export function digestGenerates(scheduledFor: Date): boolean {
   return scheduledFor.getUTCMinutes() % GENERATION_EVERY_MINUTES === 0;
@@ -431,12 +423,10 @@ export async function runScheduled(
   scheduledFor: Date = new Date(),
 ): Promise<ScheduledResult> {
   if (cron === INGEST_CRON) return recordScheduled(env, cron, () => runIngest(env));
-  // `runDigest` delivers as well as generates, so a generating minute needs no
-  // second pass.
+  // `runDigest` delivers as well as generates. Every minute is a generation
+  // pass so bounded batches drain a busy deadline queue continuously.
   if (cron === DIGEST_CRON) {
-    return recordScheduled(env, cron, () =>
-      digestGenerates(scheduledFor) ? runDigest(env) : runDelivery(env),
-    );
+    return recordScheduled(env, cron, () => runDigest(env));
   }
 
   if (cron === STAGES_CRON) {

@@ -39,9 +39,8 @@ type Stage = {
   operation: string;
   /** What leaves. */
   output: string;
-  /** The honest cost note. `model: true` marks the two stages that pay a model. */
+  /** The honest cost note. */
   cost: string;
-  model?: boolean;
 };
 
 const STAGES: Stage[] = [
@@ -52,7 +51,7 @@ const STAGES: Stage[] = [
     operation:
       "Each source is checked on its own schedule, plus any you have added yourself. A source that stops responding is backed off and eventually dropped, so one dead feed never holds up anybody's morning.",
     output: "Articles, timestamped and credited to the publication they came from.",
-    cost: "No AI. Fetching and reading, nothing more.",
+    cost: "Fetches and reads source material.",
   },
   {
     n: "02",
@@ -61,7 +60,7 @@ const STAGES: Stage[] = [
     operation:
       "The same article often arrives at several addresses at once — a tracking link, a mobile version, a syndicated copy. Those are recognised as one article rather than several, and a headline quietly rewritten hours later is spotted as the same piece.",
     output: "One entry per genuinely different article.",
-    cost: "No AI. Straightforward matching.",
+    cost: "Straightforward matching.",
   },
   {
     n: "03",
@@ -77,9 +76,9 @@ const STAGES: Stage[] = [
     title: "Classify",
     input: "Source headlines, descriptions, and the topic taxonomy.",
     operation:
-      "Topic rules identify relevant subjects from the reporting. These shared labels help match events to readers without sending personal interests to a model.",
+      "Topic rules identify relevant subjects from the reporting. These shared labels help match events to readers without sending personal interests elsewhere.",
     output: "Topic candidates for each event.",
-    cost: "No AI. Text matching against the existing taxonomy.",
+    cost: "Text matching against the existing taxonomy.",
   },
   {
     n: "05",
@@ -88,7 +87,7 @@ const STAGES: Stage[] = [
     operation:
       "Select a representative headline and useful source description, finalize topics, and score freshness and coverage breadth. Multiple feeds from one publisher do not count as multiple publishers.",
     output: "Shared event data ready for matching, ranking, and delivery.",
-    cost: "No AI. Source selection and scoring rules.",
+    cost: "Source selection and scoring rules.",
   },
   {
     n: "06",
@@ -97,7 +96,7 @@ const STAGES: Stage[] = [
     operation:
       "Your topics, your keywords, your preferred sources and your density setting decide what reaches you — worked out on our side, not handed to anyone. Exclusions are applied last and win outright: something you have excluded cannot be let back in by a topic you follow.",
     output: "The handful of stories that belong in your morning specifically.",
-    cost: "No AI. This is the step that would otherwise grow with every new subscriber, and deliberately does not.",
+    cost: "Ordinary matching rules keep this step from growing with every new subscriber.",
   },
   {
     n: "07",
@@ -106,7 +105,7 @@ const STAGES: Stage[] = [
     operation:
       "Your briefing selects stored events and source descriptions in your order, at your density, within your plan's limits. Alerts use the same stored information.",
     output: "A briefing, at your time, in your timezone, on your channel.",
-    cost: "No AI writing happens here. This step is assembly.",
+    cost: "This step is assembly.",
   },
 ];
 
@@ -132,16 +131,6 @@ export function PipelineStages() {
                   {s.n}
                 </span>
                 <h3 className="text-[20px] font-medium tracking-tight">{s.title}</h3>
-                <span
-                  className={
-                    "ml-auto rounded-full border px-2.5 py-0.5 text-[11px] " +
-                    (s.model
-                      ? "border-signal/40 text-signal"
-                      : "border-border text-muted-foreground")
-                  }
-                >
-                  {s.model ? "uses AI" : "no AI"}
-                </span>
               </div>
 
               <dl className="mt-6 grid gap-x-8 gap-y-4 sm:grid-cols-3">
@@ -276,7 +265,7 @@ const BEATS: Beat[] = [
   {
     time: "14:10",
     what: "Topics identified",
-    detail: "Headline and source text are matched to the topic taxonomy. No model is involved.",
+    detail: "Headline and source text are matched to the topic taxonomy.",
   },
   {
     time: "14:11",

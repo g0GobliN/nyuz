@@ -36,11 +36,9 @@ describe("triggers.crons", () => {
     expect(declaredCrons()).toContain(DIGEST_CRON);
   });
 
-  it("generates on every fifth minute and only sends on the rest", () => {
+  it("generates on every minute so bounded batches drain on-time", () => {
     const generating = [...Array(60).keys()].filter((m) => digestGenerates(monday(9, m)));
-    // Twelve generating passes an hour is the old */5 cadence, unchanged: the
-    // extra ticks buy delivery resolution, not more model calls.
-    expect(generating).toEqual([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    expect(generating).toEqual([...Array(60).keys()]);
   });
 
   it("gives every minute in the shared schedule something to do", () => {
