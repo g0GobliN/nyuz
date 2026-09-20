@@ -745,3 +745,78 @@ These are not oversights. Each needs evidence that does not exist yet.
 - [x] Should phase 2 happen despite small current cost? **Yes** — the point was
       removing the per-user call before scale made it expensive. Done, and it costs
       zero extra tokens.
+
+---
+
+## Economics track — started 2026-09-20
+
+### Phase A — repository audit — complete in code review, not live verification
+
+The updated `docs/economics-plan.md` is now the governing brief. Existing systems that
+can be reused are:
+
+- `/admin/cost`, `cost-intelligence.ts`, `unit-economics.ts`, and the existing admin
+  charts for AI spend, overhead, Stripe revenue/fees/refunds, plan economics, and
+  projections.
+- `ai_usage_ledger` for AI calls, tokens, model/feature attribution, pricing, and
+  unpriced-call warnings. The AI kill switch remains in `feature_flags` and is read
+  by the existing AI Runtime surface.
+- `billing_ledger` and the Stripe webhook for live-mode revenue, refunds, and fees;
+  test-mode rows are already excluded by the unit-economics query.
+- `deliveries` for internal email/delivery telemetry, `adminOnly`/`audit()` for the
+  console security boundary, and existing scheduled pipeline infrastructure.
+
+Important audit finding: the existing Cost page is AI/unit-economics intelligence,
+not the provider-connected, JPY-based Economics area described by the new brief. It
+also has USD-only manual overhead and no immutable provider snapshot model. The first
+slice therefore adds the accounting foundation rather than pretending Cloudflare,
+Supabase, or Resend are connected.
+
+### Phase B — economics foundation — started
+
+- [x] Add provider-neutral snapshot vocabulary: scope, fixed/variable/mixed,
+      provenance status, original currency, JPY conversion metadata, usage, allowance,
+      and idempotent import key (`src/lib/economics.ts`).
+- [x] Add honest projection and marginal-vs-fully-loaded contribution helpers with
+      focused tests (`src/lib/economics.test.ts`).
+- [x] Add immutable provider snapshots and separate manual fallback records
+      (`0094_economics_foundation.sql`). **Applied and live-verified 2026-09-20** — both
+      tables exist with the expected columns, checks, and RLS enabled; both are
+      intentionally server/service-role only because no browser policies exist.
+- [x] Mirror the new tables in `src/lib/supabase/types.ts`.
+- [x] Add server-side admin read/write functions with audit rows.
+- [x] Add provider adapters for Cloudflare Billable Usage and Supabase project API-count
+      imports; scheduled sync/retry health remains open.
+- [x] Add JPY conversion capture and reconciliation UI (Frankfurter capture for imported FX, history and break-even panels).
+- [ ] Apply and live-verify `0095_economics_operations.sql` (sync history and FX-rate tables).
+
+### Current economics status
+
+**Built in code:** `/admin/economics` now uses a whole-business-first hierarchy:
+revenue, total operating cost, projected month-end cost, fully-loaded P/L state,
+infrastructure cost composition, operational usage, free-user marginal-cost categories,
+and paid-plan economics. AI is one provider category with a small details section; its
+kill switch is not a control or headline status in Economics and remains in Admin → AI
+runtime. The page keeps period selection, live/test-safe Stripe and AI ledger summaries,
+direct free-user attribution where defensible, provider health, warnings, and manual
+fallback. It is protected by `adminOnly`; writes audit through `audit()`. Cloudflare
+Billable Usage API and Supabase project API-count imports are server-side; credentials
+are never sent to the browser. Migration `0094` is applied and live schema confirms
+both Economics tables are present and protected by RLS with no browser write policy.
+
+**Still not fully verified:** migration `0095` must be pasted into the SQL editor before
+scheduled sync-health and FX-rate rows can persist; provider credentials and live provider
+accuracy also remain external. Once applied, the daily cron records sync-health rows for
+Cloudflare and Supabase, and admin sync attempts record import counts and failures.
+Automatic provider retries and Resend provider-side billing import remain unavailable
+until credentials/API access exist.
+JPY capture uses Frankfurter historical rates and preserves the rate/date/source with
+imported snapshots. Reconciliation/history and scenario break-even panels are shipped;
+delivery-cost attribution, provider-level allocation to plans/free users, and shared-
+cost allocation remain explicitly unavailable rather than fabricated. The correctness
+pass also treats missing token telemetry as `Unavailable`, emits data-quality warnings
+for missing provider coverage and sync history, removes duplicate AI composition cards,
+keeps paid-plan contribution unavailable until non-AI costs can be attributed, and
+converts exact zero revenue to ¥0 without requiring FX. The existing
+`/admin/cost` page remains the AI-specific operational surface; it is not relabelled as
+complete Economics.

@@ -63,6 +63,7 @@ const NAV: NavEntry[] = [
   // must be understandable and healthy even when AI is disabled.
   { to: "/admin/ai", label: "AI providers", icon: Cpu },
   { to: "/admin/ai-runtime", label: "AI runtime", icon: SlidersHorizontal },
+  { to: "/admin/economics", label: "Economics", icon: Coins },
   { to: "/admin/cost", label: "AI cost", icon: Coins },
   { to: "/admin/audit", label: "Audit log", icon: ScrollText },
 ];

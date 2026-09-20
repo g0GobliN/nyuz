@@ -429,6 +429,91 @@ export type OperatingCostSetting = {
   updated_at: string;
 };
 
+/** Immutable provider observation added by 0094. */
+export type EconomicsSnapshot = {
+  id: string;
+  provider: string;
+  service: string;
+  scope:
+    | "account"
+    | "organization"
+    | "project"
+    | "workspace"
+    | "application"
+    | "allocated"
+    | "unallocated";
+  period_start: string;
+  period_end: string;
+  captured_at: string;
+  original_amount_minor: number | null;
+  original_currency: string | null;
+  jpy_amount_minor: number | null;
+  conversion_rate: number | null;
+  conversion_date: string | null;
+  conversion_source: string | null;
+  classification: "fixed" | "variable" | "mixed";
+  status:
+    | "exact"
+    | "imported"
+    | "estimated"
+    | "projected"
+    | "allocated"
+    | "manual"
+    | "unavailable"
+    | "incomplete"
+    | "stale";
+  source: string;
+  usage: Json;
+  allowance: Json | null;
+  import_key: string;
+  created_at: string;
+};
+
+export type EconomicsSyncRun = {
+  id: string;
+  provider: string;
+  requested_days: number;
+  started_at: string;
+  finished_at: string | null;
+  status: "running" | "healthy" | "warning" | "error";
+  imported_count: number;
+  attempt: number;
+  error: string | null;
+  source: string;
+  created_at: string;
+};
+
+export type EconomicsFxRate = {
+  id: string;
+  base_currency: string;
+  quote_currency: "JPY";
+  rate: number;
+  rate_date: string;
+  source: string;
+  captured_at: string;
+};
+
+export type EconomicsManualCost = {
+  id: string;
+  provider: string;
+  service: string;
+  scope: EconomicsSnapshot["scope"];
+  period_start: string;
+  period_end: string;
+  amount_minor: number;
+  currency: string;
+  jpy_amount_minor: number | null;
+  conversion_rate: number | null;
+  conversion_date: string | null;
+  conversion_source: string | null;
+  classification: EconomicsSnapshot["classification"];
+  reference: string | null;
+  notes: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AiCreditTopup = {
   id: string;
   amount_microusd: number;
@@ -1129,6 +1214,39 @@ export type Database = {
       >;
       billing_ledger: Table<BillingLedger, "refunded_cents" | "updated_at">;
       operating_cost_settings: Table<OperatingCostSetting, "updated_by" | "updated_at">;
+      economics_snapshots: Table<
+        EconomicsSnapshot,
+        | "id"
+        | "captured_at"
+        | "jpy_amount_minor"
+        | "conversion_rate"
+        | "conversion_date"
+        | "conversion_source"
+        | "created_at"
+      >;
+      economics_manual_costs: Table<
+        EconomicsManualCost,
+        | "id"
+        | "jpy_amount_minor"
+        | "conversion_rate"
+        | "conversion_date"
+        | "conversion_source"
+        | "created_by"
+        | "created_at"
+        | "updated_at"
+      >;
+      economics_sync_runs: Table<
+        EconomicsSyncRun,
+        | "id"
+        | "started_at"
+        | "finished_at"
+        | "status"
+        | "imported_count"
+        | "attempt"
+        | "error"
+        | "created_at"
+      >;
+      economics_fx_rates: Table<EconomicsFxRate, "id" | "captured_at">;
       ai_credit_topups: Table<
         AiCreditTopup,
         "id" | "note" | "occurred_at" | "created_by" | "created_at"

@@ -27,6 +27,7 @@ import { Route as AdminBlogRouteImport } from './routes/admin/blog'
 import { Route as AdminContentRouteImport } from './routes/admin/content'
 import { Route as AdminCostRouteImport } from './routes/admin/cost'
 import { Route as AdminDiagnosticsRouteImport } from './routes/admin/diagnostics'
+import { Route as AdminEconomicsRouteImport } from './routes/admin/economics'
 import { Route as AdminOperationsRouteImport } from './routes/admin/operations'
 import { Route as AdminSourcesRouteImport } from './routes/admin/sources'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
@@ -135,6 +136,11 @@ const AdminCostRoute = AdminCostRouteImport.update({
 const AdminDiagnosticsRoute = AdminDiagnosticsRouteImport.update({
   id: '/diagnostics',
   path: '/diagnostics',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminEconomicsRoute = AdminEconomicsRouteImport.update({
+  id: '/economics',
+  path: '/economics',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminOperationsRoute = AdminOperationsRouteImport.update({
@@ -251,6 +257,7 @@ export interface FileRoutesByFullPath {
   '/admin/content': typeof AdminContentRoute
   '/admin/cost': typeof AdminCostRoute
   '/admin/diagnostics': typeof AdminDiagnosticsRoute
+  '/admin/economics': typeof AdminEconomicsRoute
   '/admin/operations': typeof AdminOperationsRoute
   '/admin/sources': typeof AdminSourcesRoute
   '/admin/users': typeof AdminUsersRoute
@@ -288,6 +295,7 @@ export interface FileRoutesByTo {
   '/admin/content': typeof AdminContentRoute
   '/admin/cost': typeof AdminCostRoute
   '/admin/diagnostics': typeof AdminDiagnosticsRoute
+  '/admin/economics': typeof AdminEconomicsRoute
   '/admin/operations': typeof AdminOperationsRoute
   '/admin/sources': typeof AdminSourcesRoute
   '/admin/users': typeof AdminUsersRoute
@@ -328,6 +336,7 @@ export interface FileRoutesById {
   '/admin/content': typeof AdminContentRoute
   '/admin/cost': typeof AdminCostRoute
   '/admin/diagnostics': typeof AdminDiagnosticsRoute
+  '/admin/economics': typeof AdminEconomicsRoute
   '/admin/operations': typeof AdminOperationsRoute
   '/admin/sources': typeof AdminSourcesRoute
   '/admin/users': typeof AdminUsersRoute
@@ -369,6 +378,7 @@ export interface FileRouteTypes {
     | '/admin/content'
     | '/admin/cost'
     | '/admin/diagnostics'
+    | '/admin/economics'
     | '/admin/operations'
     | '/admin/sources'
     | '/admin/users'
@@ -406,6 +416,7 @@ export interface FileRouteTypes {
     | '/admin/content'
     | '/admin/cost'
     | '/admin/diagnostics'
+    | '/admin/economics'
     | '/admin/operations'
     | '/admin/sources'
     | '/admin/users'
@@ -445,6 +456,7 @@ export interface FileRouteTypes {
     | '/admin/content'
     | '/admin/cost'
     | '/admin/diagnostics'
+    | '/admin/economics'
     | '/admin/operations'
     | '/admin/sources'
     | '/admin/users'
@@ -610,6 +622,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDiagnosticsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/economics': {
+      id: '/admin/economics'
+      path: '/economics'
+      fullPath: '/admin/economics'
+      preLoaderRoute: typeof AdminEconomicsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/operations': {
       id: '/admin/operations'
       path: '/operations'
@@ -755,6 +774,7 @@ interface AdminRouteChildren {
   AdminContentRoute: typeof AdminContentRoute
   AdminCostRoute: typeof AdminCostRoute
   AdminDiagnosticsRoute: typeof AdminDiagnosticsRoute
+  AdminEconomicsRoute: typeof AdminEconomicsRoute
   AdminOperationsRoute: typeof AdminOperationsRoute
   AdminSourcesRoute: typeof AdminSourcesRoute
   AdminUsersRoute: typeof AdminUsersRoute
@@ -771,6 +791,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminContentRoute: AdminContentRoute,
   AdminCostRoute: AdminCostRoute,
   AdminDiagnosticsRoute: AdminDiagnosticsRoute,
+  AdminEconomicsRoute: AdminEconomicsRoute,
   AdminOperationsRoute: AdminOperationsRoute,
   AdminSourcesRoute: AdminSourcesRoute,
   AdminUsersRoute: AdminUsersRoute,

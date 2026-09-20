@@ -66,3 +66,9 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
   plus output, or responses come back with empty `content` and
   `finish_reason: "length"` and no error. Always check `finish_reason`.
 - OpenAI-compatible API, so use the `openai` SDK pointed at `DEEPSEEK_BASE_URL`.
+
+## Git delivery
+
+- Never add a `Co-Authored-By` trailer to a commit.
+- Before any push, run `npm run ci` — it must cover typecheck, lint, the full test suite, and the production build. Do not treat an earlier partial check as sufficient after the final changes.
+- Before pushing, inspect the staged diff, `git status`, and the final commit message; verify the message contains no `Co-Authored-By:` line and that only intended files are included.
