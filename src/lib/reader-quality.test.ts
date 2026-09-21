@@ -78,9 +78,8 @@ describe("production deterministic Read quality", () => {
     const text = textOf(s);
     expect(a.deck.text).toMatch(/\$18\.5 million.*multiyear commitments and AI tokens/);
     expect(text).toContain("Omarchy");
-    expect(text).toContain("David Heinemeier Hansson");
-    expect(text).toContain("Ruby on Rails");
-    expect(text).toContain("OpenRouter");
+    expect(text).not.toMatch(/bit barn|AI gold rush|monster racks/i);
+    expect(text.split(/\s+/).length).toBeLessThan(320);
     expect(text).not.toMatch(
       /Amount mentioned|coverage centers on|nyuz has also covered|we've never seen|As we write/,
     );

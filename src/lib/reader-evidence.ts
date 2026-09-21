@@ -10,7 +10,7 @@ export type ReaderSource = {
 };
 
 const ACTION =
-  /\b(?:is|are|was|were|has|have|had|said|says|announced|raised|raises|secured|gains?|reached|pledged|funded|backing|discovered|exposed|accessible|connected|restricted|released|launches?|launched|acquire[ds]?|approved|blocked|banned|hired|hires|includes?|reported|confirmed|will|plans?|requires?|remains?|allows?|supports?|offers?|runs?|running|uses?|used|built|found|started|spending|scores?|starts?|expanded|appears?|declined|rose|marks?|represents?|hosts?|values?|closed|expects?|yields?|produces?|increases?|decreases?)\b/i;
+  /\b(?:is|are|was|were|has|have|had|said|says|announced|raised|raises|secured|gains?|reached|pledged|funded|backing|discovered|exposed|accessible|connected|restricted|released|launches?|launched|acquire[ds]?|approved|blocked|banned|hired|hires|includes?|reported|confirmed|will|plans?|requires?|remains?|allows?|supports?|offers?|runs?|running|uses?|used|built|found|started|spending|scores?|starts?|expanded|appears?|declined|rose|marks?|represents?|projects?|forecasts?|hosts?|values?|closed|expects?|yields?|produces?|increases?|decreases?)\b/i;
 const NOISE =
   /\b(?:welcome back|weekly column|this week['’]s (?:column|newsletter)|as regular readers know|subscribe to|sign up for|click here|read more|continue reading|cookie policy|all rights reserved|follow us on|share this article|related articles|the coverage centers on|amount mentioned|percentage mentioned|entity mentioned|source count|evidence suggests|nyuz has also covered)\b|\bthe post\b.*\bappeared first on\b|^(?:advertisement|image credit|photo credit|hopefully\b|the takeaway\b)/i;
 const VOICE = /\b(?:we|we['’](?:ve|re|ll|d)|our|ours|you|your|as I remember)\b/i;
@@ -245,6 +245,147 @@ export type ReaderFact = {
   nextText?: string;
 };
 
+export type DeterministicFactType =
+  | "fact"
+  | "claim"
+  | "estimate"
+  | "projection"
+  | "quote"
+  | "background"
+  | "comparison"
+  | "future_action";
+
+const DANGLING_OPENING = /^(?:and|but|or|so|yet|then|also),?\s+/i;
+const BROKEN_ATTRIBUTION =
+  /^(?:according to|as reported by)\s+[^,]+,\s*(?:once|when|while|because|although|and|but)\b/i;
+const FRAGMENT_OPENING = /^(?:no|not|adds? that|said that|which|where|how)\s+/i;
+const EDITORIAL_SLANG =
+  /\b(?:bit barn|monster racks?|gpu bonanza|ai gold rush|gold rush|rack[s]? of monsters?)\b/gi;
+const HTML_LEFTOVER = /<\/?[a-z][^>]*>|&(?:amp|nbsp|quot|lt|gt|#\d+);/i;
+
+function stripControls(value: string): string {
+  return [...value]
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+      return code >= 32 || code === 9 || code === 10 || code === 13;
+    })
+    .join("");
+}
+
+/** Small, conservative cleanup applied before evidence is scored or composed. */
+export function cleanDeterministicSentence(value: string): string {
+  let text = stripControls(value)
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&(?:amp|nbsp|quot|lt|gt);/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  text = text.replace(/\b(\w+)(?:\s+\1){1,}\b/gi, "$1");
+  text = text.replace(EDITORIAL_SLANG, (match) =>
+    /bit barn/i.test(match)
+      ? "datacenter"
+      : /gpu bonanza|gold rush/i.test(match)
+        ? "AI investment wave"
+        : "AI server racks",
+  );
+  if (text && /^[a-z]/.test(text)) text = text[0]!.toUpperCase() + text.slice(1);
+  return text;
+}
+
+/** Reject only clear fragments; it deliberately does not attempt grammar correction. */
+export function validDeterministicSentence(value: string): boolean {
+  const text = value.trim();
+  if (text.length < 12 || text.length > 420) return false;
+  if (HTML_LEFTOVER.test(text) || DANGLING_OPENING.test(text) || FRAGMENT_OPENING.test(text))
+    return false;
+  if (BROKEN_ATTRIBUTION.test(text)) return false;
+  if (/[,:;]$/.test(text) || /(?:\.\.\.|…)\s*$/.test(text)) return false;
+  if ((text.match(/["“]/g)?.length ?? 0) !== (text.match(/["”]/g)?.length ?? 0)) return false;
+  if (/^(?:the )?(?:report|study|article),?\s*[A-Z][^.!?]{0,80}\??$/.test(text)) return false;
+  const words = text.match(/[\p{L}\p{N}]+/gu) ?? [];
+  const normalizedWords = words.map((word) => word.toLowerCase());
+  for (let size = 5; size <= 8; size++) {
+    for (let start = 0; start + size <= normalizedWords.length; start++) {
+      const phrase = normalizedWords.slice(start, start + size).join(" ");
+      let occurrences = 0;
+      for (let cursor = 0; cursor + size <= normalizedWords.length; cursor++) {
+        if (normalizedWords.slice(cursor, cursor + size).join(" ") === phrase) occurrences++;
+      }
+      if (occurrences >= 3) return false;
+    }
+  }
+  return (
+    words.length >= 3 &&
+    /\b(?:is|are|was|were|has|have|had|said|says|reports?|reported|announced|found|estimates?|projects?|expects?|will|plans?|rose|fell|increased|decreased|includes?|shows?|means?|could|may|can|remains?|raised|raises|releases?|released|acquired?|acquire|confirmed|confirms|declined|waited|expanded|represents?|reached|hired|launches?|launched|integration|secured|used|restricted|describes|appears?|hosts?|provides?|supports?|continues?|contracts?|transition|providers?|purchase|premium|transaction|funding|deal|acquisition|says?)\b/i.test(
+      text,
+    )
+  );
+}
+
+/** Normalize numeric spellings for comparison only; original text remains unchanged. */
+export function normalizedNumericKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(
+      /(\d[\d,]*(?:\.\d+)?)\s*(trillion|billion|million|thousand|tn|bn|mn|m|k)\b/gi,
+      (_, n: string, unit: string) => {
+        const scale =
+          {
+            trillion: "e12",
+            tn: "e12",
+            billion: "e9",
+            bn: "e9",
+            million: "e6",
+            mn: "e6",
+            thousand: "e3",
+            k: "e3",
+            m: "e6",
+          }[unit.toLowerCase()] ?? unit.toLowerCase();
+        return `${Number(n.replace(/,/g, ""))}${scale}`;
+      },
+    )
+    .replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\b/gi, (word) =>
+      String(
+        ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"].indexOf(
+          word.toLowerCase(),
+        ) + 1,
+      ),
+    )
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function deterministicFactType(text: string, quote = false): DeterministicFactType {
+  if (quote) return "quote";
+  if (/\b(?:projects?|forecast|model(?:led|s|ing)?|predicts?|between \d|by \d{4})\b/i.test(text))
+    return "projection";
+  if (/\b(?:estimates?|expects?|could|may|might|according to|claims?|argues?|warns?)\b/i.test(text))
+    return "estimate";
+  if (
+    /\b(?:plans?|will (?:release|publish|launch|build|continue)|next report|scheduled|to be published)\b/i.test(
+      text,
+    )
+  )
+    return "future_action";
+  if (
+    /\b(?:previously|earlier|in \d{4}|historically|compared with|compared to|due to|behind|creator of|framework)\b/i.test(
+      text,
+    )
+  )
+    return "background";
+  if (/\b(?:more than|less than|versus|compared|from .* to|between .* and)\b/i.test(text))
+    return "comparison";
+  if (/\b(?:said|says|argues?|claims?|warns?)\b/i.test(text)) return "claim";
+  return "fact";
+}
+
+export function sourceNameForEvidence(
+  evidence: number[],
+  sources: ReaderSource[],
+): string | undefined {
+  return sources[evidence[0]! - 1]?.name?.trim() || undefined;
+}
+
 function recoverContext(text: string, previousText?: string): string {
   const previousSubject = previousText?.match(
     /^(?:The )?([A-Z][\w.-]*(?:\s+[A-Z][\w.-]*){0,2})\b/,
@@ -364,7 +505,7 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
         if (!previousText || contextDependent(previousText)) continue;
         text = recoverContext(text, previousText);
       }
-      text = normalizeEvidenceText(text);
+      text = cleanDeterministicSentence(normalizeEvidenceText(text));
       const subject = entities.find(
         (e) => e.role !== "REPORTING_SOURCE" && text.replace(/^The /, "").startsWith(`${e.name} `),
       );
@@ -393,8 +534,7 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
       (text.match(/“/g)?.length ?? 0) !== (text.match(/”/g)?.length ?? 0);
     const unassignedQuote = /^["“]/.test(text) && !/\b(?:said|says|told|according to)\b/.test(text);
     if (
-      text.length < 40 ||
-      text.length > 320 ||
+      !validDeterministicSentence(text) ||
       fact.score <= -100 ||
       /…$|\.\.\.$/.test(text) ||
       unbalanced ||
@@ -423,7 +563,14 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
   const lead = ranked.find(
     (f) => !f.quote && !f.uncertain && !/^(?:he|she|it|they|this|that|its)\b/i.test(f.text),
   );
-  const selected = new Set(ranked.slice(0, 28));
+  const selected = new Set(ranked.slice(0, 60));
+  const primaryNames = entities
+    .filter((entity) => entity.role !== "REPORTING_SOURCE")
+    .flatMap((entity) => [entity.name, ...entity.aliases]);
+  for (const fact of ranked) {
+    if (primaryNames.some((name) => fact.text.toLowerCase().includes(name.toLowerCase())))
+      selected.add(fact);
+  }
   const facts = accepted.filter((f) => selected.has(f));
   const blocks = groupReaderEvidence(facts);
   return {

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { composeArticle } from "./editorial";
+import { auditDeterministicArticle, composeArticle } from "./editorial";
+import { deterministicFactType } from "./reader-evidence";
 import type { Story } from "@/lib/story";
 import type { EventIntelligence } from "@/lib/understand";
 
@@ -259,6 +260,29 @@ describe("composeArticle", () => {
     });
 
     expect(composeArticle(story)).toEqual(composeArticle(story));
+  });
+
+  it("preserves projection attribution and exposes deterministic quality diagnostics", () => {
+    expect(deterministicFactType("The report projects 395 million tonnes by 2050.")).toBe(
+      "projection",
+    );
+    const article = composeArticle(
+      makeStory({
+        understand: undefined as never,
+        sourceList: [
+          {
+            name: "BAN",
+            at: "",
+            excerpt: "BAN's model projects 395 million tonnes of waste by 2050.",
+          },
+        ],
+        what: "",
+      }),
+    );
+    expect(
+      [article.deck.text, ...article.paragraphs.map((paragraph) => paragraph.text)].join(" "),
+    ).toMatch(/BAN.*projects|BAN.*reports/i);
+    expect(auditDeterministicArticle(article).malformedParagraphs).toBe(0);
   });
 
   describe("without any analysis (AI never ran or is unavailable)", () => {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { extractQuotes, selectEvidenceUnits, MAX_EVIDENCE_UNITS } from "./evidence-extract";
+import {
+  cleanDeterministicSentence,
+  deterministicFactType,
+  normalizedNumericKey,
+  validDeterministicSentence,
+} from "@/lib/reader-evidence";
 
 describe("extractQuotes", () => {
   it("extracts a trailing-attribution quote", () => {
@@ -114,5 +120,22 @@ describe("selectEvidenceUnits", () => {
       "The company confirmed a $2.5 billion acquisition of a rival firm, its largest deal ever.";
     const units = selectEvidenceUnits(text).filter((u) => u.kind !== "quote");
     expect(units[0]?.text).toContain("$2.5 billion");
+  });
+
+  it("rejects malformed openings and cleans source-specific slang", () => {
+    expect(validDeterministicSentence("No adds that the report changed direction.")).toBe(false);
+    expect(validDeterministicSentence("According to The Register, Once the model starts.")).toBe(
+      false,
+    );
+    expect(cleanDeterministicSentence("The AI bit barn uses monster racks.")).toBe(
+      "The AI datacenter uses AI server racks.",
+    );
+  });
+
+  it("classifies projections and normalizes equivalent numeric spellings for comparison", () => {
+    expect(deterministicFactType("BAN's model projects 395 million tonnes by 2050.")).toBe(
+      "projection",
+    );
+    expect(normalizedNumericKey("395 million tonnes")).toBe(normalizedNumericKey("395m tonnes"));
   });
 });

@@ -6,6 +6,7 @@ import {
   extractProducts,
 } from "./extract";
 import { sentences, repeats, isEvidenceBoilerplate, type EvidenceUnit } from "@/lib/understand";
+import { cleanDeterministicSentence, validDeterministicSentence } from "@/lib/reader-evidence";
 import { evidenceScore, rankEntities } from "../reader-evidence";
 
 /**
@@ -95,8 +96,8 @@ export function selectEvidenceUnits(
   const quoteKeys = quotes.map((q) => q.quote.toLowerCase());
 
   const candidates = sentences(mainText)
-    .map((text) => text.trim())
-    .filter((text) => text.length >= 40 && text.length <= 320)
+    .map((text) => cleanDeterministicSentence(text))
+    .filter((text) => validDeterministicSentence(text))
     .filter((text) => !isEvidenceBoilerplate(text))
     .filter((text) => !quoteKeys.some((q) => text.toLowerCase().includes(q)));
 

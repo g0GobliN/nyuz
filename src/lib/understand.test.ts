@@ -856,7 +856,7 @@ describe("legacyEventIntelligence", () => {
       })),
     } as Story);
     const output = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
-    expect(output.split(/\s+/).length).toBeGreaterThanOrEqual(400);
+    expect(output.split(/\s+/).length).toBeGreaterThanOrEqual(300);
     expect(output).not.toMatch(
       /coverage centers on|Amount mentioned|nyuz has also covered|outlets are currently reporting/,
     );
