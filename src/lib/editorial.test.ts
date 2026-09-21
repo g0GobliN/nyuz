@@ -4,7 +4,11 @@ import {
   composeArticle,
   composeArticleWithDiagnostics,
 } from "./editorial";
-import { deterministicFactType } from "./reader-evidence";
+import {
+  deterministicFactType,
+  validDeterministicParagraph,
+  validDeterministicSentence,
+} from "./reader-evidence";
 import type { Story } from "@/lib/story";
 import type { EventIntelligence, EvidenceUnit } from "@/lib/understand";
 
@@ -86,9 +90,11 @@ describe("composeArticle", () => {
   });
 
   it("falls back to the story summary as the deck", () => {
-    const story = makeStory({ what: "A summary of the event" });
+    // The summary is a *candidate*, not a conclusion: it is judged as a
+    // sentence before it may render. This one is a clause, so it publishes.
+    const story = makeStory({ what: "The council approved a new library" });
 
-    expect(composeArticle(story).deck.text).toBe("A summary of the event");
+    expect(composeArticle(story).deck.text).toBe("The council approved a new library.");
   });
 
   it("falls back to the one-sentence analysis when the story has no summary", () => {
@@ -243,7 +249,9 @@ describe("composeArticle", () => {
   it("keeps an event with no analysis readable", () => {
     const article = composeArticle(makeStory({ understand: undefined as never }));
 
-    expect(article.deck.text).toBe("Something happened");
+    // The summary reaches the deck through the same judge a fallback does, so it
+    // arrives cleaned and terminated rather than as the raw stored string.
+    expect(article.deck.text).toBe("Something happened.");
     expect(article.paragraphs).toEqual([]);
   });
 
@@ -386,6 +394,116 @@ describe("composeArticle", () => {
     });
   });
 
+  /**
+   * The paragraph-loss regression, found by composing a real event.
+   *
+   * Three facts that each passed `validDeterministicSentence` were grouped into
+   * one paragraph of 516 characters. The gate then handed that paragraph to the
+   * sentence validator, which refuses anything over 420 characters, and the whole
+   * block went -- two publishable facts with it. The two units have different
+   * limits for a reason: 420 characters describes a sentence, not a paragraph.
+   */
+  describe("a paragraph is not a sentence", () => {
+    const SENTENCES = [
+      "Regulators in the United States and the European Union are expected to review the proposed transaction during the first quarter of next year, according to two people familiar with the filing.",
+      "The company said the deal would give it access to a larger customer base and a research team of about four hundred engineers working on model training and inference infrastructure.",
+      "Analysts covering the sector expect the combined business to report revenue of about $2.4 billion in its first full year of operation, with margins improving as the integration proceeds.",
+    ];
+
+    const longStory = () =>
+      makeStory({
+        title: "Acme acquires Beta",
+        understand: undefined as never,
+        what: "",
+        sources: 1,
+        sourceList: [{ name: "Reuters", at: "10:00", excerpt: SENTENCES.join(" ") }],
+      });
+
+    it("fits the preconditions: each sentence valid, the block over the sentence limit", () => {
+      for (const text of SENTENCES) expect(validDeterministicSentence(text)).toBe(true);
+      const block = SENTENCES.join(" ");
+      expect(block.length).toBeGreaterThan(420);
+      expect(block.split(/\s+/).length).toBeLessThan(140);
+    });
+
+    it("publishes every valid fact in an over-long paragraph instead of dropping the block", () => {
+      const story = longStory();
+      const { article, diagnostics } = composeArticleWithDiagnostics(story);
+      const text = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+      for (const sentence of SENTENCES) expect(text).toContain(sentence.replace(/\.$/, ""));
+      expect(article.paragraphs.length).toBeGreaterThan(0);
+      expect(diagnostics.paragraphs.rejected).toBe(0);
+      expect(diagnostics.fallbackLevel).toBe(1);
+    });
+
+    it("keeps every selected fact visible: rendered plus lost is selected", () => {
+      const { diagnostics } = composeArticleWithDiagnostics(longStory());
+      expect(diagnostics.facts.selected).toBeGreaterThan(0);
+      expect(diagnostics.facts.rendered + diagnostics.facts.lost).toBe(diagnostics.facts.selected);
+      expect(diagnostics.facts.lost).toBe(0);
+    });
+
+    it("validates a paragraph as a paragraph", () => {
+      expect(validDeterministicParagraph(SENTENCES.join(" "))).toBe(true);
+      // The same sentence twice is a composition error, not a paragraph.
+      expect(validDeterministicParagraph(`${SENTENCES[0]} ${SENTENCES[0]}`)).toBe(false);
+      // A provider field inside a block is a leak however the block was built.
+      expect(
+        validDeterministicParagraph(
+          `ArXiv:2609.21081v1 Announce Type: new Abstract: ${SENTENCES[0]}`,
+        ),
+      ).toBe(false);
+      // A single sentence is a paragraph too, but an empty block is not.
+      expect(validDeterministicParagraph(SENTENCES[0]!)).toBe(true);
+      expect(validDeterministicParagraph("   ")).toBe(false);
+    });
+  });
+
+  /**
+   * Reading a paper forwards is right for a paper. It must not become how the
+   * rest of the product composes: a news event wants its most relevant fact
+   * first, and that is a scoring decision, not a positional one.
+   */
+  describe("single-paper ordering is scoped to a single paper", () => {
+    const DULL = "The company said the filing was routine and contained nothing unusual.";
+    const STRONG = "Acme reported quarterly revenue of $18.5 million in the period.";
+    const excerpt = `${DULL} ${STRONG}`;
+
+    const composed = (sourceList: Story["sourceList"]) =>
+      composeArticle(
+        makeStory({
+          title: "Acme reports $18.5 million",
+          understand: undefined as never,
+          what: "",
+          sources: sourceList.length,
+          sourceList,
+        }),
+      );
+
+    it("leads a single paper with the paper's own first sentence", () => {
+      const article = composed([{ name: "arXiv cs.CR", at: "10:00", excerpt }]);
+      expect(article.deck.text).toContain("filing was routine");
+    });
+
+    it("keeps relevance scoring for a single news source", () => {
+      const article = composed([{ name: "The Register", at: "10:00", excerpt }]);
+      expect(article.deck.text).not.toContain("filing was routine");
+      expect(article.deck.text).toContain("18.5 million");
+    });
+
+    it("keeps relevance scoring when a repository supplied more than one document", () => {
+      const article = composed([
+        { name: "arXiv cs.CR", at: "10:00", excerpt },
+        {
+          name: "arXiv cs.AI",
+          at: "11:00",
+          excerpt: "A second paper describes a different result.",
+        },
+      ]);
+      expect(article.deck.text).not.toContain("filing was routine");
+    });
+  });
+
   describe("provider metadata in a feed description", () => {
     /**
      * The production regression, verbatim: arXiv's cs.CR feed serves its
@@ -494,6 +612,112 @@ describe("composeArticle", () => {
       });
       expect(report.metadataLeakWarnings).toBe(1);
       expect(report.malformedAttributionWarnings).toBe(1);
+    });
+
+    /**
+     * The same production event, with the excerpt the feed actually stored --
+     * the full 1,605-character abstract, first person and all -- rather than
+     * the single sentence the earlier fixture reduced it to.
+     */
+    describe("the real abstract", () => {
+      const EXCERPT =
+        "arXiv:2609.21081v1 Announce Type: new Abstract: Human approval is often treated as the last security boundary before an agent executes a consequential operation. That boundary is only meaningful if the operation presented for review is the operation later authorized or released. We call failures of this binding Loopjacking: a human approves what they understand as operation A, while the implementation uses that decision for a materially different operation B. We distinguish two variants. In a representation-based attack, B is already encoded but omitted or misrepresented at approval time; in a post-approval state-substitution attack, the human sees the correct A and mutable workflow state later replaces it with B. We evaluate a purposive set of released agent products. We reproduce post-approval substitution in seven tested Agno AgentOS releases ending at 3.0.9 and in 12 tested versions of a conditional in-memory LangGraph Agent Server composition ending at 0.14.0. We reproduce representation mismatch in OpenClaw 2026.2.23 and its rejection in 2026.2.24. OpenAI Agents SDK 0.22.0 and 0.22.2 provide a negative control: serialized continuation preserves exact per-call binding and rejects mutated B. These results do not estimate ecosystem prevalence. They show that complete canonical approval rendering and exact use-time comparison, or preventing unauthorized pending-state mutation, block the tested attacks while preserving legitimate execution. We separate this contribution from established work on misleading dialogs, session smuggling, action binding, and authorization continuity.";
+
+      const wholeStory = () =>
+        makeStory({
+          title: TITLE,
+          understand: undefined as never,
+          what: "",
+          sources: 1,
+          sourceList: [{ name: "arXiv cs.CR", at: "10:00", excerpt: EXCERPT }],
+        });
+
+      const composed = () => {
+        const { article, diagnostics } = composeArticleWithDiagnostics(wholeStory());
+        return {
+          article,
+          diagnostics,
+          text: [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" "),
+        };
+      };
+
+      it("keeps the metadata out and publishes more than one sentence", () => {
+        const { article, text } = composed();
+        expect(text).not.toMatch(/ArXiv:|arXiv:|Announce Type:/i);
+        expect(text).not.toMatch(/\bAbstract:/);
+        expect(text).not.toMatch(/cs\.CR/);
+        // The abstract is 11 sentences; only one of them used to survive.
+        expect(article.paragraphs.length).toBeGreaterThan(1);
+        expect(text.split(/\s+/).length).toBeGreaterThan(80);
+      });
+
+      it("resolves the paper's first person to its authors rather than dropping it", () => {
+        const { text } = composed();
+        expect(text).not.toMatch(/\bWe\b|\bOur\b/);
+        expect(text).toContain("The authors call failures of this binding Loopjacking");
+        expect(text).toContain("The authors distinguish two variants");
+      });
+
+      it("reads the paper in the order it was written", () => {
+        const { article, text } = composed();
+        // The abstract's own first sentence is the lead, so nothing is published
+        // ahead of the sentence it depends on.
+        expect(article.deck.text).toContain(
+          "Human approval is often treated as the last security boundary",
+        );
+        // An abstract is read forwards and says so: "That boundary", "These
+        // results", "They show" all refer to a sentence some distance back. Every
+        // sentence that survives has to appear in its own document's order.
+        const order = [
+          "Human approval is often treated",
+          "That boundary is only meaningful",
+          "The authors call failures of this binding",
+          "The authors distinguish two variants",
+          "In a representation-based attack",
+          "The authors evaluate a purposive",
+          "The authors reproduce post-approval substitution",
+          "The authors reproduce representation mismatch",
+          "OpenAI Agents SDK 0.22.0",
+          "These results do not estimate",
+          "They show that complete canonical approval rendering",
+          "The authors separate this contribution",
+        ];
+        const positions = order.map((needle) => text.indexOf(needle));
+        for (const [index, position] of positions.entries()) {
+          expect(position, `sentence ${index} is published`).toBeGreaterThanOrEqual(0);
+        }
+        expect(positions).toEqual([...positions].sort((a, b) => a - b));
+      });
+
+      it("does not stack one attribution on another", () => {
+        // The deck used to be prefixed regardless, which with a resolved author
+        // subject read "A new paper reports: The authors call ...".
+        const { article } = composed();
+        expect(article.deck.text).not.toMatch(/^A new paper reports: The authors/);
+      });
+
+      it("keeps provenance on every block it publishes", () => {
+        const { article } = composed();
+        expect(article.deck.evidence).toEqual([1]);
+        for (const paragraph of article.paragraphs) expect(paragraph.evidence).toEqual([1]);
+      });
+
+      it("accounts for every selected fact", () => {
+        const { diagnostics } = composed();
+        expect(diagnostics.facts.selected).toBeGreaterThan(1);
+        expect(diagnostics.facts.rendered).toBe(diagnostics.facts.selected);
+        expect(diagnostics.facts.lost).toBe(0);
+        expect(diagnostics.sourceNormalization.authorialVoiceRewrites).toBeGreaterThan(0);
+        expect(diagnostics.sentences.refused).toBe(0);
+        expect(diagnostics.paragraphs.rejected).toBe(0);
+        expect(diagnostics.fallbackLevel).toBe(1);
+      });
+
+      it("publishes the version numbers without splitting them into fake sentences", () => {
+        const { text } = composed();
+        expect(text).toContain("ending at 3.0.9");
+        expect(text).toContain("0.22.2");
+      });
     });
 
     it("leaves an authored article untouched", () => {

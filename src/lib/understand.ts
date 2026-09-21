@@ -1,5 +1,10 @@
 import { readReaderArticle, type ReaderArticle } from "@/lib/reader-article";
-import { centralTokens, editorialNoise, selectReaderEvidence } from "./reader-evidence";
+import {
+  centralTokens,
+  editorialNoise,
+  normalizeSummary,
+  selectReaderEvidence,
+} from "./reader-evidence";
 
 export type CoverageDepth = "thin" | "normal" | "rich";
 export type StatementKind = "reported" | "context" | "analysis";
@@ -703,7 +708,15 @@ function wordCount(text: string): number {
 
 /** A bounded, de-duplicated briefing body for both new and legacy events. */
 export function briefingText(text: string, maxWords = 90): string {
-  const unique = dedupeStatements(sentences(text).map((sentence) => ({ text: sentence })));
+  // The event summary this renders is written from a feed's `description` field,
+  // which is not always an article: it is also where providers put media
+  // credits, `git` trailers, release-page labels and a record header. A briefing
+  // card is a reader-visible surface, so it gets the same treatment a fallback
+  // deck does -- normalize first, then refuse -- and rows stored before the
+  // writer learned to refuse these still carry them.
+  const summary = normalizeSummary(text);
+  if (summary.reason !== null) return "";
+  const unique = dedupeStatements(sentences(summary.text).map((sentence) => ({ text: sentence })));
   const selected: string[] = [];
   let words = 0;
   for (const item of unique) {

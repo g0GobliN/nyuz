@@ -68,9 +68,13 @@ export function StoryCard({
         </h2>
       </Link>
 
-      <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">
-        {briefingText(story.what)}
-      </p>
+      {/* An event whose feed description was furniture has no summary to show.
+          The card prints its headline and its sources instead of a credit. */}
+      {briefingText(story.what) ? (
+        <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">
+          {briefingText(story.what)}
+        </p>
+      ) : null}
 
       {because || story.why ? (
         <div className="mt-4 rounded-2xl bg-surface-2 p-4">

@@ -1,5 +1,11 @@
 import { extractFacts } from "./extract";
 import { scoreEventV2 } from "./scoring";
+import {
+  hasSourceMetadata,
+  metadataOnlyEvidence,
+  normalizeSourceText,
+  providerFurniture,
+} from "./source-text";
 import { editorialNoise, selectReaderEvidence } from "../reader-evidence";
 
 export type NewsArticle = {
@@ -152,16 +158,50 @@ export function finalizeMetadata(
   const novelty = age < 6 ? 7 : age < 24 ? 5 : age < 72 ? 3 : 1;
   return {
     title,
-    what_happened:
+    what_happened: summaryFor(
+      title,
       selectReaderEvidence(
         title,
         ranked.map((a) => ({ excerpt: a.excerpt ?? "" })),
-      ).lead?.text ?? (editorialNoise(short) ? title : short),
+      ).lead?.text ?? short,
+    ),
     importance: score.importanceEstimate,
     novelty,
     article_count: articles.length,
     publisher_count: groups.size,
   };
+}
+
+/**
+ * The event summary every reader-facing consumer reads: the briefing card, the
+ * digest, and -- for a story with no extractable evidence -- the article deck.
+ *
+ * It has to be prose, because everything downstream assumes it is. This value is
+ * written straight from a feed's `description` field, and that field is not
+ * always an article: it is also where providers put media credits, `git`
+ * trailers and release-page label lists. Nothing in the read path used to ask
+ * whether it was a sentence, so "Photograph: Alexandra Topping/The Guardian."
+ * became the paragraph under a headline.
+ *
+ * Normalization runs first, at the boundary, for the same reason it does for
+ * source excerpts: a `Label:` prefix is not a grammar error, so it passes every
+ * later check, and by then the distinction between furniture and a sentence is
+ * gone. A candidate that is furniture, bare metadata, an empty container, or the
+ * headline said again is refused rather than stored -- and an empty summary is a
+ * legitimate outcome, because headline plus sources is a better page than a
+ * credit line presented as news.
+ */
+function summaryFor(title: string, candidate: string): string {
+  const normalized = normalizeSourceText(undefined, candidate);
+  if (normalized.metadataOnly) return "";
+  const text = normalized.text;
+  if (metadataOnlyEvidence(text)) return "";
+  if (providerFurniture(text) || hasSourceMetadata(text)) return "";
+  if (editorialNoise(text)) return "";
+  // The headline is already the headline. Storing it here is what made every
+  // such story's deck a duplicate of its own title.
+  if (cleanText(text).toLowerCase() === cleanText(title).toLowerCase()) return "";
+  return text;
 }
 
 export function distinctNews<T>(items: readonly T[], title: (item: T) => string): T[] {

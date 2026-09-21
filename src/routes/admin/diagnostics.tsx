@@ -120,16 +120,112 @@ function ReadQuality({ data }: { data: OperationsDiagnostics }) {
         <span>
           Duplicate facts merged{" "}
           <strong>{formatNumber(q.dedupe.duplicateGroups + q.dedupe.nearDuplicateMerges)}</strong>
+          {q.dedupe.restatements > 0 ? (
+            <> ({formatNumber(q.dedupe.restatements)} restated)</>
+          ) : null}
         </span>
         <span>
           Cleaner variant kept <strong>{formatNumber(q.dedupe.preferredCleanVariant)}</strong>
         </span>
       </div>
-      {q.qualityGate.metadataLeakWarnings + q.qualityGate.malformedAttributionWarnings > 0 ? (
+      <div className="mt-3 grid gap-3 rounded-xl border border-hairline p-4 text-[12px] sm:grid-cols-4">
+        <span>
+          Facts published{" "}
+          <strong>
+            {formatNumber(q.composition.factsRendered)} of{" "}
+            {formatNumber(q.composition.factsSelected)}
+          </strong>
+        </span>
+        <span>
+          Facts lost after selection <strong>{formatNumber(q.composition.factsLost)}</strong>
+        </span>
+        <span>
+          Blocks the gate refused <strong>{formatNumber(q.composition.paragraphsRejected)}</strong>
+        </span>
+        <span>
+          Deck-only stories <strong>{formatNumber(q.composition.deckOnly)}</strong>
+        </span>
+      </div>
+      <p className="mt-2 text-[11.5px] text-muted-foreground">
+        {formatNumber(q.composition.narrativeStories)} of {formatNumber(q.evaluated)} stories are a
+        single repository document and are composed in that document's own order; the rest use the
+        news ranking.
+      </p>
+      <div className="mt-3 grid gap-3 rounded-xl border border-hairline p-4 text-[12px] sm:grid-cols-4">
+        <span>
+          Paper voice resolved to authors{" "}
+          <strong>{formatNumber(q.sourceNormalization.authorialVoiceRewrites)}</strong>
+        </span>
+        <span>
+          Sentences refused <strong>{formatNumber(q.composition.sentencesRefused)}</strong>
+        </span>
+        <span className="sm:col-span-2">
+          {Object.keys(q.composition.refusalReasons).length === 0 ? (
+            <span className="text-muted-foreground">No sentence was refused in this sample.</span>
+          ) : (
+            Object.entries(q.composition.refusalReasons).map(([reason, count]) => (
+              <span key={reason} className="mr-3 inline-block">
+                {reason.replace(/_/g, " ")} <strong>{formatNumber(count)}</strong>
+              </span>
+            ))
+          )}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-3 rounded-xl border border-hairline p-4 text-[12px] sm:grid-cols-4">
+        <span>
+          Fallback decks attempted <strong>{formatNumber(q.fallback.attempted)}</strong>
+        </span>
+        <span>
+          Fallback decks published <strong>{formatNumber(q.fallback.accepted)}</strong>
+        </span>
+        <span>
+          Provider furniture refused <strong>{formatNumber(q.fallback.furnitureRejected)}</strong>
+        </span>
+        <span>
+          Headline-only stories <strong>{formatNumber(q.fallback.empty)}</strong>
+        </span>
+      </div>
+      <p className="mt-2 text-[11.5px] text-muted-foreground">
+        {formatNumber(q.fallback.candidates)} candidate summary(ies) were judged. A story whose feed
+        description was a media credit, a git trailer or a release label publishes its headline and
+        sources with no deck, rather than a credit line as prose.
+      </p>
+      {Object.keys(q.fallback.rejectionReasons).length > 0 ? (
+        <p className="mt-2 text-[11.5px] text-muted-foreground">
+          Fallback refusals:{" "}
+          {Object.entries(q.fallback.rejectionReasons).map(([reason, count]) => (
+            <span key={reason} className="mr-3 inline-block">
+              {reason.replace(/_/g, " ")} <strong>{formatNumber(count)}</strong>
+            </span>
+          ))}
+        </p>
+      ) : null}
+      {q.qualityGate.metadataLeakWarnings +
+        q.qualityGate.malformedAttributionWarnings +
+        q.qualityGate.deckRefusals >
+      0 ? (
         <p className="mt-3 rounded-xl border border-signal/30 p-3 text-[12px]">
-          Quality gate blocked {formatNumber(q.qualityGate.metadataLeakWarnings)} metadata leak(s)
-          and {formatNumber(q.qualityGate.malformedAttributionWarnings)} malformed source
-          attribution(s) in this sample. Nothing reached a reader.
+          Quality gate blocked {formatNumber(q.qualityGate.metadataLeakWarnings)} metadata leak(s),
+          {formatNumber(q.qualityGate.malformedAttributionWarnings)} malformed source attribution(s)
+          and {formatNumber(q.qualityGate.deckRefusals)} deck(s) in this sample. Nothing reached a
+          reader.
+          {Object.keys(q.qualityGate.deckReasons).length > 0 ? (
+            <>
+              {" "}
+              Deck reasons:{" "}
+              {Object.entries(q.qualityGate.deckReasons).map(([reason, count]) => (
+                <span key={reason} className="mr-3 inline-block">
+                  {reason.replace(/_/g, " ")} <strong>{formatNumber(count)}</strong>
+                </span>
+              ))}
+            </>
+          ) : null}
+        </p>
+      ) : null}
+      {q.composition.factsLost > 0 ? (
+        <p className="mt-3 rounded-xl border border-signal/30 p-3 text-[12px]">
+          {formatNumber(q.composition.factsLost)} selected fact(s) reached no block. Each refusal is
+          counted above by reason; a fact with no reason is a composition bug.
         </p>
       ) : null}
       <p className="mt-3 text-[11.5px] text-muted-foreground">

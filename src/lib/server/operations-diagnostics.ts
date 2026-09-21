@@ -49,15 +49,58 @@ export type ReadQualityDiagnostics = {
     removedMetadataFields: number;
     cleanedEvidence: number;
     rejectedMetadataOnly: number;
+    authorialVoiceRewrites: number;
   };
   dedupe: {
     duplicateGroups: number;
     preferredCleanVariant: number;
     nearDuplicateMerges: number;
+    /** Merges where the two variants of one claim were worded differently. */
+    restatements: number;
   };
   qualityGate: {
     metadataLeakWarnings: number;
     malformedAttributionWarnings: number;
+    deckRefusals: number;
+    deckReasons: Record<string, number>;
+  };
+  /**
+   * The no-evidence path. A story with nothing to compose from still renders a
+   * deck, and that deck used to be the stored event summary verbatim -- written
+   * from a feed's `description` field, which is where media credits, `git`
+   * trailers and release-page labels live. These counters say how many fallbacks
+   * were attempted, how many produced prose, and why the rest published nothing.
+   * `furnitureRejected` is the one that should be non-zero while
+   * `furniturePublished` stays at zero.
+   */
+  fallback: {
+    attempted: number;
+    candidates: number;
+    accepted: number;
+    rejected: number;
+    titleDuplicate: number;
+    furnitureRejected: number;
+    /** Stories left with no deck at all -- the intended end for junk. */
+    empty: number;
+    rejectionReasons: Record<string, number>;
+  };
+  /**
+   * What happened between selecting facts and publishing blocks: how many
+   * reached prose, how many blocks the gate split or refused, and the reason for
+   * every refusal. `factsLost` is the one to watch -- a selected, valid, unique
+   * fact that appears in no block, with no reason recorded.
+   */
+  composition: {
+    factsSelected: number;
+    factsRendered: number;
+    factsLost: number;
+    sentencesRefused: number;
+    paragraphsRejected: number;
+    /** Stories that published the deck and no body. */
+    deckOnly: number;
+    /** Stories composed as one repository document, read in its own order. */
+    narrativeStories: number;
+    refusalReasons: Record<string, number>;
   };
 };
 
@@ -504,15 +547,39 @@ export const getOperationsDiagnostics = createServerFn({ method: "GET" })
       removedMetadataFields: 0,
       cleanedEvidence: 0,
       rejectedMetadataOnly: 0,
+      authorialVoiceRewrites: 0,
+    };
+    const compositionStats: ReadQualityDiagnostics["composition"] = {
+      factsSelected: 0,
+      factsRendered: 0,
+      factsLost: 0,
+      sentencesRefused: 0,
+      paragraphsRejected: 0,
+      deckOnly: 0,
+      narrativeStories: 0,
+      refusalReasons: {},
     };
     const dedupe: ReadQualityDiagnostics["dedupe"] = {
       duplicateGroups: 0,
       preferredCleanVariant: 0,
       nearDuplicateMerges: 0,
+      restatements: 0,
     };
     const qualityGate: ReadQualityDiagnostics["qualityGate"] = {
       metadataLeakWarnings: 0,
       malformedAttributionWarnings: 0,
+      deckRefusals: 0,
+      deckReasons: {},
+    };
+    const fallback: ReadQualityDiagnostics["fallback"] = {
+      attempted: 0,
+      candidates: 0,
+      accepted: 0,
+      rejected: 0,
+      titleDuplicate: 0,
+      furnitureRejected: 0,
+      empty: 0,
+      rejectionReasons: {},
     };
     let enrichedStories = 0;
     let rawUnits = 0;
@@ -540,9 +607,39 @@ export const getOperationsDiagnostics = createServerFn({ method: "GET" })
       dedupe.duplicateGroups += composition.diagnostics.dedupe.duplicateGroups;
       dedupe.preferredCleanVariant += composition.diagnostics.dedupe.preferredCleanVariant;
       dedupe.nearDuplicateMerges += selection.dedupe.nearDuplicateMerges;
+      dedupe.restatements += composition.diagnostics.dedupe.restatements;
       qualityGate.metadataLeakWarnings += composition.diagnostics.qualityGate.metadataLeakWarnings;
       qualityGate.malformedAttributionWarnings +=
         composition.diagnostics.qualityGate.malformedAttributionWarnings;
+      qualityGate.deckRefusals += composition.diagnostics.qualityGate.deckRefusals;
+      for (const [reason, count] of Object.entries(
+        composition.diagnostics.qualityGate.deckReasons,
+      )) {
+        qualityGate.deckReasons[reason] = (qualityGate.deckReasons[reason] ?? 0) + count;
+      }
+      fallback.attempted += composition.diagnostics.fallback.attempted;
+      fallback.candidates += composition.diagnostics.fallback.candidates;
+      fallback.accepted += composition.diagnostics.fallback.accepted;
+      fallback.rejected += composition.diagnostics.fallback.rejected;
+      fallback.titleDuplicate += composition.diagnostics.fallback.titleDuplicate;
+      fallback.furnitureRejected += composition.diagnostics.fallback.furnitureRejected;
+      fallback.empty += composition.diagnostics.fallback.empty;
+      for (const [reason, count] of Object.entries(composition.diagnostics.fallback.reasons)) {
+        fallback.rejectionReasons[reason] = (fallback.rejectionReasons[reason] ?? 0) + count;
+      }
+      sourceNormalization.authorialVoiceRewrites +=
+        composition.diagnostics.sourceNormalization.authorialVoiceRewrites;
+      compositionStats.factsSelected += composition.diagnostics.facts.selected;
+      compositionStats.factsRendered += composition.diagnostics.facts.rendered;
+      compositionStats.factsLost += composition.diagnostics.facts.lost;
+      compositionStats.sentencesRefused += composition.diagnostics.sentences.refused;
+      compositionStats.paragraphsRejected += composition.diagnostics.paragraphs.rejected;
+      if (composition.diagnostics.fallbackLevel === 2) compositionStats.deckOnly += 1;
+      if (composition.diagnostics.ordering === "narrative") compositionStats.narrativeStories += 1;
+      for (const [reason, count] of Object.entries(composition.diagnostics.sentences.reasons)) {
+        compositionStats.refusalReasons[reason] =
+          (compositionStats.refusalReasons[reason] ?? 0) + count;
+      }
       const q = qualityOf(outputWords, selection.facts.length, articles.length);
       modes[mode] += 1;
       quality[q] += 1;
@@ -728,6 +825,8 @@ export const getOperationsDiagnostics = createServerFn({ method: "GET" })
         sourceNormalization,
         dedupe,
         qualityGate,
+        fallback,
+        composition: compositionStats,
       },
       enrichment: {
         enabled: flags.data?.enabled === true,

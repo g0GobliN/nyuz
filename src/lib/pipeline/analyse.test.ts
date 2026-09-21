@@ -26,10 +26,37 @@ describe("deterministic event metadata", () => {
     expect(m).not.toHaveProperty("understand");
     expect(m).not.toHaveProperty("article");
   });
-  it("uses title fallback instead of fabricating missing evidence", () => {
+  it("stores no summary rather than the headline when there is no evidence", () => {
+    // The summary is what the briefing card, the digest and a story's fallback
+    // deck all read. With nothing but a headline to go on, storing the headline
+    // here is what made every such story print its own title twice -- so the
+    // field stays empty and the surfaces show the headline and its sources.
     const a = { ...article("1"), excerpt: null };
-    expect(finalizeMetadata([a], sources, now.toISOString(), now).what_happened).toBe(a.title);
+    expect(finalizeMetadata([a], sources, now.toISOString(), now).what_happened).toBe("");
   });
+  it.each([
+    ["a photo credit", "Photograph: Alexandra Topping/The Guardian."],
+    ["a composite credit", "Composite: Kin Cheung/Getty Images; Tasos Katopodis/Getty"],
+    ["git trailers", "Signed-off-by: khluu khluu000@gmail.com"],
+    ["release labels", "Website: https://llama.app Attestations: assets"],
+  ])("refuses to store %s as the event summary", (_label, excerpt) => {
+    // The summary is what the briefing card, the digest and a story's fallback
+    // deck all read, so furniture has to be refused at the writer. Fixing only
+    // the deck would still have shipped a credit line on the card.
+    const a = { ...article("1"), excerpt };
+    expect(finalizeMetadata([a], sources, now.toISOString(), now).what_happened).toBe("");
+  });
+
+  it("keeps a real description as the event summary", () => {
+    const a = {
+      ...article("1"),
+      excerpt: "The council approved the library after a two-hour debate on Tuesday.",
+    };
+    expect(finalizeMetadata([a], sources, now.toISOString(), now).what_happened).toContain(
+      "approved the library",
+    );
+  });
+
   it("counts five articles by one publisher as one publisher", () => {
     const many = Array.from({ length: 5 }, (_, i) =>
       article(String(i), i % 2 ? "bbc" : "bbc-sport"),

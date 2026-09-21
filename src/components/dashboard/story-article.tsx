@@ -78,10 +78,15 @@ export function StoryArticle({
             <span aria-hidden>·</span>
             <span>{articleMinutes(article)} min read</span>
           </p>
-          <p className="mt-6 text-[14.5px] leading-[1.5] tracking-[-0.01em] sm:text-[16px] sm:leading-[1.6]">
-            {article.deck.text}
-            <EvidenceRefs refs={article.deck.evidence} story={story} />
-          </p>
+          {/* A story with no usable evidence has no deck. Omitting the
+              paragraph is cleaner than printing the headline twice, and it is
+              the honest state: sources are listed, no summary exists. */}
+          {article.deck.text ? (
+            <p className="mt-6 text-[14.5px] leading-[1.5] tracking-[-0.01em] sm:text-[16px] sm:leading-[1.6]">
+              {article.deck.text}
+              <EvidenceRefs refs={article.deck.evidence} story={story} />
+            </p>
+          ) : null}
         </header>
         <div className="mt-7 space-y-5 text-[14.5px] leading-relaxed [overflow-wrap:anywhere]">
           {article.paragraphs.map((paragraph, index) => (

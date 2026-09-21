@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   hasSourceMetadata,
   isRepositorySourceName,
@@ -6,6 +7,7 @@ import {
   malformedAttribution,
   metadataOnlyEvidence,
   normalizeSourceText,
+  providerFurniture,
   sourceFamily,
 } from "./source-text";
 
@@ -126,6 +128,50 @@ describe("normalizeSourceText", () => {
     expect(sourceFamily({ name: "The Register" })).toBe("generic");
     expect(sourceFamily(undefined)).toBe("generic");
   });
+
+  /**
+   * A paper's "we" is the authors, and nyuz is not one of them.
+   *
+   * The evidence layer rejects first-person text outright as publisher voice,
+   * which is right for a newsletter and wrong for an abstract: an entire paper
+   * written in the first person plural used to disappear before composition ever
+   * saw it. The actors are known, so the pronoun is resolved at this boundary --
+   * where the sentence still exists to repair.
+   */
+  it("resolves a repository's own voice to the authors", () => {
+    const normalized = normalizeSourceText(
+      ARXIV_SOURCE,
+      "We call failures of this binding Loopjacking. Our results show the attack works. We've reproduced it in seven releases.",
+    );
+    expect(normalized.text).toBe(
+      "The authors call failures of this binding Loopjacking. The authors' results show the attack works. The authors have reproduced it in seven releases.",
+    );
+    expect(normalized.authorialVoiceRewrites).toBe(3);
+  });
+
+  it("leaves prose alone in a source that is not a repository", () => {
+    const text = "We tested the update for a week. Our verdict is that it holds up.";
+    const register = normalizeSourceText({ name: "The Register" }, text);
+    expect(register.text).toBe(text);
+    expect(register.authorialVoiceRewrites).toBe(0);
+  });
+
+  it("touches only a pronoun that opens a sentence", () => {
+    const normalized = normalizeSourceText(
+      ARXIV_SOURCE,
+      "This lets us compare the two, and the approach we adopted is simple.",
+    );
+    expect(normalized.text).toBe(
+      "This lets us compare the two, and the approach we adopted is simple.",
+    );
+    expect(normalized.authorialVoiceRewrites).toBe(0);
+  });
+
+  it("reports no rewrite when there is no first person to resolve", () => {
+    const normalized = normalizeSourceText(ARXIV_SOURCE, ARXIV_DESCRIPTION);
+    expect(normalized.text).toBe(ARXIV_ABSTRACT);
+    expect(normalized.authorialVoiceRewrites).toBe(0);
+  });
 });
 
 describe("evidence-level detectors", () => {
@@ -177,5 +223,73 @@ describe("source semantics", () => {
     expect(malformedAttribution("According to cs.LG, training runs completed")).toBe(true);
     expect(malformedAttribution("According to The Register, the flaw was fixed")).toBe(false);
     expect(malformedAttribution(ARXIV_ABSTRACT)).toBe(false);
+  });
+});
+
+/**
+ * The furniture class, from production. These strings were reaching readers as
+ * the article deck -- the sentence under a headline -- because the one path that
+ * never met the quality gate was the fallback deck, and a feed's `description`
+ * field is where a provider keeps everything that is not the article.
+ */
+describe("provider furniture", () => {
+  it.each([
+    ["a photo credit", "Photograph: Alexandra Topping/The Guardian.", "photo_credit"],
+    [
+      "a composite credit",
+      "Composite: Kin Cheung/Getty Images; Tasos Katopodis/Getty",
+      "photo_credit",
+    ],
+    ["a credit without its label", "Alexandra Topping/The Guardian.", "photo_credit"],
+    [
+      "git trailers",
+      "According to vLLM releases, Signed-off-by: khluu khluu000@gmail.com Co-authored-by: OpenAI Codex noreply@openai.com (cherry picked from commit eb87980).",
+      "commit_trailer",
+    ],
+    ["a trailer on its own", "Signed-off-by: khluu khluu000@gmail.com", "commit_trailer"],
+    [
+      "release-page labels",
+      "CUDA: tune FA for Gemma 4 on Ampere or newer (#29152) Website: https://llama.app Attestations: ...",
+      "release_metadata",
+    ],
+    ["a release field", "Website: https://llama.app", "release_metadata"],
+    ["a checksum list", "SHA256: 9f2b1c4d5e6a7b8c9d0e1f2a3b4c5d6e", "release_metadata"],
+  ])("recognizes %s", (_label, text, kind) => {
+    expect(providerFurniture(text)).toBe(kind);
+  });
+
+  it.each([
+    "Getty Images reported a rise in licensing revenue.",
+    "The photographer told Reuters that the image was taken on Monday.",
+    "Developers signed off on the proposal after review.",
+    "The project website says the release includes new CUDA optimizations.",
+    "The team confirmed the release: version 4 ships Friday.",
+    "The report was filed by Mary Smith/The Times in Washington.",
+    "The attack was tracked as CVE-2024-3094 and patched within a day.",
+    "She used the commit message as evidence of intent.",
+    "Images from the satellite showed the burn scar by morning.",
+  ])("leaves genuine prose alone: %s", (text) => {
+    expect(providerFurniture(text)).toBeNull();
+  });
+
+  it("refuses a description that is nothing but a credit", () => {
+    const normalization = normalizeSourceText(
+      undefined,
+      "Photograph: Alexandra Topping/The Guardian.",
+    );
+    expect(normalization.metadataOnly).toBe(true);
+    expect(normalization.text).toBe("");
+  });
+
+  it("keeps a labelled field's value when the value is prose", () => {
+    // Dropping the label is not the same as dropping the record: `Release:` is
+    // furniture, but the sentence after it is a fact, and the existing
+    // prose-value rescue keeps it.
+    const normalization = normalizeSourceText(
+      undefined,
+      "Release: the new version is available on Friday with CUDA optimizations for Ampere.",
+    );
+    expect(normalization.text).toContain("new version is available on Friday");
+    expect(normalization.text).not.toContain("Release:");
   });
 });

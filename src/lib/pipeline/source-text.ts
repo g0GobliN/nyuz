@@ -48,6 +48,12 @@
  * removed. A unit that is nothing but metadata comes back empty, which callers
  * reject rather than repair.
  *
+ * It also resolves a repository's own first-person voice. A paper says "We call
+ * this Loopjacking"; nyuz is not the author, so that pronoun becomes "The
+ * authors" here -- at the same boundary, for the same reason. Fixing it later
+ * would mean the evidence layer had already rejected the sentence as publisher
+ * voice, and a lost sentence cannot be repaired by the composer.
+ *
  * Nothing here is destructive to the underlying data: this is a pure function
  * over text that has already been fetched and sanitized, and the stored
  * `articles.excerpt` is never rewritten.
@@ -65,6 +71,8 @@ export type SourceNormalization = {
   removedFields: string[];
   /** True when the text was metadata and nothing else survived. */
   metadataOnly: boolean;
+  /** Sentences whose first-person voice was rewritten to their actual author. */
+  authorialVoiceRewrites: number;
   family: SourceFamily;
 };
 
@@ -150,6 +158,100 @@ const METADATA_LABELS = new Set([
   "isbn",
 ]);
 
+/**
+ * Fields that are furniture rather than content: a media credit, a repository
+ * trailer, a release page's own labels.
+ *
+ * Kept apart from `METADATA_LABELS` because these are not merely uninteresting --
+ * they are the exact class that used to reach readers as the article deck. A
+ * story with no extractable evidence falls back to its stored summary, and that
+ * summary is written from the feed's description field, so "Photograph:
+ * Alexandra Topping/The Guardian." became the sentence under the headline.
+ *
+ * The *reason* is part of the type because the fallback path reports why it
+ * refused a candidate, and "we published nothing" is only defensible if the
+ * answer is legible.
+ */
+export type FurnitureKind =
+  | "photo_credit"
+  | "commit_trailer"
+  | "release_metadata"
+  | "metadata_heavy"
+  | "url_heavy"
+  | "email_heavy";
+
+/**
+ * The closed set of furniture labels, and which family each belongs to.
+ *
+ * Matched as `Label:` fields, never as words, so a sentence that merely mentions
+ * a website, an image, a credit or a commit is untouched:
+ *
+ *   "The project website says the release includes new CUDA optimizations."  prose
+ *   "Getty Images reported a rise in licensing revenue."                    prose
+ *   "Developers signed off on the proposal after review."                   prose
+ *   "Website: https://llama.app"                                            furniture
+ *   "Signed-off-by: khluu khluu000@gmail.com"                                furniture
+ */
+const FURNITURE_LABELS = new Map<string, FurnitureKind>([
+  // Media credits.
+  ["photograph", "photo_credit"],
+  ["photographs", "photo_credit"],
+  ["photography", "photo_credit"],
+  ["photographer", "photo_credit"],
+  ["photo", "photo_credit"],
+  ["photos", "photo_credit"],
+  ["image", "photo_credit"],
+  ["images", "photo_credit"],
+  ["picture", "photo_credit"],
+  ["pictures", "photo_credit"],
+  ["video", "photo_credit"],
+  ["illustration", "photo_credit"],
+  ["graphic", "photo_credit"],
+  ["credit", "photo_credit"],
+  ["credits", "photo_credit"],
+  ["composite", "photo_credit"],
+  ["source image", "photo_credit"],
+  ["file photo", "photo_credit"],
+  ["ap photo", "photo_credit"],
+  ["reuters photo", "photo_credit"],
+  // Repository trailers -- what `git log` writes, not what a reporter writes.
+  ["signed-off-by", "commit_trailer"],
+  ["co-authored-by", "commit_trailer"],
+  ["reviewed-by", "commit_trailer"],
+  ["acked-by", "commit_trailer"],
+  ["tested-by", "commit_trailer"],
+  ["reported-by", "commit_trailer"],
+  ["suggested-by", "commit_trailer"],
+  ["change-id", "commit_trailer"],
+  ["cherry picked from", "commit_trailer"],
+  ["merge pull request", "commit_trailer"],
+  ["merge branch", "commit_trailer"],
+  ["commit", "commit_trailer"],
+  ["revision", "commit_trailer"],
+  // Release-page fields.
+  ["website", "release_metadata"],
+  ["attestation", "release_metadata"],
+  ["attestations", "release_metadata"],
+  ["assets", "release_metadata"],
+  ["asset", "release_metadata"],
+  ["artifacts", "release_metadata"],
+  ["artefacts", "release_metadata"],
+  ["checksum", "release_metadata"],
+  ["checksums", "release_metadata"],
+  ["sha256", "release_metadata"],
+  ["sha-256", "release_metadata"],
+  ["sha512", "release_metadata"],
+  ["download", "release_metadata"],
+  ["downloads", "release_metadata"],
+  ["installation", "release_metadata"],
+  ["install", "release_metadata"],
+  ["release", "release_metadata"],
+  ["tag", "release_metadata"],
+  ["signature", "release_metadata"],
+  ["signatures", "release_metadata"],
+  ["sbom", "release_metadata"],
+]);
+
 /** One word of a label. */
 const WORD_RE = /^[A-Za-z][A-Za-z0-9-]*/;
 const MAX_LABEL_LENGTH = 24;
@@ -204,15 +306,11 @@ export function normalizeSourceText(
 ): SourceNormalization {
   const family = sourceFamily(source);
   const clean = collapse(text);
-  const unchanged: SourceNormalization = {
-    text: clean,
-    removedFields: [],
-    metadataOnly: false,
-    family,
-  };
-  if (clean === "") return unchanged;
-
   const removed: string[] = [];
+  /** One exit, so a subject code, a stripped field and a voice rewrite all land in the same shape. */
+  const result = (rest: string): SourceNormalization => finish(rest, removed, family, source);
+  if (clean === "") return result("");
+
   let rest = clean;
 
   // An arXiv subject code can lead a listing row before any label appears.
@@ -225,7 +323,7 @@ export function normalizeSourceText(
   }
 
   const opening = readFieldAt(rest, 0);
-  if (!opening) return removed.length ? finish(rest, removed, family) : unchanged;
+  if (!opening) return result(rest);
 
   while (rest !== "") {
     const field = readFieldAt(rest, 0);
@@ -246,12 +344,73 @@ export function normalizeSourceText(
     break;
   }
 
-  return removed.length ? finish(rest, removed, family) : unchanged;
+  return result(rest);
 }
 
-function finish(rest: string, removedFields: string[], family: SourceFamily): SourceNormalization {
-  const text = collapse(rest);
-  return { text, removedFields, metadataOnly: text === "", family };
+function finish(
+  rest: string,
+  removedFields: string[],
+  family: SourceFamily,
+  source?: SourceContext | undefined,
+): SourceNormalization {
+  const prose = collapse(rest);
+  const voice = normalizeAuthorialVoice(prose, source);
+  return {
+    text: voice.text,
+    removedFields,
+    metadataOnly: voice.text === "",
+    authorialVoiceRewrites: voice.rewrites,
+    family,
+  };
+}
+
+/**
+ * How a research repository's first-person voice reads once reported.
+ *
+ * A paper says "We call failures of this binding Loopjacking". The verb is
+ * right; the voice is not. nyuz is not the author, so publishing "we" makes the
+ * article claim work it did not do -- and `publisherVoice` in the evidence layer
+ * rejects first-person text outright, which is how an entire abstract written in
+ * the first person plural used to disappear from the article. The actors are the
+ * authors, and they are known, so the pronoun is resolved rather than dropped.
+ *
+ * Structural, not a word filter: only a pronoun that *opens* a sentence is
+ * touched, because that is where the subject sits. "This lets us compare" and
+ * "the approach we adopted" are left exactly as they were.
+ *
+ * A contraction is a pronoun *and* an auxiliary, so `We've` expands to "The
+ * authors have" rather than becoming "The authors've".
+ */
+const AUTHORIAL_SUBJECT = /(^|(?<=[.!?])\s)(We|Our)(['’]ve|['’]re|['’]ll|['’]d)?\b/g;
+
+const CONTRACTED_AUXILIARY: Record<string, string> = {
+  "'ve": "have",
+  "’ve": "have",
+  "'re": "are",
+  "’re": "are",
+  "'ll": "will",
+  "’ll": "will",
+  "'d": "would",
+  "’d": "would",
+};
+
+export function normalizeAuthorialVoice(
+  text: string,
+  source?: SourceContext | undefined,
+): { text: string; rewrites: number } {
+  if (!isRepositorySourceName(source?.name)) return { text, rewrites: 0 };
+  let rewrites = 0;
+  const out = text.replace(
+    AUTHORIAL_SUBJECT,
+    (_match: string, boundary: string, subject: string, contraction?: string) => {
+      rewrites += 1;
+      if (subject === "Our") return `${boundary}The authors'`;
+      if (contraction)
+        return `${boundary}The authors ${CONTRACTED_AUXILIARY[contraction] ?? "have"}`;
+      return `${boundary}The authors`;
+    },
+  );
+  return { text: rewrites > 0 ? out : text, rewrites };
 }
 
 /**
@@ -261,7 +420,8 @@ function finish(rest: string, removedFields: string[], family: SourceFamily): So
 function knownLabel(raw: string): string | null {
   const label = raw.replace(/\s+/g, " ").trim().toLowerCase();
   if (label === "" || label.length > MAX_LABEL_LENGTH) return null;
-  if (PROSE_LABELS.has(label) || METADATA_LABELS.has(label)) return label;
+  if (PROSE_LABELS.has(label) || METADATA_LABELS.has(label) || FURNITURE_LABELS.has(label))
+    return label;
   return null;
 }
 
@@ -405,4 +565,154 @@ const ATTRIBUTION_OPENING = /^(?:according to|as reported by)\s+([^,;:]{1,80})[,
 export function malformedAttribution(text: string): boolean {
   const match = ATTRIBUTION_OPENING.exec(collapse(text));
   return !!match && isRepositorySourceName(match[1]);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Furniture: what a provider shipped that is not prose                      */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Whether this text is provider furniture, and which kind.
+ *
+ * The class this exists for is the one that reaches readers without ever meeting
+ * the composer: a story with no usable evidence publishes its stored summary as
+ * the article deck, and that summary is written straight from a feed's
+ * `description` field. Nothing between the feed and the page asked whether the
+ * description was prose, so media credits, `git` trailers and release-page
+ * labels shipped under headlines.
+ *
+ * Deliberately structural, and deliberately narrow. Every test below keys off a
+ * `Label:` field, a name/credit shape, or machine data -- never off a word that
+ * has an ordinary prose meaning:
+ *
+ *   "Getty Images reported a rise in licensing revenue."                    prose
+ *   "The photographer told Reuters that the image was taken on Monday."     prose
+ *   "Developers signed off on the proposal after review."                   prose
+ *   "The project website says the release includes new CUDA optimizations." prose
+ *
+ * but
+ *
+ *   "Photograph: Alexandra Topping/The Guardian."                            photo_credit
+ *   "Composite: Kin Cheung/Getty Images; Tasos Katopodis/Getty"             photo_credit
+ *   "Signed-off-by: khluu khluu000@gmail.com"                                commit_trailer
+ *   "Website: https://llama.app Attestations: ..."                           release_metadata
+ *
+ * A buried field is only furniture when the text carries *two* of them. That
+ * distinction is what keeps "The team confirmed the release: version 4 ships
+ * Friday." in print while a release page's label list does not.
+ */
+export function providerFurniture(text: string): FurnitureKind | null {
+  const clean = collapse(text);
+  if (clean === "") return null;
+  const opening = readFieldAt(clean, 0);
+  const openingKind = opening ? (FURNITURE_LABELS.get(opening.label) ?? null) : null;
+  if (openingKind) return openingKind;
+  const buried = buriedFurniture(clean);
+  if (buried) return buried;
+  if (looksLikeCredit(clean)) return "photo_credit";
+  return machineDataKind(clean);
+}
+
+/**
+ * The family of the second furniture field in the text, or null.
+ *
+ * Counting to two, rather than returning on the first hit, is the whole point: a
+ * field that leads the text is the provider labelling its own record, but the
+ * same word appearing once inside a sentence is just a sentence. `Website:`
+ * twice is a release page; `release:` once is English.
+ */
+function buriedFurniture(text: string): FurnitureKind | null {
+  let seen: FurnitureKind | null = null;
+  const limit = Math.min(text.length, SCAN_WINDOW);
+  for (let index = 0; index <= limit; index++) {
+    if (index > 0 && text[index - 1] !== " ") continue;
+    const field = readFieldAt(text, index);
+    if (!field) continue;
+    const kind = FURNITURE_LABELS.get(field.label) ?? null;
+    if (!kind) continue;
+    if (seen) return seen;
+    seen = kind;
+  }
+  return null;
+}
+
+/**
+ * `Kin`, `Cheung/Getty`, `Alexandra Topping/The Guardian` -- a name, optionally
+ * paired with the outlet that published it.
+ */
+const NAME_TOKEN = /^[A-Z][\p{L}'’.-]{1,}(?:\/[A-Z][\p{L}'’.-]{1,})?$/u;
+
+/** Words that open a sentence rather than name a person. */
+const CREDIT_FUNCTION_WORDS = new Set([
+  "The",
+  "A",
+  "An",
+  "In",
+  "On",
+  "At",
+  "Of",
+  "For",
+  "And",
+  "But",
+  "By",
+  "With",
+  "From",
+  "To",
+  "It",
+  "This",
+  "That",
+  "As",
+  "Or",
+  "Is",
+  "Was",
+  "More",
+]);
+
+/**
+ * A credit with its label already stripped: a slash between names and almost no
+ * other vocabulary. `Getty Images reported a rise in licensing revenue.` has no
+ * slash at all, and `The report was filed by Mary Smith/The Times in Washington.`
+ * spends most of its words on the sentence around the credit.
+ */
+function looksLikeCredit(text: string): boolean {
+  if (text.includes(":")) return false;
+  const tokens = text.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return false;
+  let names = 0;
+  let slash = false;
+  for (const token of tokens) {
+    const bare = token.replace(/[.,;|]+$/, "");
+    if (bare.includes("/")) slash = true;
+    if (NAME_TOKEN.test(bare) && !CREDIT_FUNCTION_WORDS.has(bare)) names += 1;
+  }
+  return slash && names / tokens.length >= 0.6;
+}
+
+const URL_RE = /\bhttps?:\/\/\S+|\bwww\.[\w-]+\.[a-z]{2,}\S*/i;
+const EMAIL_RE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/;
+/** A signature or blob: long, alphabet-plus-base64, no word breaks. */
+const BLOB_RE = /\b[A-Za-z0-9+/]{32,}={0,2}\b/;
+/** A commit id: hex, long enough to be one, and carrying at least one digit. */
+const HASH_RE = /\b(?=[0-9a-f]{7,40}\b)(?=[0-9a-f]*\d)[0-9a-f]*[a-f][0-9a-f]*\b/i;
+
+/**
+ * Machine data dominating a short string. A single identifier inside an ordinary
+ * sentence is not machine text -- a quarter of a short string is.
+ */
+function machineDataKind(text: string): FurnitureKind | null {
+  const tokens = text.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0 || tokens.length > 24) return null;
+  let urls = 0;
+  let emails = 0;
+  let blobs = 0;
+  for (const token of tokens) {
+    if (URL_RE.test(token)) urls += 1;
+    else if (EMAIL_RE.test(token)) emails += 1;
+    else if (BLOB_RE.test(token) || HASH_RE.test(token)) blobs += 1;
+  }
+  const machine = urls + emails + blobs;
+  if (machine === 0) return null;
+  if (machine / tokens.length < 0.25) return null;
+  if (urls >= emails && urls >= blobs) return "url_heavy";
+  return emails >= blobs ? "email_heavy" : "metadata_heavy";
 }

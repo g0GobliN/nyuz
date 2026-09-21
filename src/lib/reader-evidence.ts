@@ -4,6 +4,7 @@ import {
   hasSourceMetadata,
   metadataOnlyEvidence,
   normalizeSourceText,
+  providerFurniture,
   type SourceContext,
 } from "./pipeline/source-text";
 
@@ -17,6 +18,223 @@ export type ReaderSource = {
 
 const ACTION =
   /\b(?:is|are|was|were|has|have|had|said|says|announced|raised|raises|secured|gains?|reached|pledged|funded|backing|discovered|exposed|accessible|connected|restricted|released|launches?|launched|acquire[ds]?|approved|blocked|banned|hired|hires|includes?|reported|confirmed|will|plans?|requires?|remains?|allows?|supports?|offers?|runs?|running|uses?|used|built|found|started|spending|scores?|starts?|expanded|appears?|declined|rose|marks?|represents?|projects?|forecasts?|hosts?|values?|closed|expects?|yields?|produces?|increases?|decreases?)\b/i;
+
+/**
+ * Irregular verb forms, which a generated inflection cannot produce.
+ *
+ * Deliberately not the whole test. "Is there a verb" was previously answered by
+ * a closed list of newsroom verbs, which meant a research abstract -- written in
+ * the first person, about work the authors did -- could fail on "We distinguish
+ * two variants" while a rewritten press release passed. The list is now the
+ * irregular core plus generated inflections plus verb morphology, so supporting
+ * a domain costs one stem instead of a dictionary.
+ */
+const IRREGULAR_PREDICATE =
+  /\b(?:is|are|was|were|be|been|being|am|has|have|had|do|does|did|said|says|made|makes|found|finds|rose|falls|fell|grew|grown|took|taken|gave|given|led|built|held|lost|set|put|ran|began|begun|became|become|shown|shows?|kept|left|met|sent|spent|stood|wrote|written|won|sold|bought|brought|thought|knew|known|saw|seen|got|went|gone|came)\b/i;
+
+/**
+ * Regular verb stems, inflected by the pattern below rather than enumerated.
+ *
+ * The research block is the point: abstracts report what the authors did, and
+ * "evaluate", "reproduce" and "characterize" are not newsroom words.
+ */
+const PREDICATE_STEMS = [
+  // reporting, business and general news
+  "report",
+  "announce",
+  "publish",
+  "release",
+  "launch",
+  "acquire",
+  "confirm",
+  "decline",
+  "expect",
+  "plan",
+  "project",
+  "estimate",
+  "forecast",
+  "require",
+  "remain",
+  "allow",
+  "support",
+  "offer",
+  "include",
+  "increase",
+  "decrease",
+  "reach",
+  "hire",
+  "expand",
+  "secure",
+  "restrict",
+  "describe",
+  "appear",
+  "host",
+  "provide",
+  "continue",
+  "contract",
+  "purchase",
+  "integrate",
+  "warn",
+  "claim",
+  "argue",
+  "note",
+  "show",
+  "find",
+  "test",
+  "cover",
+  "raise",
+  "fund",
+  "back",
+  "build",
+  "develop",
+  "design",
+  "produce",
+  "install",
+  "deploy",
+  "run",
+  "stop",
+  "ban",
+  "block",
+  "approve",
+  "reject",
+  "join",
+  "leave",
+  "win",
+  "lose",
+  "pay",
+  "cost",
+  "value",
+  "price",
+  "grow",
+  "fall",
+  "rise",
+  "drop",
+  "close",
+  "open",
+  "start",
+  "keep",
+  "hold",
+  "make",
+  "take",
+  "give",
+  "turn",
+  "move",
+  "change",
+  "become",
+  "seem",
+  "help",
+  "need",
+  "want",
+  "work",
+  "face",
+  "meet",
+  "send",
+  "share",
+  "tell",
+  "ask",
+  "promise",
+  "refuse",
+  "agree",
+  "decide",
+  "consider",
+  // research
+  "propose",
+  "introduce",
+  "evaluate",
+  "demonstrate",
+  "measure",
+  "reproduce",
+  "compare",
+  "distinguish",
+  "identify",
+  "analyse",
+  "analyze",
+  "observe",
+  "derive",
+  "define",
+  "present",
+  "investigate",
+  "examine",
+  "characterise",
+  "characterize",
+  "separate",
+  "establish",
+  "model",
+  "predict",
+  "improve",
+  "reduce",
+  "enable",
+  "achieve",
+  "perform",
+  "outperform",
+  "apply",
+  "construct",
+  "implement",
+  "study",
+  "survey",
+  "review",
+  "assess",
+  "quantify",
+  "calculate",
+  "compute",
+  "simulate",
+  "annotate",
+  "classify",
+  "detect",
+  "train",
+  "infer",
+  "optimise",
+  "optimize",
+  "generalise",
+  "generalize",
+  "transfer",
+  "augment",
+  "mitigate",
+  "exploit",
+  "verify",
+  "validate",
+  "extend",
+  "attribute",
+  "correlate",
+  "rely",
+  "depend",
+  "motivate",
+  "justify",
+  "formalize",
+  "encode",
+  "decode",
+  "retain",
+  "preserve",
+  "replace",
+  "mutate",
+  "accept",
+];
+
+const REGULAR_PREDICATE = new RegExp(
+  `\\b(?:${[...new Set(PREDICATE_STEMS)].join("|")})(?:s|es|d|ed|ing)?\\b`,
+  "i",
+);
+
+/**
+ * Verb morphology the stems above do not cover.
+ *
+ * This is the structural half of the test, and the reason a domain does not need
+ * a dictionary entry to be readable. It is intentionally loose: it only decides
+ * whether a sentence *may* be published, while the fragment, metadata, quote and
+ * attribution checks are what keep junk out.
+ */
+const PREDICATE_MORPHOLOGY =
+  /\b[\p{L}]{4,}(?:ed|ing|ised|ized|ises|izes|ates?|ified|ifies|ify)\b/iu;
+
+/** Whether the text reads as a clause with a predicate, rather than a label or a stub. */
+export function hasPredicate(text: string): boolean {
+  return (
+    ACTION.test(text) ||
+    IRREGULAR_PREDICATE.test(text) ||
+    REGULAR_PREDICATE.test(text) ||
+    PREDICATE_MORPHOLOGY.test(text)
+  );
+}
 const NOISE =
   /\b(?:welcome back|weekly column|this week['’]s (?:column|newsletter)|as regular readers know|subscribe to|sign up for|click here|read more|continue reading|cookie policy|all rights reserved|follow us on|share this article|related articles|the coverage centers on|amount mentioned|percentage mentioned|entity mentioned|source count|evidence suggests|nyuz has also covered)\b|\bthe post\b.*\bappeared first on\b|^(?:advertisement|image credit|photo credit|hopefully\b|the takeaway\b)/i;
 const VOICE = /\b(?:we|we['’](?:ve|re|ll|d)|our|ours|you|your|as I remember)\b/i;
@@ -297,34 +515,133 @@ export function cleanDeterministicSentence(value: string): string {
   return text;
 }
 
+/**
+ * Sentence and paragraph are different units, so they have different limits.
+ *
+ * A sentence is the smallest thing nyuz publishes on its own, and a character
+ * ceiling is how runaway extraction is kept out of it. A paragraph is several
+ * sentences, so that ceiling does not apply to it -- and applying a sentence's
+ * limit to a paragraph is exactly how a valid multi-sentence paragraph used to
+ * be discarded whole. See `validDeterministicParagraph`.
+ */
+export const MIN_SENTENCE_CHARS = 12;
+export const MAX_SENTENCE_CHARS = 420;
+/** A published block: long enough to be prose, and short enough to stay a paragraph. */
+export const MIN_PARAGRAPH_WORDS = 8;
+export const MAX_PARAGRAPH_WORDS = 220;
+
+/** A phrase repeated three times or more is padding or boilerplate, not prose. */
+function repetitionBomb(text: string): boolean {
+  const words = (text.match(/[\p{L}\p{N}]+/gu) ?? []).map((word) => word.toLowerCase());
+  for (let size = 5; size <= 8; size++) {
+    for (let start = 0; start + size <= words.length; start++) {
+      const phrase = words.slice(start, start + size).join(" ");
+      let occurrences = 0;
+      for (let cursor = 0; cursor + size <= words.length; cursor++) {
+        if (words.slice(cursor, cursor + size).join(" ") === phrase) occurrences++;
+      }
+      if (occurrences >= 3) return true;
+    }
+  }
+  return false;
+}
+
 /** Reject only clear fragments; it deliberately does not attempt grammar correction. */
 export function validDeterministicSentence(value: string): boolean {
   const text = value.trim();
-  if (text.length < 12 || text.length > 420) return false;
+  if (text.length < MIN_SENTENCE_CHARS || text.length > MAX_SENTENCE_CHARS) return false;
+  // A sentence that *starts* with a provider field is not a sentence, whatever
+  // else it contains. Normalization removes headers before this point, so a hit
+  // here means a leak reached the validator -- and the structural test is what
+  // keeps a metadata blob from passing on the strength of one ordinary word
+  // ("Loopjacking" ends in "-ing" like a verb does).
+  if (hasSourceMetadata(text)) return false;
   if (HTML_LEFTOVER.test(text) || DANGLING_OPENING.test(text) || FRAGMENT_OPENING.test(text))
     return false;
   if (BROKEN_ATTRIBUTION.test(text)) return false;
   if (/[,:;]$/.test(text) || /(?:\.\.\.|…)\s*$/.test(text)) return false;
   if ((text.match(/["“]/g)?.length ?? 0) !== (text.match(/["”]/g)?.length ?? 0)) return false;
   if (/^(?:the )?(?:report|study|article),?\s*[A-Z][^.!?]{0,80}\??$/.test(text)) return false;
+  if (repetitionBomb(text)) return false;
   const words = text.match(/[\p{L}\p{N}]+/gu) ?? [];
-  const normalizedWords = words.map((word) => word.toLowerCase());
-  for (let size = 5; size <= 8; size++) {
-    for (let start = 0; start + size <= normalizedWords.length; start++) {
-      const phrase = normalizedWords.slice(start, start + size).join(" ");
-      let occurrences = 0;
-      for (let cursor = 0; cursor + size <= normalizedWords.length; cursor++) {
-        if (normalizedWords.slice(cursor, cursor + size).join(" ") === phrase) occurrences++;
-      }
-      if (occurrences >= 3) return false;
-    }
-  }
-  return (
-    words.length >= 3 &&
-    /\b(?:is|are|was|were|has|have|had|said|says|reports?|reported|announced|found|estimates?|projects?|expects?|will|plans?|rose|fell|increased|decreased|includes?|shows?|means?|could|may|can|remains?|raised|raises|releases?|released|acquired?|acquire|confirmed|confirms|declined|waited|expanded|represents?|reached|hired|launches?|launched|integration|secured|used|restricted|describes|appears?|hosts?|provides?|supports?|continues?|contracts?|transition|providers?|purchase|premium|transaction|funding|deal|acquisition|says?)\b/i.test(
-      text,
-    )
-  );
+  return words.length >= 3 && hasPredicate(text);
+}
+
+/**
+ * A stored event summary, as it may be shown, or the reason it may not be.
+ *
+ * The event summary is written from a feed's `description` field, and it is
+ * rendered on two reader-visible surfaces: the briefing card, and the article
+ * deck a story falls back to when no evidence was extractable. Neither is a
+ * composition path, so neither met the quality gate -- and the field itself is
+ * not always prose. Providers use it for media credits, `git` trailers and
+ * release-page labels, and arXiv uses it for a record header:
+ *
+ *   "ArXiv:2609.21081v1 Announce Type: new Abstract: Human approval ..."
+ *   "Photograph: Alexandra Topping/The Guardian."
+ *   "Signed-off-by: khluu khluu000@gmail.com"
+ *
+ * So the summary goes through the same boundary every other piece of provider
+ * text does -- normalize first, then refuse what normalization leaves. Both
+ * callers share this function because they must not be able to disagree: a value
+ * that renders on the card and is refused for the deck (or the reverse) is the
+ * bug this exists to prevent.
+ *
+ * Nothing is repaired. A summary that is metadata and nothing else comes back
+ * empty, and an empty summary is a legitimate answer -- headline and sources is
+ * a better page than a credit line presented as news.
+ */
+export function normalizeSummary(text: string): { text: string; reason: string | null } {
+  // Checked before normalization so the reason names the furniture class rather
+  // than the fact that removing it left nothing.
+  const opening = providerFurniture(text);
+  if (opening) return { text: "", reason: opening };
+  const normalization = normalizeSourceText(undefined, text);
+  if (normalization.metadataOnly) return { text: "", reason: "metadata_only" };
+  const clean = normalization.text;
+  const buried = providerFurniture(clean);
+  if (buried) return { text: "", reason: buried };
+  if (hasSourceMetadata(clean)) return { text: "", reason: "metadata_leak" };
+  return { text: clean, reason: null };
+}
+
+/**
+ * The identical-comparison key used for deck and paragraph dedupe: punctuation
+ * and case removed, so "...security boundary." and "...security boundary" are
+ * one sentence.
+ */
+export function sentenceKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}%$€£]+/gu, " ")
+    .trim();
+}
+
+/**
+ * A paragraph is validated as a paragraph: its sentences as sentences, and the
+ * block only as a block.
+ *
+ * This exists to fix a real production loss. Three facts that each passed
+ * `validDeterministicSentence` were grouped into one 462-character paragraph;
+ * the quality gate then handed that whole paragraph to the *sentence* validator,
+ * which refuses anything over `MAX_SENTENCE_CHARS`, and the block was discarded
+ * -- taking two publishable facts with it. A paragraph's size limit is its word
+ * count; character limits belong to the unit a character limit can describe.
+ */
+export function validDeterministicParagraph(value: string): boolean {
+  const text = value.trim();
+  if (text === "") return false;
+  const sentences = readerSentences(text).filter((part) => part.trim() !== "");
+  if (sentences.length === 0) return false;
+  const words = text.split(/\s+/).filter(Boolean).length;
+  if (words < MIN_PARAGRAPH_WORDS || words > MAX_PARAGRAPH_WORDS) return false;
+  // A provider field that survived to a paragraph is a leak, however the block
+  // was assembled.
+  if (hasSourceMetadata(text)) return false;
+  // The same sentence twice is a composition error, not a paragraph.
+  const keys = sentences.map((part) => sentenceKey(part));
+  if (new Set(keys).size !== keys.length) return false;
+  return sentences.every((part) => validDeterministicSentence(part));
 }
 
 /**
@@ -359,7 +676,7 @@ export function nearDuplicate(left: string, right: string): boolean {
   // The surplus must stay a minority of the longer statement: a prefix or a
   // source label is furniture, a second clause is new information.
   if (shorter.length / longer.length < 0.6) return false;
-  return contiguousRun(shorter, longer);
+  return contiguousRun(shorter, longer) || restated(left, right);
 }
 
 function contiguousRun(shorter: string[], longer: string[]): boolean {
@@ -374,6 +691,132 @@ function contiguousRun(shorter: string[], longer: string[]): boolean {
     if (matched) return true;
   }
   return false;
+}
+
+/**
+ * Content tokens in the order they were written, repeats kept.
+ *
+ * Distinct from `centralTokens`, which collapses to a set: a set is the right
+ * shape for "how much vocabulary do these share", but it erases where a word
+ * stood, and a diff needs position. "Never let it go" and "let it go" are one
+ * deletion apart, and a set cannot tell.
+ */
+function orderTokens(text: string): string[] {
+  return (text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}.-]*/gu) ?? [])
+    .map((token) => token.replace(/[.-]+$/, ""))
+    .filter((token) => token.length > 2 && !STOP.has(token));
+}
+
+function longestSharedRun(
+  left: string[],
+  right: string[],
+): { length: number; atLeft: number; atRight: number } {
+  let best = { length: 0, atLeft: 0, atRight: 0 };
+  for (let i = 0; i < left.length; i++) {
+    for (let j = 0; j < right.length; j++) {
+      let run = 0;
+      while (i + run < left.length && j + run < right.length && left[i + run] === right[j + run]) {
+        run++;
+      }
+      if (run > best.length) best = { length: run, atLeft: i, atRight: j };
+    }
+  }
+  return best;
+}
+
+/**
+ * How many tokens the two share in the same order, counting each once.
+ *
+ * Greedy longest-run-first, and runs shorter than three tokens are ignored: two
+ * sentences about one subject agree on a phrase like "security researchers"
+ * often enough that a shared bigram means nothing, while a run of three content
+ * words or more is text one of them took from the other.
+ */
+function sharedTokenCount(left: string[], right: string[]): number {
+  const usedLeft = new Set<number>();
+  const usedRight = new Set<number>();
+  let total = 0;
+  const ceiling = Math.min(12, left.length, right.length);
+  for (let length = ceiling; length >= 3; length--) {
+    for (let i = 0; i + length <= left.length; i++) {
+      for (let j = 0; j + length <= right.length; j++) {
+        let run = 0;
+        while (run < length && left[i + run] === right[j + run]) run++;
+        if (run !== length) continue;
+        let fresh = true;
+        for (let offset = 0; offset < length; offset++) {
+          if (usedLeft.has(i + offset) || usedRight.has(j + offset)) fresh = false;
+        }
+        if (!fresh) continue;
+        for (let offset = 0; offset < length; offset++) {
+          usedLeft.add(i + offset);
+          usedRight.add(j + offset);
+        }
+        total += length;
+      }
+    }
+  }
+  return total;
+}
+
+/**
+ * Whether two statements are one claim said twice in different words.
+ *
+ * `contiguousRun` above only recognises containment: one statement standing
+ * inside the other word for word. Real restatements are not that tidy. Measured
+ * on a 150-story production sample, every pair a reader would call duplicated
+ * differed *inside* the shared text rather than only at its edges:
+ *
+ *     "...reduces Multimodal Large Language Model-side latency by 61.8%..."
+ *     "...reduces model-side latency by 61.8%..."
+ *
+ *     "...Hideo Kojima said that, considering the broader state of the
+ *      industry..."
+ *     "...Kojima said that, considering the broader state of the..."
+ *
+ * while the pairs that must NOT merge -- two different facts reported under the
+ * same opening -- shared only a preamble. So the test is coverage, not
+ * containment, and it takes one of two shapes:
+ *
+ * - Interleaved: 80% of the two statements' tokens, counted once, appear in the
+ *   same order in both. Paraphrase inside the claim is allowed; a new clause is
+ *   not, because it adds tokens that do not match anywhere.
+ * - Trimmed: one statement is the other with a short span rewritten, where the
+ *   surviving run is anchored at an end of it and covers most of it. This is
+ *   containment's neighbourhood -- the shared text still has to be most of the
+ *   shorter statement, and the longer one may exceed it by ten tokens at most.
+ *
+ * Figures still have to agree (`nearDuplicate` checks them first), and the two
+ * statements still have to be comparable in length. The preamble-only case fails
+ * both shapes: its shared run is neither anchored nor large enough to carry the
+ * claim.
+ */
+function restated(left: string, right: string): boolean {
+  const a = orderTokens(left);
+  const b = orderTokens(right);
+  if (a.length < 3 || b.length < 3) return false;
+  if (Math.abs(a.length - b.length) > 10) return false;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length <= b.length ? b : a;
+  // Cheap prefilter. The ordered diff below walks three nested loops, so it only
+  // runs on pairs already sharing most of their vocabulary.
+  const vocabulary = new Set(longer);
+  let present = 0;
+  for (const token of new Set(shorter)) if (vocabulary.has(token)) present++;
+  if (present / new Set(shorter).size < 0.7) return false;
+  if ((2 * sharedTokenCount(a, b)) / (a.length + b.length) >= 0.8) return true;
+  const run = longestSharedRun(shorter, longer);
+  if (run.length < 5 || run.length / shorter.length < 0.7) return false;
+  // The run has to reach an edge of one of the two statements -- a prefix or a
+  // suffix -- because that is what an edit at the seam looks like. A run buried
+  // in the middle of both is two claims sharing a clause, which is how the pairs
+  // that must not merge are built.
+  const anchoredInEither =
+    run.atLeft === 0 ||
+    run.atLeft + run.length === shorter.length ||
+    run.atRight === 0 ||
+    run.atRight + run.length === longer.length;
+  return anchoredInEither;
 }
 
 /**
@@ -528,7 +971,21 @@ export type ReaderSourceNormalization = {
   removedMetadataFields: number;
   cleanedEvidence: number;
   rejectedMetadataOnly: number;
+  /** Sentences whose first-person voice was resolved to the paper's authors. */
+  authorialVoiceRewrites: number;
 };
+
+/**
+ * Why one candidate unit did not become evidence. Counted per unit, and the
+ * counts add up to `rejectedCount`, so a dropped sentence is always explicable.
+ */
+export type EvidenceRejectionReason =
+  | "invalid_sentence"
+  | "no_predicate"
+  | "editorial_noise"
+  | "trailing_ellipsis"
+  | "unbalanced_quote"
+  | "unassigned_quote";
 
 export type ReaderDedupe = {
   nearDuplicateMerges: number;
@@ -540,6 +997,7 @@ function emptyNormalizationStats(): ReaderSourceNormalization & ReaderDedupe {
     removedMetadataFields: 0,
     cleanedEvidence: 0,
     rejectedMetadataOnly: 0,
+    authorialVoiceRewrites: 0,
     nearDuplicateMerges: 0,
     preferredCleanVariant: 0,
   };
@@ -561,6 +1019,7 @@ function normalizeReaderSource(
       stats.removedMetadataFields += normalization.removedFields.length;
       stats.cleanedEvidence += 1;
     }
+    stats.authorialVoiceRewrites += normalization.authorialVoiceRewrites;
     if (normalization.metadataOnly || metadataOnlyEvidence(normalization.text)) {
       stats.rejectedMetadataOnly += 1;
       return undefined;
@@ -689,20 +1148,36 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
   const accepted: ReaderFact[] = [];
   let rejected = 0;
   let duplicates = 0;
+  // One entry per refused unit, so the counts always explain `rejectedCount`.
+  const rejectionReasons: Record<EvidenceRejectionReason, number> = {
+    invalid_sentence: 0,
+    no_predicate: 0,
+    editorial_noise: 0,
+    trailing_ellipsis: 0,
+    unbalanced_quote: 0,
+    unassigned_quote: 0,
+  };
   for (const fact of raw) {
     const text = fact.text;
     const unbalanced =
       (text.match(/"/g)?.length ?? 0) % 2 !== 0 ||
       (text.match(/“/g)?.length ?? 0) !== (text.match(/”/g)?.length ?? 0);
     const unassignedQuote = /^["“]/.test(text) && !/\b(?:said|says|told|according to)\b/.test(text);
-    if (
-      !validDeterministicSentence(text) ||
-      fact.score <= -100 ||
-      /…$|\.\.\.$/.test(text) ||
-      unbalanced ||
-      unassignedQuote ||
-      (!fact.quote && !ACTION.test(text))
-    ) {
+    const reason: EvidenceRejectionReason | null = !validDeterministicSentence(text)
+      ? "invalid_sentence"
+      : fact.score <= -100
+        ? "editorial_noise"
+        : /…$|\.\.\.$/.test(text)
+          ? "trailing_ellipsis"
+          : unbalanced
+            ? "unbalanced_quote"
+            : unassignedQuote
+              ? "unassigned_quote"
+              : !fact.quote && !hasPredicate(text)
+                ? "no_predicate"
+                : null;
+    if (reason) {
+      rejectionReasons[reason] += 1;
       rejected++;
       continue;
     }
@@ -753,6 +1228,7 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
     rawCount: raw.length,
     rejectedCount: rejected,
     duplicateCount: duplicates,
+    rejectionReasons,
     contextDependencyRejections: raw.filter((fact) => contextDependent(fact.text)).length,
     publisherVoiceRejections: raw.filter((fact) => editorialNoise(fact.text)).length,
     composedFactCount: facts.length,
@@ -764,6 +1240,7 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
       removedMetadataFields: stats.removedMetadataFields,
       cleanedEvidence: stats.cleanedEvidence,
       rejectedMetadataOnly: stats.rejectedMetadataOnly,
+      authorialVoiceRewrites: stats.authorialVoiceRewrites,
     },
     dedupe: {
       nearDuplicateMerges: stats.nearDuplicateMerges,

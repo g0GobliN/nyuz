@@ -456,6 +456,24 @@ describe("briefingText", () => {
     expect(brief).not.toContain("OpenAI released GPT-5. OpenAI released GPT-5");
   });
 
+  it.each([
+    "Photograph: Alexandra Topping/The Guardian.",
+    "Composite: Kin Cheung/Getty Images; Tasos Katopodis/Getty",
+    "Signed-off-by: khluu khluu000@gmail.com",
+    "Website: https://llama.app Attestations: assets",
+  ])("shows nothing for a summary that is provider furniture: %s", (summary) => {
+    // The card is a reader-visible surface, and this field is written straight
+    // from a feed's description. A stored credit must not become the paragraph
+    // under a headline.
+    expect(briefingText(summary)).toBe("");
+  });
+
+  it("keeps a real summary", () => {
+    expect(briefingText("Getty Images reported a rise in licensing revenue.")).toBe(
+      "Getty Images reported a rise in licensing revenue.",
+    );
+  });
+
   it("handles very short input", () => {
     const short = "OpenAI released GPT-5.";
     const brief = briefingText(short, 90);
