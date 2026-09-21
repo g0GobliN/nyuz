@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { adminOnly } from "@/lib/server/guard";
 import { resolvePlanPrices } from "@/lib/plans";
+import { activeCutoff } from "@/lib/pipeline/freshness";
 import type {
   DailyCount,
   Database,
@@ -41,6 +42,14 @@ function daysAgo(n: number): string {
   return new Date(Date.now() - n * 86_400_000).toISOString();
 }
 
+/** Whole minutes since an instant, floored at zero, or null for no instant. */
+function minutesSince(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.round((Date.now() - parsed) / 60_000));
+}
+
 export type Overview = {
   users: {
     total: number;
@@ -77,6 +86,37 @@ export type Overview = {
     /** sent / (sent + failed + bounced), 0..1. Null when nothing has been sent. */
     successRate: number | null;
   };
+  /**
+   * Windowed and aged figures.
+   *
+   * Every other field on this type is a lifetime total, and a lifetime total
+   * cannot show recovery: a failure count that never drops leaves a queue
+   * reading "degraded" forever, long after the cause was fixed. These are the
+   * numbers that can return to normal, plus the ages that separate a busy
+   * queue from a stuck one.
+   */
+  health: {
+    /** Delivery attempts in the last 24 hours. */
+    sent24h: number;
+    failed24h: number;
+    bounced24h: number;
+    /** sent / (sent + failed + bounced) over 24h. Null when nothing was attempted. */
+    successRate24h: number | null;
+    /** The most recent terminal delivery failure, so a page can say why. */
+    lastDeliveryError: string | null;
+    oldestQueuedAt: string | null;
+    oldestQueuedMinutes: number | null;
+    oldestFailedAt: string | null;
+    oldestFailedMinutes: number | null;
+    /** Pending events inside the active horizon — work that can still be done. */
+    pendingLive: number;
+    /** Pending events past the horizon — unreachable, and cannot decline. */
+    pendingExpired: number;
+    /** Event failures in the last 24 hours. */
+    failedEvents24h: number;
+    oldestPendingAt: string | null;
+    oldestPendingMinutes: number | null;
+  };
   feedback: Record<FeedbackVote, number>;
   ai: {
     /** Tokens spent on the shared per-event analysis pass. */
@@ -112,6 +152,10 @@ export const getOverview = createServerFn({ method: "GET" })
     const since7 = daysAgo(7);
     const since30 = daysAgo(30);
     const since1 = daysAgo(1);
+    // The pipeline's active work horizon. A pending event older than this can no
+    // longer be picked up by any stage, so it is counted apart from the live
+    // queue rather than inflating it — see `health.pendingExpired`.
+    const activeSince = activeCutoff().toISOString();
 
     // Counts are independent, so they go out together rather than in sequence.
     // On a cold Postgres connection the difference is most of the page load.
@@ -134,6 +178,12 @@ export const getOverview = createServerFn({ method: "GET" })
       failedEvents,
       blogTotal,
       blogPublished,
+      sent24h,
+      failed24h,
+      bounced24h,
+      pendingLive,
+      pendingExpired,
+      failedEvents24h,
     ] = await Promise.all([
       countRows(db, "profiles"),
       countRows(db, "profiles", (q) => (q as never as Filter).gte("created_at", since7) as never),
@@ -161,6 +211,60 @@ export const getOverview = createServerFn({ method: "GET" })
       countRows(db, "events", (q) => (q as never as Filter).eq("status", "failed") as never),
       countRows(db, "blog_posts"),
       countRows(db, "blog_posts", (q) => (q as never as Filter).eq("status", "published") as never),
+      countRows(
+        db,
+        "deliveries",
+        (q) =>
+          ((q as never as Filter).eq("status", "sent") as never as Filter).gte(
+            "delivered_at",
+            since1,
+          ) as never,
+      ),
+      countRows(
+        db,
+        "deliveries",
+        (q) =>
+          ((q as never as Filter).eq("status", "failed") as never as Filter).gte(
+            "created_at",
+            since1,
+          ) as never,
+      ),
+      countRows(
+        db,
+        "deliveries",
+        (q) =>
+          ((q as never as Filter).eq("status", "bounced") as never as Filter).gte(
+            "created_at",
+            since1,
+          ) as never,
+      ),
+      countRows(
+        db,
+        "events",
+        (q) =>
+          ((q as never as Filter).eq("status", "pending") as never as Filter).gte(
+            "first_seen_at",
+            activeSince,
+          ) as never,
+      ),
+      countRows(
+        db,
+        "events",
+        (q) =>
+          ((q as never as Filter).eq("status", "pending") as never as Filter).lt(
+            "first_seen_at",
+            activeSince,
+          ) as never,
+      ),
+      countRows(
+        db,
+        "events",
+        (q) =>
+          ((q as never as Filter).eq("status", "failed") as never as Filter).gte(
+            "last_updated_at",
+            since1,
+          ) as never,
+      ),
     ]);
 
     const [byPlan, digestsByStatus, deliveriesByStatus, feedback] = await Promise.all([
@@ -179,8 +283,47 @@ export const getOverview = createServerFn({ method: "GET" })
     const paid = byPlan.plura + byPlan.omni;
     const mrrEstimate = byPlan.plura * prices.plura + byPlan.omni * prices.omni;
 
+    // Queue age and the most recent failure reason. One row each, so these stay
+    // cheap however large the tables grow, and no count can express either.
+    const [oldestQueued, oldestFailed, oldestPending, lastFailure] = await Promise.all([
+      db
+        .from("deliveries")
+        .select("created_at")
+        .eq("status", "queued")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      db
+        .from("deliveries")
+        .select("created_at")
+        .eq("status", "failed")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      db
+        .from("events")
+        .select("first_seen_at")
+        .eq("status", "pending")
+        .gte("first_seen_at", activeSince)
+        .order("first_seen_at", { ascending: true })
+        .limit(1)
+        .maybeSingle(),
+      db
+        .from("deliveries")
+        .select("last_error")
+        .eq("status", "failed")
+        .not("last_error", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    for (const result of [oldestQueued, oldestFailed, oldestPending, lastFailure]) {
+      if (result.error) throw new Error(`delivery health: ${result.error.message}`);
+    }
+
     const attempted =
       deliveriesByStatus.sent + deliveriesByStatus.failed + deliveriesByStatus.bounced;
+    const attempted24h = sent24h + failed24h + bounced24h;
 
     return {
       users: { total, new7, new30, active7, active30, onboarded, banned, admins },
@@ -206,6 +349,22 @@ export const getOverview = createServerFn({ method: "GET" })
         deliveriesByStatus,
         successRate: attempted > 0 ? deliveriesByStatus.sent / attempted : null,
       },
+      health: {
+        sent24h,
+        failed24h,
+        bounced24h,
+        successRate24h: attempted24h > 0 ? sent24h / attempted24h : null,
+        lastDeliveryError: lastFailure.data?.last_error ?? null,
+        oldestQueuedAt: oldestQueued.data?.created_at ?? null,
+        oldestQueuedMinutes: minutesSince(oldestQueued.data?.created_at),
+        oldestFailedAt: oldestFailed.data?.created_at ?? null,
+        oldestFailedMinutes: minutesSince(oldestFailed.data?.created_at),
+        pendingLive,
+        pendingExpired,
+        failedEvents24h,
+        oldestPendingAt: oldestPending.data?.first_seen_at ?? null,
+        oldestPendingMinutes: minutesSince(oldestPending.data?.first_seen_at),
+      },
       feedback,
       ai: totals.ai,
       blog: {
@@ -226,6 +385,7 @@ export const getOverview = createServerFn({ method: "GET" })
  */
 type Filter = {
   gte: (column: string, value: string | number) => unknown;
+  lt: (column: string, value: string | number) => unknown;
   eq: (column: string, value: string | number | boolean) => unknown;
   neq: (column: string, value: string | number | boolean) => unknown;
   not: (column: string, operator: string, value: null) => unknown;

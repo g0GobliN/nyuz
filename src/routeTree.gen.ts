@@ -39,6 +39,7 @@ import { Route as DashboardBillingRouteImport } from './routes/dashboard/billing
 import { Route as DashboardBriefingRouteImport } from './routes/dashboard/briefing'
 import { Route as DashboardDeliveryRouteImport } from './routes/dashboard/delivery'
 import { Route as DashboardHistoryRouteImport } from './routes/dashboard/history'
+import { Route as DashboardPipelineRouteImport } from './routes/dashboard/pipeline'
 import { Route as DashboardSettingsRouteImport } from './routes/dashboard/settings'
 import { Route as DashboardSourcesRouteImport } from './routes/dashboard/sources'
 import { Route as DashboardTopicsRouteImport } from './routes/dashboard/topics'
@@ -198,6 +199,11 @@ const DashboardHistoryRoute = DashboardHistoryRouteImport.update({
   path: '/history',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardPipelineRoute = DashboardPipelineRouteImport.update({
+  id: '/pipeline',
+  path: '/pipeline',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardSettingsRoute = DashboardSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -267,6 +273,7 @@ export interface FileRoutesByFullPath {
   '/dashboard/briefing': typeof DashboardBriefingRoute
   '/dashboard/delivery': typeof DashboardDeliveryRoute
   '/dashboard/history': typeof DashboardHistoryRoute
+  '/dashboard/pipeline': typeof DashboardPipelineRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/sources': typeof DashboardSourcesRoute
   '/dashboard/topics': typeof DashboardTopicsRoute
@@ -305,6 +312,7 @@ export interface FileRoutesByTo {
   '/dashboard/briefing': typeof DashboardBriefingRoute
   '/dashboard/delivery': typeof DashboardDeliveryRoute
   '/dashboard/history': typeof DashboardHistoryRoute
+  '/dashboard/pipeline': typeof DashboardPipelineRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/sources': typeof DashboardSourcesRoute
   '/dashboard/topics': typeof DashboardTopicsRoute
@@ -346,6 +354,7 @@ export interface FileRoutesById {
   '/dashboard/briefing': typeof DashboardBriefingRoute
   '/dashboard/delivery': typeof DashboardDeliveryRoute
   '/dashboard/history': typeof DashboardHistoryRoute
+  '/dashboard/pipeline': typeof DashboardPipelineRoute
   '/dashboard/settings': typeof DashboardSettingsRoute
   '/dashboard/sources': typeof DashboardSourcesRoute
   '/dashboard/topics': typeof DashboardTopicsRoute
@@ -388,6 +397,7 @@ export interface FileRouteTypes {
     | '/dashboard/briefing'
     | '/dashboard/delivery'
     | '/dashboard/history'
+    | '/dashboard/pipeline'
     | '/dashboard/settings'
     | '/dashboard/sources'
     | '/dashboard/topics'
@@ -426,6 +436,7 @@ export interface FileRouteTypes {
     | '/dashboard/briefing'
     | '/dashboard/delivery'
     | '/dashboard/history'
+    | '/dashboard/pipeline'
     | '/dashboard/settings'
     | '/dashboard/sources'
     | '/dashboard/topics'
@@ -466,6 +477,7 @@ export interface FileRouteTypes {
     | '/dashboard/briefing'
     | '/dashboard/delivery'
     | '/dashboard/history'
+    | '/dashboard/pipeline'
     | '/dashboard/settings'
     | '/dashboard/sources'
     | '/dashboard/topics'
@@ -706,6 +718,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardHistoryRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/dashboard/pipeline': {
+      id: '/dashboard/pipeline'
+      path: '/pipeline'
+      fullPath: '/dashboard/pipeline'
+      preLoaderRoute: typeof DashboardPipelineRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/dashboard/settings': {
       id: '/dashboard/settings'
       path: '/settings'
@@ -807,6 +826,7 @@ interface DashboardRouteChildren {
   DashboardBriefingRoute: typeof DashboardBriefingRoute
   DashboardDeliveryRoute: typeof DashboardDeliveryRoute
   DashboardHistoryRoute: typeof DashboardHistoryRoute
+  DashboardPipelineRoute: typeof DashboardPipelineRoute
   DashboardSettingsRoute: typeof DashboardSettingsRoute
   DashboardSourcesRoute: typeof DashboardSourcesRoute
   DashboardTopicsRoute: typeof DashboardTopicsRoute
@@ -822,6 +842,7 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardBriefingRoute: DashboardBriefingRoute,
   DashboardDeliveryRoute: DashboardDeliveryRoute,
   DashboardHistoryRoute: DashboardHistoryRoute,
+  DashboardPipelineRoute: DashboardPipelineRoute,
   DashboardSettingsRoute: DashboardSettingsRoute,
   DashboardSourcesRoute: DashboardSourcesRoute,
   DashboardTopicsRoute: DashboardTopicsRoute,

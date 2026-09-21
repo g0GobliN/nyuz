@@ -69,7 +69,7 @@ const NAV_FOOT = [
  * refused. What this removes is the invitation.
  */
 const NAV_STAFF = [
-  { to: "/dashboard/admin", label: "Pipeline", icon: Gauge },
+  { to: "/dashboard/pipeline", label: "Pipeline", icon: Gauge },
   { to: "/admin", label: "Console", icon: ShieldCheck },
 ] as const;
 
