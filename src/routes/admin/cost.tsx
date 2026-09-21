@@ -892,7 +892,7 @@ function SpendByFeature() {
       title="Spend by feature"
       note="Ledger cost, including in-flight reservations; token counts reflect reported usage."
     >
-      <div className="mb-4 flex gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
         {(
           [
             ["today", "Today (UTC)"],

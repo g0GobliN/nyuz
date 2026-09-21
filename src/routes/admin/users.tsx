@@ -191,7 +191,7 @@ function UsersPage() {
               </>
             )}
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
               variant="outline"
@@ -353,7 +353,7 @@ function UserDrawer({ userId, onClose }: { userId: string; onClose: () => void }
                   webhook owns this column, so an override may be reverted the next time Stripe
                   reports on the subscription.
                 </p>
-                <div className="mt-3 flex gap-1.5">
+                <div className="mt-3 flex flex-wrap gap-1.5">
                   {PLANS.map((p) => (
                     <Chip
                       key={p}
@@ -377,7 +377,7 @@ function UserDrawer({ userId, onClose }: { userId: string; onClose: () => void }
                     ? "Admin grants console access. Superadmin additionally allows provider changes, role changes and deletions. The last superadmin cannot be demoted."
                     : "Only a superadmin can change roles."}
                 </p>
-                <div className="mt-3 flex gap-1.5">
+                <div className="mt-3 flex flex-wrap gap-1.5">
                   {ROLES.map((r) => (
                     <Chip
                       key={r}

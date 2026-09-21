@@ -719,7 +719,7 @@ function PromptEditor({
           <code className="ml-2 font-mono text-[11.5px] text-muted-foreground">{promptKey}</code>
         </p>
         {dirty ? (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="ghost" onClick={() => setValue(initial)}>
               Revert
             </Button>

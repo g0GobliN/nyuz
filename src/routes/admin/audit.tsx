@@ -146,7 +146,7 @@ function AuditPage() {
             {total === 1 ? "entry" : "entries"}
             {filtered ? " matching" : ""}
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
               variant="outline"

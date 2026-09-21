@@ -63,7 +63,7 @@ export function Chip({
   return (
     <button
       className={cn(
-        "rounded-full border px-3.5 py-1.5 text-[13px] transition-all duration-300 active:scale-95",
+        "inline-flex shrink-0 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13px] transition-all duration-300 active:scale-95",
         active
           ? "border-transparent bg-foreground text-background"
           : "border-border bg-surface text-muted-foreground hover:text-foreground hover:border-foreground/25",

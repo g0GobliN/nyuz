@@ -8,12 +8,14 @@ import {
   DoorClosed,
   FileText,
   LayoutTemplate,
+  Menu,
   Rss,
   ScrollText,
   ShieldCheck,
   SlidersHorizontal,
   Users,
   Activity,
+  X,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Logo } from "@/components/landing/nav";
@@ -97,6 +99,7 @@ function NavItem({ to, label, icon: Icon, exact }: NavEntry) {
 }
 
 export function AdminLayout() {
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const { data: viewer, isLoading } = useViewer();
   const { data: aiStatus, isLoading: aiStatusLoading } = useQuery({
     queryKey: ["admin", "ai-status"],
@@ -144,7 +147,7 @@ export function AdminLayout() {
     : 0;
 
   return (
-    <div className="min-h-screen bg-surface-2">
+    <div className="min-h-screen min-w-0 overflow-x-clip bg-surface-2">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-hairline bg-surface px-4 py-5 lg:flex">
         <div className="px-2">
           <Logo />
@@ -212,40 +215,85 @@ export function AdminLayout() {
 
       <div className="lg:pl-60">
         <header className="glass sticky top-0 z-30 border-b border-hairline bg-surface/85">
-          <div className="flex h-16 items-center gap-3 px-5 sm:px-7">
+          <div className="flex min-h-16 items-center gap-3 px-4 py-2 sm:px-7 lg:px-7">
             <div className="lg:hidden">
               <Logo />
             </div>
-            {/* The way back out, too. "Leave console" lives in the sidebar,
-                which is `hidden lg:flex`, so on a phone the only exit was the
-                logo — which goes to the marketing home page, not to the
-                dashboard the operator came from. It sits at the end rather than
-                the start so it cannot be hit while reaching for Overview. */}
-            <nav className="flex gap-1 overflow-x-auto lg:hidden">
-              {NAV.map((n) => (
-                <Link
-                  key={n.to}
-                  to={n.to}
-                  className="whitespace-nowrap rounded-full px-3 py-1.5 text-[12.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  {n.label}
-                </Link>
-              ))}
-              <Link
-                to="/dashboard"
-                className="whitespace-nowrap rounded-full px-3 py-1.5 text-[12.5px] text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                Leave
-              </Link>
-            </nav>
-            <div className="ml-auto">
+            <button
+              type="button"
+              aria-label={mobileNavOpen ? "Close console navigation" : "Open console navigation"}
+              aria-expanded={mobileNavOpen}
+              onClick={() => setMobileNavOpen((open) => !open)}
+              className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-xl border border-hairline text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+            >
+              {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+            <div className="ml-auto hidden lg:block">
+              <ThemeToggle />
+            </div>
+            <div className="lg:hidden">
               <ThemeToggle />
             </div>
           </div>
         </header>
 
-        <main className="px-5 pb-16 pt-6 sm:px-7 sm:pb-20 sm:pt-8">
-          <div className="mx-auto w-full max-w-6xl">
+        {mobileNavOpen ? (
+          <>
+            <button
+              type="button"
+              aria-label="Close console navigation"
+              onClick={() => setMobileNavOpen(false)}
+              className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-[2px] lg:hidden"
+            />
+            <aside className="fixed inset-y-0 left-0 z-50 flex w-[min(21rem,calc(100vw-2rem))] flex-col overflow-y-auto border-r border-hairline bg-surface px-4 pb-6 pt-[max(1rem,env(safe-area-inset-top))] shadow-[var(--shadow-float)] lg:hidden">
+              <div className="flex items-center justify-between px-2">
+                <Logo />
+                <button
+                  type="button"
+                  aria-label="Close console navigation"
+                  onClick={() => setMobileNavOpen(false)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <p className="mt-8 px-3 text-[10.5px] font-semibold uppercase tracking-[0.2em] text-signal">
+                Console
+              </p>
+              <nav className="mt-3 flex flex-col gap-1" aria-label="Console navigation">
+                {NAV.map((n) => (
+                  <Link
+                    key={n.to}
+                    to={n.to}
+                    onClick={() => setMobileNavOpen(false)}
+                    className="flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <n.icon className="h-4 w-4 shrink-0" />
+                    {n.label}
+                  </Link>
+                ))}
+              </nav>
+              <div className="mt-auto space-y-3 pt-8">
+                <div className="rounded-2xl border border-hairline bg-surface-2 p-4">
+                  <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                    <ShieldCheck className="h-3.5 w-3.5" /> {viewer?.role}
+                  </p>
+                  <p className="mt-2 break-all text-[12.5px]">{viewer?.email}</p>
+                </div>
+                <Link
+                  to="/dashboard"
+                  onClick={() => setMobileNavOpen(false)}
+                  className="flex min-h-11 items-center rounded-xl px-3 text-[13px] text-muted-foreground underline decoration-hairline underline-offset-4 hover:text-foreground"
+                >
+                  Leave console
+                </Link>
+              </div>
+            </aside>
+          </>
+        ) : null}
+
+        <main className="min-w-0 px-4 pb-16 pt-5 sm:px-7 sm:pb-20 sm:pt-8">
+          <div className="mx-auto min-w-0 w-full max-w-6xl">
             <Outlet />
           </div>
         </main>
@@ -307,7 +355,7 @@ export function Panel({
   return (
     <section
       className={cn(
-        "rounded-2xl border border-border bg-surface p-5 shadow-[var(--shadow-soft)] sm:p-6",
+        "rounded-2xl border border-border bg-surface p-4 shadow-[var(--shadow-soft)] sm:p-6",
         className,
       )}
     >
