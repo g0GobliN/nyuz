@@ -6,13 +6,22 @@ import {
   cleanDeterministicSentence,
   deterministicFactType,
   editorialNoise,
+  nearDuplicate,
+  normalizeReaderSources,
   normalizedNumericKey,
+  preferCleaner,
   selectReaderEvidence,
   sourceNameForEvidence,
   readerSentences,
   validDeterministicSentence,
+  type DeterministicFactType,
   type ReaderFact,
 } from "./reader-evidence";
+import {
+  hasSourceMetadata,
+  isRepositorySourceName,
+  malformedAttribution,
+} from "./pipeline/source-text";
 import { relatedContext } from "./related-events";
 import { repeats } from "./understand";
 
@@ -28,6 +37,10 @@ function lowerFirst(text: string): string {
 
 function similarEnough(left: string, right: string): boolean {
   if (normalizedNumericKey(left) === normalizedNumericKey(right)) return true;
+  // One statement carrying extra furniture -- a provider prefix, a source label
+  // -- is the same statement. Checked before the token-set comparison, which
+  // would otherwise score a decorated variant as only partly similar.
+  if (nearDuplicate(left, right)) return true;
   const a = new Set(centralTokens(left));
   const b = new Set(centralTokens(right));
   if (Math.min(a.size, b.size) < 4) return repeats(left, right);
@@ -50,7 +63,26 @@ function mergeEvidenceIntoDeck(
   }
 }
 
-function mergeFacts(facts: ReaderFact[]): ReaderFact[] {
+/** Counters for the deterministic composer. Admin/debug only -- see `composeArticleWithDiagnostics`. */
+export type CompositionDiagnostics = {
+  sourceNormalization: {
+    removedMetadataFields: number;
+    cleanedEvidence: number;
+    rejectedMetadataOnly: number;
+  };
+  dedupe: { duplicateGroups: number; preferredCleanVariant: number };
+  qualityGate: { metadataLeakWarnings: number; malformedAttributionWarnings: number };
+};
+
+function createDiagnostics(): CompositionDiagnostics {
+  return {
+    sourceNormalization: { removedMetadataFields: 0, cleanedEvidence: 0, rejectedMetadataOnly: 0 },
+    dedupe: { duplicateGroups: 0, preferredCleanVariant: 0 },
+    qualityGate: { metadataLeakWarnings: 0, malformedAttributionWarnings: 0 },
+  };
+}
+
+function mergeFacts(facts: ReaderFact[], diagnostics: CompositionDiagnostics): ReaderFact[] {
   const kept: ReaderFact[] = [];
   for (const fact of facts) {
     if (!validDeterministicSentence(fact.text) || editorialNoise(fact.text)) continue;
@@ -62,7 +94,17 @@ function mergeFacts(facts: ReaderFact[]): ReaderFact[] {
     );
     if (prior) {
       prior.evidence = [...new Set([...prior.evidence, ...fact.evidence])];
-      if (fact.score > prior.score) prior.text = fact.text;
+      diagnostics.dedupe.duplicateGroups += 1;
+      // Two variants of one claim merged. Keep the one carrying less furniture
+      // -- and the same text regardless of which variant arrived first.
+      if (preferCleaner(prior.text, fact.text)) {
+        prior.text = fact.text;
+        prior.score = Math.max(prior.score, fact.score);
+        diagnostics.dedupe.preferredCleanVariant += 1;
+      } else if (!preferCleaner(fact.text, prior.text) && fact.score > prior.score) {
+        prior.text = fact.text;
+        prior.score = fact.score;
+      }
     } else {
       kept.push({ ...fact, evidence: [...fact.evidence] });
     }
@@ -78,7 +120,25 @@ function supplementalEntityFacts(
   selection: ReturnType<typeof selectReaderEvidence>,
 ): ReaderFact[] {
   const facts: ReaderFact[] = [];
-  const entities = selection.entities.filter((entity) => entity.role !== "REPORTING_SOURCE");
+  /**
+   * Only entities the source text itself supports.
+   *
+   * Entity ranking reads the title and the excerpts as one string, so a
+   * capitalized window can span the boundary between them -- "Hijacking
+   * Human-in-the-Loop Approval Human" is a title tail glued to the excerpt's
+   * first word. Rewriting a sentence with a name like that attributes a claim to
+   * nobody and duplicates the sentence it was spliced into.
+   */
+  const supportedText = story.sourceList
+    .map((source) =>
+      [source.excerpt ?? "", ...(source.enrichedEvidence ?? []).map((unit) => unit.text)].join(" "),
+    )
+    .join(" ")
+    .toLowerCase();
+  const entities = selection.entities.filter(
+    (entity) =>
+      entity.role !== "REPORTING_SOURCE" && supportedText.includes(entity.name.toLowerCase()),
+  );
   story.sourceList.forEach((source, sourceIndex) => {
     for (const raw of readerSentences(source.excerpt ?? "")) {
       const entity = entities.find((candidate) => {
@@ -133,10 +193,32 @@ function safeLead(
   ) {
     return { text, evidence: lead.evidence };
   }
+  if (isRepositorySourceName(source)) {
+    return {
+      text: `${researchAttribution(deterministicFactType(text))}: ${text}`,
+      evidence: lead.evidence,
+    };
+  }
   if (/^(?:once|when|while|because|although|and|but|or)\b/i.test(text)) {
     return { text: `${source} reports that ${lowerFirst(text)}`, evidence: lead.evidence };
   }
   return { text: `According to ${source}, ${lowerFirst(text)}`, evidence: lead.evidence };
+}
+
+/**
+ * How a research repository introduces a claim.
+ *
+ * arXiv is where a paper is posted, not a party to anything, so it can never be
+ * the claimant: `According to arXiv cs.CR, ...` credits a subject category with
+ * a research finding. The paper is the actor, and the form ends in a colon
+ * because the sentence that follows is a complete one -- lowercasing its first
+ * word would be a guess about whether that word is a proper noun.
+ */
+function researchAttribution(type: DeterministicFactType): string {
+  if (type === "projection") return "The paper projects";
+  if (type === "estimate") return "The paper estimates";
+  if (type === "claim") return "The paper argues";
+  return "A new paper reports";
 }
 
 function attributedFactText(text: string, evidence: number[], story: Story): string {
@@ -147,7 +229,10 @@ function attributedFactText(text: string, evidence: number[], story: Story): str
   )
     return text;
   const source = sourceNameForEvidence(evidence, story.sourceList);
-  return source ? `${source} reports that ${lowerFirst(text)}` : text;
+  if (!source) return text;
+  return isRepositorySourceName(source)
+    ? `${researchAttribution(type)}: ${text}`
+    : `${source} reports that ${lowerFirst(text)}`;
 }
 
 export type DeterministicQualityReport = {
@@ -155,12 +240,18 @@ export type DeterministicQualityReport = {
   paragraphsKept: number;
   duplicateParagraphs: number;
   malformedParagraphs: number;
+  /** Sentences dropped because a provider field was still at their start. */
+  metadataLeakWarnings: number;
+  /** Sentences dropped because they credited a repository or category with a claim. */
+  malformedAttributionWarnings: number;
   fallbackLevel: 1 | 2 | 3;
 };
 
 export function auditDeterministicArticle(article: ReaderArticle): DeterministicQualityReport {
   let duplicateParagraphs = 0;
   let malformedParagraphs = 0;
+  let metadataLeakWarnings = 0;
+  let malformedAttributionWarnings = 0;
   const kept: ArticleParagraph[] = [];
   for (const paragraph of article.paragraphs) {
     if (!validDeterministicSentence(paragraph.text)) {
@@ -170,6 +261,10 @@ export function auditDeterministicArticle(article: ReaderArticle): Deterministic
     if (kept.some((prior) => similarEnough(prior.text, paragraph.text))) duplicateParagraphs++;
     else kept.push(paragraph);
   }
+  for (const text of [article.deck.text, ...article.paragraphs.map((part) => part.text)]) {
+    if (hasSourceMetadata(text)) metadataLeakWarnings++;
+    if (malformedAttribution(text)) malformedAttributionWarnings++;
+  }
   const fallbackLevel = kept.length === 0 ? (article.deck.text ? 2 : 3) : 1;
   return {
     factsSelected:
@@ -178,13 +273,38 @@ export function auditDeterministicArticle(article: ReaderArticle): Deterministic
     paragraphsKept: kept.length,
     duplicateParagraphs,
     malformedParagraphs,
+    metadataLeakWarnings,
+    malformedAttributionWarnings,
     fallbackLevel,
   };
 }
 
-function qualityGate(article: ReaderArticle): ReaderArticle {
+/** The identical-comparison key the gate uses, punctuation-insensitive. */
+function sentenceKeyOf(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}%$€£]+/gu, " ")
+    .trim();
+}
+
+/**
+ * The final deterministic check before prose ships.
+ *
+ * It refuses three things the composer is not allowed to publish even if they
+ * reach it: a sentence still carrying a provider field, an attribution that
+ * credits a repository or subject category with a claim, and a sentence that
+ * only restates the deck. Provenance is never dropped with the text -- the
+ * duplicate's evidence is folded into the copy that survives.
+ */
+function qualityGate(article: ReaderArticle, diagnostics: CompositionDiagnostics): ReaderArticle {
   const sentencesWithEvidence: { text: string; evidence: number[] }[] = [];
-  const seen = new Set<string>();
+  const index = new Map<string, number>();
+  const deck = article.deck;
+  const mergeInto = (target: { evidence: number[] }, evidence: number[]) => {
+    target.evidence = [...new Set([...target.evidence, ...evidence])];
+  };
+  const deckKey = sentenceKeyOf(deck.text);
+  if (deckKey && validDeterministicSentence(deck.text)) index.set(deckKey, -1);
   for (const paragraph of article.paragraphs) {
     const parts =
       paragraph.text.split(/\s+/).length <= 140
@@ -192,13 +312,29 @@ function qualityGate(article: ReaderArticle): ReaderArticle {
         : readerSentences(paragraph.text);
     for (const part of parts) {
       if (!validDeterministicSentence(part)) continue;
-      const key = part
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}%$€£]+/gu, " ")
-        .trim();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      sentencesWithEvidence.push({ text: part, evidence: paragraph.evidence });
+      if (hasSourceMetadata(part)) {
+        diagnostics.qualityGate.metadataLeakWarnings += 1;
+        continue;
+      }
+      if (malformedAttribution(part)) {
+        diagnostics.qualityGate.malformedAttributionWarnings += 1;
+        continue;
+      }
+      // A paragraph that only restates the deck is the deck, not a paragraph.
+      if (nearDuplicate(deck.text, part)) {
+        mergeInto(deck, paragraph.evidence);
+        continue;
+      }
+      const key = sentenceKeyOf(part);
+      if (key === "") continue;
+      const existing = index.get(key);
+      if (existing === undefined) {
+        index.set(key, sentencesWithEvidence.length);
+        sentencesWithEvidence.push({ text: part, evidence: [...paragraph.evidence] });
+        continue;
+      }
+      const target = existing < 0 ? deck : sentencesWithEvidence[existing];
+      if (target) mergeInto(target, paragraph.evidence);
     }
   }
   const paragraphs: ArticleParagraph[] = [];
@@ -213,7 +349,7 @@ function qualityGate(article: ReaderArticle): ReaderArticle {
     }
   }
   return {
-    deck: article.deck,
+    deck,
     paragraphs: paragraphs.slice(0, sentencesWithEvidence.length > 12 ? 8 : 6),
   };
 }
@@ -259,12 +395,36 @@ function deterministicParagraphs(facts: ReaderFact[], story: Story): ArticlePara
  * so Read never depends on a live model call.
  */
 export function composeArticle(story: Story): ReaderArticle {
-  if (story.understand?.article) return story.understand.article;
+  return composeArticleWithDiagnostics(story).article;
+}
+
+/**
+ * The same composition, plus the counters behind it.
+ *
+ * Only admin surfaces and tests read the counters: how much provider metadata
+ * normalization removed, how many duplicate claims merged and which variant
+ * won, and what the quality gate refused. Users never see any of it.
+ */
+export function composeArticleWithDiagnostics(story: Story): {
+  article: ReaderArticle;
+  diagnostics: CompositionDiagnostics;
+} {
+  const diagnostics = createDiagnostics();
+  if (story.understand?.article) return { article: story.understand.article, diagnostics };
 
   if (!story.understand) {
-    const selection = selectReaderEvidence(story.title, story.sourceList);
+    // Normalize the source list first: this branch also reads excerpts directly
+    // for entity context, and that text has to be the same clean text the
+    // evidence selection sees. The quality gate is the backstop, not the fix.
+    const { sources, normalization } = normalizeReaderSources(story.sourceList);
+    diagnostics.sourceNormalization = { ...normalization };
+    const cleanStory: Story = { ...story, sourceList: sources };
+    const selection = selectReaderEvidence(story.title, sources);
     const fallback = !editorialNoise(story.what) ? story.what.trim() : "";
-    const facts = mergeFacts([...selection.facts, ...supplementalEntityFacts(story, selection)]);
+    const facts = mergeFacts(
+      [...selection.facts, ...supplementalEntityFacts(cleanStory, selection)],
+      diagnostics,
+    );
     const lead = selection.lead && facts.includes(selection.lead) ? selection.lead : facts[0];
     const independentSources = new Set(
       story.sourceList.map((source) => source.name.trim().toLowerCase()).filter(Boolean),
@@ -304,13 +464,13 @@ export function composeArticle(story: Story): ReaderArticle {
     const composedText = paragraphs.map((paragraph) => paragraph.text).join(" ");
     for (const entity of selection.entities.filter((item) => item.role !== "REPORTING_SOURCE")) {
       if (composedText.includes(entity.name) || !entity.name.includes(" ")) continue;
-      const sourceIndex = story.sourceList.findIndex((source) =>
+      const sourceIndex = sources.findIndex((source) =>
         (source.excerpt ?? "").toLowerCase().includes(entity.name.toLowerCase()),
       );
       const raw =
         sourceIndex < 0
           ? undefined
-          : readerSentences(story.sourceList[sourceIndex]?.excerpt ?? "").find((part) =>
+          : readerSentences(sources[sourceIndex]?.excerpt ?? "").find((part) =>
               part.toLowerCase().includes(entity.name.toLowerCase()),
             );
       const text = raw
@@ -333,12 +493,15 @@ export function composeArticle(story: Story): ReaderArticle {
         paragraphs.push({ text: sentence(context), evidence: [] });
     }
     // Thin evidence should remain thin; rich evidence is capped at four useful blocks.
-    const gated = qualityGate({
-      deck,
-      paragraphs: paragraphs.slice(0, facts.length <= 3 ? 2 : paragraphs.length),
-    });
+    const gated = qualityGate(
+      {
+        deck,
+        paragraphs: paragraphs.slice(0, facts.length <= 3 ? 2 : paragraphs.length),
+      },
+      diagnostics,
+    );
 
-    return gated;
+    return { article: gated, diagnostics };
   }
 
   const intel =
@@ -457,5 +620,5 @@ export function composeArticle(story: Story): ReaderArticle {
       else out.push(paragraph);
       return out;
     }, []);
-  return qualityGate({ deck, paragraphs: cleanParagraphs });
+  return { article: qualityGate({ deck, paragraphs: cleanParagraphs }, diagnostics), diagnostics };
 }

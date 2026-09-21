@@ -4,6 +4,7 @@ import { composeArticle } from "./editorial";
 import {
   editorialNoise,
   evidenceScore,
+  nearDuplicate,
   numericKeys,
   publisherVoice,
   rankEntities,
@@ -287,6 +288,72 @@ describe("production deterministic Read quality", () => {
     expect(selected.rejectedCount).toBe(1);
     expect(selected.facts.map((f) => f.origin)).toEqual(["enriched", "rss"]);
   });
+  it("compares variants by containment, never by token count alone", () => {
+    const clean =
+      "Human approval is often treated as the last security boundary before an agent executes a consequential operation.";
+    const decorated = `ArXiv:2609.21081v1 Announce Type: new Abstract: ${clean}`;
+    expect(nearDuplicate(decorated, clean)).toBe(true);
+    // A swapped subject and object is a different claim, not a rewording.
+    expect(
+      nearDuplicate(
+        "Acme acquired Beta for $20 million on Monday.",
+        "Beta acquired Acme for $20 million on Monday.",
+      ),
+    ).toBe(false);
+    // Different figures are different claims however similar the wording.
+    expect(
+      nearDuplicate("Acme acquired Beta for $20 million.", "Acme acquired Beta for $21 million."),
+    ).toBe(false);
+  });
+
+  it("normalizes provider metadata before evidence and rejects metadata-only units", () => {
+    const selected = selectReaderEvidence("Loopjacking: Hijacking Human-in-the-Loop Approval", [
+      {
+        name: "arXiv cs.CR",
+        excerpt:
+          "ArXiv:2609.21081v1 Announce Type: new Abstract: Human approval is often treated as the last security boundary before an agent executes a consequential operation.",
+      },
+    ]);
+    expect(selected.facts.map((fact) => fact.text)).toEqual([
+      "Human approval is often treated as the last security boundary before an agent executes a consequential operation.",
+    ]);
+    expect(selected.sourceNormalization.removedMetadataFields).toBe(3);
+    expect(selected.sourceNormalization.cleanedEvidence).toBe(1);
+
+    const listing = selectReaderEvidence("Paper listing", [
+      {
+        name: "arXiv cs.LG",
+        excerpt: "Subjects: Cryptography and Security (cs.CR) Published: 2026-09-20",
+      },
+    ]);
+    expect(listing.facts).toEqual([]);
+    expect(listing.sourceNormalization.rejectedMetadataOnly).toBe(1);
+  });
+
+  it("deduplicates a clean and a decorated variant in either arrival order", () => {
+    const clean =
+      "Human approval is often treated as the last security boundary before an agent executes a consequential operation.";
+    const decorated = `ArXiv:2609.21081v1 Announce Type: new Abstract: ${clean}`;
+    const forward = selectReaderEvidence("Loopjacking", [
+      {
+        name: "arXiv cs.CR",
+        excerpt: decorated,
+        enrichedEvidence: [{ kind: "fact", text: clean }],
+      },
+    ]);
+    const reverse = selectReaderEvidence("Loopjacking", [
+      {
+        name: "arXiv cs.CR",
+        excerpt: clean,
+        enrichedEvidence: [{ kind: "fact", text: decorated }],
+      },
+    ]);
+    expect(forward.facts.map((fact) => fact.text)).toEqual([clean]);
+    expect(reverse.facts.map((fact) => fact.text)).toEqual([clean]);
+    expect(forward.facts[0]?.evidence).toEqual([1]);
+    expect(reverse.facts[0]?.evidence).toEqual([1]);
+  });
+
   it("drops legacy metadata templates and orphan numbers from structured fallback", () => {
     const s = story(0);
     s.understand = {

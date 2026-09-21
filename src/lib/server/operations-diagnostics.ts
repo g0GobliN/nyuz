@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { adminOnly } from "@/lib/server/guard";
 import type { Database, Json } from "@/lib/supabase/types";
 import { activeCutoff } from "@/lib/pipeline/freshness";
-import { composeArticle } from "@/lib/editorial";
+import { composeArticleWithDiagnostics } from "@/lib/editorial";
 import { selectReaderEvidence } from "@/lib/reader-evidence";
 import { readEventIntelligence, type EventIntelligence } from "@/lib/understand";
 import type { Story } from "@/lib/story";
@@ -38,6 +38,26 @@ export type ReadQualityDiagnostics = {
     rawUnits: number;
     averageUnitsPerEnrichedStory: number | null;
     sourceWords: number | null;
+  };
+  /**
+   * What the deterministic evidence boundary did to the sample. Provider
+   * metadata never reaches a reader, so these are the only place it is visible:
+   * fields stripped before evidence, units that were metadata and nothing else,
+   * duplicate claims merged, and what the quality gate refused to publish.
+   */
+  sourceNormalization: {
+    removedMetadataFields: number;
+    cleanedEvidence: number;
+    rejectedMetadataOnly: number;
+  };
+  dedupe: {
+    duplicateGroups: number;
+    preferredCleanVariant: number;
+    nearDuplicateMerges: number;
+  };
+  qualityGate: {
+    metadataLeakWarnings: number;
+    malformedAttributionWarnings: number;
   };
 };
 
@@ -480,6 +500,20 @@ export const getOperationsDiagnostics = createServerFn({ method: "GET" })
     const wordValues: number[] = [];
     const recentStories: OperationsDiagnostics["recentStories"] = [];
     const suspiciousTitles: OperationsDiagnostics["suspiciousTitles"] = [];
+    const sourceNormalization: ReadQualityDiagnostics["sourceNormalization"] = {
+      removedMetadataFields: 0,
+      cleanedEvidence: 0,
+      rejectedMetadataOnly: 0,
+    };
+    const dedupe: ReadQualityDiagnostics["dedupe"] = {
+      duplicateGroups: 0,
+      preferredCleanVariant: 0,
+      nearDuplicateMerges: 0,
+    };
+    const qualityGate: ReadQualityDiagnostics["qualityGate"] = {
+      metadataLeakWarnings: 0,
+      malformedAttributionWarnings: 0,
+    };
     let enrichedStories = 0;
     let rawUnits = 0;
     let sourceWords = 0;
@@ -493,9 +527,22 @@ export const getOperationsDiagnostics = createServerFn({ method: "GET" })
       const hasSourceText = articles.some((article) => Boolean(article.excerpt?.trim()));
       const mode = modeOf(intel, enriched, hasSourceText);
       const story = storyFor(event, articles, evidenceByArticle, intel);
-      const article = composeArticle(story);
+      const composition = composeArticleWithDiagnostics(story);
+      const article = composition.article;
       const outputWords = wordsOf(article);
       const selection = selectReaderEvidence(event.title, story.sourceList);
+      sourceNormalization.removedMetadataFields +=
+        composition.diagnostics.sourceNormalization.removedMetadataFields;
+      sourceNormalization.cleanedEvidence +=
+        composition.diagnostics.sourceNormalization.cleanedEvidence;
+      sourceNormalization.rejectedMetadataOnly +=
+        composition.diagnostics.sourceNormalization.rejectedMetadataOnly;
+      dedupe.duplicateGroups += composition.diagnostics.dedupe.duplicateGroups;
+      dedupe.preferredCleanVariant += composition.diagnostics.dedupe.preferredCleanVariant;
+      dedupe.nearDuplicateMerges += selection.dedupe.nearDuplicateMerges;
+      qualityGate.metadataLeakWarnings += composition.diagnostics.qualityGate.metadataLeakWarnings;
+      qualityGate.malformedAttributionWarnings +=
+        composition.diagnostics.qualityGate.malformedAttributionWarnings;
       const q = qualityOf(outputWords, selection.facts.length, articles.length);
       modes[mode] += 1;
       quality[q] += 1;
@@ -678,6 +725,9 @@ export const getOperationsDiagnostics = createServerFn({ method: "GET" })
           averageUnitsPerEnrichedStory: enrichedStories ? rawUnits / enrichedStories : null,
           sourceWords: enrichedStories ? sourceWords : null,
         },
+        sourceNormalization,
+        dedupe,
+        qualityGate,
       },
       enrichment: {
         enabled: flags.data?.enabled === true,

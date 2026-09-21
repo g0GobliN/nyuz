@@ -107,6 +107,7 @@ const ENRICHMENT_FAILURE_THRESHOLD = 5;
 
 type CandidateSource = {
   id: string;
+  name: string | null;
   homepage: string | null;
   enrichment_allowed: boolean | null;
   enrichment_failure_count: number;
@@ -153,7 +154,7 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
   let query = db
     .from("articles")
     .select(
-      "id, title, url, sources ( id, homepage, enrichment_allowed, enrichment_failure_count )",
+      "id, title, url, sources ( id, name, homepage, enrichment_allowed, enrichment_failure_count )",
     )
     .not("event_id", "is", null)
     .not("url", "is", null)
@@ -302,7 +303,10 @@ async function enrichOne(
       };
     }
 
-    const units = selectEvidenceUnits(mainText, undefined, article.title);
+    const units = selectEvidenceUnits(mainText, undefined, article.title, {
+      name: source.name ?? undefined,
+      url: article.url,
+    });
     if (!dryRun) {
       await finish(db, article.id, "enriched", units, wordCount);
       await recordSourceOutcome(db, source, true);

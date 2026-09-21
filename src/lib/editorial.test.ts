@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { auditDeterministicArticle, composeArticle } from "./editorial";
+import {
+  auditDeterministicArticle,
+  composeArticle,
+  composeArticleWithDiagnostics,
+} from "./editorial";
 import { deterministicFactType } from "./reader-evidence";
 import type { Story } from "@/lib/story";
-import type { EventIntelligence } from "@/lib/understand";
+import type { EventIntelligence, EvidenceUnit } from "@/lib/understand";
 
 const makeStory = (overrides: Partial<Story> = {}): Story => ({
   id: "test-1",
@@ -379,6 +383,127 @@ describe("composeArticle", () => {
         .paragraphs.map((p) => p.text)
         .join(" ");
       expect(body).not.toContain("nyuz has also covered");
+    });
+  });
+
+  describe("provider metadata in a feed description", () => {
+    /**
+     * The production regression, verbatim: arXiv's cs.CR feed serves its
+     * description as `ArXiv:<id> Announce Type: <type> Abstract: <abstract>`,
+     * which shipped as the deck *and* as a paragraph, attributed to the
+     * repository and its subject category.
+     */
+    const DESCRIPTION =
+      "ArXiv:2609.21081v1 Announce Type: new Abstract: Human approval is often treated as the last security boundary before an agent executes a consequential operation.";
+    const ABSTRACT =
+      "Human approval is often treated as the last security boundary before an agent executes a consequential operation.";
+    const TITLE = "Loopjacking: Hijacking Human-in-the-Loop Approval";
+
+    const arxivStory = (evidence: EvidenceUnit[]) =>
+      makeStory({
+        title: TITLE,
+        understand: undefined as never,
+        what: "",
+        sources: 1,
+        sourceList: [
+          { name: "arXiv cs.CR", at: "10:00", excerpt: DESCRIPTION, enrichedEvidence: evidence },
+        ],
+      });
+
+    const wholeText = (story: Story) => {
+      const article = composeArticle(story);
+      return [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    };
+
+    it("never publishes the feed header, and never as two copies of one fact", () => {
+      const article = composeArticle(arxivStory([]));
+      const text = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+
+      expect(text).not.toMatch(/ArXiv:2609\.21081v1/i);
+      expect(text).not.toMatch(/Announce Type:/i);
+      expect(text).not.toMatch(/\bAbstract:/);
+      expect(text).not.toMatch(/cs\.CR/);
+      expect(text).not.toMatch(/According to arXiv/i);
+      expect(text).toContain("Human approval is often treated as the last security boundary");
+      // Exactly once: the same sentence must not be the deck and a paragraph.
+      expect(text.match(/Human approval is often treated/g)).toHaveLength(1);
+      // One fact is one paragraph -- the deck carries it and nothing repeats it.
+      expect(article.paragraphs).toEqual([]);
+      expect(article.deck.evidence).toEqual([1]);
+    });
+
+    it("uses neutral paper attribution instead of crediting the repository", () => {
+      expect(composeArticle(arxivStory([])).deck.text).toMatch(/^A new paper reports: /);
+    });
+
+    it("composes the same text whichever order the dirty and clean variants arrive", () => {
+      const dirtyFirst = wholeText(
+        arxivStory([
+          { kind: "fact", text: DESCRIPTION },
+          { kind: "fact", text: ABSTRACT },
+        ]),
+      );
+      const cleanFirst = wholeText(
+        arxivStory([
+          { kind: "fact", text: ABSTRACT },
+          { kind: "fact", text: DESCRIPTION },
+        ]),
+      );
+      expect(dirtyFirst).toBe(cleanFirst);
+      expect(dirtyFirst).toContain("Human approval is often treated");
+      expect(dirtyFirst.match(/Human approval is often treated/g)).toHaveLength(1);
+    });
+
+    it("keeps provenance when a clean and a decorated variant merge", () => {
+      const story = makeStory({
+        title: TITLE,
+        understand: undefined as never,
+        what: "",
+        sources: 2,
+        sourceList: [
+          { name: "arXiv cs.CR", at: "10:00", excerpt: DESCRIPTION },
+          { name: "The Register", at: "11:00", excerpt: ABSTRACT },
+        ],
+      });
+      const article = composeArticle(story);
+      expect(article.deck.evidence).toEqual([1, 2]);
+      expect(wholeText(story)).not.toMatch(/ArXiv:|Announce Type:|According to arXiv/i);
+    });
+
+    it("reports what normalization removed and what the gate refused", () => {
+      const { article, diagnostics } = composeArticleWithDiagnostics(arxivStory([]));
+      expect(diagnostics.sourceNormalization.removedMetadataFields).toBeGreaterThanOrEqual(3);
+      expect(diagnostics.sourceNormalization.cleanedEvidence).toBeGreaterThanOrEqual(1);
+      expect(diagnostics.qualityGate.metadataLeakWarnings).toBe(0);
+      expect(diagnostics.qualityGate.malformedAttributionWarnings).toBe(0);
+      expect(article.deck.text).toContain("Human approval");
+    });
+
+    it("flags leakage and repository attribution in the quality audit", () => {
+      const report = auditDeterministicArticle({
+        deck: {
+          text: "According to arXiv cs.CR, Human approval is often treated as the last security boundary before an agent executes a consequential operation.",
+          evidence: [1],
+        },
+        paragraphs: [
+          {
+            text: "ArXiv:2609.21081v1 Announce Type: new Abstract: Human approval is often treated as the last security boundary.",
+            evidence: [1],
+          },
+        ],
+      });
+      expect(report.metadataLeakWarnings).toBe(1);
+      expect(report.malformedAttributionWarnings).toBe(1);
+    });
+
+    it("leaves an authored article untouched", () => {
+      const authored = {
+        deck: { text: "Authored deck about the paper.", evidence: [1] },
+        paragraphs: [{ text: "Authored body about loopjacking.", evidence: [1] }],
+      };
+      const story = arxivStory([]);
+      story.understand = makeIntelligence({ article: authored });
+      expect(composeArticle(story)).toEqual(authored);
     });
   });
 });

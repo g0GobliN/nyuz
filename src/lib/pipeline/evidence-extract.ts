@@ -8,6 +8,7 @@ import {
 import { sentences, repeats, isEvidenceBoilerplate, type EvidenceUnit } from "@/lib/understand";
 import { cleanDeterministicSentence, validDeterministicSentence } from "@/lib/reader-evidence";
 import { evidenceScore, rankEntities } from "../reader-evidence";
+import { normalizeSourceText, type SourceContext } from "./source-text";
 
 /**
  * Turning one article's extracted main text into a bounded set of short,
@@ -84,24 +85,41 @@ function factDensity(text: string): number {
 
 export const MAX_EVIDENCE_UNITS = 12;
 
-/** `mainText` is the already-extracted, script/nav/footer-stripped body -- see `html-text.ts`. */
+/**
+ * `mainText` is the already-extracted, script/nav/footer-stripped body -- see
+ * `html-text.ts`.
+ *
+ * Source normalization runs here, before sentence splitting and validity, so a
+ * provider's metadata header never becomes a candidate fact in the first place.
+ * `source` is optional because the same function serves fixtures and pages whose
+ * origin adds nothing; when it is given, arXiv-shaped text gets the extra
+ * treatment `source-text.ts` documents.
+ */
 export function selectEvidenceUnits(
   mainText: string,
   maxUnits = MAX_EVIDENCE_UNITS,
   title = "",
+  source?: SourceContext,
 ): EvidenceUnit[] {
-  const quotes = extractQuotes(mainText)
+  // Normalize the whole body first, then each candidate, because a `<p>` block
+  // can itself begin with a header field when a page mixes prose and metadata.
+  const body = normalizeSourceText(source, mainText).text;
+  if (body === "") return [];
+
+  const quotes = extractQuotes(body)
     .filter((q) => !isEvidenceBoilerplate(`${q.attribution} said: "${q.quote}"`))
     .slice(0, 3);
   const quoteKeys = quotes.map((q) => q.quote.toLowerCase());
 
-  const candidates = sentences(mainText)
-    .map((text) => cleanDeterministicSentence(text))
+  const candidates = sentences(body)
+    .map((text) => normalizeSourceText(source, text))
+    .filter((unit) => !unit.metadataOnly)
+    .map((unit) => cleanDeterministicSentence(unit.text))
     .filter((text) => validDeterministicSentence(text))
     .filter((text) => !isEvidenceBoilerplate(text))
     .filter((text) => !quoteKeys.some((q) => text.toLowerCase().includes(q)));
 
-  const entities = rankEntities(title, [{ excerpt: mainText }]);
+  const entities = rankEntities(title, [{ excerpt: body }]);
   const scored = candidates
     .map((text) => ({
       text,

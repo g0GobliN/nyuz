@@ -108,6 +108,30 @@ function ReadQuality({ data }: { data: OperationsDiagnostics }) {
           </strong>
         </span>
       </div>
+      <div className="mt-3 grid gap-3 rounded-xl border border-hairline p-4 text-[12px] sm:grid-cols-4">
+        <span>
+          Metadata fields removed{" "}
+          <strong>{formatNumber(q.sourceNormalization.removedMetadataFields)}</strong>
+        </span>
+        <span>
+          Metadata-only evidence dropped{" "}
+          <strong>{formatNumber(q.sourceNormalization.rejectedMetadataOnly)}</strong>
+        </span>
+        <span>
+          Duplicate facts merged{" "}
+          <strong>{formatNumber(q.dedupe.duplicateGroups + q.dedupe.nearDuplicateMerges)}</strong>
+        </span>
+        <span>
+          Cleaner variant kept <strong>{formatNumber(q.dedupe.preferredCleanVariant)}</strong>
+        </span>
+      </div>
+      {q.qualityGate.metadataLeakWarnings + q.qualityGate.malformedAttributionWarnings > 0 ? (
+        <p className="mt-3 rounded-xl border border-signal/30 p-3 text-[12px]">
+          Quality gate blocked {formatNumber(q.qualityGate.metadataLeakWarnings)} metadata leak(s)
+          and {formatNumber(q.qualityGate.malformedAttributionWarnings)} malformed source
+          attribution(s) in this sample. Nothing reached a reader.
+        </p>
+      ) : null}
       <p className="mt-3 text-[11.5px] text-muted-foreground">
         Historical reader quality is not persisted. Values above are derived by composing the latest
         sampled events through the same deterministic Read inputs; unavailable values are shown as

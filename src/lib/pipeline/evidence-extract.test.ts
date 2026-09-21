@@ -138,4 +138,37 @@ describe("selectEvidenceUnits", () => {
     );
     expect(normalizedNumericKey("395 million tonnes")).toBe(normalizedNumericKey("395m tonnes"));
   });
+
+  it("strips a provider's metadata before evidence extraction", () => {
+    const units = selectEvidenceUnits(
+      "ArXiv:2609.21081v1 Announce Type: new Abstract: Human approval is often treated as the last security boundary before an agent executes a consequential operation.",
+      undefined,
+      "Loopjacking: Hijacking Human-in-the-Loop Approval",
+      { name: "arXiv cs.CR", url: "https://arxiv.org/abs/2609.21081v1" },
+    );
+    expect(units.map((unit) => unit.text)).toEqual([
+      "Human approval is often treated as the last security boundary before an agent executes a consequential operation.",
+    ]);
+  });
+
+  it("returns nothing for a page whose text is metadata only", () => {
+    expect(
+      selectEvidenceUnits(
+        "Subjects: Cryptography and Security (cs.CR) Published: 2026-09-20",
+        undefined,
+        "Listing",
+        { name: "arXiv cs.CR" },
+      ),
+    ).toEqual([]);
+  });
+
+  it("leaves an ordinary feed description exactly as it was", () => {
+    const description =
+      "Nvidia announced Monday it will acquire Hugging Face for $13 billion. The deal represents a 40% premium over the company's last private valuation.";
+    const before = selectEvidenceUnits(description);
+    const after = selectEvidenceUnits(description, undefined, "Nvidia acquires Hugging Face", {
+      name: "Reuters",
+    });
+    expect(after.map((unit) => unit.text)).toEqual(before.map((unit) => unit.text));
+  });
 });

@@ -1,5 +1,11 @@
 import { extractCompanies, extractProducts } from "./pipeline/extract";
 import { claimKey } from "./pipeline/evidence-text";
+import {
+  hasSourceMetadata,
+  metadataOnlyEvidence,
+  normalizeSourceText,
+  type SourceContext,
+} from "./pipeline/source-text";
 
 export type ReaderSource = {
   name?: string | undefined;
@@ -321,6 +327,78 @@ export function validDeterministicSentence(value: string): boolean {
   );
 }
 
+/**
+ * Whether two statements are the same claim in different amounts of furniture.
+ *
+ * The case this exists for: a provider header glued to a sentence
+ * (`ArXiv:2609.21081v1 Announce Type: new Abstract: <sentence>`) and the same
+ * sentence on its own. Normalization removes the header before either becomes
+ * evidence, but stored evidence from before that fix, and any second copy of a
+ * claim written with an extra source label, still have to compare equal.
+ *
+ * Two deliberate restrictions:
+ *
+ * - Word order is preserved. A token-set comparison would call "Acme acquired
+ *   Beta" and "Beta acquired Acme" the same claim, which is the opposite of
+ *   true, so containment is checked as a contiguous run.
+ * - Figures must match. "...$20 million" and "...$21 million" are different
+ *   claims however similar their wording.
+ *
+ * The extra material is also bounded, so a three-word summary is not swallowed
+ * by a long sentence that merely starts with it.
+ */
+export function nearDuplicate(left: string, right: string): boolean {
+  const a = centralTokens(left);
+  const b = centralTokens(right);
+  if (a.length < 3 || b.length < 3) return false;
+  if (numericKeys(left).sort().join("|") !== numericKeys(right).sort().join("|")) return false;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length <= b.length ? b : a;
+  const extra = longer.length - shorter.length;
+  if (extra > 10) return false;
+  // The surplus must stay a minority of the longer statement: a prefix or a
+  // source label is furniture, a second clause is new information.
+  if (shorter.length / longer.length < 0.6) return false;
+  return contiguousRun(shorter, longer);
+}
+
+function contiguousRun(shorter: string[], longer: string[]): boolean {
+  for (let start = 0; start + shorter.length <= longer.length; start++) {
+    let matched = true;
+    for (let offset = 0; offset < shorter.length; offset++) {
+      if (shorter[offset] !== longer[start + offset]) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched) return true;
+  }
+  return false;
+}
+
+/**
+ * How much source furniture a statement carries: a provider field glued to its
+ * front, a stated attribution opener, a label-like prefix. Deliberately not the
+ * shortest version: a variant that names the person ("Richard Schut and his team
+ * discovered") is the cleaner one, not the lossier one.
+ */
+function sourceFurniture(text: string): number {
+  let count = 0;
+  if (hasSourceMetadata(text)) count += 2;
+  if (/^(?:according to|as reported by)\s/i.test(text)) count += 1;
+  if (/^[A-Za-z][\w-]*(?:\s+[A-Za-z][\w-]*)?\s*:\s/.test(text)) count += 1;
+  return count;
+}
+
+/**
+ * When two variants of one claim merge, keep the one carrying less furniture.
+ * Never depends on which variant arrived first, so a dirty-then-clean and a
+ * clean-then-dirty pair converge on the same text.
+ */
+export function preferCleaner(existing: string, candidate: string): boolean {
+  return sourceFurniture(candidate) < sourceFurniture(existing);
+}
+
 /** Normalize numeric spellings for comparison only; original text remains unchanged. */
 export function normalizedNumericKey(value: string): string {
   return value
@@ -445,10 +523,94 @@ export function verbatimSourceRatio(output: string, facts: ReaderFact[]): number
   return copied / selected.length;
 }
 
+/** Counts from the source-normalization pass, for admin diagnostics only. */
+export type ReaderSourceNormalization = {
+  removedMetadataFields: number;
+  cleanedEvidence: number;
+  rejectedMetadataOnly: number;
+};
+
+export type ReaderDedupe = {
+  nearDuplicateMerges: number;
+  preferredCleanVariant: number;
+};
+
+function emptyNormalizationStats(): ReaderSourceNormalization & ReaderDedupe {
+  return {
+    removedMetadataFields: 0,
+    cleanedEvidence: 0,
+    rejectedMetadataOnly: 0,
+    nearDuplicateMerges: 0,
+    preferredCleanVariant: 0,
+  };
+}
+
+/**
+ * Strip provider metadata from a source's own text before it becomes evidence.
+ * Applies to both stores: stored enriched facts were written by an older build
+ * and the RSS excerpt is whatever the provider put in the description field.
+ */
+function normalizeReaderSource(
+  source: ReaderSource,
+  stats: ReaderSourceNormalization,
+): ReaderSource {
+  const context: SourceContext = { name: source.name, url: undefined };
+  const keep = (text: string): string | undefined => {
+    const normalization = normalizeSourceText(context, text);
+    if (normalization.removedFields.length) {
+      stats.removedMetadataFields += normalization.removedFields.length;
+      stats.cleanedEvidence += 1;
+    }
+    if (normalization.metadataOnly || metadataOnlyEvidence(normalization.text)) {
+      stats.rejectedMetadataOnly += 1;
+      return undefined;
+    }
+    return normalization.text;
+  };
+
+  const excerpt = source.excerpt === undefined ? undefined : keep(source.excerpt);
+  const enrichedEvidence = source.enrichedEvidence?.flatMap((unit) => {
+    const text = keep(unit.text);
+    return text === undefined ? [] : [{ ...unit, text }];
+  });
+
+  return {
+    ...source,
+    ...(excerpt === undefined ? { excerpt: undefined } : { excerpt }),
+    ...(enrichedEvidence === undefined ? {} : { enrichedEvidence }),
+  };
+}
+
+/**
+ * Normalize a whole source list once, before anything reads it.
+ *
+ * `selectReaderEvidence` calls this itself, so every caller is protected. The
+ * composer calls it earlier as well, because it also reads `excerpt` directly
+ * for entity context -- a second pass over already-clean text is a no-op.
+ *
+ * Only `excerpt` and each enriched unit's `text` are rewritten; every other
+ * property is carried through, so the caller's own source shape survives (the
+ * cast below is that guarantee, not a widening).
+ */
+export function normalizeReaderSources<T extends ReaderSource>(
+  sources: T[],
+): {
+  sources: T[];
+  normalization: ReaderSourceNormalization;
+} {
+  const stats = emptyNormalizationStats();
+  return {
+    sources: sources.map((source) => normalizeReaderSource(source, stats) as T),
+    normalization: stats,
+  };
+}
+
 export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
-  const entities = rankEntities(title, sources);
+  const stats = emptyNormalizationStats();
+  const normalizedSources = sources.map((source) => normalizeReaderSource(source, stats));
+  const entities = rankEntities(title, normalizedSources);
   const raw: ReaderFact[] = [];
-  sources.forEach((source, index) => {
+  normalizedSources.forEach((source, index) => {
     let antecedent: string | undefined;
     // Use both existing evidence stores: an enrichment cap must not hide an RSS fact.
     // The source-local neighbors are kept only in memory; they are never emitted as
@@ -551,9 +713,23 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
         .replace(/\btoday\b/g, "")
         .replace(/\s+/g, " ")
         .trim() + (/\btoday\b/i.test(value) ? "|today" : "");
-    const prior = accepted.find((f) => duplicateKey(f.text) === duplicateKey(text));
-    if (prior) {
-      for (const ref of fact.evidence) if (!prior.evidence.includes(ref)) prior.evidence.push(ref);
+    const priorKey = duplicateKey(text);
+    const exact = accepted.find((f) => duplicateKey(f.text) === priorKey);
+    const merged =
+      exact ??
+      accepted.find(
+        (f) =>
+          f.quote === fact.quote && f.uncertain === fact.uncertain && nearDuplicate(f.text, text),
+      );
+    if (merged) {
+      for (const ref of fact.evidence)
+        if (!merged.evidence.includes(ref)) merged.evidence.push(ref);
+      merged.score = Math.max(merged.score, fact.score);
+      if (!exact) stats.nearDuplicateMerges += 1;
+      if (preferCleaner(merged.text, text)) {
+        merged.text = text;
+        stats.preferredCleanVariant += 1;
+      }
       duplicates++;
       continue;
     }
@@ -584,5 +760,14 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
     lead,
     facts,
     blocks,
+    sourceNormalization: {
+      removedMetadataFields: stats.removedMetadataFields,
+      cleanedEvidence: stats.cleanedEvidence,
+      rejectedMetadataOnly: stats.rejectedMetadataOnly,
+    },
+    dedupe: {
+      nearDuplicateMerges: stats.nearDuplicateMerges,
+      preferredCleanVariant: stats.preferredCleanVariant,
+    },
   };
 }
