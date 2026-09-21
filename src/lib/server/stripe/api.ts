@@ -25,6 +25,11 @@ function readKey(env?: StripeApiEnv): string {
   return key;
 }
 
+/** The mode that belongs to the configured Stripe secret key. */
+export function stripeKeyIsLive(env?: StripeApiEnv): boolean {
+  return readKey(env).startsWith("sk_live_");
+}
+
 /**
  * Flattens to Stripe's bracket notation: `{a: {b: 1}}` becomes `a[b]=1`.
  *
@@ -330,6 +335,10 @@ export async function createCheckoutSession({
       // create it against this address. Sending both is an error.
       ...(customerId ? { customer: customerId } : { customer_email: email }),
       subscription_data: { metadata: { user_id: userId } },
+      // Nyuz handles subscription billing itself. Disable Stripe Managed
+      // Payments here; otherwise Stripe requires every Product to carry a
+      // Managed-Payments-eligible tax code before it will create Checkout.
+      managed_payments: { enabled: false },
       // Cheap to allow and impossible to add later without a code change.
       allow_promotion_codes: true,
     },

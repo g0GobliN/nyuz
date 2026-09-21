@@ -748,6 +748,68 @@ These are not oversights. Each needs evidence that does not exist yet.
 
 ---
 
+## Nyuz quality track — started 2026-09-20
+
+This is the next product-quality track, ordered by trust and user-visible impact rather
+than by model novelty. Existing capabilities count: canonical URLs, idempotent ingest,
+claim leases, cached understanding/translations, breaking alerts, demand gates, and
+`pipeline_runs` are already in the codebase. Do not rebuild those; extend them with
+measurement and safer recovery.
+
+### Priority order
+
+1. **Event identity and update tracking** — strengthen cross-publisher deduplication,
+   distinguish a new development from a rewrite, and attach a material-update marker to
+   the event version used by cached understanding. Success metric: lower duplicate-event
+   rate without increasing wrong merges.
+2. **Fast breaking-news lane** — alert with deterministic facts first, enrich later, and
+   merge follow-up coverage into the original event. Existing `alerts.ts` is the base;
+   do not create a second delivery path.
+3. **Behaviour-aware personal ranking** — separate topic affinity from story-shape
+   preference (depth, source style, geography, technical level), cap repeated exposure,
+   and expose a deterministic “why this is here” explanation.
+4. **Replayable, observable runs** — give every scheduled invocation a queryable run
+   record, stage outcome, retry/dead-letter state, queue age, latency, and token cost;
+   add replay for one event or time window only after replay safety is explicit.
+5. **Evidence and confidence** — preserve claim-level source evidence, represent
+   contradictions, and lower confidence when sources disagree or a story is developing.
+6. **Cost and latency controls** — deterministic extraction before AI, content/fact
+   caches, Flash/Pro routing, batch-compatible calls, and per-stage token budgets.
+
+### Current slice: structured run reasons — started 2026-09-20
+
+- **Built in code:** scheduled `pipeline_runs` now records outcome states and bounded
+  failure reasons, instead of only aggregate counts plus the placeholder
+  `metrics_recorded` list. This keeps failures searchable in the existing admin
+  diagnostics surface without persisting raw provider payloads.
+- **Verified by tests:** `cron.test.ts` covers state counting, whitespace normalisation,
+  and the bounded failure-reason shape.
+- **Not claimed yet:** database/live verification, automatic retries, dead-letter rows,
+  and cross-stage correlation. The current `pipeline_runs.id` identifies one scheduled
+  invocation; a future run-group ID should correlate the ingest → cluster → analyse →
+  match chain without pretending those are one transaction.
+
+### Next implementation slices
+
+- [ ] Add transient/permanent error classification to each stage report.
+- [ ] Add retry scheduling and a bounded dead-letter record for exhausted work.
+- [ ] Add a run-group identifier across the scheduled stage chain.
+- [ ] Measure duplicate-event, update-merge, stale-story, empty-briefing, and dismiss
+      rates before changing ranking or clustering thresholds.
+- [ ] Build the fast lane on top of the existing deterministic alert path.
+- [ ] Add evidence/confidence fields only after the source-of-truth and contradiction
+      rules are written down.
+
+### Definition of done for this track
+
+A pipeline change is complete only when it is resumable, idempotent, observable in
+`/admin/diagnostics`, covered by a focused test, and verified against the live schema
+when it introduces or depends on a migration. No feature flag is turned on from an
+empty shadow sample, and no AI call is added where deterministic data can answer the
+question.
+
+---
+
 ## Economics track — started 2026-09-20
 
 ### Phase A — repository audit — complete in code review, not live verification

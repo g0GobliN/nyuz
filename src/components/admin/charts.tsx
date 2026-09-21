@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useState } from "react";
 import { cn } from "@/lib/utils";
 
 function boundedPercent(value: number, max: number): number {
@@ -16,6 +16,8 @@ export function TrendAreaChart({
   emptyLabel?: string | undefined;
 }) {
   const gradientId = `trend-${useId().replace(/:/g, "")}`;
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const first = rows[0];
   const last = rows[rows.length - 1];
   if (!first || !last) {
@@ -41,6 +43,8 @@ export function TrendAreaChart({
   const recent = rows.slice(-sample).reduce((sum, row) => sum + row.value, 0) / sample;
   const pace = opening > 0 ? ((recent - opening) / opening) * 100 : null;
   const dotStep = Math.max(Math.ceil(rows.length / 14), 1);
+  const activeIndex = selectedIndex ?? hoveredIndex;
+  const activeRow = activeIndex === null ? null : rows[activeIndex];
 
   return (
     <figure
@@ -68,6 +72,7 @@ export function TrendAreaChart({
         className="mt-5 h-56 w-full"
         preserveAspectRatio="none"
         aria-hidden
+        onMouseLeave={() => setHoveredIndex(null)}
       >
         <defs>
           <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
@@ -107,10 +112,28 @@ export function TrendAreaChart({
               stroke="var(--signal)"
               strokeWidth="2"
               vectorEffect="non-scaling-stroke"
-            />
+              className="cursor-pointer"
+              onMouseEnter={() => setHoveredIndex(index)}
+              onFocus={() => setHoveredIndex(index)}
+              onClick={() => setSelectedIndex(selectedIndex === index ? null : index)}
+              tabIndex={0}
+              role="button"
+              aria-label={`${row.label}: ${valueLabel(row.value)}. Click to pin.`}
+            >
+              <title>{`${row.label}: ${valueLabel(row.value)}`}</title>
+            </circle>
           ) : null,
         )}
       </svg>
+      {activeRow ? (
+        <GraphTooltip
+          label={activeRow.label}
+          value={valueLabel(activeRow.value)}
+          left={`${(x(activeIndex as number) / width) * 100}%`}
+          top={`${Math.max((y(activeRow.value) / height) * 100 - 2, 0)}%`}
+          pinned={selectedIndex !== null}
+        />
+      ) : null}
 
       <figcaption className="-mt-4 flex justify-between text-[11px] text-muted-foreground">
         <span>{first.label}</span>
@@ -435,6 +458,8 @@ export function WindowLineChart({
   rows: { label: string; value: number; display: string }[];
   emptyLabel?: string | undefined;
 }) {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const first = rows[0];
   const last = rows[rows.length - 1];
   const max = Math.max(...rows.map((row) => row.value), 0);
@@ -448,6 +473,8 @@ export function WindowLineChart({
     rows.length === 1 ? width / 2 : 24 + (index / (rows.length - 1)) * (width - 48);
   const y = (value: number) => floor - (value / max) * 118;
   const points = rows.map((row, index) => `${x(index)},${y(row.value)}`).join(" ");
+  const activeIndex = selectedIndex ?? hoveredIndex;
+  const activeRow = activeIndex === null ? null : rows[activeIndex];
 
   return (
     <figure aria-label={rows.map((row) => `${row.label}: ${row.display}`).join(", ")}>
@@ -456,6 +483,7 @@ export function WindowLineChart({
         className="h-52 w-full"
         preserveAspectRatio="none"
         aria-hidden
+        onMouseLeave={() => setHoveredIndex(null)}
       >
         {[38, 77, 116, floor].map((line) => (
           <line
@@ -488,7 +516,16 @@ export function WindowLineChart({
               stroke="var(--signal)"
               strokeWidth="2.5"
               vectorEffect="non-scaling-stroke"
-            />
+              className="cursor-pointer"
+              onMouseEnter={() => setHoveredIndex(index)}
+              onFocus={() => setHoveredIndex(index)}
+              onClick={() => setSelectedIndex(selectedIndex === index ? null : index)}
+              tabIndex={0}
+              role="button"
+              aria-label={`${row.label}: ${row.display}. Click to pin.`}
+            >
+              <title>{`${row.label}: ${row.display}`}</title>
+            </circle>
             <text
               x={x(index)}
               y={Math.max(y(row.value) - 12, 16)}
@@ -501,6 +538,15 @@ export function WindowLineChart({
           </g>
         ))}
       </svg>
+      {activeRow ? (
+        <GraphTooltip
+          label={activeRow.label}
+          value={activeRow.display}
+          left={`${(x(activeIndex as number) / width) * 100}%`}
+          top={`${Math.max((y(activeRow.value) / 190) * 100 - 2, 0)}%`}
+          pinned={selectedIndex !== null}
+        />
+      ) : null}
       <figcaption
         className="grid gap-3 text-center text-[10.5px] text-muted-foreground"
         style={{ gridTemplateColumns: `repeat(${rows.length}, minmax(0, 1fr))` }}
@@ -510,6 +556,31 @@ export function WindowLineChart({
         ))}
       </figcaption>
     </figure>
+  );
+}
+
+function GraphTooltip({
+  label,
+  value,
+  left,
+  top,
+  pinned,
+}: {
+  label: string;
+  value: string;
+  left: string;
+  top: string;
+  pinned: boolean;
+}) {
+  return (
+    <div
+      className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-lg border border-border bg-background px-3 py-2 text-xs shadow-xl"
+      style={{ left, top }}
+    >
+      <p className="font-medium">{label}</p>
+      <p className="mt-0.5 tabular-nums text-muted-foreground">{value}</p>
+      {pinned ? <p className="mt-1 text-[10px] text-signal">Pinned</p> : null}
+    </div>
   );
 }
 

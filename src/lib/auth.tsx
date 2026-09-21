@@ -15,6 +15,7 @@ type AuthState = {
   signInWithProvider: (provider: OAuthProvider, next?: string) => Promise<void>;
   updateEmail: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
+  signOutAllDevices: () => Promise<void>;
 };
 
 export type OAuthProvider = "google" | "github";
@@ -102,7 +103,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
 
       async signOut() {
-        const { error } = await getSupabaseBrowserClient().auth.signOut();
+        const { error } = await getSupabaseBrowserClient().auth.signOut({ scope: "local" });
+        if (error) throw error;
+      },
+
+      async signOutAllDevices() {
+        const { error } = await getSupabaseBrowserClient().auth.signOut({ scope: "global" });
         if (error) throw error;
       },
     }),

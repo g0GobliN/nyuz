@@ -20,6 +20,8 @@ import { useAuth } from "@/lib/auth";
 
 export type PlanState = {
   stripeManaged: boolean;
+  /** True when a paid plan is present but its Stripe subscription id has not arrived yet. */
+  subscriptionPending: boolean;
   plan: PlanTier;
   topicLimit: number;
   prioritySourceLimit: number;
@@ -81,6 +83,7 @@ export function usePlan(): PlanState {
 
   return {
     stripeManaged: Boolean(data?.stripe_subscription_id),
+    subscriptionPending: plan !== "uno" && !data?.stripe_subscription_id,
     plan,
     topicLimit: limits.topics,
     prioritySourceLimit: limits.prioritySources,

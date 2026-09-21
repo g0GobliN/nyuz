@@ -1,11 +1,15 @@
 import { PLAN_CARDS } from "@/lib/plan-copy";
-import { DeviceManager } from "@/components/device-manager";
 import { createFileRoute } from "@tanstack/react-router";
 import { Check } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button } from "@/components/kit";
-import { changePlan, openBillingPortal, startCheckout } from "@/lib/server/billing";
+import {
+  changePlan,
+  openBillingPortal,
+  releaseCheckout,
+  startCheckout,
+} from "@/lib/server/billing";
 import { usePlan } from "@/lib/plan-state";
 import {
   DEFAULT_ANNUAL_PRICES,
@@ -23,17 +27,51 @@ export const Route = createFileRoute("/dashboard/billing")({
 });
 
 const PLANS = PLAN_CARDS;
+const CHECKOUT_STARTED_KEY = "nyuz.checkout-started";
 
 function Billing() {
   const { prefs } = usePrefs();
   // The plan comes from the subscription row now, not from local state that
   // reset to "free" on every visit regardless of what the reader was paying.
-  const { plan: current, cancelsOn, stripeManaged, loading } = usePlan();
+  const { plan: current, cancelsOn, stripeManaged, subscriptionPending, loading } = usePlan();
   const [annual, setAnnual] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const plan = PLANS.find((p) => p.id === current) ?? PLANS[0]!;
+
+  useEffect(() => {
+    // Stripe may return with `checkout=cancelled`, but pressing Back can return
+    // without any query string. The session marker covers both paths and lets
+    // the reader choose a different plan immediately instead of waiting 30
+    // minutes for the abandoned checkout lease to expire. `pageshow` matters
+    // because browser Back can restore this page from the bfcache without
+    // remounting it, so a mount-only effect would never run.
+    const releaseAbandonedCheckout = () => {
+      const status = new URLSearchParams(window.location.search).get("checkout");
+      const started = window.sessionStorage.getItem(CHECKOUT_STARTED_KEY) === "1";
+      if (status === "success") {
+        window.sessionStorage.removeItem(CHECKOUT_STARTED_KEY);
+        return;
+      }
+      if (status !== "cancelled" && !started) return;
+
+      void releaseCheckout()
+        .then(() => {
+          window.sessionStorage.removeItem(CHECKOUT_STARTED_KEY);
+          if (status === "cancelled") {
+            window.history.replaceState({}, "", "/dashboard/billing");
+          }
+        })
+        .catch(() => {
+          // The lease naturally expires if the clear fails.
+        });
+    };
+
+    releaseAbandonedCheckout();
+    window.addEventListener("pageshow", releaseAbandonedCheckout);
+    return () => window.removeEventListener("pageshow", releaseAbandonedCheckout);
+  }, []);
 
   /**
    * Hands off to Stripe.
@@ -52,6 +90,7 @@ function Billing() {
     try {
       const result = await run();
       if (result.ok && result.url) {
+        window.sessionStorage.setItem(CHECKOUT_STARTED_KEY, "1");
         window.location.assign(result.url);
         return;
       }
@@ -65,6 +104,10 @@ function Billing() {
   };
 
   const upgrade = async (id: "plura" | "omni") => {
+    if (subscriptionPending) {
+      setError("Your current subscription is still being connected. Please try again in a moment.");
+      return;
+    }
     if (!stripeManaged) {
       await goTo(id, () =>
         startCheckout({ data: { plan: id, interval: annual ? "year" : "month" } }),
@@ -114,11 +157,13 @@ function Billing() {
             <p className="text-[13px] text-muted-foreground">
               {loading
                 ? "Loading billing details…"
-                : plan.monthly === 0
-                  ? "No payment method needed"
-                  : stripeManaged
-                    ? "Managed securely by Stripe"
-                    : "No paid subscription"}
+                : subscriptionPending
+                  ? "Connecting your Stripe subscription…"
+                  : plan.monthly === 0
+                    ? "No payment method needed"
+                    : stripeManaged
+                      ? "Managed securely by Stripe"
+                      : "No paid subscription"}
             </p>
             <p className="mt-1 text-[13px] tabular-nums">
               {loading
@@ -258,7 +303,13 @@ function Billing() {
                 // The free tier is not something to check out of. Leaving a paid
                 // plan happens in Stripe's portal, where the proration and the
                 // cancellation date are Stripe's problem rather than ours.
-                disabled={loading || active || busy !== null || (p.id === "uno" && !stripeManaged)}
+                disabled={
+                  loading ||
+                  active ||
+                  busy !== null ||
+                  subscriptionPending ||
+                  (p.id === "uno" && !stripeManaged)
+                }
                 onClick={() => {
                   if (p.id === "uno") void manage();
                   else void upgrade(p.id as "plura" | "omni");
@@ -304,7 +355,6 @@ function Billing() {
           one.
         </p>
       </section>
-      <DeviceManager />
     </DashboardShell>
   );
 }

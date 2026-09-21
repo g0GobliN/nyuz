@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Check, Download, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
+import { DeviceManager } from "@/components/device-manager";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, LinkButton } from "@/components/kit";
 import { ACCOUNT_DELETION_GRACE_DAYS, deletionDeadline } from "@/lib/account-deletion";
@@ -26,7 +27,9 @@ function Settings() {
   const [nextEmail, setNextEmail] = useState(email);
   const { state, signals, reset } = useFeedback();
   const [saved, setSaved] = useState(false);
-  const [busy, setBusy] = useState<"email" | "export" | "pause" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"email" | "export" | "pause" | "delete" | "all-devices" | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   // The danger zone stays collapsed until asked for. Typing the address is not
   // a security control — the call is already behind `signedInOnly` — it is
@@ -71,6 +74,18 @@ function Settings() {
         cause instanceof Error ? cause.message : "Could not delete the account. Try again.",
       );
     } finally {
+      setBusy(null);
+    }
+  };
+
+  const signOutAllDevices = async () => {
+    if (busy) return;
+    setBusy("all-devices");
+    setError(null);
+    try {
+      await auth.signOutAllDevices();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not sign out all devices.");
       setBusy(null);
     }
   };
@@ -178,6 +193,26 @@ function Settings() {
           </div>
           {error ? <p className="mt-4 text-[12.5px] text-destructive">{error}</p> : null}
         </Panel>
+
+        <Panel title="Security">
+          <RowAction
+            title="Sign out all devices"
+            body="Signs out every browser and device using this account, including this one. Use this if you think someone else has access."
+            action={
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void signOutAllDevices()}
+                disabled={busy !== null}
+              >
+                {busy === "all-devices" ? "Signing out…" : "Sign out all devices"}
+              </Button>
+            }
+          />
+          {error ? <p className="mt-4 text-[12.5px] text-destructive">{error}</p> : null}
+        </Panel>
+
+        <DeviceManager />
 
         <Panel title="Personalisation">
           <div className="flex flex-wrap items-start gap-5">

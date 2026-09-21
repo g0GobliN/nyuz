@@ -10,13 +10,18 @@ export const registerDevice = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
   .validator((input: unknown) =>
     z
-      .object({ installId: z.string().uuid(), endpoint: z.string().max(2048).optional() })
+      .object({
+        installId: z.string().uuid(),
+        label: z.string().trim().min(1).max(80).optional(),
+        endpoint: z.string().max(2048).optional(),
+      })
       .parse(input),
   )
   .handler(async ({ context, data }) => {
     const { data: id, error } = await context.actor.db.rpc("register_device", {
       p_user_id: context.actor.id,
       p_install_id: data.installId,
+      p_label: data.label ?? "Browser",
       p_endpoint: data.endpoint ?? null,
     });
     if (error) throw new PlanAccessError(deviceErrorMessage(error));

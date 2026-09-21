@@ -7,6 +7,7 @@ import {
   createPortalSession,
   retrieveStripePrice,
   retrieveStripeSubscription,
+  stripeKeyIsLive,
   stripePriceMatches,
 } from "./stripe/api";
 import { canChangePaidSubscription } from "./stripe/entitlements";
@@ -36,6 +37,17 @@ const checkoutInput = z.object({
 export type CheckoutResult = { ok: true; url: string } | { ok: false; error: string };
 export type PlanChangeResult = { ok: true } | { ok: false; error: string };
 
+/** Clears the short checkout lease after Stripe sends the reader back cancelled. */
+export const releaseCheckout = createServerFn({ method: "POST" })
+  .middleware([signedInOnly])
+  .handler(async ({ context }) => {
+    const { error } = await context.actor.db.rpc("release_subscription_checkout", {
+      p_user_id: context.actor.id,
+    });
+    if (error) throw error;
+    return { ok: true } as const;
+  });
+
 export const startCheckout = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
   .validator((input: unknown) => checkoutInput.parse(input))
@@ -52,8 +64,10 @@ export const startCheckout = createServerFn({ method: "POST" })
     }
 
     const base = siteUrl();
-    const hostname = new URL(base).hostname;
-    const requireLive = hostname !== "localhost" && hostname !== "127.0.0.1";
+    // Test keys must be allowed to use test prices even when VITE_SITE_URL
+    // points at a deployed preview or production-shaped URL. Stripe mode is
+    // determined by the secret key, not by the return URL's hostname.
+    const requireLive = stripeKeyIsLive();
     const expectedDollars =
       data.interval === "month" ? DEFAULT_PLAN_PRICES[data.plan] : DEFAULT_ANNUAL_PRICES[data.plan];
     const checkedPrice = await retrieveStripePrice(priceId);
@@ -79,14 +93,19 @@ export const startCheckout = createServerFn({ method: "POST" })
     // breaks the unique index on stripe_customer_id.
     const { data: subscription } = await actor.db
       .from("subscriptions")
-      .select("stripe_customer_id, stripe_subscription_id")
+      .select("plan, stripe_customer_id, stripe_subscription_id")
       .eq("user_id", actor.id)
       .maybeSingle();
 
-    if (subscription?.stripe_subscription_id) {
+    // A paid plan is never allowed to start a second Checkout, even during the
+    // short window before the webhook has filled in stripe_subscription_id.
+    // Plan changes go through Stripe's existing subscription instead.
+    if (subscription?.stripe_subscription_id || subscription?.plan !== "uno") {
       return {
         ok: false,
-        error: "Use Change plan for an existing subscription.",
+        error: subscription?.stripe_subscription_id
+          ? "Use Change plan for an existing subscription."
+          : "Your current subscription is still being connected. Please try again in a moment.",
       };
     }
 
@@ -134,7 +153,6 @@ export const changePlan = createServerFn({ method: "POST" })
     if (!priceId) return { ok: false, error: "That plan is not available yet." };
 
     const base = siteUrl();
-    const hostname = new URL(base).hostname;
     const expectedDollars =
       data.interval === "month" ? DEFAULT_PLAN_PRICES[data.plan] : DEFAULT_ANNUAL_PRICES[data.plan];
     const checkedPrice = await retrieveStripePrice(priceId);
@@ -143,7 +161,7 @@ export const changePlan = createServerFn({ method: "POST" })
       !stripePriceMatches(checkedPrice.data, {
         cents: Math.round(expectedDollars * 100),
         interval: data.interval,
-        requireLive: hostname !== "localhost" && hostname !== "127.0.0.1",
+        requireLive: stripeKeyIsLive(),
       })
     ) {
       return { ok: false, error: "That plan is not available yet." };
