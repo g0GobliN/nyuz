@@ -738,7 +738,7 @@ function PromptEditor({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         rows={7}
-        className={`${inputClass} resize-y font-mono text-[12.5px] leading-relaxed`}
+        className={`${inputClass} resize-y font-mono leading-relaxed`}
       />
       <ErrorNote error={save.error} />
     </div>

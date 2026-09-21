@@ -389,7 +389,7 @@ function Editor({
                   onChange={(e) => set("bodyMd", e.target.value)}
                   rows={22}
                   spellCheck
-                  className={`${inputClass} resize-y font-mono text-[13px] leading-relaxed`}
+                  className={`${inputClass} resize-y font-mono leading-relaxed`}
                 />
               </Field>
             </div>

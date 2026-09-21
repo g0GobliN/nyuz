@@ -282,7 +282,7 @@ function HeroForm({ row }: { row: SettingRow | undefined }) {
             value={hero.headline}
             onChange={(e) => set("headline", e.target.value)}
             rows={2}
-            className={`${inputClass} resize-y font-serif text-[17px]`}
+            className={`${inputClass} resize-y font-serif md:text-[17px]`}
           />
         </Field>
 

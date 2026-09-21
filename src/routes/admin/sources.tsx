@@ -543,7 +543,7 @@ function AddDialog({ onClose }: { onClose: () => void }) {
             <input
               value={feedUrl}
               onChange={(e) => setFeedUrl(e.target.value)}
-              className={`${inputClass} font-mono text-[13px]`}
+              className={`${inputClass} font-mono`}
               placeholder="https://www.anthropic.com/news/rss.xml"
               autoComplete="off"
               spellCheck={false}

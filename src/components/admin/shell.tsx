@@ -429,8 +429,18 @@ export function Field({
   );
 }
 
+/**
+ * The console's shared field style, and the one place its phone size is set.
+ *
+ * `text-[16px]` with the console's 14px restored from `md` — the same shape
+ * every other field in the product uses. The phone size is not cosmetic there:
+ * iOS Safari zooms the page in when a text control under 16px takes focus and
+ * does not zoom back out, and a bare `text-[14px]` on the element beats the
+ * `@layer base` backstop in `styles.css`, so every console page inherited the
+ * bug from this one line. `src/lib/field-font-size.test.ts` is what holds it.
+ */
 export const inputClass =
-  "mt-2 w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-[14px] outline-none transition-colors focus:border-signal focus-visible:ring-2 focus-visible:ring-ring";
+  "mt-2 w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-[16px] md:text-[14px] outline-none transition-colors focus:border-signal focus-visible:ring-2 focus-visible:ring-ring";
 
 /** Monochrome status pill. Colour is reserved for the accent, so state is shape. */
 export function Pill({
