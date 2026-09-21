@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { isAdmin, useViewer } from "@/lib/viewer";
 import { getSignupState } from "@/lib/server/access";
 import { MaintenanceScreen } from "@/components/access";
+import { UserAvatar } from "@/components/user-avatar";
 import { useAuth, useDisplayName } from "@/lib/auth";
 import {
   DropdownMenu,
@@ -129,7 +130,6 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
   // Falls back to the mark rather than a letter from an invented name — an
   // avatar showing a stranger's initial is worse than one showing none.
   const who = useDisplayName(prefs.name);
-  const initial = who.trim().slice(0, 1).toUpperCase() || "·";
 
   // Maintenance closes the dashboard for readers and not for staff — the whole
   // point of the switch is that somebody can still get in and fix whatever
@@ -268,7 +268,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
                 <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-signal" />
               </Link>
               <ThemeToggle />
-              <AccountMenu initial={initial} staff={staff} name={who} />
+              <AccountMenu staff={staff} name={who} />
             </div>
           </div>
         </header>
@@ -327,7 +327,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
  * depending on how wide the window is is worse than one extra row on a desktop
  * that also has a sidebar.
  */
-function AccountMenu({ initial, staff, name }: { initial: string; staff: boolean; name: string }) {
+function AccountMenu({ staff, name }: { staff: boolean; name: string }) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
@@ -351,9 +351,9 @@ function AccountMenu({ initial, staff, name }: { initial: string; staff: boolean
       <DropdownMenuTrigger asChild>
         <button
           aria-label="Account"
-          className="ml-1 flex h-8 w-8 items-center justify-center rounded-full bg-foreground text-[12px] font-medium text-background transition-opacity hover:opacity-85"
+          className="ml-1 flex items-center justify-center rounded-full transition-opacity hover:opacity-85"
         >
-          {initial}
+          <UserAvatar name={name} />
         </button>
       </DropdownMenuTrigger>
 

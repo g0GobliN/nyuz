@@ -4,6 +4,18 @@ import { loadTopicControls, saveTopicControls } from "@/lib/server/topic-control
 import { PLAN_LIMITS } from "@/lib/plans";
 import type { PlanTier, TopicImportance } from "@/lib/supabase/types";
 import { topicSlug } from "@/lib/topics";
+import { cn } from "@/lib/utils";
+
+/**
+ * The floor every field in the dashboard uses: 16px on phones, the desktop size
+ * from `md` up.
+ *
+ * iOS Safari zooms the whole page in when a control under 16px takes focus, and
+ * it does not zoom back out on blur — the reader is left on a magnified page
+ * until they pinch. `text-sm` on the label would otherwise hand these three
+ * 14px and reintroduce exactly that.
+ */
+const FIELD = "rounded-lg border border-hairline bg-surface p-2 text-[16px] md:text-[14.5px]";
 
 export function TopicControls({ topic, plan }: { topic: string; plan: PlanTier }) {
   const query = useQuery({ queryKey: ["topic-controls"], queryFn: () => loadTopicControls() });
@@ -62,11 +74,7 @@ export function TopicControls({ topic, plan }: { topic: string; plan: PlanTier }
     >
       <label className="block text-sm">
         How much of it
-        <select
-          name="importance"
-          defaultValue={row.importance}
-          className="ml-3 rounded-lg border border-hairline bg-surface p-2"
-        >
+        <select name="importance" defaultValue={row.importance} className={cn("ml-3", FIELD)}>
           <option value="notable">Use briefing density</option>
           <option value="only_major">Only major</option>
           <option value="everything">Everything relevant</option>
@@ -79,7 +87,7 @@ export function TopicControls({ topic, plan }: { topic: string; plan: PlanTier }
             <input
               name="keywords"
               defaultValue={row.keywords.join(", ")}
-              className="mt-2 w-full rounded-lg border border-hairline bg-surface p-2"
+              className={cn("mt-2 w-full", FIELD)}
             />
           </label>
           <label className="text-sm">
@@ -87,7 +95,7 @@ export function TopicControls({ topic, plan }: { topic: string; plan: PlanTier }
             <input
               name="excludeKeywords"
               defaultValue={row.exclude_keywords.join(", ")}
-              className="mt-2 w-full rounded-lg border border-hairline bg-surface p-2"
+              className={cn("mt-2 w-full", FIELD)}
             />
           </label>
         </div>

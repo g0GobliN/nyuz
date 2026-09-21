@@ -176,6 +176,27 @@
   h3 {
     letter-spacing: -0.035em;
   }
+
+  /*
+   * iOS Safari zooms the whole page in when a form control under 16px takes
+   * focus, and it does not zoom back out when the control blurs — the reader is
+   * left on a magnified page, with both edges cut off, until they pinch it
+   * back. Every field in the product therefore carries `text-[16px]` with the
+   * desktop size restored from `md`, which is easy to forget on a new one.
+   *
+   * This is the backstop for that mistake, and it catches exactly the fields
+   * that inherit their size from a `text-sm` label rather than setting one —
+   * inherited values lose to any rule on the element, while a utility on the
+   * element still wins, being in a later layer. So a field that means to be
+   * smaller on a phone can still say so; a field that simply forgot cannot.
+   */
+  @media (width < 48rem) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+    select,
+    textarea {
+      font-size: max(16px, 1em);
+    }
+  }
 }
 
 @utility hairline-b {

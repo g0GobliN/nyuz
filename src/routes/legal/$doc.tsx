@@ -87,10 +87,39 @@ const UPDATED = "25 August 2026";
  */
 const UPDATED_V2 = "31 August 2026";
 
+/**
+ * The V3 revision date, carried by privacy, the provider list and security.
+ *
+ * Changed on 22 September 2026, for three reasons.
+ *
+ * First: the landing page states that what a reader opens and skips shapes
+ * their briefing, which has been true since engagement was first recorded — it
+ * is the main input to the weighting, and the thumbs are the bonus. The policy
+ * enumerated only the signals a reader chooses to give, so the sentence they
+ * were sent here to check was not in it. What was added describes what is
+ * measured and what a reader can clear; it does not describe how a story is
+ * weighted, which is nobody's business but ours.
+ *
+ * Second: the dashboard shows the picture the sign-in provider has for a
+ * reader. That made two statements untrue by omission rather than wrong — the
+ * address of the picture is held on the account, and while a reader is signed
+ * in their browser asks the provider for the picture itself. Both are now said
+ * where a reader would look for them: the picture on the privacy page, the
+ * request on the provider page.
+ *
+ * Third: the security page was rewritten, widened from how access is controlled
+ * to the questions readers and researchers actually arrive with — sessions,
+ * payments, and what happens when a report comes in. Its claims are the ones
+ * this codebase can keep; the access-control paragraph still describes row-level
+ * policies and server-side checks, and the source paragraph still stops short of
+ * which addresses are refused and where in a redirect chain they are caught.
+ */
+const UPDATED_V3 = "22 September 2026";
+
 const DOCS: Record<string, Doc> = {
   privacy: {
     title: "Privacy",
-    updated: UPDATED_V2,
+    updated: UPDATED_V3,
     group: "Trust",
     intro:
       "We hold as little as the product needs, and making your briefing does not involve sending your interests or your identity to an AI provider.",
@@ -105,6 +134,8 @@ const DOCS: Record<string, Doc> = {
         h: "What we store",
         p: [
           "Your account email, the topics and exclusions you configure, your delivery schedule, channels and reading language, and the feedback signals you give on individual stories.",
+          "If you signed in with Google or GitHub, we also hold the address of the profile picture we show for you. The picture itself stays with them; nothing is uploaded to us.",
+          "We also record what you were shown and what you did with it: how many times a story was displayed to you, whether you opened it, how long it stayed on screen, and whether you reached the end. Those are observations rather than statements you made, so they are held separately from your votes — and they are the part that makes a briefing more relevant to you over time.",
           "We store which briefings were generated and delivered so you can read your history and so we can retry failed deliveries.",
           "We record the time of your most recent visit. It distinguishes active from dormant accounts; Uno briefings pause after 30 inactive days and resume when you return.",
           "If you add a source of your own, we store the address of the feed and the fact that you follow it. Feeds are shared: if another reader adds the same one, you both follow the same feed. We do not publish who follows what.",
@@ -131,7 +162,7 @@ const DOCS: Record<string, Doc> = {
         h: "How long we keep it",
         p: [
           "Briefing history follows your plan's retention window — 7 days on Uno, 90 days on Plura, one year on Omni. Older items are deleted, not archived.",
-          "Feedback signals are kept while your account is open, because they are what stops us sending you the same irrelevant story twice. You can clear them at any time from Settings, which resets personalisation to your stated topics alone.",
+          "Feedback signals, and the record of what you were shown, opened and read, are kept while your account is open, because together they are what stops us sending you the same irrelevant story twice. You can clear both at any time from Settings, which resets personalisation to your stated topics alone.",
           "Our delivery records expire with the briefing history for your plan. Email providers may keep separate delivery, bounce and complaint metadata under their own retention policies.",
         ],
       },
@@ -350,7 +381,7 @@ const DOCS: Record<string, Doc> = {
 
   subprocessors: {
     title: "Service providers",
-    updated: UPDATED_V2,
+    updated: UPDATED_V3,
     group: "Trust",
     intro:
       "The third parties that operate nyuz, what they receive, and where they process it. Optional services apply only when you choose them.",
@@ -393,8 +424,8 @@ const DOCS: Record<string, Doc> = {
             ],
             [
               "Google or GitHub",
-              "Optional account sign-in",
-              "The identity and email address you authorize that provider to share",
+              "Optional account sign-in, and the profile picture on that account",
+              "The identity and email address you authorize that provider to share. If you sign in with one of them, your browser loads your picture from their servers while you use the dashboard, which tells them your IP address",
               "Global",
             ],
             [
@@ -436,54 +467,84 @@ const DOCS: Record<string, Doc> = {
 
   security: {
     title: "Security",
-    updated: UPDATED_V2,
+    updated: UPDATED_V3,
     group: "Trust",
     intro:
-      "How the service is built so one account cannot read another, and how to tell us when that is no longer true.",
+      "nyuz is designed so your account data stays private to you, while shared news content remains read-only.",
     sections: [
       {
-        h: "How access is controlled",
+        h: "Account access",
         p: [
-          "Every table holding customer data enforces row-level security against direct browser access. Server functions separately verify the signed-in session and scope each query to that account before using privileged database access.",
-          "Content that everyone sees — stories, their summaries, the source list — is read-only to customer accounts. Changing what other people are shown is not something an account is able to do.",
-          "Administrative access is role-based, held by named individuals, and every action taken in the operator console is written to an append-only audit log.",
+          "Customer data is protected with row-level access controls. Server-side functions also verify the signed-in session and scope account-specific requests to the correct user.",
+          "One account should not be able to read or modify another account's private data.",
+          "Shared content such as stories, sources, and public story information is read-only to normal customer accounts.",
+          "Administrative access is restricted to authorized staff and sensitive operator actions are recorded for auditing.",
         ],
       },
       {
         h: "Plan limits",
         p: [
-          "Limits that cost us something — how many sources you can add, how many questions you can ask in a day — are enforced in the database rather than only in the app, so that sending several requests at once does not get around them.",
+          "Limits attached to your plan are enforced on the server rather than only in the interface.",
+          "For example, limits around custom sources or other plan-specific features cannot be bypassed simply by changing the browser interface or sending several requests at once.",
         ],
       },
       {
-        h: "Addresses you submit",
+        h: "Custom sources",
         p: [
-          "A feed you submit gets particular attention, because it is the one place where something a customer types becomes a request our own systems make. We check the address before using it, check again if it redirects elsewhere, and limit how much we will download from it. Addresses pointing into private or internal networks are refused.",
+          "If you submit a custom feed or source URL, nyuz validates the address before connecting to it.",
+          "Redirects are checked again, download size and request time are limited, and addresses pointing to private or internal networks are blocked.",
+          "This helps prevent submitted URLs from being used to access systems that should not be reachable from nyuz.",
         ],
       },
       {
-        h: "Secrets",
+        h: "Service credentials",
         p: [
-          "API keys and service credentials are held as deployment secrets, never in the database and never in the code. The configuration that says which AI provider we use records the name of the secret, not its value.",
+          "Credentials used internally by nyuz — such as database, email, infrastructure, billing, or other service credentials — are kept on the server and are not exposed to customer accounts or client-side code.",
+          "Users do not need to provide or manage nyuz infrastructure credentials.",
         ],
       },
       {
-        h: "In transit and at rest",
+        h: "Data in transit and at rest",
         p: [
-          "Production traffic uses TLS. Our database and hosting providers encrypt stored customer data, and privileged access is restricted.",
+          "Production traffic is protected with HTTPS/TLS.",
+          "Infrastructure providers used by nyuz provide encryption for stored data, while privileged access is restricted to the systems and people that require it to operate the service.",
+        ],
+      },
+      {
+        h: "Sessions",
+        p: [
+          "Signing out normally ends the session on the device you are currently using.",
+          "Security controls may also allow sessions to be revoked more broadly when necessary, such as when an account or device may have been compromised.",
+        ],
+      },
+      {
+        h: "Payments",
+        p: [
+          "Payment information is handled through our payment provider.",
+          "nyuz does not need to store full card details in its own application database.",
         ],
       },
       {
         h: "Reporting a vulnerability",
         p: [
-          `Write to ${ENTITY.mail.security} with enough detail to reproduce it. Please give us a reasonable window before disclosing publicly.`,
-          "We will confirm receipt within two working days, keep you updated through the fix, and credit you when it ships if you would like us to. We will not pursue anyone who reports in good faith and does not access or destroy other people's data.",
+          `Write to ${ENTITY.mail.security} with enough information for us to understand and reproduce the issue.`,
+          "Please avoid accessing, changing, downloading, or deleting data belonging to other users while investigating a potential vulnerability.",
+          "We aim to acknowledge responsible security reports within two working days and provide updates while the issue is investigated.",
+          "If you would like credit for a valid report, tell us when you contact us.",
         ],
       },
       {
         h: "If something goes wrong",
         p: [
-          "If a breach affects your data, we will investigate, contain it, notify Japan's Personal Information Protection Commission and affected people when applicable law requires it, and provide updates as reliable information becomes available.",
+          "If we discover a security incident affecting personal data, we will investigate it, contain the issue, and take appropriate corrective action.",
+          "Where required by applicable law, we will notify affected users and the relevant authorities and provide further information as it becomes reliable.",
+        ],
+      },
+      {
+        h: "Security is ongoing",
+        p: [
+          "No internet service can promise perfect security.",
+          "nyuz continuously improves its protections as the product, infrastructure, and threats change.",
         ],
       },
     ],

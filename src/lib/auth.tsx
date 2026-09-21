@@ -1,5 +1,6 @@
 import type { Session, User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { avatarUrlFrom } from "./avatar";
 import { getSupabaseBrowserClient } from "./supabase/client";
 
 type AuthState = {
@@ -158,4 +159,18 @@ export function useDisplayName(preferredName?: string): string {
 
   const local = user.email?.split("@")[0] ?? "";
   return local.trim();
+}
+
+/**
+ * The picture the sign-in provider has for this person, or null.
+ *
+ * Read from the session and never copied into our own tables. It is the
+ * provider's picture at the provider's address, so a stored copy would be a
+ * second thing to keep fresh and a second thing to delete. The rule for which
+ * address counts lives in `avatarUrlFrom`, where it can be tested without a
+ * browser and a session.
+ */
+export function useAvatarUrl(): string | null {
+  const { user } = useAuth();
+  return avatarUrlFrom(user?.user_metadata ?? null);
 }

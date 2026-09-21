@@ -43,34 +43,43 @@ export function ProfileDemo() {
   );
 }
 
+/**
+ * One paragraph per card, kept to roughly two to four lines.
+ *
+ * These are not shortened versions of longer text — they are the length. A card
+ * is one beat of the argument, the grid pairs them by height as much as by
+ * subject, and a body that runs long enough to wrap a fifth line does not make
+ * its own case better; it only sets the row height and leaves a hole beside the
+ * shorter card it is paired with.
+ */
 const DIFFS = [
   {
     title: "One event, not thirty articles",
-    body: "When thirty outlets cover one announcement, you get one story with all thirty sources attached — not thirty entries to mentally deduplicate at 7am.",
+    body: "When thirty outlets cover the same thing, Nyuz brings them together into one story with the sources attached. You see the event once — not thirty rewrites of the same headline.",
   },
   {
-    title: "It tells you what changed",
-    body: "Not just what was announced — how things stood before, where they stand now, and why that's worth thirty seconds of your morning. Want to go deeper on one of them? Ask, and you'll get a straight answer about that story.",
+    title: "More than just the news",
+    body: "Nyuz doesn't stop at what happened — it gives you the context around a story: what changed, the numbers that matter, and what is worth knowing beyond the headline.",
   },
   {
-    title: "It gets sharper without being asked",
-    body: "nyuz learns from what you actually read. Open the stories that matter, skip the ones that don't, and in a fortnight your briefing is better aimed than it is today — no survey, no rating prompt, nothing to train. The thumbs are there if you feel like it, and they count for more when you use them. Most people never will, and it works anyway.",
+    title: "Important beats endless",
+    body: "There is no quota to fill. If only a few stories genuinely matter today, your briefing stays short — five things worth knowing beat fifty competing for attention.",
   },
   {
-    title: "Quiet days stay quiet",
-    body: "There is no daily quota to fill. If nothing crossed your threshold, your briefing is short or it doesn't come. A calendar of manufactured urgency is what we're replacing.",
+    title: "It gets more relevant over time",
+    body: "What you read, skip, follow, and exclude helps Nyuz understand what deserves space in your briefing. Use it normally and it gradually becomes more relevant.",
   },
   {
-    title: "Sources are always one tap away",
-    body: "Cards use source descriptions. Deeper coverage, when available, is generated on request and can be wrong. Original reporting is always linked.",
+    title: "Sources stay attached",
+    body: "Nyuz brings information together without hiding where it came from. Every story keeps its original sources close, so you can check the reporting or keep reading at the source.",
   },
   {
-    title: "You control the volume, precisely",
-    body: "A density dial from “only if it's genuinely major” to “tell me everything”. Exclusions that actually hold: a term you've excluded cannot be smuggled back in by a topic you follow.",
+    title: "You decide how much reaches you",
+    body: "Want only major developments? Keep it quiet. Want broader coverage? Turn it up. Your topics, exclusions, sources, and briefing density decide how much makes it through.",
   },
   {
-    title: "Add the sources you'd hate to miss",
-    body: "Your local paper. A niche blog nobody else reads. The team page that posts before anyone reports it. On a paid plan, hand nyuz a feed it isn't watching yet and it joins the rest of your morning.",
+    title: "Follow beyond the mainstream",
+    body: "Add the sources you care about — a local publication, research feed, niche blog, project page, or something the bigger news apps might never watch. Nyuz isn't trying to make everyone read the same internet.",
   },
 ];
 
@@ -79,7 +88,7 @@ export function WhyDifferent() {
     <div>
       <Eyebrow>What makes it different</Eyebrow>
       <h2 className="display mt-3 max-w-xl text-4xl sm:text-5xl">
-        Less information. More relevance. Zero searching.
+        Less noise. More context. Information worth knowing.
       </h2>
       <div className="mt-12 grid gap-px overflow-hidden rounded-3xl border border-hairline bg-[var(--hairline)] sm:grid-cols-2">
         {DIFFS.map((d, i) => (

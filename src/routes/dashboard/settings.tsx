@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { DeviceManager } from "@/components/device-manager";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, LinkButton } from "@/components/kit";
+import { UserAvatar } from "@/components/user-avatar";
 import { ACCOUNT_DELETION_GRACE_DAYS, deletionDeadline } from "@/lib/account-deletion";
 import { useFeedback } from "@/lib/feedback-store";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useAvatarUrl } from "@/lib/auth";
 import { usePlan } from "@/lib/plan-state";
 import { usePrefs } from "@/lib/prefs-store";
 import { deleteAccount, exportAccountData } from "@/lib/server/account";
@@ -22,6 +23,9 @@ function Settings() {
   // The address on the account, not a stored copy — the account is the only
   // thing that actually receives a briefing.
   const auth = useAuth();
+  // Read here as well as inside `UserAvatar`, because what the row says about
+  // the picture depends on whether there is one.
+  const avatarUrl = useAvatarUrl();
   const { plan, cancelsOn, loading: planLoading } = usePlan();
   const email = auth.user?.email ?? "";
   const [nextEmail, setNextEmail] = useState(email);
@@ -150,7 +154,22 @@ function Settings() {
 
       <div className="space-y-5">
         <Panel title="Profile">
-          <div className="grid gap-5 sm:grid-cols-2">
+          {/* Shown rather than offered. The picture belongs to the Google or
+              GitHub account; there is no upload here, and a control that
+              looked like one would just be a dead end. */}
+          <div className="flex flex-wrap items-center gap-4">
+            <UserAvatar name={prefs.name} size="lg" />
+            <div>
+              <p className="text-[13px] text-muted-foreground">Picture</p>
+              <p className="mt-1 max-w-sm text-[12px] leading-relaxed text-muted-foreground">
+                {avatarUrl
+                  ? "Taken from the account you signed in with. Change it there and it follows you here."
+                  : "None yet. Signing in with Google or GitHub brings the picture on that account."}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-5 border-t border-hairline pt-6 sm:grid-cols-2">
             <div>
               <label htmlFor="name" className="text-[13px] text-muted-foreground">
                 What should we call you?
