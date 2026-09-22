@@ -1,9 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Check, Download, Sparkles } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { Check, ChevronRight, Download, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DeviceManager } from "@/components/device-manager";
+import { InstallSection } from "@/components/dashboard/install-section";
 import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, LinkButton } from "@/components/kit";
+import { profileHubDestinations } from "@/lib/dashboard-nav";
+import { useStandalone } from "@/lib/display-mode";
+import { archiveAccount, archiveUsage, clearAccount } from "@/lib/offline/archive";
+import { isAdmin, useViewer } from "@/lib/viewer";
 import { UserAvatar } from "@/components/user-avatar";
 import { ACCOUNT_DELETION_GRACE_DAYS, deletionDeadline } from "@/lib/account-deletion";
 import { useFeedback } from "@/lib/feedback-store";
@@ -18,7 +23,98 @@ export const Route = createFileRoute("/dashboard/settings")({
   head: () => ({ meta: [{ title: "Settings — nyuz" }] }),
 });
 
+/**
+ * The Profile tab's way on to everything that is not a tab.
+ *
+ * Only in the installed app. There the tab bar is Home / Topics / Saved /
+ * Profile, which is four of the nine destinations the sidebar holds — so the
+ * other five (Sources, Delivery, Alerts, History, Billing, plus the two staff
+ * pages) have to be reachable from here, or promoting them out of the bar would
+ * have silently removed them. The browser layout is not shown this panel
+ * because its sidebar is already listing all of them, and two copies of the same
+ * links on one screen is noise.
+ *
+ * The list comes from src/lib/dashboard-nav.ts rather than being written out, so
+ * a destination added to the sidebar cannot go missing from the app.
+ */
+function ProfileHub() {
+  const { data: viewer } = useViewer();
+  const destinations = profileHubDestinations(isAdmin(viewer));
+
+  return (
+    <Panel title="Everything else">
+      <div className="-mx-1">
+        {destinations.map(({ to, label, icon: Icon }) => (
+          <Link
+            key={to}
+            to={to}
+            className="flex items-center gap-3 rounded-xl px-1 py-3 transition-colors hover:bg-muted"
+          >
+            <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="flex-1 text-[14px]">{label}</span>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </Link>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * What this device is holding for offline reading, and the way to empty it.
+ *
+ * Shown in every layout rather than only in the installed app: the archive is
+ * written in a browser tab too, and a reader who wants to know what nyuz has put
+ * on their device should not have to install it first to find out.
+ */
+function OfflineCopies() {
+  const [usage, setUsage] = useState<{ lists: number; stories: number; bytes: number } | null>(
+    null,
+  );
+
+  const read = () => {
+    const userId = archiveAccount();
+    if (!userId) return;
+    void archiveUsage(userId).then(setUsage);
+  };
+
+  useEffect(read, []);
+
+  const clear = () => {
+    const userId = archiveAccount();
+    if (!userId) return;
+    void clearAccount(userId).then(read);
+  };
+
+  return (
+    <Panel title="Offline">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <p className="max-w-md text-[13px] leading-relaxed text-muted-foreground">
+          {usage && usage.stories + usage.lists > 0
+            ? `${usage.stories} ${usage.stories === 1 ? "story" : "stories"} and ${usage.lists} ${usage.lists === 1 ? "list" : "lists"} are stored here, about ${formatBytes(usage.bytes)}, so nyuz opens without a connection. Kept on this device only, and removed when you sign out.`
+            : "Nothing is stored on this device yet. Open a briefing or save a story while online and it will be kept here."}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={clear}
+          disabled={!usage || usage.stories + usage.lists === 0}
+        >
+          Clear offline copies
+        </Button>
+      </div>
+    </Panel>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function Settings() {
+  const standalone = useStandalone();
   const { prefs, update } = usePrefs();
   // The address on the account, not a stored copy — the account is the only
   // thing that actually receives a briefing.
@@ -153,6 +249,8 @@ function Settings() {
       </PageHeader>
 
       <div className="space-y-5">
+        {standalone ? <ProfileHub /> : null}
+
         <Panel title="Profile">
           {/* Shown rather than offered. The picture belongs to the Google or
               GitHub account; there is no upload here, and a control that
@@ -213,6 +311,12 @@ function Settings() {
           {error ? <p className="mt-4 text-[12.5px] text-destructive">{error}</p> : null}
         </Panel>
 
+        {/* Directly under Profile, and above Security and Devices, because the
+            reader who wants this is looking for it — a device setting they came
+            here to find, not one to discover by scrolling. It renders nothing on
+            a device that cannot install. */}
+        <InstallSection />
+
         <Panel title="Security">
           <RowAction
             title="Sign out all devices"
@@ -254,6 +358,8 @@ function Settings() {
             </Button>
           </div>
         </Panel>
+
+        <OfflineCopies />
 
         <Panel title="Data">
           <div className="space-y-3">

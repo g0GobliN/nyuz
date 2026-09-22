@@ -216,6 +216,15 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The install contract, checked against the artifact the build just
+      # emitted rather than against a deployment. It reads .output/public, so it
+      # has to come after the build, and it is deliberately *not* a live check:
+      # a build gate that fetches production would fail for reasons that have
+      # nothing to do with the commit under test. The live half runs in the
+      # deploy job, after the Worker is serving.
+      - name: PWA install contract
+        run: npm run pwa:self-test
+
   # ---------------------------------------------------------------------------
   # Deploy
   # ---------------------------------------------------------------------------
@@ -411,6 +420,34 @@ jobs:
             sleep 10
           done
           echo "::error::$TARGET did not return 200 after five attempts (last: $code)"
+          exit 1
+
+      # The half of the install contract that only a deployment can answer:
+      # whether Cloudflare is serving the manifest the browser accepts, icons
+      # whose bytes match their declared sizes, a document that links the
+      # manifest with `viewport-fit=cover`, and a worker that caches the shell
+      # without ever caching a per-account response. The self-test in `verify`
+      # proves the artifact; this proves the origin.
+      #
+      # Retried like the 200 check above, because a fresh deploy can answer on
+      # the document before every asset is being served from the colo.
+      - name: Check the deployment's install contract
+        env:
+          TARGET: ${{ steps.deploy.outputs.deployment-url || vars.VITE_SITE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TARGET:-}" ]; then
+            echo "::warning::No deployment URL to check"
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            echo "attempt $attempt"
+            if node scripts/pwa-check.mjs "$TARGET"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$TARGET does not satisfy the install contract — see the checks above"
           exit 1
 
       - name: Summary

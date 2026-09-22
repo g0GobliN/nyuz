@@ -6,13 +6,7 @@ import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
 import { Button, Chip } from "@/components/kit";
 import { DensityDial } from "@/components/density-dial";
 import { TimezoneSelect } from "@/components/timezone-select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { IosStepsDialog } from "@/components/dashboard/ios-steps-dialog";
 import { useAuth } from "@/lib/auth";
 import { notifyBriefingsPaused } from "@/lib/server/account";
 import {
@@ -399,48 +393,23 @@ function Delivery() {
         </Panel>
       </div>
 
-      <Dialog open={showIosSetup} onOpenChange={setShowIosSetup}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Enable notifications on iPhone</DialogTitle>
-            <div className="mt-4 space-y-4 text-left text-[13px] text-muted-foreground">
-              <p>Add Nyuz to your Home Screen first. You only need to do this once.</p>
-              <ol className="space-y-3">
-                <li className="flex gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal/15 text-[11px] font-semibold text-signal">
-                    1
-                  </span>
-                  <span className="pt-0.5">Tap Share</span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal/15 text-[11px] font-semibold text-signal">
-                    2
-                  </span>
-                  <span className="pt-0.5">Tap "Add to Home Screen"</span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal/15 text-[11px] font-semibold text-signal">
-                    3
-                  </span>
-                  <span className="pt-0.5">Open Nyuz from your Home Screen</span>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal/15 text-[11px] font-semibold text-signal">
-                    4
-                  </span>
-                  <span className="pt-0.5">Enable notifications</span>
-                </li>
-              </ol>
-              <p className="pt-1">Email and Telegram notifications work without this setup.</p>
-            </div>
-          </DialogHeader>
-          <div className="mt-6 flex justify-end">
-            <Button variant="primary" size="sm" onClick={() => setShowIosSetup(false)}>
-              Got it
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* The same steps, and the same component, that Settings shows to an
+          iPhone — WebKit hides the push APIs from browser tabs, so "add to Home
+          Screen" is how this toggle comes alive on iOS, with one extra step at
+          the end for the notification permission itself. */}
+      <IosStepsDialog
+        open={showIosSetup}
+        onOpenChange={setShowIosSetup}
+        title="Enable notifications on iPhone"
+        intro="Add Nyuz to your Home Screen first. You only need to do this once."
+        steps={[
+          "Tap Share",
+          'Tap "Add to Home Screen"',
+          "Open Nyuz from your Home Screen",
+          "Enable notifications",
+        ]}
+        note="Email and Telegram notifications work without this setup."
+      />
     </DashboardShell>
   );
 }

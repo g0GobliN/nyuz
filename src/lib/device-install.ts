@@ -1,3 +1,5 @@
+import { isStandalone } from "@/lib/display-mode";
+
 /** Random installation identity, stable across login and token refresh. No fingerprint. */
 const KEY = "nyuz.install-id";
 
@@ -24,12 +26,7 @@ export function deviceLabel(): string {
   if (typeof navigator === "undefined") return "Browser";
 
   const ua = navigator.userAgent ?? "";
-  const standalone =
-    (typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      (window.matchMedia("(display-mode: standalone)").matches ||
-        window.matchMedia("(display-mode: fullscreen)").matches)) ||
-    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  const standalone = isStandalone();
 
   let operatingSystem = "Browser";
   if (/iPhone|iPod/i.test(ua)) operatingSystem = "iPhone";

@@ -1,27 +1,43 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Bookmark, Mail, MessageCircle } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { BriefingPreview } from "@/components/briefing-preview";
 import { PanelLoading } from "@/components/loading";
 import { Chip, LinkButton } from "@/components/kit";
 import { useDisplayName } from "@/lib/auth";
 import { usePrefs } from "@/lib/prefs-store";
+import { withOfflineFallback } from "@/lib/offline/fallback";
+import { useWarmSavedStories } from "@/lib/offline/warm";
 import { loadDigestStories, loadHistory, loadSavedStories } from "@/lib/server/briefing";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const Route = createFileRoute("/dashboard/briefing")({
   component: Briefing,
+  // Two params, both narrowing something a URL should not be able to invent.
+  //
   // `digest` is how History opens one particular day. Without it this page only
   // knew how to fetch the latest digest, so every row in the archive led back
   // to today's briefing whichever one you clicked. Anything that is not a uuid
   // is dropped rather than forwarded — the server would refuse it anyway, and
   // falling back to the latest briefing is the harmless reading of a typo.
-  validateSearch: (search: Record<string, unknown>): { digest?: string } => {
+  //
+  // `tab` is which of the two views is showing, and it is in the URL because the
+  // installed app's Saved tab has to be able to open it. It used to be local
+  // state, which meant Saved was unreachable except by tapping a chip on this
+  // page: not linkable, not restored by the back button, and lost by opening a
+  // story and coming back — the reader would return to Today with no sign of
+  // where they had been. Defaults to today, so a bare /dashboard/briefing is
+  // unchanged.
+  validateSearch: (search: Record<string, unknown>): { digest?: string; tab?: Tab } => {
     const digest = search["digest"];
-    return typeof digest === "string" && UUID.test(digest) ? { digest } : {};
+    const tab = search["tab"] === "saved" ? "saved" : undefined;
+    return {
+      ...(typeof digest === "string" && UUID.test(digest) ? { digest } : {}),
+      ...(tab ? { tab } : {}),
+    };
   },
   head: () => ({ meta: [{ title: "My briefing — nyuz" }] }),
 });
@@ -31,8 +47,20 @@ type Tab = "today" | "saved";
 function Briefing() {
   const { prefs } = usePrefs();
   const who = useDisplayName(prefs.name);
-  const [tab, setTab] = useState<Tab>("today");
-  const digest = Route.useSearch().digest;
+  const navigate = useNavigate();
+  const { digest, tab = "today" } = Route.useSearch();
+  const setTab = (next: Tab) =>
+    // `replace`, because the two chips are one page seen two ways; leaving a
+    // history entry per chip means Back walks through them before it leaves.
+    //
+    // The digest is spread rather than passed as `undefined`: `undefined` is not
+    // a digest, and `exactOptionalPropertyTypes` is on, so handing the router an
+    // explicit one is a type error and dropping the day would be a real one.
+    void navigate({
+      to: "/dashboard/briefing",
+      search: { ...(digest ? { digest } : {}), tab: next },
+      replace: true,
+    });
 
   const pretty = useMemo(() => {
     const [rawH, rawM] = prefs.time.split(":");
@@ -47,12 +75,19 @@ function Briefing() {
     // The id belongs in the key: two different days must not share one cache
     // entry, or the second one you open shows the first one's stories.
     queryKey: ["briefing", "today", digest ?? "latest"],
-    queryFn: () => loadDigestStories({ data: digest ? { digestId: digest } : {} }),
+    // Both lists are archived, so both are offlineFirst — see
+    // src/lib/offline/fallback.ts for why the network mode is load-bearing.
+    networkMode: "offlineFirst",
+    queryFn: () =>
+      withOfflineFallback(["briefing", "today", digest ?? "latest"], () =>
+        loadDigestStories({ data: digest ? { digestId: digest } : {} }),
+      ),
     staleTime: 60_000,
   });
   const savedQ = useQuery({
     queryKey: ["briefing", "saved"],
-    queryFn: () => loadSavedStories(),
+    networkMode: "offlineFirst",
+    queryFn: () => withOfflineFallback(["briefing", "saved"], () => loadSavedStories()),
     staleTime: 60_000,
   });
   // Only used to name the day on screen. History is fetched a month at a time
@@ -69,6 +104,9 @@ function Briefing() {
 
   const today = todayQ.data ?? [];
   const saved = savedQ.data ?? [];
+  // Gives the shelf a reading copy while there is a network to fetch one. See
+  // src/lib/offline/warm.ts for why Saved is warmed and Home is not.
+  useWarmSavedStories(saved);
   const shown = tab === "today" ? today : saved;
   // An in-flight query and a genuinely empty briefing look identical once the
   // data defaults to []. Without this the page asserts "No briefing today"
@@ -88,7 +126,7 @@ function Briefing() {
         {digest ? (
           <Link
             to="/dashboard/briefing"
-            search={{}}
+            search={{ tab }}
             className="text-[13px] text-muted-foreground transition-colors hover:text-foreground"
           >
             Back to the latest briefing

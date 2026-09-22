@@ -1,9 +1,11 @@
 import { DeviceManager } from "@/components/device-manager";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { PageLoading } from "@/components/loading";
+import { AppShell } from "@/components/dashboard/app-shell";
+import { PanelLoading, PageLoading } from "@/components/loading";
 import { authEntryUrl } from "@/lib/auth-redirect";
 import { useAuth } from "@/lib/auth";
+import { useStandalone } from "@/lib/display-mode";
 import { loadPreferences } from "@/lib/server/preferences";
 
 export const Route = createFileRoute("/dashboard")({
@@ -24,6 +26,7 @@ export const Route = createFileRoute("/dashboard")({
  */
 function DashboardGuard() {
   const { session, loading } = useAuth();
+  const standalone = useStandalone();
   const [onboarded, setOnboarded] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -52,7 +55,19 @@ function DashboardGuard() {
   }, [onboarded]);
 
   if (loading || !session || onboarded !== true) {
-    return <PageLoading label="Checking your session" />;
+    // In the installed app the chrome is drawn from the first frame and only the
+    // content waits. That wait is the session check plus one round trip for
+    // preferences — short, but it is the first thing the reader sees after a
+    // cold launch, and a full-screen mark on an empty screen is the difference
+    // between an app starting and a page loading. A browser tab keeps the plain
+    // loader: it has no shell to hold the space.
+    return standalone ? (
+      <AppShell>
+        <PanelLoading label="Checking your session" />
+      </AppShell>
+    ) : (
+      <PageLoading label="Checking your session" />
+    );
   }
 
   return (

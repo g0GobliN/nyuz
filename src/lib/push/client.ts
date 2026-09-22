@@ -1,4 +1,6 @@
 import { installId } from "../device-install";
+import { isStandalone } from "../display-mode";
+import { isIOS } from "../platform";
 import { deletePushSubscription, savePushSubscription } from "@/lib/server/push/account";
 
 export function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -59,30 +61,26 @@ export function notificationsAvailable(): boolean {
  * Used only for UX messaging — to explain the Home Screen requirement Apple
  * actually imposes. Feature detection via `pushSupported()` is the
  * authoritative gate for whether the toggle does anything.
+ *
+ * Re-exported rather than implemented here, for the same reason `isStandalone`
+ * is: the install affordance asks the identical question — iOS has no
+ * programmatic install prompt either — and two user-agent tests would eventually
+ * disagree, leaving a phone that is told to install for push and not told to
+ * install at all. The implementation is in src/lib/platform.ts.
  */
-export function isIOS(): boolean {
-  if (typeof window === "undefined") return false;
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent ?? "";
-  return (
-    /iP(hone|od|ad)/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-  );
-}
+export { isIOS } from "../platform";
 
 /**
  * Whether the app is running as a Home Screen–installed web app.
  *
  * iOS exposes the push APIs only to standalone web apps, not to browser tabs,
  * so this is what separates "add to Home Screen" from "not supported here."
+ *
+ * Re-exported rather than implemented here: the app shell asks the same
+ * question to choose its chrome, and two implementations would eventually
+ * disagree. See src/lib/display-mode.ts.
  */
-export function isStandalone(): boolean {
-  if (typeof window === "undefined") return false;
-  const mm = typeof window.matchMedia === "function" ? window.matchMedia.bind(window) : null;
-  if (mm?.("(display-mode: standalone)").matches) return true;
-  if (mm?.("(display-mode: fullscreen)").matches) return true;
-  if (typeof navigator === "undefined") return false;
-  return (navigator as Navigator & { standalone?: boolean }).standalone === true;
-}
+export { isStandalone } from "../display-mode";
 
 /** Current notification permission, or "unavailable" when there is no API. */
 export function pushPermission(): NotificationPermission | "unavailable" {

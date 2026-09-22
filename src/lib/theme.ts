@@ -12,6 +12,8 @@
  * the choice is stored, and what "applied" means.
  */
 
+import { STANDALONE_ATTRIBUTE } from "@/lib/display-mode";
+
 export type Theme = "light" | "dark";
 
 export const THEME_STORAGE_KEY = "nyuz.theme";
@@ -26,6 +28,37 @@ export const THEME_COLORS: Record<Theme, string> = {
   light: "#ffffff",
   dark: "#0a0a0a",
 };
+
+/**
+ * The ink an installed window's chrome is painted in.
+ *
+ * The same value as `THEME_COLORS.dark`, on purpose: `--app-chrome` in
+ * src/styles.css is the same neutral as the dark document background. It gets
+ * its own name because it means a different thing — this is the chrome colour
+ * of an installed window, not the colour of a themed page — and because a
+ * reader changing their theme must not be able to move it.
+ */
+export const APP_CHROME_COLOR = THEME_COLORS.dark;
+
+/**
+ * What the `theme-color` meta tag should say, now that an installed window
+ * exists.
+ *
+ * ---------------------------------------------------------------------------
+ * Why installed windows are not themed
+ * ---------------------------------------------------------------------------
+ * Android paints the status bar with `theme-color`, and the installed shell
+ * paints an ink top bar directly beneath it in both themes (see the header of
+ * src/components/dashboard/app-shell.tsx). Theming the meta tag would therefore
+ * put a white status bar above a black bar for every reader who chose light — a
+ * two-tone header on the one screen that is meant to read as an app.
+ *
+ * A browser tab is unchanged: there the meta tag colours the browser's own
+ * chrome, so it must match the page, exactly as before.
+ */
+export function themeColorFor(theme: Theme, standalone: boolean): string {
+  return standalone ? APP_CHROME_COLOR : THEME_COLORS[theme];
+}
 
 /**
  * Dark unless this browser has explicitly chosen light.
@@ -51,7 +84,12 @@ export function applyTheme(theme: Theme): void {
   root.style.colorScheme = theme;
 
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", THEME_COLORS[theme]);
+  // The attribute rather than `isStandalone()`: the head script has already put
+  // the answer on <html> before the first paint, and reading it here keeps this
+  // module out of the browser-only module the shells and push share.
+  if (meta) {
+    meta.setAttribute("content", themeColorFor(theme, root.hasAttribute(STANDALONE_ATTRIBUTE)));
+  }
 }
 
 /**
@@ -63,12 +101,19 @@ export function applyTheme(theme: Theme): void {
  * before the body is parsed, so nothing has painted yet and there is no flash.
  * A module import would run after hydration, which is the bug this replaces.
  *
+ * **It is emitted after `SHELL_INIT_SCRIPT` in `src/routes/__root.tsx`**, because
+ * the colour it writes depends on the attribute that script sets. Both are
+ * parser-blocking scripts in the same <head>, so the order costs nothing, and
+ * `src/lib/theme.test.ts` runs the two in that order and asserts the result.
+ *
  * `dark` is assigned before the `localStorage` read rather than after, because
  * that read throws outright in some privacy modes. A browser that cannot tell
  * us anything should land on the default, not on the fallback theme.
  */
 export const THEME_INIT_SCRIPT = `(function(){var t="dark";try{if(localStorage.getItem(${JSON.stringify(
   THEME_STORAGE_KEY,
-)})==="light")t="light"}catch(e){}var r=document.documentElement;r.classList.toggle("dark",t==="dark");r.style.colorScheme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",t==="dark"?${JSON.stringify(
+)})==="light")t="light"}catch(e){}var r=document.documentElement;r.classList.toggle("dark",t==="dark");r.style.colorScheme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",r.hasAttribute(${JSON.stringify(
+  STANDALONE_ATTRIBUTE,
+)})?${JSON.stringify(APP_CHROME_COLOR)}:t==="dark"?${JSON.stringify(
   THEME_COLORS.dark,
 )}:${JSON.stringify(THEME_COLORS.light)})})();`;

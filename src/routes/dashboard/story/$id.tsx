@@ -15,6 +15,8 @@ import { useFeedback } from "@/lib/feedback-store";
 import { useReadTracking } from "@/lib/use-engagement";
 import type { QueueItem, ReadingQueue } from "@/lib/reading-queue";
 import { asQueueSource, useReadingQueue, type QueueSource } from "@/lib/use-reading-queue";
+import { withOfflineFallback } from "@/lib/offline/fallback";
+import { useOnline } from "@/lib/online";
 import { loadStory, generateStory } from "@/lib/server/briefing";
 import { cn } from "@/lib/utils";
 
@@ -65,9 +67,17 @@ function BackToFeed({ className }: { className?: string }) {
 
 function StoryDetail() {
   const { id } = Route.useParams();
+  const online = useOnline();
   const storyQ = useQuery({
     queryKey: ["briefing", "story", id],
-    queryFn: () => loadStory({ data: { id, prefetch: false } }),
+    // Full payloads live in the archive for stories that were opened or saved.
+    // See src/lib/offline/keys.ts for what a story row is and why it is not the
+    // same thing as a list row.
+    networkMode: "offlineFirst",
+    queryFn: () =>
+      withOfflineFallback(["briefing", "story", id], () =>
+        loadStory({ data: { id, prefetch: false } }),
+      ),
     staleTime: 60_000,
   });
   const story = storyQ.data;
@@ -155,7 +165,15 @@ function StoryDetail() {
   if (!story) {
     return (
       <DashboardShell>
-        <p className="text-[15px]">This event is not in your briefing.</p>
+        {/* Two reasons a story can be missing, and they ask different things of
+            the reader. Offline, the useful sentence says the copy was never
+            made — the usual case for a story opened from a link rather than
+            from Saved. */}
+        <p className="text-[15px]">
+          {online
+            ? "This event is not in your briefing."
+            : "This story was not saved on this device, so it cannot be read offline."}
+        </p>
         <BackToFeed className="mt-4" />
       </DashboardShell>
     );

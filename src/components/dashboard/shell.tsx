@@ -1,89 +1,41 @@
-import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import {
-  Bell,
-  BookOpen,
-  Clock,
-  CreditCard,
-  Gauge,
-  History,
-  Home,
-  LogOut,
-  Radio,
-  Search,
-  Send,
-  Settings,
-  ShieldCheck,
-  Tag,
-  X,
-} from "lucide-react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { Bell, Clock, Search, type LucideIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { MaintenanceScreen } from "@/components/access";
+import { AccountMenu } from "@/components/dashboard/account-menu";
+import { AppShell } from "@/components/dashboard/app-shell";
+import { SearchOverlay } from "@/components/dashboard/search-overlay";
+import { OfflineNotice } from "@/components/dashboard/offline-notice";
+import { UpdateNotice } from "@/components/dashboard/update-notice";
 import { Logo } from "@/components/landing/nav";
 import { PanelLoading } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useDisplayName } from "@/lib/auth";
+import { MOBILE, NAV, NAV_FOOT, NAV_STAFF } from "@/lib/dashboard-nav";
+import { useStandalone } from "@/lib/display-mode";
 import { usePrefs } from "@/lib/prefs-store";
 import { pingPresence } from "@/lib/server/account";
-import { searchStories } from "@/lib/server/briefing";
+import { getSignupState } from "@/lib/server/access";
 import { refreshPush } from "@/lib/push/client";
 import { cn } from "@/lib/utils";
 // From src/lib/viewer.ts rather than the console shell: importing it from there
 // would pull the entire admin console into this bundle for the sake of one
 // boolean.
 import { isAdmin, useViewer } from "@/lib/viewer";
-import { getSignupState } from "@/lib/server/access";
-import { MaintenanceScreen } from "@/components/access";
-import { UserAvatar } from "@/components/user-avatar";
-import { useAuth, useDisplayName } from "@/lib/auth";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-
-const NAV = [
-  { to: "/dashboard", label: "Home", icon: Home, exact: true },
-  { to: "/dashboard/briefing", label: "My briefing", icon: BookOpen },
-  { to: "/dashboard/topics", label: "Topics", icon: Tag },
-  { to: "/dashboard/sources", label: "Sources", icon: Radio },
-  { to: "/dashboard/alerts", label: "Alerts", icon: Bell },
-  { to: "/dashboard/delivery", label: "Delivery", icon: Send },
-  { to: "/dashboard/history", label: "History", icon: History },
-] as const;
-
-const NAV_FOOT = [
-  { to: "/dashboard/settings", label: "Settings", icon: Settings },
-  { to: "/dashboard/billing", label: "Billing", icon: CreditCard },
-] as const;
 
 /**
- * Staff-only destinations.
+ * The dashboard's chrome, in two shapes.
  *
- * Both were previously reachable by every signed-in customer. Pipeline shows
- * internal queue depths and per-event scoring, and Console is the admin panel
- * — neither belongs in a subscriber's sidebar.
+ * The destinations themselves live in src/lib/dashboard-nav.ts, shared with the
+ * installed app's tab bar, and the account menu and search overlay are their own
+ * modules for the same reason: this file used to hold four nav arrays and both
+ * of those components, and the app shell needs all of them.
  *
- * Hiding them is cosmetic, not protective: the security boundary is `adminOnly`
- * in src/lib/server/guard.ts, which re-reads the role from the database on every
- * call. Someone who types /admin still gets a console whose every request is
- * refused. What this removes is the invitation.
+ * Which shape is drawn is decided here, once, by `useStandalone()`. Every page
+ * renders `<DashboardShell title="…">` and none of them knows the difference —
+ * which is the only reason a second chrome was affordable.
  */
-const NAV_STAFF = [
-  { to: "/dashboard/pipeline", label: "Pipeline", icon: Gauge },
-  { to: "/admin", label: "Console", icon: ShieldCheck },
-] as const;
-
-const MOBILE = [
-  { to: "/dashboard", label: "Home", icon: Home, exact: true },
-  { to: "/dashboard/briefing", label: "Briefing", icon: BookOpen },
-  { to: "/dashboard/topics", label: "Topics", icon: Tag },
-  { to: "/dashboard/sources", label: "Sources", icon: Radio },
-  { to: "/dashboard/alerts", label: "Alerts", icon: Bell },
-  { to: "/dashboard/delivery", label: "Delivery", icon: Send },
-  { to: "/dashboard/history", label: "History", icon: History },
-  { to: "/dashboard/settings", label: "Settings", icon: Settings },
-] as const;
 
 function useActive(to: string, exact?: boolean) {
   const path = useRouterState({ select: (s) => s.location.pathname });
@@ -98,7 +50,7 @@ function NavItem({
 }: {
   to: string;
   label: string;
-  icon: typeof Home;
+  icon: LucideIcon;
   exact?: boolean;
 }) {
   const active = useActive(to, exact);
@@ -123,6 +75,11 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
   const { prefs } = usePrefs();
   const [search, setSearch] = useState(false);
   const [restored, setRestored] = useState(false);
+  // Read on the client only. This component is never server-rendered: the guard
+  // in src/routes/dashboard.tsx holds the whole route back until it knows who is
+  // asking, and the session lives in browser storage. So there is no server
+  // markup to disagree with, and no flash of the wrong chrome on launch.
+  const standalone = useStandalone();
   // Shares the `["viewer"]` query key with the console shell, so moving between
   // the two does not re-ask who you are.
   const { data: viewer } = useViewer();
@@ -202,7 +159,22 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
     };
   }, []);
 
+  // The maintenance screen replaces the chrome in both modes rather than sitting
+  // inside it. It is a full page with its own header, the logo and the theme
+  // toggle, and a dashboard frame around it would promise pages that every
+  // request behind them is refusing to serve.
   if (closed) return <MaintenanceScreen />;
+
+  if (standalone) {
+    return (
+      <AppShell>
+        <OfflineNotice />
+        <UpdateNotice />
+        {restored ? <RestoredNotice onDismiss={() => setRestored(false)} /> : null}
+        {children}
+      </AppShell>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -245,7 +217,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
 
       <div className="lg:pl-60">
         <header className="glass sticky top-0 z-30 border-b border-hairline">
-          <div className="flex h-16 items-center gap-3 px-5 sm:px-7">
+          <div className="gutter-x sm:gutter-x-md flex h-16 items-center gap-3">
             <div className="lg:hidden">
               <Logo />
             </div>
@@ -273,23 +245,11 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
           </div>
         </header>
 
-        <main className="px-5 pb-28 pt-8 sm:px-7 lg:pb-16">
+        <main className="gutter-x pb-28 pt-8 sm:gutter-x-md lg:pb-16">
           <div className="mx-auto w-full max-w-5xl">
-            {restored ? (
-              <div className="mb-6 flex items-start gap-3 rounded-2xl border border-hairline bg-surface-2 p-4">
-                <p className="flex-1 text-[12.5px] leading-relaxed text-muted-foreground">
-                  <span className="font-medium text-foreground">Welcome back.</span> Signing in
-                  cancelled the deletion of your account, and your briefing settings are exactly as
-                  you left them.
-                </p>
-                <button
-                  onClick={() => setRestored(false)}
-                  className="text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Dismiss
-                </button>
-              </div>
-            ) : null}
+            <OfflineNotice />
+            <UpdateNotice />
+            {restored ? <RestoredNotice onDismiss={() => setRestored(false)} /> : null}
             {children}
           </div>
         </main>
@@ -299,7 +259,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
         className="glass fixed inset-x-0 bottom-0 z-40 border-t border-hairline will-change-transform lg:hidden"
         style={{ transform: "translateZ(0)" }}
       >
-        <div className="flex touch-pan-x items-stretch overflow-x-auto overscroll-x-contain px-2 pb-[calc(env(safe-area-inset-bottom)+0.375rem)] scrollbar-hide">
+        <div className="gutter-x-xs flex touch-pan-x items-stretch overflow-x-auto overscroll-x-contain pb-[calc(env(safe-area-inset-bottom)+0.375rem)] scrollbar-hide">
           {MOBILE.map((m) => (
             <MobileItem key={m.to} {...m} />
           ))}
@@ -312,97 +272,27 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
 }
 
 /**
- * The avatar in the header.
+ * Told once, after an account that had asked to be deleted comes back.
  *
- * It used to be a plain link to Settings, which meant the app had no way to
- * sign out at all — `signOut` existed on the auth context and nothing in the
- * product ever called it. The avatar is where people look for that, so it opens
- * a menu instead, with Settings still one click away.
- *
- * It also carries the staff destinations, because it is the only navigation an
- * admin has on a phone. `NAV_STAFF` lives in the sidebar, and the sidebar is
- * `hidden lg:flex` — so below 1024px there was no link to the console anywhere
- * in the product, and the only way in was typing the URL. They are rendered at
- * every width rather than behind `lg:hidden`: a menu whose contents change
- * depending on how wide the window is is worse than one extra row on a desktop
- * that also has a sidebar.
+ * Split out of the layout above so the installed app's shell can show it too —
+ * signing in on a phone from a Home Screen icon is exactly how a reader cancels
+ * a scheduled deletion, and it is the one moment they have to be told it
+ * happened.
  */
-function AccountMenu({ staff, name }: { staff: boolean; name: string }) {
-  const { user, signOut } = useAuth();
-  const navigate = useNavigate();
-  const [signingOut, setSigningOut] = useState(false);
-
-  const out = async () => {
-    setSigningOut(true);
-    try {
-      await signOut();
-    } catch (error) {
-      console.error(error);
-    } finally {
-      // Home either way. A sign-out that fails and leaves someone sitting on a
-      // dashboard they believe they have left is the worse outcome; the auth
-      // listener reconciles the real session state on the way.
-      navigate({ to: "/" });
-    }
-  };
-
+function RestoredNotice({ onDismiss }: { onDismiss: () => void }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          aria-label="Account"
-          className="ml-1 flex items-center justify-center rounded-full transition-opacity hover:opacity-85"
-        >
-          <UserAvatar name={name} />
-        </button>
-      </DropdownMenuTrigger>
-
-      <DropdownMenuContent align="end" className="w-56">
-        {/* Identifies the account before offering to leave it — on a shared
-            machine, which account you are signing out of is the question. */}
-        {name || user?.email ? (
-          <>
-            <div className="px-2 py-1.5">
-              {name ? <p className="truncate text-[13px] font-medium">{name}</p> : null}
-              {user?.email ? (
-                <p className="truncate text-[12px] text-muted-foreground">{user.email}</p>
-              ) : null}
-            </div>
-            <DropdownMenuSeparator />
-          </>
-        ) : null}
-
-        <DropdownMenuItem asChild>
-          <Link to="/dashboard/settings">
-            <Settings /> Settings
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link to="/dashboard/billing">
-            <CreditCard /> Billing
-          </Link>
-        </DropdownMenuItem>
-
-        {staff ? (
-          <>
-            <DropdownMenuSeparator />
-            {NAV_STAFF.map(({ to, label, icon: Icon }) => (
-              <DropdownMenuItem key={to} asChild>
-                <Link to={to}>
-                  <Icon /> {label}
-                </Link>
-              </DropdownMenuItem>
-            ))}
-          </>
-        ) : null}
-
-        <DropdownMenuSeparator />
-
-        <DropdownMenuItem onSelect={() => void out()} disabled={signingOut}>
-          <LogOut /> {signingOut ? "Signing out…" : "Sign out"}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="mb-6 flex items-start gap-3 rounded-2xl border border-hairline bg-surface-2 p-4">
+      <p className="flex-1 text-[12.5px] leading-relaxed text-muted-foreground">
+        <span className="font-medium text-foreground">Welcome back.</span> Signing in cancelled the
+        deletion of your account, and your briefing settings are exactly as you left them.
+      </p>
+      <button
+        onClick={onDismiss}
+        className="text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        Dismiss
+      </button>
+    </div>
   );
 }
 
@@ -459,7 +349,7 @@ function MobileItem({
 }: {
   to: string;
   label: string;
-  icon: typeof Home;
+  icon: LucideIcon;
   exact?: boolean;
 }) {
   const active = useActive(to, exact);
@@ -485,80 +375,6 @@ function MobileItem({
       <Icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.8} />
       {label}
     </Link>
-  );
-}
-
-function SearchOverlay({ onClose }: { onClose: () => void }) {
-  const [q, setQ] = useState("");
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const term = q.trim();
-  const results = useQuery({
-    queryKey: ["briefing", "shell-search", term],
-    queryFn: () => searchStories({ data: { q: term } }),
-    enabled: term.length >= 2,
-    staleTime: 30_000,
-  });
-  const hits = results.data ?? [];
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-background/70 px-5 pt-[12vh] backdrop-blur-md"
-      onClick={onClose}
-    >
-      <div
-        className="mx-auto w-full max-w-xl overflow-hidden rounded-3xl border border-hairline bg-surface shadow-[var(--shadow-float)]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-3 border-b border-hairline px-5">
-          <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <input
-            autoFocus
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Show me everything about OpenAI"
-            className="h-14 w-full bg-transparent text-[16px] outline-none placeholder:text-muted-foreground md:text-[15px]"
-          />
-          <button
-            onClick={onClose}
-            aria-label="Close search"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="max-h-[50vh] overflow-y-auto">
-          {term.length >= 2 && hits.length === 0 && !results.isFetching ? (
-            <p className="px-5 py-8 text-center text-[13.5px] text-muted-foreground">
-              Nothing in your archive matches that yet.
-            </p>
-          ) : null}
-          {hits.map((s) => (
-            <Link
-              key={s.id}
-              to="/dashboard/story/$id"
-              params={{ id: s.id }}
-              onClick={onClose}
-              className="block border-b border-hairline px-5 py-3.5 last:border-0 hover:bg-muted"
-            >
-              <p className="text-[11px] uppercase tracking-[0.14em] text-signal">{s.org}</p>
-              <p className="mt-1 text-[14px] font-medium leading-snug">{s.title}</p>
-            </Link>
-          ))}
-          {!term ? (
-            <p className="px-5 py-8 text-center text-[13px] text-muted-foreground">
-              Search your archive by company, topic or headline.
-            </p>
-          ) : null}
-        </div>
-      </div>
-    </div>
   );
 }
 

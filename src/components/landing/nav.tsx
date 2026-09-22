@@ -120,7 +120,7 @@ export function SiteNav({
       >
         {bar ? (
           <div className={`${BAR_HEIGHT} bg-foreground text-background`}>
-            <div className="mx-auto flex h-full w-full max-w-6xl items-center gap-3 px-5 text-[12.5px] sm:px-8">
+            <div className="gutter-x sm:gutter-x-lg mx-auto flex h-full w-full max-w-6xl items-center gap-3 text-[12.5px]">
               {/* One line, always. The strip's height is hard-coded so a spacer can
                   match it, and text that wrapped to two lines would leave the page
                   content overlapped by exactly the amount it wrapped. */}
@@ -137,7 +137,7 @@ export function SiteNav({
           </div>
         ) : null}
 
-        <nav className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5 sm:px-8">
+        <nav className="gutter-x sm:gutter-x-lg mx-auto flex h-16 w-full max-w-6xl items-center justify-between">
           <Logo />
           <div className="hidden items-center gap-8 md:flex">
             {links.map((l) => (
@@ -183,7 +183,7 @@ export function SiteNav({
         </nav>
 
         {open ? (
-          <div className="glass border-b border-hairline px-5 pb-6 pt-2 md:hidden">
+          <div className="glass gutter-x border-b border-hairline pb-6 pt-2 md:hidden">
             <div className="flex flex-col gap-1">
               {links.map((l) => (
                 <Link

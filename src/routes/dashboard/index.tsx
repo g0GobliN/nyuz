@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Clock, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
+import { InstallCard } from "@/components/dashboard/install-card";
 import { StoryCard } from "@/components/dashboard/story-card";
 import { PanelLoading } from "@/components/loading";
 import { LinkButton } from "@/components/kit";
@@ -10,6 +11,7 @@ import { useDisplayName } from "@/lib/auth";
 import { useFeedback } from "@/lib/feedback-store";
 import { useImpressions } from "@/lib/use-engagement";
 import { usePrefs } from "@/lib/prefs-store";
+import { withOfflineFallback } from "@/lib/offline/fallback";
 import { loadHomeFeed } from "@/lib/server/briefing";
 import { nextBriefingLabel } from "@/lib/pipeline/schedule";
 import { useReveal } from "@/lib/use-reveal";
@@ -49,7 +51,11 @@ function DashboardHome() {
 
   const feed = useQuery({
     queryKey: ["briefing", "home"],
-    queryFn: () => loadHomeFeed(),
+    // `offlineFirst`, not the default: in `online` mode React Query never calls
+    // this while the browser is offline, so the fallback inside it would never
+    // run and the reader would get a spinner instead of their saved cards.
+    networkMode: "offlineFirst",
+    queryFn: () => withOfflineFallback(["briefing", "home"], () => loadHomeFeed()),
     staleTime: 60_000,
   });
 
@@ -97,6 +103,11 @@ function DashboardHome() {
         </PageHeader>
 
         <ImpressionTracker stories={visible} />
+
+        {/* Between the greeting and the stories: it is advice about the app
+            rather than content, so it must not push a card off the first
+            screen — and it renders nothing for most readers, at most once. */}
+        <InstallCard />
 
         <div className="grid gap-8 lg:grid-cols-[1fr_260px]">
           <div className="space-y-4">

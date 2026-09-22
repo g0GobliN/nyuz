@@ -36,6 +36,8 @@
   --color-ring: var(--ring);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-app-chrome: var(--app-chrome);
+  --color-app-chrome-foreground: var(--app-chrome-foreground);
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Newsreader", ui-serif, Georgia, serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
@@ -92,6 +94,20 @@
   );
   --shadow-float: 0 1px 2px oklch(0 0 0 / 0.04), 0 12px 40px -12px oklch(0 0 0 / 0.14);
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.04), 0 4px 16px -8px oklch(0 0 0 / 0.1);
+
+  /*
+   * The installed app's own chrome, and the one token deliberately identical in
+   * both themes.
+   *
+   * Not declared again under `.dark`: the standalone shell's bars are ink either
+   * way. That is a requirement, not a preference. iOS draws the status-bar text
+   * white over a `black-translucent` window, so a light bar in light mode would
+   * put white ink on a white surface. Chroma 0, and it is the same ink as
+   * --foreground in light mode — this is not a fourth colour, it is the shell
+   * choosing black on purpose.
+   */
+  --app-chrome: oklch(0.145 0 0);
+  --app-chrome-foreground: oklch(0.968 0 0);
 }
 
 .dark {
@@ -203,6 +219,29 @@
   border-bottom: 1px solid var(--hairline);
 }
 
+/*
+ * The document, as an installed app.
+ *
+ * Driven by an attribute rather than a class name from React, because these two
+ * rules have to hold before the first paint — `THEME_INIT_SCRIPT`'s sibling in
+ * src/lib/display-mode.ts sets it inline in <head>. A rule that waits for
+ * hydration is a rule that lets an installed app rubber-band into a coloured
+ * void above its own black bar on launch.
+ *
+ * Only ever set when the display mode says installed, so nothing here can reach
+ * a browser tab.
+ */
+html[data-standalone] {
+  /* Chrome on Android treats a downward drag at the top of the page as
+     pull-to-refresh, which in standalone mode reloads the app — dropping the
+     reader's place in a story to re-fetch the page they were already reading. */
+  overscroll-behavior-y: none;
+  /* Painted behind the status bar and behind any overscroll that survives the
+     rule above, so the window is ink to its edges rather than showing the
+     page's background there. */
+  background-color: var(--app-chrome);
+}
+
 @utility display {
   font-weight: 500;
   letter-spacing: -0.04em;
@@ -216,6 +255,42 @@
 @utility glass {
   background-color: color-mix(in oklab, var(--background) 72%, transparent);
   backdrop-filter: saturate(180%) blur(20px);
+}
+
+/*
+ * Horizontal gutters that also clear the notch, the rounded corners and the
+ * home indicator.
+ *
+ * `viewport-fit=cover` is set on the viewport meta (see src/routes/__root.tsx),
+ * which is what makes `env(safe-area-inset-*)` anything other than 0. That
+ * applies in a plain browser tab as well as an installed app, so the site's own
+ * fixed chrome — the marketing header, the dashboard header and the bottom nav —
+ * has to pad for the insets or landscape puts text under the notch.
+ *
+ * `max()` rather than a sum, matching the rule the tab bar already used for the
+ * bottom inset: a phone with no cutout gets the ordinary gutter, and the inset
+ * only takes over on the devices where it is larger. Each utility is the
+ * safe-area-correct replacement for the `px-*` step in its name, so swapping one
+ * for the other cannot drift.
+ */
+@utility gutter-x-xs {
+  padding-left: max(0.5rem, env(safe-area-inset-left));
+  padding-right: max(0.5rem, env(safe-area-inset-right));
+}
+
+@utility gutter-x {
+  padding-left: max(1.25rem, env(safe-area-inset-left));
+  padding-right: max(1.25rem, env(safe-area-inset-right));
+}
+
+@utility gutter-x-md {
+  padding-left: max(1.75rem, env(safe-area-inset-left));
+  padding-right: max(1.75rem, env(safe-area-inset-right));
+}
+
+@utility gutter-x-lg {
+  padding-left: max(2rem, env(safe-area-inset-left));
+  padding-right: max(2rem, env(safe-area-inset-right));
 }
 
 @utility scrollbar-hide {

@@ -28,18 +28,48 @@ packages. Two copies of React break hooks; two routers break context lookups at 
 ## Deploying
 
 **Merging to `main` deploys.** `.github/workflows/ci.yml` runs three jobs in parallel —
-the commit-message check; a dependency and secret-name audit; and typecheck, lint, test
-and build. If all three pass, the `deploy` job rebuilds with the real configuration,
-scans the bundle it just built, runs `wrangler deploy`, and asks the deployment for a
-200 before calling itself green. A red run cannot ship: `deploy` `needs` all three.
+the commit-message check; a dependency and secret-name audit; and typecheck, lint, test,
+build and the PWA install contract. If all three pass, the `deploy` job rebuilds with the
+real configuration, scans the bundle it just built, runs `wrangler deploy`, asks the
+deployment for a 200, and then checks the origin's install contract before calling itself
+green. A red run cannot ship: `deploy` `needs` all three.
 
 A pull request is checked and never deployed. Neither is any branch but `main`.
 
-Two of those gates exist because a bad deploy cannot be taken back. The bundle scan runs
+Three of those gates exist because a bad deploy cannot be taken back. The bundle scan runs
 between the build and the upload, since every visitor who loads a published bundle keeps
-a copy of whatever was in it. The smoke check runs after, because `wrangler deploy`
+a copy of whatever was in it. The two smoke checks run after, because `wrangler deploy`
 succeeding only means Cloudflare accepted the upload — a Worker that throws at module
 scope uploads perfectly and then fails for everyone.
+
+### The PWA contract, in both halves
+
+The install contract is checked twice, and the split is deliberate: **CI stays offline and
+deterministic, the deployment check is the smoke test.**
+
+- **In CI, after the build:** `npm run pwa:self-test` serves the artifact that was just
+  built (`.output/public`) from a throwaway local server and checks it. Nothing in a pull
+  request touches `https://nyuz.app`, so a commit can never be failed by the state of a
+  deployment that came before it. It goes red if the manifest stops declaring
+  `display: standalone`, if `start_url` falls outside `scope`, if an icon is missing or is
+  not the size it advertises, or if the worker starts activating itself, stops handling
+  push, or starts caching a per-account or must-be-current route — `/_serverFn/`, `/api/`,
+  `/auth`, `/onboarding`, `/admin` — the first of those being a data leak rather than a
+  performance problem, since an HTTP cache is shared by every account on a device. The
+  worker checks read its **code**, not its text: the never-cache list is parsed out of the
+  array literal, because the worker's own header names every path it excludes and a
+  substring search would pass on that comment alone.
+- **After deploy:** the `deploy` job runs `node scripts/pwa-check.mjs "$TARGET"` against
+  the URL it just shipped, retried three times because a fresh deploy can answer on the
+  document before every asset is served from the colo. It fetches the real manifest,
+  icons, start URL and worker, and it cannot roll anything back — a failing run is a
+  page, which is the point.
+
+Run the live half by hand whenever a deploy is in question:
+
+```bash
+npm run pwa:check -- https://nyuz.app
+```
 
 Every third-party action is pinned to a commit SHA rather than a tag. A tag is a pointer
 its owner can move, and `deploy` hands whatever it resolves to an API token that can
