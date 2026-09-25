@@ -63,7 +63,15 @@ export function Chip({
   return (
     <button
       className={cn(
-        "inline-flex shrink-0 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13px] transition-all duration-300 active:scale-95",
+        // `items-center` and a gap, because a chip is the one control in the kit
+        // that carries a 12px icon beside 13px text. A flex item is stretched by
+        // default, and a box with a definite height (`h-3 w-3`) resolves that to
+        // flex-start — so the glyph sat 3.75px above the middle of its own label
+        // and made the whole chip look lifted, which is exactly how it was
+        // reported. `gap-1` is the 4px the icons used to carry as `mr-1`, so
+        // nothing but the vertical alignment moves. Measured in the browser, not
+        // guessed: pill height 33.5px either way, icon centre 76.5 → 80.25.
+        "inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-[13px] transition-all duration-300 active:scale-95",
         active
           ? "border-transparent bg-foreground text-background"
           : "border-border bg-surface text-muted-foreground hover:text-foreground hover:border-foreground/25",

@@ -106,7 +106,7 @@ export function ExclusionPicker({
           <div className="mt-2 flex flex-wrap gap-2">
             {selected.map((label) => (
               <Chip key={label} active onClick={() => remove(label)}>
-                <X className="mr-1 inline h-3 w-3" />
+                <X className="h-3 w-3" />
                 {label}
               </Chip>
             ))}
@@ -120,7 +120,7 @@ export function ExclusionPicker({
           <div className="mt-2 flex flex-wrap gap-2">
             {availableSuggestions.map((label) => (
               <Chip key={label} onClick={() => add(label)}>
-                <Plus className="mr-1 inline h-3 w-3" />
+                <Plus className="h-3 w-3" />
                 {label}
               </Chip>
             ))}

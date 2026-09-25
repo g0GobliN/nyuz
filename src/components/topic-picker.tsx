@@ -217,11 +217,7 @@ export function TopicPicker({
                 onClick={() => follow(suggestion.label)}
                 className={!on && atCap ? "opacity-40" : undefined}
               >
-                {on ? (
-                  <Check className="mr-1 inline h-3 w-3" />
-                ) : (
-                  <Plus className="mr-1 inline h-3 w-3" />
-                )}
+                {on ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
                 {suggestion.label}
               </Chip>
             );

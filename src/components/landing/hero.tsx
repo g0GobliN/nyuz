@@ -191,11 +191,10 @@ export function InterestDemo() {
         <div className="mt-7 flex flex-wrap gap-2">
           {DEMO_TOPICS.map((t) => (
             <Chip key={t} active={selected.includes(t)} onClick={() => toggle(t)}>
-              {selected.includes(t) ? (
-                <span className="mr-1 inline-flex items-center">
-                  <Check className="h-3 w-3" />
-                </span>
-              ) : null}
+              {/* The chip centres its own children now, so the check is a plain
+                  first child rather than a wrapper span the pill could not
+                  align. */}
+              {selected.includes(t) ? <Check className="h-3 w-3" /> : null}
               {t}
             </Chip>
           ))}

@@ -274,7 +274,7 @@ function StepTopics({
           <div className="mt-2 flex flex-wrap gap-2">
             {draft.topics.map((t) => (
               <Chip key={t} active onClick={() => toggle(t)}>
-                <Check className="mr-1 inline h-3 w-3" />
+                <Check className="h-3 w-3" />
                 {t}
               </Chip>
             ))}
