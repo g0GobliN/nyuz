@@ -347,8 +347,11 @@ describe("the production story: structure the reader depends on", () => {
     // aside were refused upstream; the counts say so.
     expect(diagnostics.sourceNormalization.sourceColourRejections).toBeGreaterThanOrEqual(2);
     // The standfirst is refused as furniture -- a unit that is nothing but a
-    // headline, caught before the lead is chosen out of it -- not cut out of the
-    // sentence that follows it, and the refusal is counted where a cut was.
+    // heading, caught before the lead is chosen out of it -- not cut out of the
+    // sentence that follows it, and the refusal is counted where a cut was. The
+    // clause-shape test is what keeps this a refusal: the wh-word list that used
+    // to sit here also refused 16 real sentences in the frozen corpus, and when
+    // it was deleted this string published as the deck.
     expect(diagnostics.facts.selected).toBeGreaterThan(0);
     expect(
       selectReaderEvidence(story().title, story().sourceList).rejectionReasons.headline_fragment,
@@ -364,7 +367,7 @@ describe("the production story: structure the reader depends on", () => {
     // Source colour and danglers are counted refusals, not silent omissions.
     expect(diagnostics.qualityGate.entityLeakWarnings).toBe(0);
     expect(diagnostics.qualityGate.malformedAttributionWarnings).toBe(0);
-    expect(diagnostics.qualityGate.headlineFragmentWarnings).toBe(0);
+    expect(diagnostics.qualityGate.headingUnitWarnings).toBe(0);
     expect(diagnostics.fallbackLevel).toBe(1);
   });
 

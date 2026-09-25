@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { composeArticleWithDiagnostics, isShareStatistic } from "./editorial";
+import { composeArticleWithDiagnostics, isShareStatistic, judgeFallbackDeck } from "./editorial";
 import { htmlToText } from "./pipeline/feed";
 import {
   cleanDeterministicSentence,
+  editorialNoise,
   hasPredicate,
+  headingUnit,
   normalizeRelativeTime,
   resolveNarrator,
+  sourceSeam,
+  stripEditorialVoice,
   stripFrontedFrame,
   stripUnanchorableTime,
+  unitTextRejection,
 } from "./reader-evidence";
 import type { Story } from "./story";
 
@@ -159,21 +164,23 @@ const composedText = (excerpt: string): string => {
 };
 
 describe("a heading seam belongs to the markup, never to a cut into a sentence", () => {
-  it("cuts nothing out of a sentence that merely opens on a wh-word", () => {
+  it("publishes the MariaDB sentence whole, with its opening clause", () => {
     // The one cut the removed splitter made in the frozen 200-event corpus that
     // reached a reader: "When asked to compare ..." read as a heading, and the
-    // sentence lost its opening clause. Nothing in a plain-text excerpt tells a
-    // heading from a clause, so nothing here cuts.
+    // sentence lost its opening clause. It is published intact now, and neither
+    // half of the corruption -- the cut, or a refusal for opening on a wh-word --
+    // may come back.
     const sentence =
       "When asked to compare MariaDB with PostgreSQL for the same task, however, it had plenty to say.";
     const text = composedText(sentence);
-    expect(text).not.toContain("MariaDB with PostgreSQL for the same task");
-    // What happens instead is measured, not wished: a `When ...` unit with no
-    // question mark is a heading shape to the furniture gate, so the sentence is
-    // refused *whole* and counted. That false positive is older than this patch
-    // and narrowing it would be a new text rule rather than a removal; refused
-    // whole and counted beats published mutilated, which is what it was.
-    expect(text).toBe("");
+    // Whole: the opening clause is still in front of the fact. The capital is the
+    // composer's own construction rule -- a clause reported after `that` may not
+    // keep the sentence capital its source gave it -- not a cut.
+    expect(text).toMatch(/when asked to compare MariaDB with PostgreSQL/i);
+    expect(text).toContain(
+      "MariaDB with PostgreSQL for the same task, however, it had plenty to say.",
+    );
+    expect(text).not.toBe("");
   });
 
   it("is not a rule the composer has any more", async () => {
@@ -182,6 +189,54 @@ describe("a heading seam belongs to the markup, never to a cut into a sentence",
     // seam it was reconstructing is known where the markup is, not in plain text.
     const evidence = await import("./reader-evidence");
     expect(Object.keys(evidence)).not.toContain("splitStandfirstGlue");
+  });
+
+  it("refuses a heading by its shape, not by its first word", () => {
+    // The rule this replaced was `WH_HEADLINE + no question mark`: any unit
+    // opening on Why/How/What/When/Where/Who/Which/Here. Over the frozen
+    // 200-event corpus it refused 19 units, of which 16 were ordinary sentences
+    // and none was the source's own headline, and deleting it outright published
+    // this standfirst as the production fixture's deck. What is left is the shape
+    // a sentence cannot imitate: a wh-opening with no question mark, no clause
+    // boundary inside it and no cleft.
+    expect(headingUnit("Why identity built for humans breaks at agent speed.")).toBe(true);
+    expect(unitTextRejection("Why identity built for humans breaks at agent speed.", false)).toBe(
+      "headline_fragment",
+    );
+    const text = composedText(
+      "Why identity built for humans breaks at agent speed. DigiCert doesn't see agent management as a manual problem.",
+    );
+    expect(text).not.toContain("Why identity built for humans");
+  });
+
+  it.each([
+    // Each of these was refused by the deleted word list, and each is admitted by
+    // the shape test: an opening clause with a boundary, or a cleft.
+    "When F-Droid first appeared, there wasn't much to see, but now it has thousands of open source apps.",
+    "When benchmarked against the latest GeForce RTX 5060, the LX 7G100 delivers only about a third of the performance.",
+    "When these steps do not resolve a case, the system falls back to a structured repair loop.",
+    "What has been missing so far is a finite-size method for evaluating the guessing-moment separation.",
+  ])("admits %s", (sentence) => {
+    expect(headingUnit(sentence)).toBe(false);
+    expect(unitTextRejection(sentence, false)).toBeNull();
+  });
+
+  it("still refuses the glued 'How to run it' unit, as an invalid sentence", () => {
+    const glued =
+      "How to run it The simplest way to run it's just to go to https://github.com/GitHubSecurityLab/seclab-taskflows-fuzzing and start a codespace.";
+    expect(unitTextRejection(glued, false)).toBe("invalid_sentence");
+  });
+
+  it("still refuses the schedule row, which is publisher voice rather than a fact", () => {
+    // The other glued furniture shape in the corpus: a session title with its
+    // speakers, a time and a room code. The gate that refuses it is the publisher
+    // -voice one, so it stays refused even with the heading rule narrowed.
+    const row =
+      "What You Cannot Profile, You Cannot Optimize: Learning to Read PyTorch Traces Aritra Roy Gosthipaty, Suvaditya Mukherjee, 2:50 PM PDT, Room LL20AB Modern profiling tools generate complex traces.";
+    expect(editorialNoise(row)).toBe(true);
+    expect(composedText(`${row} Azure added a managed Redis tier in three regions.`)).not.toContain(
+      "Room LL20AB",
+    );
   });
 
   it("ends a heading where the markup does, so the prose is never glued to it", () => {
@@ -193,6 +248,104 @@ describe("a heading seam belongs to the markup, never to a cut into a sentence",
     expect(htmlToText(html)).toBe(
       "Pricing and availability. Amazon CloudWatch Omni is now available.",
     );
+  });
+});
+
+/**
+ * The other half of the same defect, and the shape `headingUnit` structurally
+ * cannot see: two source *blocks* published as one sentence, because a provider
+ * joined them with a space instead of the full stop that should separate them.
+ *
+ *   "What to Expect from the Introduction Track All attendees, from students, ..."
+ *
+ * `headingUnit` asks whether a unit is *nothing but* a heading, and this unit is
+ * not: it has commas and a predicate, both supplied by the prose the heading was
+ * glued to. The seam is made at ingest -- which is why the ingest boundary now
+ * ends a heading element -- and a row stored before that still carries it, so the
+ * gate refuses the unit where the seam is. Nothing is cut: with no way to prove
+ * where the seam sits, the second half is not a sentence either.
+ */
+describe("a source block seam is refused, not cut into a sentence", () => {
+  const headingAndProse =
+    "What to Expect from the Introduction Track All attendees, from students, first time attendees all the way to seasoned AI engineers that want to learn about new areas are invited to check out the brand new Introduction Track at PyTorch Conference NA 2026.";
+
+  it("refuses the heading the provider glued to its own prose", () => {
+    expect(sourceSeam(headingAndProse)).toBe("from the Introduction Track All attendees,");
+    expect(unitTextRejection(headingAndProse, false)).toBe("invalid_sentence");
+  });
+
+  it("keeps refused material off the page without refusing the story", () => {
+    const text = composedText(
+      `${headingAndProse} Azure added a managed Redis tier in three regions.`,
+    );
+    expect(text).toContain("managed Redis tier");
+    expect(text).not.toContain("What to Expect from the Introduction Track");
+    expect(text).not.toContain("All attendees");
+    // Refused as a whole rather than cut at a guessed seam, so the half that reads
+    // like prose is not published as a sentence either.
+    const alone = composedText(headingAndProse);
+    expect(alone).not.toContain("All attendees");
+  });
+
+  it("refuses a session credit line, alone or glued to its title and description", () => {
+    // The same seam, three more times, from one crawl: the speakers line on its
+    // own, the title that follows it, and the label a session list is written
+    // under. None of them carries a clause -- `Mark` and the `AM` in a clock time
+    // are what a verb scan sees -- and none is a sentence.
+    const shapes = [
+      "Aritra Roy Gosthipaty, Suvaditya Mukherjee, 2:50 PM PDT, Room LL20AB.",
+      "Understanding Modern Vision Language Models Aastha Jhunjhunwala, Mark Moyou, 12:20 PM PDT, Room LL20AB Vision-language models present unique challenges.",
+      "Sessions include: From Math Panic to PyTorch Confidence Yashasvi Misra, 3:25 PM PDT, Room LL20AB Designed for Python developers, students, and educators new to machine learning.",
+    ];
+    for (const shape of shapes) {
+      expect(sourceSeam(shape)).not.toBeNull();
+      expect(unitTextRejection(shape, false)).toBe("invalid_sentence");
+    }
+  });
+
+  it("leaves a sentence that merely contains a time and a place alone", () => {
+    // What the inventory test is made of: a segment of a schedule carries names,
+    // codes and grammatical words, while a sentence's segments carry lowercase
+    // *content* words. These all survive, and so does the name that needs its two
+    // capitals.
+    for (const text of [
+      "The keynote runs 9:00 AM to 10:00 AM in Room 4.",
+      "He spoke at 9:00 AM, Wednesday, Room B12, about safety.",
+      "Sessions begin at 9:00 AM, Room 4, and end before noon.",
+      "The flight leaves at 9:00 AM, Gate B12, Terminal 3, nonstop to Osaka.",
+      "In New York, he said the deal was dead.",
+      "The Wall Street Journal reported the deal was dead.",
+      "Apple, Google and Meta declined to comment.",
+    ]) {
+      expect(sourceSeam(text)).toBeNull();
+      expect(unitTextRejection(text, false)).toBeNull();
+    }
+  });
+
+  it("leaves every comma-containing When sentence alone", () => {
+    for (const text of [
+      "When asked to compare MariaDB with PostgreSQL for the same task, however, it had plenty to say.",
+      "When Meta first launched smart glasses in 2021, the company called them a new kind of computer.",
+      "When the Jacobian spectrum is too spread out, the method fails.",
+    ]) {
+      expect(sourceSeam(text)).toBeNull();
+      expect(unitTextRejection(text, false)).toBeNull();
+    }
+  });
+
+  it("refuses it at the deck boundary too, where a stored summary is judged", () => {
+    // The deck is the one published unit that is not derived from a selected fact,
+    // so a stored summary carries the seam on its own route to the page.
+    expect(judgeFallbackDeck(headingAndProse, "A story")).toEqual({
+      text: "",
+      reason: "malformed_sentence",
+    });
+  });
+
+  it("still refuses the standfirst, and does it as a heading rather than a seam", () => {
+    const standfirst = "Why identity built for humans breaks at agent speed.";
+    expect(unitTextRejection(standfirst, false)).toBe("headline_fragment");
+    expect(sourceSeam(standfirst)).toBeNull();
   });
 });
 
@@ -543,6 +696,71 @@ describe("a first-person sentence is classified, not deleted", () => {
     expect(text).toContain("Kyriakos Mitsotakis");
     expect(text).toContain("no government is ready");
     expect(text).not.toMatch(/\bI interviewed\b/);
+  });
+});
+
+describe("an editorial adverb is a wrapper only when a clause follows it", () => {
+  /**
+   * The rule kept a `(?=[A-Z])` lookahead under the `i` flag, and under `i` a
+   * `[A-Z]` character class matches a lowercase letter too -- so "only when a
+   * capitalised clause follows" was really "followed by any word", and every
+   * sentence below lost its first word. The two the frozen 200-event corpus
+   * actually published were "Perhaps this proposal will change that?", whose
+   * `Perhaps` is the whole difference between a speculation and an assertion, and
+   * "Notably, our upper bound exhibits ...".
+   */
+  it("keeps a hedge, because the sentence's meaning rests on it", () => {
+    expect(stripEditorialVoice("Perhaps this proposal will change that?")).toEqual({
+      text: "Perhaps this proposal will change that?",
+      removed: false,
+    });
+  });
+
+  it("keeps a single adverb in front of a lowercase continuation", () => {
+    for (const sentence of [
+      "Predictably irrational pricing is a problem.",
+      "Notably absent was the regulator.",
+      "Sadly the server died.",
+      "Notably, our upper bound exhibits the famous double descent phenomenon.",
+    ]) {
+      expect(stripEditorialVoice(sentence)).toEqual({ text: sentence, removed: false });
+    }
+  });
+
+  it("still removes one when a capitalised clause follows it", () => {
+    expect(stripEditorialVoice("Perhaps This changes everything.")).toEqual({
+      text: "This changes everything.",
+      removed: true,
+    });
+  });
+
+  it("still removes a stacked pair, which is never a fact statement", () => {
+    // The production deck's sentence, and the shape the rule was written for.
+    expect(
+      stripEditorialVoice(
+        "Perhaps predictably for a company that built its success on automated verification, DigiCert doesn't see agent management as a manual problem.",
+      ),
+    ).toEqual({
+      text: "For a company that built its success on automated verification, DigiCert doesn't see agent management as a manual problem.",
+      removed: true,
+    });
+  });
+
+  it("counts a capitalised fragment as a repair, not a removal", () => {
+    // 32 of the corpus's 34 counted strips were this, which is why the audit's
+    // source-voice line could not be read as a count of removals.
+    expect(stripEditorialVoice("v16.4.0-canary.45")).toEqual({
+      text: "V16.4.0-canary.45",
+      removed: false,
+    });
+  });
+
+  it("hands back a sentence that was nothing but its wrapper", () => {
+    expect(stripEditorialVoice("Perhaps predictably")).toEqual({
+      text: "Perhaps predictably",
+      removed: false,
+    });
+    expect(stripEditorialVoice("")).toEqual({ text: "", removed: false });
   });
 });
 

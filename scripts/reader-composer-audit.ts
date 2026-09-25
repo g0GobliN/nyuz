@@ -25,7 +25,7 @@
 import { composeArticleWithDiagnostics } from "@/lib/editorial";
 import { hasSourceMetadata, hasVisibleEntity } from "@/lib/pipeline/source-text";
 import {
-  headlineFragment,
+  headingUnit,
   readerSentences,
   sourceColour,
   unresolvableContext,
@@ -82,7 +82,7 @@ const clip = (text: string, max = 180): string =>
 type InputCensus = {
   sentences: number;
   entities: number;
-  headlineFragments: number;
+  headingUnits: number;
   gluedAttribution: number;
   unresolvableContext: number;
   sourceColour: number;
@@ -92,7 +92,7 @@ function emptyCensus(): InputCensus {
   return {
     sentences: 0,
     entities: 0,
-    headlineFragments: 0,
+    headingUnits: 0,
     gluedAttribution: 0,
     unresolvableContext: 0,
     sourceColour: 0,
@@ -244,7 +244,7 @@ main(async () => {
       for (const sentence of readerSentences(source.excerpt ?? "")) {
         census.sentences += 1;
         if (hasVisibleEntity(sentence)) census.entities += 1;
-        if (headlineFragment(sentence)) census.headlineFragments += 1;
+        if (headingUnit(sentence)) census.headingUnits += 1;
         if (GLUED_ATTRIBUTION.test(sentence)) census.gluedAttribution += 1;
         if (unresolvableContext(sentence)) census.unresolvableContext += 1;
         if (sourceColour(sentence)) census.sourceColour += 1;
@@ -458,7 +458,7 @@ main(async () => {
   heading("The same defects, counted on the input the composer was handed");
   say(row("sentences read", census.sentences));
   say(row("  carried an entity", census.entities));
-  say(row("  headline fragment", census.headlineFragments));
+  say(row("  a heading unit", census.headingUnits));
   say(row("  glued attribution", census.gluedAttribution));
   say(row("  unresolvable subject", census.unresolvableContext));
   say(row("  source colour", census.sourceColour));

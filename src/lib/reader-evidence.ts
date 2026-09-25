@@ -248,8 +248,86 @@ const PREDICATE_MORPHOLOGY =
 const CONTRACTED_PREDICATE =
   /\b(?:isn['’]t|aren['’]t|wasn['’]t|weren['’]t|hasn['’]t|haven['’]t|hadn['’]t|doesn['’]t|don['’]t|didn['’]t|won['’]t|wouldn['’]t|can['’]t|cannot|couldn['’]t|shouldn['’]t|mustn['’]t|needn['’]t|ain['’]t)\b/i;
 
+/** A clock time, which is the one thing every session-credit line contains. */
+const CLOCK_TIME = /\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)\b/i;
+
+/** Words a sentence can open on without naming anybody. */
+const CLAUSE_OPENER = new Set(
+  "the a an this that these those it they he she we you i both some many most all each every no not there here another such one two three other others".split(
+    " ",
+  ),
+);
+
+/** Every verb form, not only the finite ones, for the seam test below. */
+const VERB_FORM =
+  /\b(?:is|are|was|were|has|have|had|said|says|announced|raised|secured|gains?|reached|pledged|funded|released|launches?|launched|approved|blocked|banned|hired|hires|includes?|reported|confirmed|will|plans?|requires?|remains?|allows?|supports?|offers?|runs?|running|uses?|used|built|found|started|spending|scores?|starts?|expanded|appears?|declined|rose|marks?|represents?|projects?|forecasts?|hosts?|values?|closed|expects?|yields?|produces?|increases?|decreases?|do|does|did|makes?|made|shows?|shown|kept|left|met|sent|spent|stood|wrote|written|won|sold|bought|brought|thought|knew|known|saw|seen|got|went|gone|came|took|taken|gave|given|led|held|lost|put|ran|began|begun|became|become|falls|fell|grew|grown)\b/i;
+
+/** Grammatical words -- the only lowercase a schedule segment may be made of. */
+const FUNCTION_WORD = new Set(
+  "a an the and or but nor so yet to of in on at by for from with as into over under per via vs & of".split(
+    " ",
+  ),
+);
+
+/**
+ * A session credit inventory inside a unit: a run of comma-separated segments made
+ * of nothing but names, times, codes and grammatical words, one of them a clock
+ * time.
+ *
+ *   "JanakiRam Goteti, 11:45 AM PDT, Room LL20CD"
+ *
+ * A credit line has no verb in it. Two of the verb lists above say otherwise: `ACTION`
+ * carries `marks?`, so a person called Mark reads as one, and `IRREGULAR_PREDICATE`
+ * carries `am`, so the AM in a clock time does. Both words are load-bearing in real
+ * sentences ("the launch marks the end", "I am told"), so the lists stay as they are
+ * and the shape decides instead.
+ *
+ * Prose is what structurally cannot match: a sentence's segments carry lowercase
+ * *content* words ("and end before noon", "designed for Python developers"), which no
+ * amount of capitalisation hides. What a schedule row may carry is a lowercase
+ * grammatical word, and the label a source wrote above it -- `Sessions include:`,
+ * stripped only when the colon is not part of a clock time.
+ *
+ * The cost of being wrong is a refused unit, not a published fragment.
+ */
+function creditInventory(text: string): { run: string; whole: boolean } | null {
+  const segments = text
+    .replace(/[.!?]+\s*$/, "")
+    .split(",")
+    .map((segment) => segment.trim());
+  const material = (segment: string): boolean => {
+    const bare = segment.replace(/^[A-Z][A-Za-z ,'-]{0,40}:(?!\d)\s*/, "");
+    if (bare === "") return false;
+    return [...bare.matchAll(/\b([a-z][a-z'-]*)/g)].every((match) =>
+      FUNCTION_WORD.has(match[1] ?? ""),
+    );
+  };
+  let from = -1;
+  let run: string[] = [];
+  const consider = (end: number): { run: string; whole: boolean } | null => {
+    if (run.length < 2) return null;
+    if (!run.some((segment) => CLOCK_TIME.test(segment))) return null;
+    return { run: run.join(", "), whole: from === 0 && end === segments.length };
+  };
+  for (const [index, segment] of segments.entries()) {
+    if (material(segment)) {
+      if (run.length === 0) from = index;
+      run.push(segment);
+      continue;
+    }
+    const found = consider(index);
+    if (found) return found;
+    run = [];
+  }
+  return consider(segments.length);
+}
+
 /** Whether the text reads as a clause with a predicate, rather than a label or a stub. */
 export function hasPredicate(text: string): boolean {
+  // Checked first, because it can only take a predicate away: every rule below is
+  // a scan for a verb, and a scan cannot tell a name that looks like a verb from the
+  // verb. A unit that is nothing but one inventory has no clause in it.
+  if (creditInventory(text)?.whole) return false;
   return (
     ACTION.test(text) ||
     IRREGULAR_PREDICATE.test(text) ||
@@ -257,6 +335,61 @@ export function hasPredicate(text: string): boolean {
     PREDICATE_MORPHOLOGY.test(text) ||
     CONTRACTED_PREDICATE.test(text)
   );
+}
+
+/**
+ * The two source blocks a heading and the prose under it look like once a feed's
+ * headings stop being distinguishable from its paragraphs -- joined by a space,
+ * with the full stop that should have separated them missing.
+ *
+ *   "What to Expect from the Introduction Track All attendees, from students, ..."
+ *
+ * The seam is made at ingest, and the ingest boundary now ends a heading element,
+ * so a *new* row cannot contain it. Rows stored before that still do, and their
+ * plain text is where the seam has to be found: a word a sentence can open on,
+ * glued straight onto a capitalised word before it, where the run before it holds
+ * no verb form at all -- an infinitive after `to` excepted, because that is how a
+ * heading ends -- and a clause follows.
+ *
+ * That is deliberately narrow. A name made of two capitals ("New York", "Wall
+ * Street", "Sean Hollister / The Verge") is only a seam when what follows the
+ * second capital starts the sentence, and a run with a verb in it is prose:
+ * `When asked to compare MariaDB with PostgreSQL for the same task, ...` has one in
+ * `asked`, so it is a sentence and stays one.
+ *
+ * Measured over the frozen 200-event corpus (1407 raw and enriched units): 3 units
+ * match, all 3 are glue -- this heading, a photo credit, a deal headline -- and 0
+ * legitimate sentences do.
+ */
+function headingSeam(text: string): string | null {
+  const tokens = text.split(/\s+/);
+  for (let index = 1; index < tokens.length; index += 1) {
+    const word = (tokens[index] ?? "").replace(/[^A-Za-z']/g, "");
+    const previous = (tokens[index - 1] ?? "").replace(/[^A-Za-z']/g, "");
+    if (!/^[A-Z][a-z]*$/.test(word) || !CLAUSE_OPENER.has(word.toLowerCase())) continue;
+    if (!/^[A-Z0-9]/.test(previous)) continue;
+    // Punctuation between the two words is a clause boundary, so there is no seam:
+    // "... was dead. In New York, he said" is two sentences the splitter kept.
+    if (/[.!?;:,]/.test(tokens[index - 1] ?? "")) continue;
+    const head = tokens.slice(0, index);
+    if (head.length < 3) continue;
+    if (VERB_FORM.test(head.join(" ").replace(/\bto\s+\w+/gi, ""))) continue;
+    if (!VERB_FORM.test(tokens.slice(index).join(" "))) continue;
+    if (!/^[a-z]/.test((tokens[index + 1] ?? "").replace(/[^A-Za-z]/g, ""))) continue;
+    return tokens.slice(Math.max(0, index - 4), index + 2).join(" ");
+  }
+  return null;
+}
+
+/**
+ * The seam, if this unit contains one: two source blocks published as one sentence.
+ *
+ * Returns the offending fragment rather than a boolean so the reason a fact was
+ * refused can name it, and so a regression test can assert on the shape instead of
+ * on "this string is bad".
+ */
+export function sourceSeam(text: string): string | null {
+  return headingSeam(text) ?? creditInventory(text)?.run ?? null;
 }
 const NOISE =
   /\b(?:welcome back|weekly column|this week['’]s (?:column|newsletter)|as regular readers know|subscribe to|sign up for|click here|read more|continue reading|cookie policy|all rights reserved|follow us on|share this article|related articles|the coverage centers on|amount mentioned|percentage mentioned|entity mentioned|source count|evidence suggests|nyuz has also covered)\b|\bthe post\b.*\bappeared first on\b|^(?:advertisement|image credit|photo credit|hopefully\b|the takeaway\b)/i;
@@ -883,8 +1016,23 @@ export function sourceColour(text: string): boolean {
 const EPISTEMIC_ADVERB =
   "perhaps|maybe|predictably|unsurprisingly|inevitably|understandably|naturally|notably|interestingly|curiously|amusingly|bizarrely|sadly|thankfully|mercifully|ironically";
 
-/** `Perhaps predictably, ...` -- an adverbial before a capitalised clause. */
-const EDITORIAL_ADVERBIAL = new RegExp(`^(?:${EPISTEMIC_ADVERB})[,:]?\\s+(?=[A-Z])`, "i");
+/**
+ * One editorial adverb at the start of a sentence: the adverb, and the space.
+ *
+ * The capitalised-clause test is `CAPITALISED_CLAUSE` below rather than a
+ * lookahead in this pattern. A lookahead inherits the case-insensitive flag, and under `i` a
+ * `[A-Z]` character class matches a lowercase letter too -- so the documented
+ * rule ("only when a comma or a capitalised clause follows") was really "an
+ * adverb followed by any word", which is a comment deleted from every sentence
+ * that opened on one. The frozen 200-event corpus produced exactly two: "Perhaps
+ * this proposal will change that?" became "This proposal will change that?",
+ * turning the source's hedge into an assertion, and "Notably, our upper bound
+ * exhibits ..." lost its "Notably,".
+ */
+const EDITORIAL_ADVERBIAL = new RegExp(`^(?:${EPISTEMIC_ADVERB})[,:]?\\s+`, "i");
+
+/** Whether the next word starts a new clause, which is what the adverb comments on. */
+const CAPITALISED_CLAUSE = /^[A-Z\u00c0-\u00de]/;
 
 /**
  * Two editorial adverbs stacked, which is never a fact statement.
@@ -915,18 +1063,44 @@ const EVALUATIVE_TAIL =
  * Strip the sentence's editorial wrapper, keeping its factual clause.
  *
  * Returns the text unchanged when there is nothing to remove, and callers treat
- * "nothing changed" as the common case. Nothing here paraphrases: the only two
+ * "nothing changed" as the common case. Nothing here paraphrases: the only
  * operations are deleting a leading comment and deleting a trailing judgement,
  * and the sentence that remains is the one the source wrote.
+ *
+ * `removed` says whether a wrapper was actually deleted, as opposed to the text
+ * only having had its first letter capitalised. The caller counts removals, and
+ * the two are not the same number: the corpus's 34 counted strips were 2
+ * removals and 32 capitalised fragments, which made the audit's "source-voice
+ * removals" line a count of two different things.
  */
-export function stripEditorialVoice(text: string): string {
+export function stripEditorialVoice(text: string): { text: string; removed: boolean } {
   let out = text.trim();
-  out = out.replace(STACKED_ADVERBIAL, "");
-  out = out.replace(EDITORIAL_ADVERBIAL, "");
-  out = out.replace(EVALUATIVE_TAIL, "");
+  let removed = false;
+  const stacked = STACKED_ADVERBIAL.test(out) ? out.replace(STACKED_ADVERBIAL, "") : out;
+  if (stacked !== out) {
+    out = stacked;
+    removed = true;
+  }
+  // A single adverb only goes when a capitalised clause follows it: otherwise it
+  // may be the hedge the sentence's meaning rests on. `rest` is tested in code,
+  // because no lookahead can test for a capital under a case-insensitive flag.
+  const adverbial = EDITORIAL_ADVERBIAL.exec(out);
+  const rest = adverbial ? out.slice(adverbial[0].length) : "";
+  if (adverbial && CAPITALISED_CLAUSE.test(rest)) {
+    out = rest;
+    removed = true;
+  }
+  const tailed = out.replace(EVALUATIVE_TAIL, "");
+  if (tailed !== out) {
+    out = tailed;
+    removed = true;
+  }
   out = out.replace(/\s{2,}/g, " ").trim();
-  if (out === "") return text;
-  return /^[a-z]/.test(out) ? out[0]!.toUpperCase() + out.slice(1) : out;
+  // Nothing left means the sentence was nothing but its wrapper, and the caller
+  // is handed the original rather than an empty fact.
+  if (out === "") return { text, removed: false };
+  const capped = /^[a-z]/.test(out) ? out[0]!.toUpperCase() + out.slice(1) : out;
+  return { text: capped, removed };
 }
 
 /**
@@ -1502,13 +1676,17 @@ export function unbalancedQuotes(text: string): boolean {
  * re-read from.
  */
 export function unitTextRejection(text: string, quote: boolean): EvidenceRejectionReason | null {
-  // A heading, first, because most headings pass every test below: "Why identity
-  // built for humans breaks at agent speed" has a subject and a verb, which is
-  // exactly why a heading used to reach the page as a sentence -- and why it had
-  // to be refused again by the composer's gate, after the lead had already been
-  // chosen out of it and the deck built from it. A unit that is nothing but a
-  // headline is furniture, and it is refused with the furniture.
-  if (headlineFragment(text)) return "headline_fragment";
+  // A subhead that arrived as a unit of its own, first, because it passes every
+  // test below: "Why identity built for humans breaks at agent speed" has a
+  // subject and a verb, which is why a heading used to reach the page as a
+  // sentence -- and, the moment the wh-word rule was deleted, why it came back as
+  // the production fixture's deck.
+  if (headingUnit(text)) return "headline_fragment";
+  // Two source blocks published as one sentence -- a heading or a session credit
+  // line joined to the prose under it. This is `invalid_sentence` and not a
+  // category of its own, because that is exactly what the unit stopped being: one
+  // sentence. See `sourceSeam` for why the seam cannot be cut back apart.
+  if (sourceSeam(text)) return "invalid_sentence";
   if (!validDeterministicSentence(text)) return "invalid_sentence";
   if (unresolvableContext(text)) return "unresolved_context";
   if (/…$|\.\.\.$/.test(text)) return "trailing_ellipsis";
@@ -1891,28 +2069,61 @@ export function stripHeadlinePrefix(
   return { text: rest, stripped: true };
 }
 
-/** A clause that opens a headline rather than a sentence. */
-const WH_HEADLINE = /^(?:Why|How|What|When|Where|Who|Which|Here)\b/;
 /**
- * A wh-word opening with no question mark: a headline, never a body sentence.
+ * A subhead that arrived as a unit of its own.
  *
- * A real `Why ...` sentence is a question and ends in `?`. Without one, the unit
- * is a subhead or a headline that lost its punctuation on the way into a feed,
- * and the composer drops it rather than attributing a headline to its source.
+ * ---------------------------------------------------------------------------
+ * What this replaced, and why the replacement is this narrow
+ * ---------------------------------------------------------------------------
  *
- * A heading *glued* to the sentence after it is not repaired here. That seam is
- * known where the markup is: `htmlToText` ends a heading element, so the heading
- * and the prose after it arrive as two units and this refuses the heading as its
- * own unit. It is unknowable in a plain-text excerpt -- the splitter that guessed
- * produced one reader-visible corruption in the frozen 200-event corpus, cutting
- * "When asked to compare MariaDB with PostgreSQL for the same task, however, it
- * had plenty to say." down to "MariaDB with PostgreSQL for the same task, however,
- * it had plenty to say." -- and glue already stored in an excerpt is a backfill,
- * not a composition rule.
+ * The rule here was `WH_HEADLINE + no question mark`: any unit opening on
+ * Why/How/What/When/Where/Who/Which/Here was treated as a heading. Over the
+ * frozen 200-event corpus it refused 19 units, and a census of them
+ * (`scripts/reader-headline-census.ts`) found **0** that were the source's own
+ * headline and 16 that were ordinary sentences -- `When F-Droid first appeared,
+ * ...`, `When asked to compare MariaDB with PostgreSQL for the same task, ...`,
+ * four arXiv abstract sentences. Deleting the rule returned 11 of them to the
+ * pipeline, and the census of that corpus showed no furniture published.
+ *
+ * What it also did was publish the production fixture's standfirst:
+ *
+ *   "According to The Register, Why identity built for humans breaks at agent
+ *    speed."
+ *
+ * as the deck, because that string is a complete sentence with a subject and a
+ * verb and nothing else refuses it. So the wh-word list is gone, and what
+ * remains is the part of the old rule that a *sentence* cannot imitate:
+ *
+ *   - it opens on a wh-word, and
+ *   - it carries no question mark, and
+ *   - it has no clause boundary inside it -- no comma, dash, semicolon or
+ *     parenthesis -- and
+ *   - it is not a cleft (`What has been missing so far is a finite-size method
+ *     for ...`), which is a sentence even with no comma in it.
+ *
+ * Every one of the 16 legitimate sentences above has one of those two shapes and
+ * is admitted; a heading like the standfirst has neither and is refused.
+ *
+ * The known gap is a heading that a provider glued to its own prose *with* commas
+ * inside the glue -- the PyTorch blog's `What to Expect from the Introduction
+ * Track All attendees, from students, ...` -- which this admits. The frozen
+ * corpus is where that is measured rather than argued, and there it is never
+ * selected, so it never reaches a reader.
  */
-export function headlineFragment(text: string): boolean {
+const WH_OPENING = /^(?:Why|How|What|When|Where|Who|Which|Here)\b/;
+/** Anything that separates one clause from the next inside a sentence. */
+const CLAUSE_BOUNDARY = /[,;:—–]|\s-\s|[()]|,\s/;
+/** `What has been missing so far is a finite-size method for evaluating ...` */
+const CLEFT_OPENING =
+  /^(?:What|Who|Which|Where|How)\b[^,;:—–()]{0,120}?\b(?:is|are|was|were|has been|have been|remains|seems)\b/;
+
+export function headingUnit(text: string): boolean {
   const trimmed = text.trim();
-  return WH_HEADLINE.test(trimmed) && !/\?/.test(trimmed);
+  if (!WH_OPENING.test(trimmed)) return false;
+  if (/\?/.test(trimmed)) return false;
+  if (CLAUSE_BOUNDARY.test(trimmed)) return false;
+  if (CLEFT_OPENING.test(trimmed)) return false;
+  return true;
 }
 
 /**
@@ -2070,7 +2281,7 @@ export type ReaderSourceNormalization = {
  * counts add up to `rejectedCount`, so a dropped sentence is always explicable.
  */
 export type EvidenceRejectionReason =
-  /** A unit that is nothing but a headline: a heading, not a sentence. */
+  /** A unit that is nothing but a heading: a subhead, not a sentence. */
   | "headline_fragment"
   | "invalid_sentence"
   | "no_predicate"
@@ -2288,11 +2499,14 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
         }
       }
       const voiced = stripEditorialVoice(text);
-      if (voiced !== text) {
+      // Counted on `removed`, not on the string having changed: capitalising a
+      // lowercase opener is a repair, not a removal, and counting both made the
+      // audit's source-voice line 2 removals among 32 capitalised fragments.
+      if (voiced.removed) {
         stats.sourceVoiceStripped += 1;
-        keepSample(stats.samples.voiceStrips, text, voiced);
-        text = voiced;
+        keepSample(stats.samples.voiceStrips, text, voiced.text);
       }
+      if (voiced.text !== text) text = voiced.text;
       // After the adverbial, because the frame is what the adverbial was sitting
       // inside: "Perhaps predictably for a company that ... ".
       const framed = stripFrontedFrame(text);

@@ -8,7 +8,7 @@ import {
   deterministicFactType,
   editorialNoise,
   hasPredicate,
-  headlineFragment,
+  headingUnit,
   keepSample,
   normalizeRelativeTime,
   recoverableContext,
@@ -24,6 +24,7 @@ import {
   selectReaderEvidence,
   sentenceKey,
   sourceNameForEvidence,
+  sourceSeam,
   readerSentences,
   validDeterministicParagraph,
   validDeterministicSentence,
@@ -233,8 +234,14 @@ export type CompositionDiagnostics = {
     malformedAttributionWarnings: number;
     /** Sentences carrying an undecoded HTML reference. Never publishable. */
     entityLeakWarnings: number;
-    /** Wh-headed units with no question mark: a subhead, not a sentence. */
-    headlineFragmentWarnings: number;
+    /** A subhead that reached a block: a heading, not a sentence. */
+    headingUnitWarnings: number;
+    /**
+     * Units holding a seam: a heading or a session credit line a provider joined
+     * to the prose under it, with no punctuation between them. A row stored before
+     * the ingest boundary ended headings still carries these.
+     */
+    sourceSeamWarnings: number;
     /** Sentences whose subject is a pronoun with no antecedent. */
     unresolvedContextWarnings: number;
     /** Sentences holding more than one quoted passage. */
@@ -365,7 +372,8 @@ function createDiagnostics(): CompositionDiagnostics {
       metadataLeakWarnings: 0,
       malformedAttributionWarnings: 0,
       entityLeakWarnings: 0,
-      headlineFragmentWarnings: 0,
+      headingUnitWarnings: 0,
+      sourceSeamWarnings: 0,
       unresolvedContextWarnings: 0,
       stackedQuoteWarnings: 0,
       spacingRepairs: 0,
@@ -559,7 +567,7 @@ function supplementalEntityFacts(
         !carriesSelected &&
         unitTextRejection(text, false) === null &&
         !editorialNoise(text) &&
-        !headlineFragment(text) &&
+        !headingUnit(text) &&
         !contextDependent(text)
       ) {
         facts.push({
@@ -586,17 +594,19 @@ function supplementalEntityFacts(
  *
  * Every test here is a way `"X reports that "` produces a sentence nobody wrote:
  * a question ("reports that Why identity built for humans breaks at agent speed"),
- * a quotation ("reports that "But visibility..."), a headline fragment, a sentence
- * whose subject is a pronoun with no antecedent ("According to The Register, they
- * were also commandeering..."), or a stub with no predicate to report. In each
- * case the fact is published without an invented clause -- provenance is not
- * weaker for it, because the citation travels with the sentence either way.
+ * a quotation ("reports that "But visibility..."), a sentence whose subject is a
+ * pronoun with no antecedent ("According to The Register, they were also
+ * commandeering..."), or a stub with no predicate to report. In each case the
+ * fact is published without an invented clause -- provenance is not weaker for
+ * it, because the citation travels with the sentence either way.
  */
 function cannotWrap(text: string): boolean {
   return (
     /\?/.test(text) ||
     /^["“]/.test(text) ||
-    headlineFragment(text) ||
+    // "reports that Why identity built for humans breaks at agent speed" is the
+    // glued-attribution defect, whatever else the unit is.
+    headingUnit(text) ||
     unresolvedContextOpening(text) ||
     !hasPredicate(text)
   );
@@ -1006,11 +1016,19 @@ function qualityGate(
         refuse("malformed_attribution");
         continue;
       }
-      // A wh-headed unit with no question mark is a subhead that lost its
-      // punctuation: "Why identity built for humans breaks at agent speed".
-      if (headlineFragment(part)) {
-        diagnostics.qualityGate.headlineFragmentWarnings += 1;
+      // A heading that reached a block anyway -- a stored summary, a sentence the
+      // entity path rebuilt -- because a subhead is not a fact about anything.
+      if (headingUnit(part)) {
+        diagnostics.qualityGate.headingUnitWarnings += 1;
         refuse("headline_fragment");
+        continue;
+      }
+      // Two blocks published as one sentence: a heading, a photo credit or a
+      // session's speakers joined to the prose after them. Judged before the
+      // sentence itself is, because the sentence test is what the glue passes.
+      if (sourceSeam(part)) {
+        diagnostics.qualityGate.sourceSeamWarnings += 1;
+        refuse("invalid_sentence");
         continue;
       }
       // "Both saw agents make their way onto the open internet", and a fronted
@@ -1360,7 +1378,10 @@ export function judgeFallbackDeck(
   if (malformedAttribution(text) || gluedAttribution(text))
     return { text: "", reason: "malformed_attribution" };
   // A stored summary that is really a subhead is furniture like any other.
-  if (headlineFragment(text)) return { text: "", reason: "headline_fragment" };
+  if (headingUnit(text)) return { text: "", reason: "headline_fragment" };
+  // And a stored summary that is a heading joined to its own prose is not a
+  // sentence, however much of one its second half reads like.
+  if (sourceSeam(text)) return { text: "", reason: "malformed_sentence" };
   if (hasVisibleEntity(text)) return { text: "", reason: "entity_leak" };
   if (editorialNoise(text)) return { text: "", reason: "editorial_noise" };
   if (!validDeckSentence(text)) return { text: "", reason: "malformed_sentence" };
