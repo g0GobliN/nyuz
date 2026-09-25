@@ -41,10 +41,24 @@ type Hooks = {
 
 export type RpcHandler = (args: Record<string, unknown>) => unknown;
 
+export type FakeDbOptions = {
+  /**
+   * Tables whose inserts get a generated UUID `id`, the way Postgres would.
+   *
+   * Opt-in, because this fake models columns only as far as the code under test
+   * reads them. Inventing an `id` on a table that has none -- `article_evidence`
+   * is keyed on `article_id` -- is a lie a caller cannot detect, and one test
+   * asserts a stored row's exact column set. A table must be named here only
+   * when the code under test reads the new row's id back.
+   */
+  generatedIds?: readonly string[];
+};
+
 export class FakeDb {
   readonly tables: Record<string, Row[]>;
   readonly rpcs: Record<string, RpcHandler>;
   readonly hooks: Hooks;
+  private readonly generatedIds: ReadonlySet<string>;
   /** Every rpc name called, in order. */
   readonly rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
 
@@ -52,15 +66,22 @@ export class FakeDb {
     tables: Record<string, Row[]> = {},
     rpcs: Record<string, RpcHandler> = {},
     hooks: Hooks = {},
+    options: FakeDbOptions = {},
   ) {
     this.tables = tables;
     this.rpcs = rpcs;
     this.hooks = hooks;
+    this.generatedIds = new Set(options.generatedIds ?? []);
   }
 
   rows(table: string): Row[] {
     this.tables[table] ??= [];
     return this.tables[table];
+  }
+
+  /** Whether this table's inserts get a generated `id`. See `FakeDbOptions`. */
+  wantsGeneratedId(table: string): boolean {
+    return this.generatedIds.has(table);
   }
 
   from(table: string): FakeQuery {
@@ -328,6 +349,12 @@ class FakeQuery implements PromiseLike<{
     return this.run().then(onfulfilled, onrejected);
   }
 
+  /** A generated primary key, for the tables the owner opted in at construction. */
+  private insertId(row: Row): void {
+    if (!this.db.wantsGeneratedId(this.table)) return;
+    if (row["id"] === undefined) row["id"] = crypto.randomUUID();
+  }
+
   private matches(): Row[] {
     return this.db.rows(this.table).filter((row) => this.filters.every((f) => f(row)));
   }
@@ -340,6 +367,7 @@ class FakeQuery implements PromiseLike<{
     const rows = this.db.rows(this.table);
 
     if (this.mode.kind === "insert") {
+      for (const row of this.mode.rows) this.insertId(row);
       rows.push(...this.mode.rows.map((r) => ({ ...r })));
       return { data: this.mode.rows, error: null };
     }
@@ -350,8 +378,10 @@ class FakeQuery implements PromiseLike<{
         const existing = rows.find((row) =>
           onConflict.every((key) => String(row[key]) === String(incoming[key])),
         );
-        if (!existing) rows.push({ ...incoming });
-        else if (!ignoreDuplicates) Object.assign(existing, incoming);
+        if (!existing) {
+          this.insertId(incoming);
+          rows.push({ ...incoming });
+        } else if (!ignoreDuplicates) Object.assign(existing, incoming);
       }
       return { data: this.mode.rows, error: null };
     }

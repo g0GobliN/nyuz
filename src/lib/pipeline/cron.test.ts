@@ -91,6 +91,13 @@ describe("stageForMinute", () => {
     expect(stageForMinute(tuesday(23, 0))).toBe("enrich");
   });
 
+  it("runs source discovery hourly, before classification", () => {
+    // :06 is its own minute so the stage gets its own subrequest budget rather
+    // than sharing one with a stage that has a briefing deadline attached.
+    expect(stageForMinute(monday(9, 6))).toBe("discover");
+    expect(stageForMinute(tuesday(23, 6))).toBe("discover");
+  });
+
   it("has nothing to do on a minute no stage claims", () => {
     expect(stageForMinute(tuesday(9, 5))).toBeNull();
     expect(stageForMinute(tuesday(9, 35))).toBeNull();

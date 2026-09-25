@@ -54,6 +54,7 @@ import {
   type DigestReport,
 } from "./digest";
 import { classify, describeClassify, type ClassifyReport } from "./classify";
+import { describeDiscovery, discover, type DiscoveryReport } from "@/lib/discovery/runner";
 import { describeDormant, dormant, type DormantReport } from "./dormant";
 import { ingest, type IngestReport } from "./ingest";
 import { describeMatch, match, type MatchReport } from "./match";
@@ -160,6 +161,17 @@ export function digestGenerates(scheduledFor: Date): boolean {
 }
 
 /**
+ * Source discovery runs once an hour, at :06.
+ *
+ * Between clustering (:02) and classification (:08), which is the quietest
+ * part of the chain, and on a minute of its own so its budget is its own rather
+ * than shared with a stage whose work has a deadline attached. Hourly is about
+ * the work not the clock: a job body reads the database, and the only thing
+ * with latency is the retry queue for reader-supplied URLs.
+ */
+export const DISCOVERY_MINUTE = 6;
+
+/**
  * Inactivity warning, automatic Uno pause, and retention purge, once a day.
  *
  * Keys off `profiles.last_seen_at`, which the dashboard writes, not off an email
@@ -176,9 +188,9 @@ export const DORMANT_CRON = "0 12 * * *";
  * minute 0, which carries the once-a-week dormant nudge at noon and, on every
  * other hour, article enrichment (see `stageForMinute`).
  */
-export const STAGES_CRON = "0,2,8,9,14,17,23,24,29,32,38,39,44,47,53,54,59 * * * *";
+export const STAGES_CRON = "0,2,6,8,9,14,17,23,24,29,32,38,39,44,47,53,54,59 * * * *";
 
-type SharedStage = "cluster" | "classify" | "analyse" | "match" | "dormant" | "enrich";
+type SharedStage = "cluster" | "classify" | "analyse" | "match" | "dormant" | "enrich" | "discover";
 
 /**
  * Which stage a `STAGES_CRON` invocation is for, or null when the answer is
@@ -189,6 +201,7 @@ type SharedStage = "cluster" | "classify" | "analyse" | "match" | "dormant" | "e
  */
 export function stageForMinute(scheduledFor: Date): SharedStage | null {
   const minute = scheduledFor.getUTCMinutes();
+  if (minute === DISCOVERY_MINUTE) return "discover";
   if (minute === 2 || minute === 17 || minute === 32 || minute === 47) return "cluster";
   if (minute === 8 || minute === 23 || minute === 38 || minute === 53) return "classify";
   if (minute === 9 || minute === 24 || minute === 39 || minute === 54) return "analyse";
@@ -217,6 +230,7 @@ export type ScheduledResult =
   | { stage: "delivery"; report: DeliveryReport }
   | { stage: "dormant"; report: DormantReport }
   | { stage: "enrich"; report: EnrichReport }
+  | { stage: "discover"; report: DiscoveryReport }
   | { stage: "idle"; cron: string; minute: number }
   | { stage: "unknown"; cron: string };
 
@@ -322,6 +336,17 @@ async function runEnrich(env: Env): Promise<ScheduledResult> {
   return { stage: "enrich", report };
 }
 
+/**
+ * Discovery takes no env bag and no secret: it holds no provider key and makes
+ * no outbound request of its own -- a job body reads the database (see
+ * `seeds.ts`). The feature flag is the only configuration left, and a tick
+ * with the flag off does nothing at all.
+ */
+async function runDiscover(env: Env): Promise<ScheduledResult> {
+  const report = await discover(createAdminClient(env));
+  return { stage: "discover", report };
+}
+
 /** Release positively unstarted old reservations; uncertain charges remain held. */
 async function reapStaleReservations(env: Env): Promise<void> {
   const { data, error } = await createAdminClient(env).rpc("void_stale_ai_reservations", {});
@@ -406,6 +431,7 @@ async function runShared(stage: SharedStage, env: Env): Promise<ScheduledResult>
   if (stage === "analyse") return runAnalyse(env);
   if (stage === "match") return runMatch(env);
   if (stage === "enrich") return runEnrich(env);
+  if (stage === "discover") return runDiscover(env);
   return runDormant(env);
 }
 
@@ -494,6 +520,7 @@ export function describe(result: ScheduledResult): string {
   }
   if (result.stage === "dormant") return describeDormant(result.report);
   if (result.stage === "enrich") return describeEnrich(result.report);
+  if (result.stage === "discover") return describeDiscovery(result.report);
 
   const { report } = result;
   const seconds = Math.round((Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000);

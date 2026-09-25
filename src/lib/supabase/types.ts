@@ -22,7 +22,7 @@ export type SourceCoverageMode = "core" | "demand";
  * lives in `user_custom_sources` because one canonical source has many
  * followers.
  */
-export type SourceOrigin = "curated" | "user";
+export type SourceOrigin = "curated" | "user" | "discovered";
 export type TopicImportance = "everything" | "notable" | "only_major";
 export type TopicFrequency = "daily" | "weekly" | "breaking_only";
 export type EventStatus = "pending" | "analysing" | "complete" | "failed";
@@ -344,6 +344,62 @@ export type SourceProbeLog = {
   id: number;
   user_id: string;
   created_at: string;
+};
+
+export type DiscoveryJobStatus = "pending" | "running" | "succeeded" | "failed";
+
+/**
+ * One shared topic-level source-discovery attempt (0096). Never per reader:
+ * a thousand followers of one subject are one job. Service-role writes only;
+ * admins may read it in the console, which is what the policy grants.
+ */
+export type DiscoveryJob = {
+  id: string;
+  topic_id: string;
+  status: DiscoveryJobStatus;
+  /** Incremented on claim. The retry backoff is derived from it. */
+  attempt: number;
+  /** `registry`, `corpus`, or `none` when nothing we hold mentions the subject. */
+  method: string | null;
+  /** The terms the job looked for, in order. */
+  terms: Json;
+  /** One entry per seed method tried: {method, considered, matched, linked}. */
+  attempts: Json;
+  /** Sources linked to the subject. These already existed; nothing is fetched. */
+  linked_count: number;
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  /** Null means never again: succeeded, or failed permanently. */
+  next_attempt_at: string | null;
+};
+
+export type SourceCandidateStatus = "discovered" | "registered" | "rejected";
+
+/**
+ * A URL discovery found, keyed by canonical URL (0096). Global, not per topic:
+ * two jobs that surface the same site share one row, one probe and one source.
+ */
+export type SourceCandidate = {
+  id: string;
+  url: string;
+  feed_url: string | null;
+  domain: string;
+  title: string | null;
+  /** Where the URL came from. `reader` is the only writer today. */
+  method: string;
+  first_topic_id: string | null;
+  first_job_id: string | null;
+  status: SourceCandidateStatus;
+  reject_reason: string | null;
+  /** False with status=rejected is a permanent verdict. */
+  retryable: boolean;
+  probe_attempts: number;
+  next_attempt_at: string | null;
+  resolved_source_id: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 /**
@@ -1065,6 +1121,39 @@ export type Database = {
       user_source_prefs: Table<UserSourcePref, "pref" | "created_at">;
       user_custom_sources: Table<UserCustomSource, "active" | "created_at" | "updated_at">;
       source_probe_log: Table<SourceProbeLog, "id" | "created_at">;
+      discovery_jobs: Table<
+        DiscoveryJob,
+        | "id"
+        | "status"
+        | "attempt"
+        | "method"
+        | "terms"
+        | "attempts"
+        | "linked_count"
+        | "error"
+        | "created_at"
+        | "started_at"
+        | "finished_at"
+        | "next_attempt_at"
+      >;
+      source_candidates: Table<
+        SourceCandidate,
+        | "id"
+        | "feed_url"
+        | "domain"
+        | "title"
+        | "method"
+        | "first_topic_id"
+        | "first_job_id"
+        | "status"
+        | "reject_reason"
+        | "retryable"
+        | "probe_attempts"
+        | "next_attempt_at"
+        | "resolved_source_id"
+        | "created_at"
+        | "updated_at"
+      >;
       waitlist: Table<
         WaitlistEntry,
         "id" | "name" | "note" | "created_at" | "invited_at" | "signed_up_at"
@@ -1877,6 +1966,15 @@ export type Database = {
         }[];
       };
       purge_expired_corpus: {
+        Args: { p_limit?: number };
+        Returns: number;
+      };
+      /**
+       * Added in 0096. Deletes discovery jobs past their retention window and
+       * candidates permanently rejected long ago, in one bounded sweep. Called
+       * from the daily dormant stage beside the other purges.
+       */
+      purge_expired_discovery: {
         Args: { p_limit?: number };
         Returns: number;
       };

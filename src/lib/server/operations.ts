@@ -24,6 +24,7 @@ const PROCESSING_FLAGS = [
   "deterministic_analysis",
   "pre_analysis_demand_gate",
   "breaking_alerts",
+  "source_discovery_enabled",
 ];
 
 export type OperationsState = "healthy" | "degraded" | "backlogged" | "partial_outage";
@@ -94,6 +95,31 @@ export type OperationsSnapshot = {
     deterministicAvailable: number;
   };
   sources: { total: number; active: number; stale: number; failing: number };
+  /**
+   * Source discovery (0096). Deterministic and provider-free: `links24h` and
+   * `sources24h` are the two things a tick can produce -- sources we already
+   * collect linked to a followed subject, and sources registered from a URL a
+   * reader supplied. There is no "configured" to show, because there is no key.
+   */
+  discovery: {
+    enabled: boolean;
+    openJobs: number;
+    running: number;
+    links24h: number;
+    sources24h: number;
+    recent: {
+      id: string;
+      topic: string;
+      status: string;
+      attempt: number;
+      /** `registry`, `corpus` or `none`; null while the job is unfinished. */
+      method: string | null;
+      linked: number;
+      error: string | null;
+      createdAt: string;
+      finishedAt: string | null;
+    }[];
+  };
   delivery: {
     readyBriefings: number;
     unsentDeliveries: number;
@@ -226,6 +252,9 @@ export const getOperationsSnapshot = createServerFn({ method: "GET" })
       awaitingUnderstanding,
       failedUnderstanding,
       deterministicAvailable,
+      openDiscoveryJobs,
+      discoveredSourcesDay,
+      sourceLinksDay,
     ] = await Promise.all([
       count(db.from("articles").select("id", { count: "exact", head: true })),
       count(db.from("articles").select("id", { count: "exact", head: true }).gte("fetched_at", hour)),
@@ -261,6 +290,25 @@ export const getOperationsSnapshot = createServerFn({ method: "GET" })
       count(db.from("event_understanding").select("event_id", { count: "exact", head: true }).in("status", ["generating"])),
       count(db.from("event_understanding").select("event_id", { count: "exact", head: true }).eq("status", "failed")),
       count(db.from("events").select("id", { count: "exact", head: true }).eq("status", "complete")),
+      count(
+        db
+          .from("discovery_jobs")
+          .select("id", { count: "exact", head: true })
+          .in("status", ["pending", "running"]),
+      ),
+      count(
+        db
+          .from("sources")
+          .select("id", { count: "exact", head: true })
+          .eq("origin", "discovered")
+          .gte("created_at", day),
+      ),
+      count(
+        db
+          .from("source_topics")
+          .select("source_id", { count: "exact", head: true })
+          .gte("created_at", day),
+      ),
     ]);
 
     const [
@@ -287,12 +335,20 @@ export const getOperationsSnapshot = createServerFn({ method: "GET" })
       oldest(db.from("deliveries").select("created_at").eq("status", "queued").lt("created_at", activeSince).order("created_at", { ascending: true }).limit(1)),
     ]);
 
-    const [opsResult, flagsResult] = await Promise.all([
+    const [opsResult, flagsResult, jobsResult] = await Promise.all([
       db.from("ops_status").select("key, status, detail, updated_at").order("updated_at", { ascending: false }).limit(50),
       db.from("feature_flags").select("key, enabled, updated_at").in("key", PROCESSING_FLAGS),
+      db
+        .from("discovery_jobs")
+        .select(
+          "id, status, attempt, method, linked_count, error, created_at, finished_at, topics ( label )",
+        )
+        .order("created_at", { ascending: false })
+        .limit(10),
     ]);
     if (opsResult.error) throw new Error(`operations status: ${opsResult.error.message}`);
     if (flagsResult.error) throw new Error(`processing flags: ${flagsResult.error.message}`);
+    if (jobsResult.error) throw new Error(`discovery jobs: ${jobsResult.error.message}`);
 
     const ops = opsResult.data ?? [];
     const heartbeat = ops.find((row) => row.key === "cron:heartbeat");
@@ -345,6 +401,7 @@ export const getOperationsSnapshot = createServerFn({ method: "GET" })
       makeStage("classify", "Classify / topics", STAGES_CRON, pendingEvents, pendingOldest),
       makeStage("analyse", "Deterministic finalization", STAGES_CRON, pendingEvents, pendingOldest),
       makeStage("enrich", "Article enrichment", STAGES_CRON, evidencePending, evidencePendingOldest),
+      makeStage("discover", "Source discovery", STAGES_CRON, openDiscoveryJobs, null),
       makeStage("match", "Matching", STAGES_CRON, 0, null),
       makeStage("digest", "Briefing generation", DIGEST_CRON, readyBriefings, readyBriefingsOldest),
       makeStage("delivery", "Delivery", DIGEST_CRON, failedDeliveries, failedDeliveriesOldest),
@@ -352,6 +409,7 @@ export const getOperationsSnapshot = createServerFn({ method: "GET" })
     ];
 
     const enrichmentFlag = flagsResult.data?.find((row) => row.key === "article_enrichment_enabled");
+    const discoveryFlag = flagsResult.data?.find((row) => row.key === "source_discovery_enabled");
     const attemptedDelivery = sentDeliveriesDay + failedDeliveriesDay;
 
     return {
@@ -394,6 +452,27 @@ export const getOperationsSnapshot = createServerFn({ method: "GET" })
       },
       readers: { understood, awaiting: awaitingUnderstanding, failed: failedUnderstanding, deterministicAvailable },
       sources: { total: totalSources, active: activeSources, stale: staleSources, failing: failingSources },
+      discovery: {
+        enabled: discoveryFlag?.enabled === true,
+        openJobs: openDiscoveryJobs,
+        running: (jobsResult.data ?? []).filter((row) => row.status === "running").length,
+        links24h: sourceLinksDay,
+        sources24h: discoveredSourcesDay,
+        recent: (jobsResult.data ?? []).map((row) => {
+          const embedded = row.topics as { label?: string } | null;
+          return {
+            id: row.id,
+            topic: embedded?.label ?? "",
+            status: row.status,
+            attempt: row.attempt,
+            method: row.method,
+            linked: row.linked_count,
+            error: row.error,
+            createdAt: row.created_at,
+            finishedAt: row.finished_at,
+          };
+        }),
+      },
       delivery: {
         readyBriefings,
         unsentDeliveries: queuedDeliveries,

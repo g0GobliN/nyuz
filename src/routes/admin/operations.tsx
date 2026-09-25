@@ -324,6 +324,48 @@ function OperationsPage() {
         </Panel>
 
         <Panel
+          title="Source discovery"
+          note={
+            !d.discovery.enabled
+              ? "source_discovery_enabled is off. Existing sources, ingestion and briefings are unaffected."
+              : "One shared job per followed subject with no mapped source. Deterministic: a job links sources nyuz already collects, and never calls a search provider."
+          }
+        >
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat label="Open jobs" value={formatNumber(d.discovery.openJobs)} />
+            <Stat label="Running" value={formatNumber(d.discovery.running)} />
+            <Stat label="Subjects linked" value={formatNumber(d.discovery.links24h)} hint="24h" />
+            <Stat label="Sources added" value={formatNumber(d.discovery.sources24h)} hint="24h" />
+          </div>
+          {d.discovery.recent.length === 0 ? (
+            <p className="mt-4 text-[12.5px] text-muted-foreground">
+              No discovery attempts have been recorded.
+            </p>
+          ) : (
+            <div className="mt-4 space-y-2 text-[12.5px]">
+              {d.discovery.recent.map((job) => (
+                <div
+                  key={job.id}
+                  className="flex items-start justify-between gap-3 border-t border-hairline pt-2"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{job.topic || job.id.slice(0, 8)}</p>
+                    <p className="mt-0.5 text-[11.5px] text-muted-foreground">
+                      {job.status} · {job.method ?? "unfinished"} · attempt {job.attempt} ·{" "}
+                      {job.linked} linked
+                      {job.error ? ` · ${job.error}` : ""}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                    {formatDateTime(job.createdAt)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+
+        <Panel
           title="Cron status"
           note="Latest status only. Full execution history needs bounded run persistence and is planned next."
         >

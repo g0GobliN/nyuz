@@ -17,6 +17,7 @@ import {
 import { MAX_TOPIC_LABEL } from "@/lib/topics";
 import { isSupportedTimezone } from "@/lib/timezones";
 import { backfill } from "@/lib/pipeline/backfill";
+import { queueDiscoverySafely } from "@/lib/discovery/coverage";
 
 /**
  * The reader's own settings, on the server.
@@ -198,8 +199,11 @@ export const savePreferences = createServerFn({ method: "POST" })
     }
 
     let followedSomethingNew = false;
+    let addedTopics: { id: string; label: string }[] = [];
     if (data.topics !== undefined) {
-      followedSomethingNew = await replaceTopics(actor, data.topics);
+      const change = await replaceTopics(actor, data.topics);
+      followedSomethingNew = change.followed;
+      addedTopics = change.added;
     }
     if (data.exclusions !== undefined) await replaceExclusions(actor, data.exclusions);
     if (data.paused === false) {
@@ -225,6 +229,15 @@ export const savePreferences = createServerFn({ method: "POST" })
         // must never cost them the save that has already been written.
         console.warn(`preferences: backfill after topic change failed: ${String(error)}`);
       }
+    }
+
+    // A brand-new interest with no source behind it is the one case discovery
+    // exists for, so the queue is asked now rather than at the next hourly
+    // tick. This is not a web search: it checks coverage and writes one row,
+    // and `queueDiscoverySafely` swallows everything -- the reader's save, the
+    // first briefing and onboarding do not wait on it and cannot fail with it.
+    if (addedTopics.length > 0) {
+      await queueDiscoverySafely(actor.db, addedTopics);
     }
 
     return { ok: true };
@@ -289,7 +302,10 @@ const DAILY_TOPIC_CREATIONS = 30;
  * Returns whether anything was newly followed, so the caller can decide whether
  * a backfill is worth running.
  */
-async function replaceTopics(actor: Actor, labels: string[]): Promise<boolean> {
+async function replaceTopics(
+  actor: Actor,
+  labels: string[],
+): Promise<{ followed: boolean; added: { id: string; label: string }[] }> {
   const { db, id: userId } = actor;
 
   const plan = await planFor(actor);
@@ -310,7 +326,7 @@ async function replaceTopics(actor: Actor, labels: string[]): Promise<boolean> {
 
   if (kept.length === 0) {
     await db.from("user_topics").delete().eq("user_id", userId);
-    return false;
+    return { followed: false, added: [] };
   }
 
   const bySlug = new Map(kept.map((topic) => [topic.slug, topic] as const));
@@ -363,7 +379,20 @@ async function replaceTopics(actor: Actor, labels: string[]): Promise<boolean> {
     if (error) throw new PlanAccessError(error.message);
   }
 
-  return toAdd.length > 0;
+  // The topics this save genuinely added, for the discovery queue. `wantedIds`
+  // is aligned with `admitted`, so the identity is the index. Editorial topics
+  // are left out on purpose: the pool is mapped by hand, and its gaps are an
+  // operator's decision rather than a discovery job's.
+  const addedSet = new Set(toAdd);
+  const added: { id: string; label: string }[] = [];
+  admitted.forEach((topic, index) => {
+    const id = wantedIds[index];
+    if (id === undefined || !addedSet.has(id)) return;
+    if (topic.predefined) return;
+    added.push({ id, label: topic.label });
+  });
+
+  return { followed: toAdd.length > 0, added };
 }
 
 /**

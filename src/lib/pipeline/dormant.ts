@@ -129,6 +129,15 @@ export async function dormant(db: Db, options: DormantOptions = {}): Promise<Dor
     if (corpusError) console.error(`purging expired corpus: ${corpusError.message}`);
     else purged += corpus ?? 0;
 
+    // Old discovery jobs and long-rejected candidates (0096). Discovery's own
+    // screens are the console's, not a reader's, so this is the one sweep that
+    // costs nobody a feature when it lags.
+    const { data: discovery, error: discoveryError } = await db.rpc("purge_expired_discovery", {
+      p_limit: 500,
+    });
+    if (discoveryError) console.error(`purging expired discovery rows: ${discoveryError.message}`);
+    else purged += discovery ?? 0;
+
     const { data: accounts, error: accountError } = await db.rpc(
       "purge_expired_account_deletions",
       { p_limit: 100 },
