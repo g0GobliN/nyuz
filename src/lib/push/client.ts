@@ -1,4 +1,4 @@
-import { installId } from "../device-install";
+import { deviceLabel, installId } from "../device-install";
 import { isStandalone } from "../display-mode";
 import { isIOS } from "../platform";
 import { deletePushSubscription, savePushSubscription } from "@/lib/server/push/account";
@@ -266,7 +266,7 @@ export async function enablePush(publicKey: string): Promise<EnablePushResult> {
 
   try {
     await savePushSubscription({
-      data: { installId: installId(), endpoint, keys: { p256dh, auth } },
+      data: { installId: installId(), label: deviceLabel(), endpoint, keys: { p256dh, auth } },
     });
   } catch (error) {
     return {
@@ -350,6 +350,6 @@ export async function refreshPush(): Promise<void> {
   const auth = json.keys?.["auth"] ?? (authBuf ? keyB64(authBuf) : "");
   if (!endpoint || !p256dh || !auth) return;
   await savePushSubscription({
-    data: { installId: installId(), endpoint, keys: { p256dh, auth } },
+    data: { installId: installId(), label: deviceLabel(), endpoint, keys: { p256dh, auth } },
   });
 }

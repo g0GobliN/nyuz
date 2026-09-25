@@ -1,8 +1,11 @@
 import { PlanAccessError } from "../plan-access";
 import { deviceErrorMessage } from "@/lib/device-errors";
 import { createServerFn } from "@tanstack/react-start";
+import { getCookie, getRequestProtocol, setCookie } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { signedInOnly } from "@/lib/server/guard";
+import { registerThisDevice } from "@/lib/server/devices";
+import { DEVICE_COOKIE, deviceCookieAttributes } from "@/lib/device-anchor";
 import { pushConfigured, vapidPublicKey } from "./send";
 
 const subInput = z.object({
@@ -12,6 +15,14 @@ const subInput = z.object({
     p256dh: z.string().min(1).max(256),
     auth: z.string().min(1).max(256),
   }),
+  /**
+   * How to name the device, when this call is what first registers one.
+   *
+   * Optional, because the anchor decides which row this belongs to either way —
+   * it is here so a device that turns notifications on before it ever opens
+   * Settings is not left called "Browser" for as long as it exists.
+   */
+  label: z.string().trim().min(1).max(80).optional(),
 });
 
 /**
@@ -62,11 +73,15 @@ export const savePushSubscription = createServerFn({ method: "POST" })
     if (!pushConfigured()) {
       return { configured: false, publicKey: null, count: 0 };
     }
-    const { data: registered, error: registrationError } = await context.actor.db.rpc(
-      "register_device",
-      { p_user_id: context.actor.id, p_install_id: data.installId, p_endpoint: data.endpoint },
-    );
-    if (registrationError) throw new PlanAccessError(deviceErrorMessage(registrationError));
+    const registered = await registerThisDevice(context.actor, {
+      installId: data.installId,
+      label: data.label,
+      endpoint: data.endpoint,
+      anchor: getCookie(DEVICE_COOKIE),
+    });
+    // This path registers a device too, so it anchors it too. Everything about
+    // why lives in src/lib/device-anchor.ts.
+    setCookie(DEVICE_COOKIE, registered, deviceCookieAttributes(getRequestProtocol() === "https"));
     const { error } = await context.actor.db.from("push_subscriptions").upsert(
       {
         user_id: context.actor.id,

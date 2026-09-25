@@ -1,4 +1,9 @@
-vi.mock("../device-install", () => ({ installId: () => "00000000-0000-4000-8000-000000000001" }));
+vi.mock("../device-install", () => ({
+  installId: () => "00000000-0000-4000-8000-000000000001",
+  // Sent with every subscription so a device that enables notifications before
+  // it ever opens Settings is not left nameless.
+  deviceLabel: () => "iPhone · PWA",
+}));
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -196,6 +201,7 @@ describe("enabling registers this browser without touching the others", () => {
     expect(savePushSubscription).toHaveBeenCalledWith({
       data: {
         installId: "00000000-0000-4000-8000-000000000001",
+        label: "iPhone · PWA",
         endpoint: PHONE,
         keys: { p256dh: "p", auth: "a" },
       },
@@ -211,6 +217,7 @@ describe("enabling registers this browser without touching the others", () => {
     expect(savePushSubscription).toHaveBeenCalledWith({
       data: {
         installId: "00000000-0000-4000-8000-000000000001",
+        label: "iPhone · PWA",
         endpoint: PC,
         keys: { p256dh: "p", auth: "a" },
       },
@@ -281,6 +288,7 @@ describe("a disabled device stays disabled", () => {
     expect(savePushSubscription).toHaveBeenCalledWith({
       data: {
         installId: "00000000-0000-4000-8000-000000000001",
+        label: "iPhone · PWA",
         endpoint: PC,
         keys: { p256dh: "p", auth: "a" },
       },

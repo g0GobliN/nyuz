@@ -1,4 +1,7 @@
-vi.mock("../device-install", () => ({ installId: () => "00000000-0000-4000-8000-000000000001" }));
+vi.mock("../device-install", () => ({
+  installId: () => "00000000-0000-4000-8000-000000000001",
+  deviceLabel: () => "iPhone · PWA",
+}));
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 const savePushSubscription = vi.fn();
@@ -72,6 +75,7 @@ describe("enablePush", () => {
     expect(savePushSubscription).toHaveBeenCalledWith({
       data: {
         installId: "00000000-0000-4000-8000-000000000001",
+        label: "iPhone · PWA",
         endpoint: "https://push.example/abc",
         keys: { p256dh: "p", auth: "a" },
       },
