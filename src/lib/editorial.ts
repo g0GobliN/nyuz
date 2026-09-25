@@ -39,6 +39,7 @@ import {
   hasVisibleEntity,
   isRepositorySourceName,
   malformedAttribution,
+  REPORTED_CLAUSE_WORDS,
 } from "./pipeline/source-text";
 import { relatedContext } from "./related-events";
 import { repeats } from "./understand";
@@ -66,170 +67,42 @@ function withoutDiscourseMarker(text: string): string {
 }
 
 /**
- * The words that may be lowercased after `reports that`.
+ * A subordinating conjunction a *reported* clause may open on.
  *
- * A closed set of function words -- articles, prepositions, conjunctions,
- * pronouns, quantifiers, common time adverbs. None of them can be a proper noun,
- * which is the whole reason the set is safe: `DigiCert doesn't see ...` keeps its
- * capital (a name may not be lowercased), while `Once they were out in the wild`
- * becomes `once they were out in the wild`, which is what the clause needs to sit
- * inside a reported sentence.
- *
- * This replaces a rule that lowercased only `The`, `A` and `An`, which is how
- * production shipped "The Register reports that Once they were out in the wild".
- * The failure was not that the prefix was wrong; it was that the prefix was
- * attached to a sentence whose first word was not transformed, so a reported
- * clause read like a headline.
+ * `X reports that Once they were out in the wild, ...` is the production defect:
+ * a clause subordinate to a reporting verb cannot keep the sentence capital its
+ * source gave it. The token this pattern matches is the one that gets lowered, so
+ * the rule is the construction rather than a word list consulted at the call site
+ * -- and the construction is the gate's own list, imported rather than restated:
+ * lowering exactly what the gate refuses is what keeps the composer from
+ * publishing prose its own gate would reject.
  */
-const LOWERCASE_AFTER_THAT = new Set([
-  "a",
-  "an",
-  "the",
-  "this",
-  "that",
-  "these",
-  "those",
-  "there",
-  "it",
-  "its",
-  "they",
-  "their",
-  "them",
-  "he",
-  "she",
-  "his",
-  "her",
-  "both",
-  "all",
-  "most",
-  "some",
-  "many",
-  "few",
-  "several",
-  "other",
-  "others",
-  "each",
-  "every",
-  "no",
-  "not",
-  "only",
-  "just",
-  "even",
-  "still",
-  "also",
-  "then",
-  "now",
-  "today",
-  "this",
-  "once",
-  "when",
-  "whenever",
-  "while",
-  "whilst",
-  "because",
-  "although",
-  "though",
-  "after",
-  "before",
-  "if",
-  "since",
-  "as",
-  "until",
-  "unless",
-  "but",
-  "and",
-  "or",
-  "so",
-  "yet",
-  "nor",
-  "however",
-  "meanwhile",
-  "perhaps",
-  "maybe",
-  "predictably",
-  "unsurprisingly",
-  "inevitably",
-  "understandably",
-  "reportedly",
-  "apparently",
-  "arguably",
-  "seemingly",
-  "notably",
-  "interestingly",
-  "famously",
-  "crucially",
-  "ultimately",
-  "increasingly",
-  "reportedly",
-  "nevertheless",
-  "nonetheless",
-  "instead",
-  "otherwise",
-  "in",
-  "on",
-  "at",
-  "for",
-  "with",
-  "without",
-  "within",
-  "by",
-  "from",
-  "to",
-  "into",
-  "onto",
-  "over",
-  "under",
-  "up",
-  "down",
-  "of",
-  "off",
-  "out",
-  "about",
-  "across",
-  "around",
-  "between",
-  "among",
-  "against",
-  "during",
-  "through",
-  "throughout",
-  "against",
-  "despite",
-  "amid",
-  "amidst",
-  "per",
-  "via",
-  "afterward",
-  "afterwards",
-  "later",
-  "earlier",
-  "first",
-  "second",
-  "third",
-  "finally",
-  "now",
-  "more",
-  "less",
-  "like",
-  "unlike",
-  "according",
-]);
+const REPORTED_CLAUSE_OPENING = new RegExp(`^(?:${REPORTED_CLAUSE_WORDS})\\b`, "i");
 
 /**
- * The first word lowercased, when doing so cannot damage a name.
+ * The same shape, for the reported clauses that lead with a fronted adverbial.
  *
- * A word that is not in the closed set above is left exactly as the source wrote
- * it -- which is right for `DigiCert`, and wrong for nothing, because every word
- * the set contains is a function word.
+ * `After the merger, ...` and `Before the vote, ...` are hoisted in front of the
+ * attribution by `frontedOpener`, and the branch below takes the rest.
  */
-function lowerLeadingWord(text: string): string {
-  if (!text) return text;
-  const bare = (text.split(/\s/, 1)[0] ?? "").replace(/[^\p{L}'’-]/gu, "");
-  if (bare === "" || bare === "I") return text;
-  if (bare.length > 1 && bare === bare.toUpperCase()) return text;
-  return LOWERCASE_AFTER_THAT.has(bare.toLowerCase())
-    ? text[0]!.toLowerCase() + text.slice(1)
-    : text;
+const SUBORDINATE_CLAUSE_OPENING = /^(?:once|when|while|because|although|and|but|or)\b/i;
+
+/**
+ * A source sentence as a reported clause, with its opening conjunction lowercased.
+ *
+ * Returns null when the sentence does not open on one of those words, which is
+ * the caller's signal that no lowercasing is available: the sentence then keeps
+ * the capital its source wrote, because a leading capital can be the first letter
+ * of a name and nothing in a plain-text excerpt says which. `All Things
+ * Considered host Mary Louise Kelly ...` is the case -- the frozen 200-event
+ * corpus caught the rule this replaces publishing it as `all Things Considered
+ * host ...`, because `all` is a quantifier, and a quantifier is also how a title
+ * can start.
+ */
+function reportedClause(text: string): string | null {
+  const opening = REPORTED_CLAUSE_OPENING.exec(text)?.[0];
+  if (opening === undefined) return null;
+  return opening.toLowerCase() + text.slice(opening.length);
 }
 
 /**
@@ -318,8 +191,6 @@ export type CompositionDiagnostics = {
     authorialVoiceRewrites: number;
     /** Texts that opened by repeating their own item headline. */
     strippedHeadlines: number;
-    /** Texts where a standfirst was glued to the sentence after it. */
-    strippedStandfirsts: number;
     /** Sentences an editorial adverbial was removed from, keeping the fact. */
     sourceVoiceStripped: number;
     /** Sentences a fronted editorial frame was removed from, keeping the fact. */
@@ -330,7 +201,6 @@ export type CompositionDiagnostics = {
     samples: {
       voiceStrips: string[];
       frames: string[];
-      standfirstSeams: string[];
       relativeTimes: string[];
       droppedContext: string[];
       /** Narrator resolutions and drops, before/after, to be read by hand. */
@@ -473,14 +343,12 @@ function createDiagnostics(): CompositionDiagnostics {
       rejectedMetadataOnly: 0,
       authorialVoiceRewrites: 0,
       strippedHeadlines: 0,
-      strippedStandfirsts: 0,
       sourceVoiceStripped: 0,
       strippedFrames: 0,
       sourceColourRejections: 0,
       samples: {
         voiceStrips: [],
         frames: [],
-        standfirstSeams: [],
         relativeTimes: [],
         droppedContext: [],
         narrator: [],
@@ -677,7 +545,18 @@ function supplementalEntityFacts(
       // sentence -- including the one that refuses a sentence whose subject is a
       // pronoun pointing outside itself. The production fixture showed exactly
       // that: a fragment the evidence layer had dropped came back through here.
+      //
+      // It also has to skip a sentence the evidence pass *carries*. That pass
+      // publishes it with its editorial wrapper already removed, and this one
+      // reads the raw excerpt, so publishing this copy as well is one fact twice
+      // -- the second time with the source's own commentary still on it. The
+      // production fixture was rendering "DigiCert doesn't see agent management
+      // as a manual problem" and then, again, "Perhaps predictably for a company
+      // that built its success on automated verification, DigiCert doesn't see
+      // agent management as a manual problem".
+      const carriesSelected = selection.facts.some((fact) => carries([text], fact.text));
       if (
+        !carriesSelected &&
         unitTextRejection(text, false) === null &&
         !editorialNoise(text) &&
         !headlineFragment(text) &&
@@ -753,27 +632,31 @@ function safeLead(
   // that only half could trace ..." credits the magazine with the interview.
   const survey = surveys.get(lead.evidence[0] ?? -1);
   if (survey && isShareStatistic(text)) {
-    return { text: `According to ${survey}, ${lowerLeadingWord(text)}`, evidence: lead.evidence };
+    return { text: `According to ${survey}, ${statisticClause(text)}`, evidence: lead.evidence };
   }
   // `Overall, ...` and `Ten days later, ...` cannot follow `that` -- see
-  // `frontedOpener` -- so the adverbial leads the attribution instead.
+  // `frontedOpener` -- so the adverbial leads the attribution instead. Its rest
+  // keeps the source's capitalisation: the adverbial was written mid-sentence, so
+  // the case that follows it is the source's own.
   const opener = frontedOpener(text);
   if (opener) {
     return {
-      text: `${opener.opener}, ${source} reports that ${lowerLeadingWord(withoutDiscourseMarker(opener.rest))}`,
+      text: `${opener.opener}, ${source} reports that ${withoutDiscourseMarker(opener.rest)}`,
       evidence: lead.evidence,
     };
   }
-  if (/^(?:once|when|while|because|although|and|but|or)\b/i.test(text)) {
+  const clause = withoutDiscourseMarker(text);
+  // `Once they were out in the wild ...` is the one opening a reported clause may
+  // not keep -- the gate refuses it, so the composer lowers it. Everything else
+  // keeps the capital its source wrote: "According to The Register, All Things
+  // Considered host ..." is right, and "all Things Considered host ..." is not.
+  if (SUBORDINATE_CLAUSE_OPENING.test(clause)) {
     return {
-      text: `${source} reports that ${lowerLeadingWord(withoutDiscourseMarker(text))}`,
+      text: `${source} reports that ${reportedClause(clause) ?? clause}`,
       evidence: lead.evidence,
     };
   }
-  return {
-    text: `According to ${source}, ${lowerLeadingWord(withoutDiscourseMarker(text))}`,
-    evidence: lead.evidence,
-  };
+  return { text: `According to ${source}, ${clause}`, evidence: lead.evidence };
 }
 
 /* ------------------------------------------------------------------------- */
@@ -828,6 +711,20 @@ const SHARE_WORD =
 
 export function isShareStatistic(text: string): boolean {
   return SHARE_OPENING.test(text) && SHARE_WORD.test(text);
+}
+
+/**
+ * A share statistic spliced after the survey that measured it, quantifier lowered.
+ *
+ * Only a sentence `SHARE_OPENING` matched reaches this, so the token being lowered
+ * is a quantity by the same test that decided the sentence is a share at all --
+ * not a guess about whether the word before a capital is part of a name. The rest
+ * of the sentence keeps the source's own capitalisation.
+ */
+function statisticClause(text: string): string {
+  const opening = (SHARE_OPENING.exec(text)?.[0] ?? "").trimEnd();
+  if (opening === "") return text;
+  return opening.toLowerCase() + text.slice(opening.length);
 }
 
 /**
@@ -933,12 +830,13 @@ function attributedFactText(
   // The sentence decides the shape, not the source: an ungrammatical wrap is
   // worse than no wrap, and the citation already carries the provenance.
   if (cannotWrap(text)) return text;
-  if (statistic && survey) return `According to ${survey}, ${lowerLeadingWord(text)}`;
+  if (statistic && survey) return `According to ${survey}, ${statisticClause(text)}`;
   if (isRepositorySourceName(source)) return `${researchAttribution(type)}: ${text}`;
   const opener = frontedOpener(text);
   if (opener)
-    return `${opener.opener}, ${source} reports that ${lowerLeadingWord(withoutDiscourseMarker(opener.rest))}`;
-  return `${source} reports that ${lowerLeadingWord(withoutDiscourseMarker(text))}`;
+    return `${opener.opener}, ${source} reports that ${withoutDiscourseMarker(opener.rest)}`;
+  const clause = withoutDiscourseMarker(text);
+  return `${source} reports that ${reportedClause(clause) ?? clause}`;
 }
 
 export type DeterministicQualityReport = {
@@ -1599,9 +1497,8 @@ export function composeArticleWithDiagnostics(story: Story): {
     // by the time evidence sees the text there is no metadata left to remove.
     diagnostics.sourceNormalization = {
       ...normalization,
-      // Standfirst seams, voice wrappers and fronted frames are found per
-      // sentence, in the evidence pass, along with source colour.
-      strippedStandfirsts: selection.sourceNormalization.strippedStandfirsts,
+      // Voice wrappers and fronted frames are found per sentence, in the
+      // evidence pass, along with source colour.
       sourceVoiceStripped: selection.sourceNormalization.sourceVoiceStripped,
       strippedFrames: selection.sourceNormalization.strippedFrames,
       sourceColourRejections: selection.sourceNormalization.sourceColourRejections,

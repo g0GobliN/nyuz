@@ -22,6 +22,7 @@ import {
   ENTITY_LEAK,
   GLUED_ATTRIBUTION,
   LEADING_QUOTE,
+  OPENS_ON_QUOTE,
   SPACE_BEFORE_PUNCT,
   TWO_QUOTES,
 } from "./lib/defects.ts";
@@ -73,7 +74,10 @@ type Metrics = {
   spacing: number;
   doubleSpace: number;
   twoQuotes: number;
-  leadingQuote: number;
+  /** A block opening on a stray closing quote: a cut quotation's tail. */
+  strayQuote: number;
+  /** A block whose first character is a quotation mark: a quotation as a lead. */
+  opensOnQuote: number;
   duplicateRefs: number;
   withRefs: number;
 };
@@ -93,7 +97,8 @@ function measure(snapshot: Snapshot): Metrics {
     spacing: 0,
     doubleSpace: 0,
     twoQuotes: 0,
-    leadingQuote: 0,
+    strayQuote: 0,
+    opensOnQuote: 0,
     duplicateRefs: 0,
     withRefs: 0,
   };
@@ -114,7 +119,8 @@ function measure(snapshot: Snapshot): Metrics {
       if (SPACE_BEFORE_PUNCT.test(block)) metrics.spacing += 1;
       if (DOUBLE_SPACE.test(block)) metrics.doubleSpace += 1;
       if (TWO_QUOTES.test(block)) metrics.twoQuotes += 1;
-      if (LEADING_QUOTE.test(block)) metrics.leadingQuote += 1;
+      if (LEADING_QUOTE.test(block)) metrics.strayQuote += 1;
+      if (OPENS_ON_QUOTE.test(block)) metrics.opensOnQuote += 1;
     }
     for (const paragraph of story.paragraphs) {
       if (paragraph.evidence.length > 0) metrics.withRefs += 1;
@@ -194,7 +200,12 @@ main(async () => {
   pair("space before punctuation", a.spacing, b.spacing);
   pair("double spaces", a.doubleSpace, b.doubleSpace);
   pair("two quotes in one block", a.twoQuotes, b.twoQuotes);
-  pair("block opening with a quote", a.leadingQuote, b.leadingQuote);
+  // Two rulers, two rows: the audit's "block opening with a quote" counts a
+  // quotation in the lead slot (`OPENS_ON_QUOTE`), and this row used to carry
+  // that label while measuring the opposite thing -- a block opening on a stray
+  // *closing* quote, which is a cut quotation's tail. One label, one ruler.
+  pair("block opening on a stray quote", a.strayQuote, b.strayQuote);
+  pair("quotation in the lead slot", a.opensOnQuote, b.opensOnQuote);
   pair("duplicate citation in a block", a.duplicateRefs, b.duplicateRefs);
   pair("paragraphs carrying a citation", a.withRefs, b.withRefs);
 

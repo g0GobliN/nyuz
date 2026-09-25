@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { composeArticleWithDiagnostics, isShareStatistic } from "./editorial";
+import { htmlToText } from "./pipeline/feed";
 import {
   cleanDeterministicSentence,
   hasPredicate,
   normalizeRelativeTime,
   resolveNarrator,
-  splitStandfirstGlue,
   stripFrontedFrame,
   stripUnanchorableTime,
 } from "./reader-evidence";
@@ -158,52 +158,74 @@ const composedText = (excerpt: string): string => {
   return [article.deck.text, ...article.paragraphs.map((paragraph) => paragraph.text)].join(" ");
 };
 
-describe("a glued standfirst is cut only when it is unmistakably a headline", () => {
-  it("refuses a label, because a label and a subject read alike in plain text", () => {
-    // A no-predicate seam was tried and removed. Over the 200-event pass it made
-    // fourteen cuts, and four of the six the audit printed had deleted a real
-    // subject -- the first two sentences below are those cuts, the next three are
-    // the labels that motivated the rule. A heading boundary is known at ingest
-    // (`htmlToText` now ends one with a full stop) and unknowable in a plain-text
-    // excerpt, which is where this rule runs.
-    for (const text of [
-      "Swedish police and the country's Post and Telecom Agency (PTS) started working more closely to combat telephone fraud in June.",
-      "Extensive experiments on multiple public RSCC benchmark datasets demonstrate that the proposed method mitigates exposure bias.",
-      "Pricing and availability Amazon CloudWatch Omni is now available.",
-      "Engaging students with design One highlight for me was co-chairing a session.",
-      "Supported frameworks and open standards The walkthrough above uses the sample project.",
-    ]) {
-      expect(splitStandfirstGlue(text)).toBeNull();
-    }
+describe("a heading seam belongs to the markup, never to a cut into a sentence", () => {
+  it("cuts nothing out of a sentence that merely opens on a wh-word", () => {
+    // The one cut the removed splitter made in the frozen 200-event corpus that
+    // reached a reader: "When asked to compare ..." read as a heading, and the
+    // sentence lost its opening clause. Nothing in a plain-text excerpt tells a
+    // heading from a clause, so nothing here cuts.
+    const sentence =
+      "When asked to compare MariaDB with PostgreSQL for the same task, however, it had plenty to say.";
+    const text = composedText(sentence);
+    expect(text).not.toContain("MariaDB with PostgreSQL for the same task");
+    // What happens instead is measured, not wished: a `When ...` unit with no
+    // question mark is a heading shape to the furniture gate, so the sentence is
+    // refused *whole* and counted. That false positive is older than this patch
+    // and narrowing it would be a new text rule rather than a removal; refused
+    // whole and counted beats published mutilated, which is what it was.
+    expect(text).toBe("");
   });
 
-  it("leaves a subject, a clause and a quotation alone", () => {
-    // Each of these is one sentence, and cutting at the capital inside it would
-    // delete the subject, the verb or the speaker. The first four were real
-    // corpus sentences before this rule had its guards; the fifth is the
-    // production standfirst's own shape.
-    for (const text of [
-      "Regulators in the United States and the European Union are drafting rules next year.",
-      "DeepSeek V4 and Kimi K3 achieve million-token context via completely different approaches.",
-      "Only half could trace AI decisions back to the models and data that produced them.",
-      "Bitcoin prices fell Bitcoin's share of the market dropped to 40 percent.",
-      "When pressed if Australia would consider a US carve out, Mulino said the proposals would apply.",
-      "Two years after the merger Acme closed the plant in Ohio.",
-      '"But visibility into how many agents I have? How many models do I have?"',
-      "Treasury committee rejects calls for fundamental reform of independent watchdog the Office for Budget Responsibility Attacks on the forecaster came from left and right.",
-    ]) {
-      expect(splitStandfirstGlue(text)).toBeNull();
-    }
+  it("is not a rule the composer has any more", async () => {
+    // Removed rather than narrowed. It made five cuts in the frozen corpus, four
+    // were refused downstream, and the fifth deleted a real subject -- and the
+    // seam it was reconstructing is known where the markup is, not in plain text.
+    const evidence = await import("./reader-evidence");
+    expect(Object.keys(evidence)).not.toContain("splitStandfirstGlue");
   });
 
-  it("still cuts the wh-headline the production story opened with", () => {
-    expect(
-      splitStandfirstGlue(
-        "Why identity built for humans breaks at agent speed Perhaps predictably for a company that built its success, DigiCert doesn't see it as a manual problem.",
-      ),
-    ).toBe(
-      "Perhaps predictably for a company that built its success, DigiCert doesn't see it as a manual problem.",
+  it("ends a heading where the markup does, so the prose is never glued to it", () => {
+    // The structural boundary: `htmlToText` closes a heading element, so a
+    // heading and the prose after it arrive as two units -- the heading is then
+    // refused as its own unit (it opens on a wh-word and asks nothing) and the
+    // prose is published intact.
+    const html = "<h2>Pricing and availability</h2><p>Amazon CloudWatch Omni is now available.</p>";
+    expect(htmlToText(html)).toBe(
+      "Pricing and availability. Amazon CloudWatch Omni is now available.",
     );
+  });
+});
+
+describe("a source's capitalisation is kept unless its construction proves the word", () => {
+  it("keeps the capital of a name that opens on a function word", () => {
+    // The frozen corpus published NPR's "All Things Considered host Mary Louise
+    // Kelly" as "all Things Considered host ...": `all` is a quantifier, and a
+    // quantifier is also how a title can start.
+    const text = composedText(
+      "All Things Considered host Mary Louise Kelly talks with White House correspondent Emily Feng about the Trump/Xi summit.",
+    );
+    expect(text).toContain("All Things Considered host Mary Louise Kelly");
+    expect(text).not.toContain("all Things Considered");
+  });
+
+  it.each([
+    "This release adds vector indexes to the query planner.",
+    "These systems share one credentials store across every region.",
+    "Amazon is rolling the feature out across its retail regions.",
+    "OpenAI said the model would be available to every customer.",
+    "European regulators opened a consultation on the rule.",
+    "The Register published the analysis on its own site.",
+  ])("leaves %s as the source wrote it", (sentence) => {
+    expect(composedText(sentence)).toContain(sentence);
+  });
+
+  it("still lowers the conjunction the reported clause matched", () => {
+    // What remains of the rule, and only because the branch matched the word: a
+    // clause subordinate to a reporting verb cannot open with a capital, so
+    // "reports that Once they were out in the wild" is ungrammatical however the
+    // clause is punctuated.
+    const text = composedText("Once the outage began, customers could not reach the service.");
+    expect(text).toContain("reports that once the outage began");
   });
 });
 
@@ -294,10 +316,12 @@ describe("attribution follows the adverbial that cannot sit after `that`", () =>
     const text = composedText(
       "The first briefing, which Allan did not sign, warned that the environment had become highly challenging.",
     );
-    // The attribution clause goes in front and the sentence keeps its subject,
-    // lower-cased into the clause because "the" is a determiner.
+    // The attribution clause goes in front and the sentence keeps its subject.
+    // Its capital is kept too: `The first briefing` and `The Register` are the
+    // same shape to a reader, and a rule that lowercases one lowercases the other
+    // -- which is how the corpus published "all Things Considered host ...".
     expect(text).toContain(
-      "According to The Register, the first briefing, which Allan did not sign, warned",
+      "According to The Register, The first briefing, which Allan did not sign, warned",
     );
     expect(text).not.toMatch(/reports that which/i);
   });

@@ -124,7 +124,8 @@ type Totals = {
   sentencesRefused: number;
   voiceStripped: number;
   framesStripped: number;
-  standfirstSeams: number;
+  /** Words published lowercase that their source only ever capitalises. */
+  caseRewrites: number;
   relativeTimesAnchored: number;
   relativeTimesStripped: number;
   narratorWrappersRemoved: number;
@@ -160,7 +161,7 @@ function emptyTotals(): Totals {
     sentencesRefused: 0,
     voiceStripped: 0,
     framesStripped: 0,
-    standfirstSeams: 0,
+    caseRewrites: 0,
     relativeTimesAnchored: 0,
     relativeTimesStripped: 0,
     narratorWrappersRemoved: 0,
@@ -210,11 +211,12 @@ main(async () => {
   const examples: Record<string, string[]> = {
     voiceStrips: [],
     frames: [],
-    standfirstSeams: [],
     relativeTimes: [],
     droppedContext: [],
     narrator: [],
   };
+  /** Which words were lowercased, and how often, when the source never does. */
+  const caseWords = new Map<string, number>();
   const changed: Changed[] = [];
   const tally = (counter: Record<string, number>, key: string) => {
     counter[key] = (counter[key] ?? 0) + 1;
@@ -264,7 +266,6 @@ main(async () => {
     totals.sentencesRefused += diagnostics.sentences.refused;
     totals.voiceStripped += diagnostics.sourceNormalization.sourceVoiceStripped;
     totals.framesStripped += diagnostics.sourceNormalization.strippedFrames;
-    totals.standfirstSeams += diagnostics.sourceNormalization.strippedStandfirsts;
     totals.relativeTimesAnchored += diagnostics.sourceNormalization.relativeTimesAnchored;
     totals.relativeTimesStripped += diagnostics.sourceNormalization.relativeTimesStripped;
     totals.narratorWrappersRemoved += diagnostics.sourceNormalization.narratorWrappersRemoved;
@@ -284,12 +285,32 @@ main(async () => {
         if (sink.length < EXAMPLES_PER_KIND) sink.push(`${event.title} · ${entry}`);
     }
 
+    // The removed rule's signature, and the one defect an aggregate over published
+    // prose cannot see: a word written lowercase here that the source never writes
+    // any other way. Counted per word, so the list can be read for names.
+    const sourceText = event.sourceList
+      .map((source) =>
+        [source.excerpt ?? "", ...(source.enrichedEvidence ?? []).map((unit) => unit.text)].join(
+          " ",
+        ),
+      )
+      .join(" ");
+    const rewrittenCases = [
+      ...new Set(
+        [article.deck.text, ...paras].flatMap((block) =>
+          DEFECTS.lowercasedSourceCapitals(block, sourceText),
+        ),
+      ),
+    ];
+    totals.caseRewrites += rewrittenCases.length;
+    for (const word of rewrittenCases) caseWords.set(word, (caseWords.get(word) ?? 0) + 1);
+
     // What this patch did to this story, and why it is on the list: every
     // counted rewrite, refusal or drop makes it a story worth reading by hand.
     const run = {
       strips: diagnostics.sourceNormalization.sourceVoiceStripped,
       frames: diagnostics.sourceNormalization.strippedFrames,
-      seams: diagnostics.sourceNormalization.strippedStandfirsts,
+      cases: rewrittenCases.length,
       times: diagnostics.sourceNormalization.relativeTimesAnchored,
       colour: diagnostics.sourceNormalization.sourceColourRejections,
       refused: diagnostics.facts.refused,
@@ -377,7 +398,13 @@ main(async () => {
   heading("Rewrites, with before/after examples to check by hand");
   say(row("editorial adverbials removed", totals.voiceStripped));
   say(row("fronted frames removed", totals.framesStripped));
-  say(row("standfirst seams cut", totals.standfirstSeams));
+  // Not a defect count on its own: a share statistic has to be readable after its
+  // survey, so its quantifier is lowered by the rule that matched it. Read the
+  // words below -- a name here would be the rule this removed for a reason.
+  say(row("words lowered the source never lowers", totals.caseRewrites));
+  for (const [word, count] of [...caseWords].sort((a, b) => b[1] - a[1]).slice(0, 20)) {
+    say(row(`  ${word}`, count));
+  }
   say(row("relative dates anchored", totals.relativeTimesAnchored));
   say(row("relative dates dropped", totals.relativeTimesStripped));
   // The narrator rows: what the source's own voice was turned into. "Attributed to

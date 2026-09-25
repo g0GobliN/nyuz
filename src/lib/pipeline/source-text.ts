@@ -700,6 +700,26 @@ export function isRepositorySourceName(name: string | undefined): boolean {
 const ATTRIBUTION_OPENING = /^(?:according to|as reported by)\s+([^,;:]{1,80})[,;]/i;
 
 /**
+ * The function words that may not keep a capital in the clause after `that`.
+ *
+ * Exported because two rules need the same answer, and a disagreement between
+ * them is a bug whichever way it goes: the composer lower-cases exactly these
+ * when it builds a reported clause, and `GLUED_ATTRIBUTION` refuses a block that
+ * still shows one capitalized. While they disagreed, `If the user's intent is
+ * unclear ...` was refused as a malformed attribution *because* the composer had
+ * stopped lowering `If` -- the gate was reading the composer's own output as a
+ * defect, and the fact was dropped.
+ *
+ * A word that can begin a name is deliberately absent: `The`, `This`, `All`,
+ * `These`. "The Register reports that DigiCert doesn't see ..." is correct
+ * English and "all Things Considered host Mary Louise Kelly" is a name, so no
+ * list can settle those; the composer leaves their capital alone and the gate
+ * says nothing about them.
+ */
+export const REPORTED_CLAUSE_WORDS =
+  "Once|When|While|Because|Although|After|Before|If|Since|Only|Both|But|And|Or|So|Yet|However|Meanwhile";
+
+/**
  * Detects openings like `According to arXiv cs.CR, ...` -- a category presented
  * as a claimant. The composer is fixed to never build one; this is the gate's
  * backstop for any path that still does.
@@ -725,8 +745,9 @@ export function malformedAttribution(text: string): boolean {
  * doesn't see ...` is correct English -- so the test is the closed set of
  * function words that must be lower-case in that position, plus an opening quote.
  */
-const GLUED_ATTRIBUTION =
-  /\b(?:reports?|reported|said|says|told[^,.;:]{0,24})\s+that\s+(?:Once|When|While|Because|Although|After|Before|If|Since|Only|Both|But|And|Or|So|Yet|However|Meanwhile|Meanwhile)\b|\b(?:reports?|said|says)\s+that\s+["“]/;
+const GLUED_ATTRIBUTION = new RegExp(
+  `\\b(?:reports?|reported|said|says|told[^,.;:]{0,24})\\s+that\\s+(?:${REPORTED_CLAUSE_WORDS})\\b|\\b(?:reports?|said|says)\\s+that\\s+["“]`,
+);
 
 export function gluedAttribution(text: string): boolean {
   return GLUED_ATTRIBUTION.test(collapse(text));
@@ -838,7 +859,20 @@ const CREDIT_FUNCTION_WORDS = new Set([
  * other vocabulary. `Getty Images reported a rise in licensing revenue.` has no
  * slash at all, and `The report was filed by Mary Smith/The Times in Washington.`
  * spends most of its words on the sentence around the credit.
+ *
+ * "Almost no other vocabulary" is counted, not averaged. A share of name-shaped
+ * tokens is the wrong ruler for a sentence: `Trump/Xi` is a name pair to this
+ * pattern, and "According to NPR News, All Things Considered host Mary Louise
+ * Kelly talks with White House correspondent Emily Feng about the Trump/Xi
+ * summit." is 14 name-shaped tokens out of 22 -- past the 0.6 share this used to
+ * require, so the deck was refused as a photo credit and the story published
+ * nothing at all. It escaped only while the composer was lowercasing `All`,
+ * which is one capital and no vocabulary. Two words that are not names is what
+ * a credit looks like ("Kin Cheung/Getty Images; Tasos Katopodis/Getty" is zero
+ * of them); a sentence that spends eight on its own grammar is a sentence.
  */
+const CREDIT_OTHER_WORDS = 2;
+
 function looksLikeCredit(text: string): boolean {
   if (text.includes(":")) return false;
   const tokens = text.split(/\s+/).filter(Boolean);
@@ -850,7 +884,7 @@ function looksLikeCredit(text: string): boolean {
     if (bare.includes("/")) slash = true;
     if (NAME_TOKEN.test(bare) && !CREDIT_FUNCTION_WORDS.has(bare)) names += 1;
   }
-  return slash && names / tokens.length >= 0.6;
+  return slash && names >= 2 && tokens.length - names <= CREDIT_OTHER_WORDS;
 }
 
 const URL_RE = /\bhttps?:\/\/\S+|\bwww\.[\w-]+\.[a-z]{2,}\S*/i;

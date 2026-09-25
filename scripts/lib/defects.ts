@@ -51,3 +51,38 @@ export const TWO_QUOTES = /["“][^"”]{10,}["”][^.!?]*["“][^"”]{10,}["�
 export const LEADING_QUOTE = /^\s*[”‘']/;
 /** A block that opens on a quotation mark: a quotation in the lead slot. */
 export const OPENS_ON_QUOTE = /^\s*["“]/;
+
+/**
+ * Words the composer lowercased that their source only ever capitalises.
+ *
+ * The ruler for the leading-word case rewrite this patch removed, and the reason
+ * it has to compare two texts: the defect was invisible in the published prose.
+ * "all Things Considered host Mary Louise Kelly talks with ..." is an ordinary
+ * looking phrase until it is put next to the source, which is why a count over
+ * output alone could not see it and why this takes the source with it.
+ *
+ * A word counts only when the source writes it capitalised *everywhere* and the
+ * block writes it lowercase somewhere. `the`, `that` and `a` are therefore never
+ * counted -- every source writes them both ways, so no ruler can say which
+ * occurrence was a name. `all` in the sentence above is: NPR never writes it
+ * lowercase, so publishing `all` is a rewrite, whoever made it.
+ *
+ * Scripts only: a snapshot carries published prose and no source text, so the
+ * audit and the diff cannot share this one the way they share the rulers above.
+ */
+export function lowercasedSourceCapitals(published: string, source: string): string[] {
+  const capitalisedOnly = new Set<string>();
+  const everLowercase = new Set<string>();
+  for (const [word] of source.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu)) {
+    const key = word.toLowerCase();
+    if (word === key) everLowercase.add(key);
+    else capitalisedOnly.add(key);
+  }
+  const rewritten = new Set<string>();
+  for (const [word] of published.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu)) {
+    const key = word.toLowerCase();
+    if (word !== key || everLowercase.has(key) || !capitalisedOnly.has(key)) continue;
+    rewritten.add(word);
+  }
+  return [...rewritten].sort();
+}

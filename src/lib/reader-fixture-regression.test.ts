@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { composeArticle, composeArticleWithDiagnostics } from "./editorial";
 import { decodeEntities, hasSourceMetadata, hasVisibleEntity } from "./pipeline/source-text";
-import { unresolvedContextOpening, validDeterministicParagraph } from "./reader-evidence";
+import {
+  selectReaderEvidence,
+  unresolvedContextOpening,
+  validDeterministicParagraph,
+} from "./reader-evidence";
 import type { Story } from "./story";
 
 /**
@@ -18,7 +22,7 @@ import type { Story } from "./story";
  * Deliberately not a snapshot of prose. The assertions are:
  *
  *  - the fragments that shipped are gone, because each is a specific defect with
- *    a named cause (entity leak, glued standfirst, ungrammatical attribution,
+ *    a named cause (entity leak, headline fragment, ungrammatical attribution,
  *    source colour, unresolvable pronoun, source-name double space);
  *  - the facts are still there, and in the order the article itself put them in;
  *  - every published block is traceable, and nothing is published that the
@@ -29,14 +33,19 @@ const HEADLINE = "Who signed off on that AI agent? Nobody? Thought so.";
 
 /**
  * The article as the feed and the page supplied it -- including the defects, at
- * the boundary where they entered: a standfirst glued to the first sentence, a
- * media-clean sentence with an entity escaped twice, a `goblin mode` aside, a
- * fronted clause with a pronoun subject, a survey, and quotes.
+ * the boundary where they entered: a standfirst, a media-clean sentence with an
+ * entity escaped twice, a `goblin mode` aside, a fronted clause with a pronoun
+ * subject, a survey, and quotes.
  */
 const EXCERPT = [
-  // The standfirst, glued to the body's first sentence by a CMS that writes both
-  // into the description field. The seam is the capital after "agent speed".
-  "Why identity built for humans breaks at agent speed Perhaps predictably for a company that built its success on automated verification, DigiCert doesn't see agent management as a manual problem.",
+  // The standfirst, as the ingest boundary now supplies it: `htmlToText` closes a
+  // heading element, so a heading and the sentence after it arrive as two units
+  // and the heading is refused as its own unit. The seam is not the composer's
+  // to find -- a rule that looked for one in plain text cut a real subject out of
+  // a real sentence ("MariaDB with PostgreSQL for the same task, however, it had
+  // plenty to say.") and had no instance in the frozen corpus where it helped.
+  "Why identity built for humans breaks at agent speed.",
+  "Perhaps predictably for a company that built its success on automated verification, DigiCert doesn't see agent management as a manual problem.",
   // An entity escaped twice: `&amp;#x20;` decodes once to `&#x20;`, which is not
   // whitespace and therefore survived every collapse downstream.
   "DigiCert&amp;#x20;published its AI Trust Pulse survey this month.",
@@ -337,7 +346,13 @@ describe("the production story: structure the reader depends on", () => {
     // Both `goblin mode` sentences, the fronted-clause fragment and the SNAFUs
     // aside were refused upstream; the counts say so.
     expect(diagnostics.sourceNormalization.sourceColourRejections).toBeGreaterThanOrEqual(2);
-    expect(diagnostics.sourceNormalization.strippedStandfirsts).toBe(1);
+    // The standfirst is refused as furniture -- a unit that is nothing but a
+    // headline, caught before the lead is chosen out of it -- not cut out of the
+    // sentence that follows it, and the refusal is counted where a cut was.
+    expect(diagnostics.facts.selected).toBeGreaterThan(0);
+    expect(
+      selectReaderEvidence(story().title, story().sourceList).rejectionReasons.headline_fragment,
+    ).toBe(1);
     expect(diagnostics.sourceNormalization.sourceVoiceStripped).toBeGreaterThanOrEqual(1);
     expect(diagnostics.sourceNormalization.strippedFrames).toBeGreaterThanOrEqual(1);
     expect(diagnostics.attribution["according_to"]).toBeGreaterThanOrEqual(1);

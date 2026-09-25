@@ -1502,6 +1502,13 @@ export function unbalancedQuotes(text: string): boolean {
  * re-read from.
  */
 export function unitTextRejection(text: string, quote: boolean): EvidenceRejectionReason | null {
+  // A heading, first, because most headings pass every test below: "Why identity
+  // built for humans breaks at agent speed" has a subject and a verb, which is
+  // exactly why a heading used to reach the page as a sentence -- and why it had
+  // to be refused again by the composer's gate, after the lead had already been
+  // chosen out of it and the deck built from it. A unit that is nothing but a
+  // headline is furniture, and it is refused with the furniture.
+  if (headlineFragment(text)) return "headline_fragment";
   if (!validDeterministicSentence(text)) return "invalid_sentence";
   if (unresolvableContext(text)) return "unresolved_context";
   if (/…$|\.\.\.$/.test(text)) return "trailing_ellipsis";
@@ -1886,38 +1893,22 @@ export function stripHeadlinePrefix(
 
 /** A clause that opens a headline rather than a sentence. */
 const WH_HEADLINE = /^(?:Why|How|What|When|Where|Who|Which|Here)\b/;
-/** How many words a standfirst is allowed to spend before the body starts. */
-const STANDFIRST_WORD_BUDGET = 14;
-
-/**
- * Split a standfirst that was glued to the sentence after it.
- *
- * The production case: a feed published
- *
- *   "Why identity built for humans breaks at agent speed Perhaps predictably for a
- *    company that built its success on automated verification, DigiCert doesn't see
- *    agent management as a manual problem."
- *
- * One sentence, to a splitter that looks for full stops -- because a subhead has
- * none. The article then opened by attributing the standfirst to The Register
- * and running straight into its own first sentence.
- *
- * Recognised structurally, and narrowly. The unit must open with a wh-word and
- * contain no question mark, which in English means it is a headline rather than
- * prose -- a real `Why ...` sentence is a question and ends in `?`. Within the
- * first fourteen words, the earliest capitalised word that leaves a valid
- * sentence on *both* sides is the seam, and the sentence after the seam is the
- * one that gets published. No word lists, no article-specific rules, and a seam
- * that cannot be found safely means the unit is dropped by the caller instead.
- */
 /**
  * A wh-word opening with no question mark: a headline, never a body sentence.
  *
  * A real `Why ...` sentence is a question and ends in `?`. Without one, the unit
- * is a subhead or a headline that lost its punctuation on the way into a feed.
- * Used by the furniture split and, again, by the quality gate -- the splitter
- * only sees text that normalization hands it, and the gate is what stands in
- * front of the page.
+ * is a subhead or a headline that lost its punctuation on the way into a feed,
+ * and the composer drops it rather than attributing a headline to its source.
+ *
+ * A heading *glued* to the sentence after it is not repaired here. That seam is
+ * known where the markup is: `htmlToText` ends a heading element, so the heading
+ * and the prose after it arrive as two units and this refuses the heading as its
+ * own unit. It is unknowable in a plain-text excerpt -- the splitter that guessed
+ * produced one reader-visible corruption in the frozen 200-event corpus, cutting
+ * "When asked to compare MariaDB with PostgreSQL for the same task, however, it
+ * had plenty to say." down to "MariaDB with PostgreSQL for the same task, however,
+ * it had plenty to say." -- and glue already stored in an excerpt is a backfill,
+ * not a composition rule.
  */
 export function headlineFragment(text: string): boolean {
   const trimmed = text.trim();
@@ -1925,92 +1916,19 @@ export function headlineFragment(text: string): boolean {
 }
 
 /**
- * A word a heading can end on, but a clause cannot.
- *
- * "Regulators in the United States and the European Union are drafting rules"
- * is one sentence: the seam is not a seam, it is a determiner followed by the
- * noun it belongs to. A heading never ends on one of these.
- */
-const NOT_A_HEAD_TAIL = new Set(
-  "the a an this that these those its their our your his her of in on at to for with from by into over under and or but than as about between among against during within without after before since while when where which who if whether".split(
-    " ",
-  ),
-);
-
-/**
- * Split a standfirst that was glued to the sentence after it.
- *
- * One shape, and only one, because the cost of a wrong seam is deleting a real
- * clause: a headline is a wh-opening with no question mark, which in English is
- * never a body sentence ("Why identity built for humans breaks at agent speed
- * Perhaps predictably for a company that ...").
- *
- * A *section label* with no predicate is deliberately **not** a seam. It was one
- * for a while -- "Pricing and availability Amazon CloudWatch Omni is now
- * available." -- and a 200-event pass over the live corpus shows why it cannot be:
- * of the fourteen cuts it made, six were shown and four of those deleted a real
- * subject ("Swedish police and the country's Post and Telecom Agency (PTS)
- * started working more closely", "Extensive experiments on multiple public RSCC
- * benchmark datasets demonstrate that ..."). Nothing structural in a plain-text
- * excerpt separates a label from a noun phrase that continues, so the label is
- * left to the ingest boundary, where `htmlToText` now ends a heading instead of
- * gluing it to the prose after it.
- *
- * The seam itself is checked rather than assumed. It must be glued (no punctuation
- * between the two halves, so a head ending on a comma or a colon was written as
- * its own clause by the source and is left alone), the head may not end on a
- * determiner, preposition or subordinator -- the seam of "Regulators in the United
- * States and the European Union are drafting rules" is inside the subject -- and it
- * must leave a valid sentence behind. Nothing here knows any article's words.
- */
-export function splitStandfirstGlue(text: string): string | null {
-  const trimmed = text.trim();
-  if (trimmed === "") return null;
-  if (!headlineFragment(trimmed)) return null;
-  // A quotation is nobody's heading, and its first word is reliably a capital.
-  if (/^["“]/.test(trimmed)) return null;
-  const tokens = wordOffsets(trimmed);
-  const budget = Math.min(STANDFIRST_WORD_BUDGET, tokens.length - 1);
-  for (let index = 1; index <= budget; index++) {
-    const token = tokens[index]!;
-    if (!/^[A-Z]/.test(token.word)) continue;
-    const head = trimmed.slice(0, token.at).trim();
-    const body = trimmed.slice(token.at).trim();
-    if (head === "" || body === "") continue;
-    if (!/[\p{L}\p{N}]$/u.test(head)) continue;
-    if (!validDeterministicSentence(body)) continue;
-    if (wordOffsets(head).length < 3) continue;
-    const last = (head.split(/\s+/).at(-1) ?? "").replace(/[^\p{L}]/gu, "").toLowerCase();
-    if (NOT_A_HEAD_TAIL.has(last)) continue;
-    if (!validDeterministicSentence(head)) continue;
-    return body;
-  }
-  return null;
-}
-
-/**
  * Drop the furniture a source wrapped around its own text, before it is read.
  *
- * Two shapes: the item's headline repeated at the front of the description, and
- * a standfirst glued to the first sentence. Both are "what the provider shipped"
- * rather than "what happened", which is the boundary this module already owns.
- * Returns the reason when the whole unit turned out to be furniture, so the
- * caller can drop it instead of publishing a bare headline as prose.
+ * One shape: the item's headline repeated at the front of the description. That
+ * is "what the provider shipped" rather than "what happened", which is the
+ * boundary this module already owns, and the returned flag lets the caller count
+ * the rewrite it made.
  */
 export function stripSourceFurniture(
   text: string,
   headline: string | undefined,
-): { text: string; strippedHeadline: boolean; strippedStandfirst: boolean } {
+): { text: string; strippedHeadline: boolean } {
   const withoutHeadline = stripHeadlinePrefix(text, headline);
-  return {
-    text: withoutHeadline.text,
-    strippedHeadline: withoutHeadline.stripped,
-    // The standfirst seam is found per sentence, in `selectReaderEvidence`: a
-    // whole description contains question marks of its own -- a quotation asking
-    // something -- and the "no question mark in this unit" test that identifies a
-    // subhead has to be asked of the unit, not of the document.
-    strippedStandfirst: false,
-  };
+  return { text: withoutHeadline.text, strippedHeadline: withoutHeadline.stripped };
 }
 
 /**
@@ -2106,8 +2024,6 @@ export type ReaderSourceNormalization = {
   authorialVoiceRewrites: number;
   /** Texts that opened by repeating their own item headline. */
   strippedHeadlines: number;
-  /** Texts where a standfirst was glued to the sentence after it. */
-  strippedStandfirsts: number;
   /** Sentences an editorial adverbial was removed from, keeping the fact. */
   sourceVoiceStripped: number;
   /** Sentences a fronted editorial frame was removed from, keeping the fact. */
@@ -2125,7 +2041,6 @@ export type ReaderSourceNormalization = {
    */ samples: {
     voiceStrips: string[];
     frames: string[];
-    standfirstSeams: string[];
     relativeTimes: string[];
     /** Sentences dropped for a pronoun with no antecedent, kept to be read. */ droppedContext: string[];
     /** Narrator resolutions and drops, before/after, to be read by hand. */
@@ -2155,6 +2070,8 @@ export type ReaderSourceNormalization = {
  * counts add up to `rejectedCount`, so a dropped sentence is always explicable.
  */
 export type EvidenceRejectionReason =
+  /** A unit that is nothing but a headline: a heading, not a sentence. */
+  | "headline_fragment"
   | "invalid_sentence"
   | "no_predicate"
   | "editorial_noise"
@@ -2178,14 +2095,12 @@ function emptyNormalizationStats(): ReaderSourceNormalization & ReaderDedupe {
     rejectedMetadataOnly: 0,
     authorialVoiceRewrites: 0,
     strippedHeadlines: 0,
-    strippedStandfirsts: 0,
     sourceVoiceStripped: 0,
     strippedFrames: 0,
     sourceColourRejections: 0,
     samples: {
       voiceStrips: [],
       frames: [],
-      standfirstSeams: [],
       relativeTimes: [],
       droppedContext: [],
       narrator: [],
@@ -2238,10 +2153,9 @@ function normalizeReaderSource(
     }
     stats.authorialVoiceRewrites += normalization.authorialVoiceRewrites;
     // What the provider wrapped around its own text goes next: its headline
-    // repeated at the front, and a standfirst glued to the sentence after it.
+    // repeated at the front of the description.
     const furniture = stripSourceFurniture(normalization.text, source.headline);
     if (furniture.strippedHeadline) stats.strippedHeadlines += 1;
-    if (furniture.strippedStandfirst) stats.strippedStandfirsts += 1;
     if (
       normalization.metadataOnly ||
       furniture.text === "" ||
@@ -2373,12 +2287,6 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
           text = recoverContext(text, previousText) ?? "";
         }
       }
-      const unglued = splitStandfirstGlue(text);
-      if (unglued !== null) {
-        stats.strippedStandfirsts += 1;
-        keepSample(stats.samples.standfirstSeams, text, unglued);
-        text = unglued;
-      }
       const voiced = stripEditorialVoice(text);
       if (voiced !== text) {
         stats.sourceVoiceStripped += 1;
@@ -2435,6 +2343,7 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
   let duplicates = 0;
   // One entry per refused unit, so the counts always explain `rejectedCount`.
   const rejectionReasons: Record<EvidenceRejectionReason, number> = {
+    headline_fragment: 0,
     invalid_sentence: 0,
     no_predicate: 0,
     editorial_noise: 0,
@@ -2527,7 +2436,6 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
       rejectedMetadataOnly: stats.rejectedMetadataOnly,
       authorialVoiceRewrites: stats.authorialVoiceRewrites,
       strippedHeadlines: stats.strippedHeadlines,
-      strippedStandfirsts: stats.strippedStandfirsts,
       sourceVoiceStripped: stats.sourceVoiceStripped,
       strippedFrames: stats.strippedFrames,
       sourceColourRejections: stats.sourceColourRejections,
