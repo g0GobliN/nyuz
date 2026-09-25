@@ -20,11 +20,11 @@ import { NAV_STAFF } from "@/lib/dashboard-nav";
  * product ever called it. The avatar is where people look for that, so it opens
  * a menu instead, with Settings still one click away.
  *
- * It also carries the staff destinations, because in the app shell it is the
- * only navigation an admin has above the tab bar. `NAV_STAFF` lives in the
- * sidebar, and the sidebar is absent from both the app shell and the browser's
- * `lg:hidden` mobile layout — so there would be no link to the console anywhere
- * in the product, and the only way in would be typing the URL. They are
+ * It also carries Billing and the staff destinations, because in neither chrome
+ * does the sideways-scrolling strip list them. `NAV_STAFF` lives in the sidebar,
+ * and the sidebar is absent from both the app shell and the browser's
+ * `lg:hidden` mobile layout — so without this menu there would be no link to the
+ * console anywhere in the product, and the only way in would be typing the URL. They are
  * rendered at every width rather than behind `lg:hidden`: a menu whose contents
  * change depending on how wide the window is is worse than one extra row on a
  * desktop that also has a sidebar.

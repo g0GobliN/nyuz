@@ -133,7 +133,7 @@ describe("the viewport the safe areas depend on", () => {
   it("sets viewport-fit=cover", () => {
     // Every env(safe-area-inset-*) in the product resolves to 0 without this,
     // so dropping it would quietly disable the app shell's full-bleed top bar
-    // and the tab bar's home-indicator padding in one edit.
+    // and the bottom strip's home-indicator padding in one edit.
     expect(root).toMatch(/width=device-width, initial-scale=1, viewport-fit=cover/);
   });
 

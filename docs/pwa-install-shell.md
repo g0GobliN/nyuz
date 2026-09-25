@@ -13,7 +13,7 @@ routes, same data. A normal browser visit is unchanged.
 |---|---|
 | Shell scope | App shell on `/dashboard/*` only; marketing pages keep website chrome |
 | `start_url` | `/dashboard` |
-| Bottom tabs | **Home / Topics / Saved / Profile** — Alerts lives in the top bar |
+| Bottom bar | The website's sideways-scrolling strip, all eight destinations — the same list in both chromes; Billing and the staff pages stay in the account menu |
 | Offline depth | Per-account IndexedDB: card subset for Home/Today/Saved, whole story for Saved + recently opened |
 | iPhone status bar | Full-bleed `black-translucent` + `viewport-fit=cover`; the shell's top bar is ink in **both** themes |
 
@@ -50,19 +50,23 @@ routes, same data. A normal browser visit is unchanged.
   `useSyncExternalStore`, so an installed launch gets the real answer on its first
   client render rather than one frame of the wrong chrome.
 - `src/components/dashboard/app-shell.tsx` — ink top bar (wordmark, theme toggle,
-  Alerts, search, account menu), `min-h-dvh` content, four fixed tabs, safe areas
-  at both ends. No page title in the bar: every page already renders its own
-  `PageHeader`, and a second copy would be either redundant or briefly wrong.
+  Alerts, search, account menu), `min-h-dvh` content, the same sideways-scrolling
+  strip of destinations the browser layout draws, safe areas at both ends. No
+  page title in the bar: every page already renders its own `PageHeader`, and a
+  second copy would be either redundant or briefly wrong.
 - `DashboardShell` branches on `useStandalone()`; the website layout is otherwise
   untouched. `DashboardGuard` draws the shell chrome immediately in standalone, so
   only the content waits.
-- `src/lib/dashboard-nav.ts` — one destination list both chromes read, with
-  `profileHubDestinations` derived from it, so a destination cannot go missing
-  from one of them. The Profile hub keeps "My briefing", because a tab only
-  claims a route when it opens the *same view* of it (Saved is
-  `/dashboard/briefing?tab=saved`).
-- `?tab=saved` moved into the URL: Saved deep-links, survives back/forward, and
-  is no longer lost by opening a story and returning.
+- `src/lib/dashboard-nav.ts` — one destination list both chromes read. The
+  installed app's bottom bar draws `MOBILE` in full, exactly as the browser's
+  strip does: same destinations, same order, same sideways scroll, only the
+  surface differs (ink there, glass here). An earlier version of this stage drew
+  four fixed tabs and derived a `profileHubDestinations` list for the rest, which
+  kept every destination reachable but made the app's navigation a second system
+  to learn; the hub is gone and Settings holds only settings.
+- `?tab=saved` lives in the URL on `/dashboard/briefing`, so the saved view
+  survives back/forward and is not lost by opening a story and returning. Both
+  strips open the route as a whole and the chips choose the view.
 - `--app-chrome` / `--app-chrome-foreground` (chroma 0, identical in both themes)
   and `html[data-standalone]` rules for `overscroll-behavior` and the ink behind
   the status bar, set before first paint by a head script beside the theme script.
@@ -219,7 +223,7 @@ codebase so that a failure points somewhere specific.
 | 3 | Installed launch shows no browser chrome | `display: standalone` |
 | 4 | Ink status bar above the ink top bar, in **both** themes | `themeColorFor` + `data-standalone` (Stage 5 fix) |
 | 5 | Nothing under the notch or the home indicator, portrait and landscape | `viewport-fit=cover` + `env(safe-area-inset-*)` at both ends |
-| 6 | Home / Topics / Saved / Profile all open and highlight correctly | `TABS` + `dashboard-nav.test.ts` |
+| 6 | Every destination in the strip opens from the app and highlights, and the strip scrolls sideways rather than clipping | `MOBILE` + `dashboard-nav.test.ts` |
 | 7 | Alerts bell opens `/dashboard/alerts` | link present; **note:** the signal dot on the bell is unconditional in *both* shells — there is no unread model anywhere in the product, so it is a permanent accent, not a badge |
 | 8 | Saved deep-link opens the Saved chip | `?tab=saved` in `validateSearch` |
 | 9 | Airplane mode, cold launch: chrome immediately, Home renders its cards | `networkMode: "offlineFirst"` + list archive |

@@ -28,9 +28,9 @@ import { isAdmin, useViewer } from "@/lib/viewer";
  * The dashboard's chrome, in two shapes.
  *
  * The destinations themselves live in src/lib/dashboard-nav.ts, shared with the
- * installed app's tab bar, and the account menu and search overlay are their own
- * modules for the same reason: this file used to hold four nav arrays and both
- * of those components, and the app shell needs all of them.
+ * installed app's bottom strip, and the account menu and search overlay are their
+ * own modules for the same reason: this file used to hold four nav arrays and
+ * both of those components, and the app shell needs all of them.
  *
  * Which shape is drawn is decided here, once, by `useStandalone()`. Every page
  * renders `<DashboardShell title="…">` and none of them knows the difference —

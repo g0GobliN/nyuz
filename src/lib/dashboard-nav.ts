@@ -1,6 +1,5 @@
 import {
   Bell,
-  Bookmark,
   BookOpen,
   CreditCard,
   Gauge,
@@ -11,7 +10,6 @@ import {
   Settings,
   ShieldCheck,
   Tag,
-  UserRound,
   type LucideIcon,
 } from "lucide-react";
 
@@ -74,14 +72,26 @@ export const NAV_STAFF: readonly NavDestination[] = [
 ] as const;
 
 /**
- * The website layout's mobile strip: the sidebar flattened, plus Settings.
+ * The scrolling strip, and the only navigation either chrome draws on a phone.
+ *
+ * Both layouts render this same list, in the same order, and each one only
+ * changes what it looks like: the browser's strip is glass on the page's own
+ * background under a `lg:hidden` bar, the installed app's is the ink bar at the
+ * bottom of the window. That sameness is the point. An earlier version of the
+ * app shell drew four fixed tabs instead and needed a Profile hub inside
+ * Settings to reach the other five destinations — a second navigation system
+ * that existed only because the bar had been shrunk, and that left the reader to
+ * learn where each chrome had hidden things.
  *
  * Kept as its own list rather than derived from `NAV` because the labels differ
  * on purpose — this strip is 11px under an icon, where "My briefing" is a line
  * and "Briefing" is a word. Folding them together would silently rename an
- * existing tab to save eight lines.
+ * existing destination to save eight lines.
  *
- * The installed app does not use this list; it has `TABS` below.
+ * Billing is deliberately absent, in both chromes: it is a settings-shaped
+ * thing a reader looks for once, and both headers already carry it in the
+ * account menu. The staff destinations are there for the same reason — see
+ * `NAV_STAFF`, which the account menu also renders.
  */
 export const MOBILE: readonly NavDestination[] = [
   { to: "/dashboard", label: "Home", icon: Home, exact: true },
@@ -93,50 +103,3 @@ export const MOBILE: readonly NavDestination[] = [
   { to: "/dashboard/history", label: "History", icon: History },
   { to: "/dashboard/settings", label: "Settings", icon: Settings },
 ] as const;
-
-/**
- * The app shell's tabs.
- *
- * Four tabs, not the sidebar's nine. That is the whole difference between an app and
- * a narrow website: a tab bar is a promise that every one of its items is a
- * place you go often, and a bar that has to scroll sideways to show its own
- * destinations has broken that promise. Alerts is the one destination worth
- * promoting out of the tab bar and into the top bar, because a pushed alert
- * opens there — everything else (Sources, Delivery, History, Billing) is
- * configuration or archive, and those live in the Profile hub.
- *
- * `tab` names the view this destination opens *within* a route, for Saved: it
- * is the same `/dashboard/briefing` page with the other chip selected, which is
- * why it is a search param rather than a second route.
- */
-export type ShellTab = NavDestination & { tab?: "today" | "saved" };
-
-export const TABS: readonly ShellTab[] = [
-  { to: "/dashboard", label: "Home", icon: Home, exact: true },
-  { to: "/dashboard/topics", label: "Topics", icon: Tag },
-  { to: "/dashboard/briefing", label: "Saved", icon: Bookmark, tab: "saved" },
-  { to: "/dashboard/settings", label: "Profile", icon: UserRound },
-] as const;
-
-/**
- * What the Profile hub lists below the reader's own settings.
- *
- * Derived from the lists above rather than written out again — a fifth array is
- * a fourth chance to lose a destination. Everything in `NAV` and `NAV_FOOT` that
- * the tab bar does not already carry, plus the staff block.
- *
- * A tab claims a destination only if it opens the *same view* of it. Saved is
- * `/dashboard/briefing?tab=saved`, so it does not claim `/dashboard/briefing`
- * itself — which is why "My briefing" stays in this list. Excluding by path
- * alone would have quietly removed the delivered-briefing view from the app's
- * navigation, leaving it reachable only from the button on Home.
- */
-export function profileHubDestinations(staff: boolean): readonly NavDestination[] {
-  // Tabs with a `tab` param claim one view; tabs without one claim their path.
-  const claimed = new Set(TABS.filter((tab) => !tab.tab).map((tab) => tab.to));
-  return [
-    ...NAV.filter((item) => !claimed.has(item.to)),
-    ...NAV_FOOT.filter((item) => !claimed.has(item.to)),
-    ...(staff ? NAV_STAFF : []),
-  ];
-}

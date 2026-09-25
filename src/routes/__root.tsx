@@ -119,7 +119,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       // `viewport-fit=cover` is load-bearing, not decoration. Without it the
       // layout viewport is inset to clear the notch and the home indicator, and
       // every `env(safe-area-inset-*)` in the stylesheet resolves to 0 — so the
-      // app shell's full-bleed top bar and padded tab bar would render exactly
+      // app shell's full-bleed top bar and padded bottom strip would render exactly
       // as if the safe areas had been handled, while sitting under the notch in
       // landscape. It also makes the insets real in a normal browser tab, which
       // is why the site's own fixed chrome pads for them too.

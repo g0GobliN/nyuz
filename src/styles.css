@@ -267,8 +267,8 @@ html[data-standalone] {
  * fixed chrome — the marketing header, the dashboard header and the bottom nav —
  * has to pad for the insets or landscape puts text under the notch.
  *
- * `max()` rather than a sum, matching the rule the tab bar already used for the
- * bottom inset: a phone with no cutout gets the ordinary gutter, and the inset
+ * `max()` rather than a sum, matching the rule the bottom strip already used for
+ * the bottom inset: a phone with no cutout gets the ordinary gutter, and the inset
  * only takes over on the devices where it is larger. Each utility is the
  * safe-area-correct replacement for the `px-*` step in its name, so swapping one
  * for the other cannot drift.
