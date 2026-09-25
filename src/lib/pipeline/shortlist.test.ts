@@ -136,6 +136,71 @@ describe("titleTokens", () => {
   });
 });
 
+describe("titles in scripts that do not use spaces", () => {
+  /**
+   * Japanese, Chinese and Korean do not put spaces between words, so
+   * `titleTokens` used to read every CJK headline as an unspaced — therefore
+   * machine-generated — tag and return nothing for it. A headline with no
+   * tokens gets no shortlist, so it never found a sibling to cluster with, and
+   * every Japanese story became a one-article event nobody could follow.
+   *
+   * The exception is narrow on purpose: `v8.2.2` and hex refs are still refused,
+   * because they are unspaced *and* have no CJK in them.
+   */
+  it("tokens a Japanese headline instead of calling it a ref", () => {
+    const tokens = titleTokens("東京の音楽フェスが中止になった");
+    expect(tokens.length).toBeGreaterThan(0);
+    // The run itself is the pattern verbatim republication shares, and it is what
+    // the trigram index can serve; a shorter window would be a different story.
+    expect(tokens).toContain("東京の音楽フェスが中止になった");
+  });
+
+  it("tokens a Chinese headline", () => {
+    expect(titleTokens("中国音乐市场增长").length).toBeGreaterThan(0);
+  });
+
+  it("tokens a Korean headline, which does use spaces", () => {
+    expect(titleTokens("한국 음악 시장이 성장하고 있다").length).toBeGreaterThan(0);
+    // Hangul words are short and the Latin floor is three characters, so this
+    // headline used to tokenise to nothing at all. Two-character Korean words
+    // are words, and this is the case that says so.
+    expect(titleTokens("한국 음악")).toEqual(expect.arrayContaining(["한국", "음악"]));
+  });
+
+  it("gives two tellings of one Korean story a shared pattern", () => {
+    const first = titleTokens("한국 음악 시장이 성장하고 있다");
+    const second = titleTokens("한국 음악 시장이 커졌다");
+    expect(first.filter((token) => second.includes(token))).toContain("시장이");
+  });
+
+  it("clusters Korean on shared word forms, which is the whole of the rule", () => {
+    // Documented rather than papered over: two words built from one Korean stem
+    // with different endings (성장 / 성장하고) share no trigram, so they do not
+    // cluster. Closing that needs a morphological analyser per language, which is
+    // the kind of dependency this pipeline has deliberately never taken on. The
+    // cost is recall inside one language's inflection; the cost of guessing wrong
+    // would be two unrelated stories merged.
+    const inflected = titleTokens("한국 음악 시장이 성장하고 있다");
+    const stem = titleTokens("한국 음악 시장 성장");
+    expect(inflected.filter((token) => stem.includes(token))).toEqual([]);
+  });
+
+  it("gives two tellings of one Japanese story a shared pattern", () => {
+    // Clustering is the only thing this is for: the pair must intersect, or two
+    // outlets' accounts of one event are two events.
+    const first = titleTokens("東京の音楽フェスが中止になった");
+    const second = titleTokens("東京の音楽フェスが中止に");
+    expect(first.filter((token) => second.includes(token)).length).toBeGreaterThan(0);
+  });
+
+  it("still refuses unspaced ASCII, which is what a ref looks like", () => {
+    expect(titleTokens("v8.2.2")).toEqual([]);
+    expect(titleTokens("viable/strict/1787466473")).toEqual([]);
+    expect(titleTokens("trunk/16ee93b8a9e7e2dd215a2f5d07eada25e31ec123")).toEqual([]);
+    expect(isVcsRef("v8.2.2")).toBe(false);
+  });
+});
+
 describe("orFilter", () => {
   it("builds a PostgREST disjunction", () => {
     expect(orFilter(["nvidia", "cloverleaf"])).toBe(

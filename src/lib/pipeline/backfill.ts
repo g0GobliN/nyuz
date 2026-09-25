@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SecretBag } from "@/lib/ai/config";
 import { related } from "@/lib/relate";
-import { matchesTerms, normaliseText } from "@/lib/topics";
+import { normaliseText } from "@/lib/topics";
+import { evaluateSpec, specForTopic } from "@/lib/match-spec";
 import type { Database } from "@/lib/supabase/types";
 import { analyse } from "./analyse";
 import { loadReaders, match, type Reader } from "./match";
@@ -186,8 +187,9 @@ export function worthAnalysing(
   const vetoes = [...reader.exclusions, ...reader.topics.flatMap((t) => t.excludeKeywords)];
   // A reader-created interest has to earn its place here the same way, and can
   // only be judged on the headline: an event this stage is deciding whether to
-  // finalize has not been analysed, so it has no tags yet. Every term must
-  // appear, which is the same rule stage 5 applies to the richer signal.
+  // finalize has not been analysed, so it has no tags yet. It is judged by the
+  // topic's own specification, which for a topic that has never been given one
+  // is the AND-over-terms rule stage 5 used to apply here -- see `match-spec.ts`.
   const custom = reader.topics.filter((t) => t.kind === "custom" && t.terms.length > 0);
 
   const chosen: PendingEvent[] = [];
@@ -195,7 +197,7 @@ export function worthAnalysing(
     if (chosen.length >= limit) break;
     const named =
       wanted.some((term) => related(event.title, term)) ||
-      custom.some((t) => matchesTerms(normaliseText(event.title), t.terms));
+      custom.some((t) => evaluateSpec(specForTopic(t), normaliseText(event.title)).matched);
     if (!named) continue;
     if (vetoes.some((term) => related(event.title, term))) continue;
     chosen.push(event);

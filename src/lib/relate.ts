@@ -15,11 +15,34 @@
  * either side's world along with it.
  */
 
-/** Case- and punctuation-insensitive, so "Developer Tools" matches "developer tools". */
+/**
+ * Scripts that are not written with the Latin alphabet, and not separated by
+ * spaces either. Kept as a local constant rather than imported because this
+ * module deliberately has no imports: the browser matcher and the pipeline
+ * matcher must share one rule without sharing a dependency graph.
+ */
+const NON_LATIN_SCRIPT =
+  /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Devanagari}\p{Script=Thai}\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Cyrillic}]/u;
+
+/**
+ * Case- and punctuation-insensitive, so "Developer Tools" matches "developer tools".
+ *
+ * Latin input is normalised exactly as it always was -- everything outside
+ * `[a-z0-9]` becomes a space -- so no existing comparison changes. Text in a
+ * script that is not Latin takes a preserving path instead, because the old rule
+ * deleted it: `norm("日本の音楽")` was the empty string, which made
+ * `related(a, b)` return false for every CJK term unconditionally. Accents fold
+ * in both paths; marks are kept in the preserving path because Devanagari vowel
+ * signs are marks and dropping them changes the word.
+ */
 export function norm(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+  const lower = value.toLowerCase();
+  if (!NON_LATIN_SCRIPT.test(lower)) {
+    return lower.replace(/[^a-z0-9]+/g, " ").trim();
+  }
+  return lower
+    .normalize("NFKC")
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, " ")
     .trim();
 }
 

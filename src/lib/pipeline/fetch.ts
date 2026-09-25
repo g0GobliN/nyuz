@@ -37,7 +37,19 @@ export const FETCH_TIMEOUT_MS = 15_000;
  * pulls thirty of those into a Worker's memory dies with no useful error.
  */
 const MAX_BYTES = 2 * 1024 * 1024;
-const MAX_REDIRECTS = 5;
+
+/**
+ * Redirect hops before a fetch is refused, re-validating the address at each one.
+ *
+ * Three, not five. This transport is shared with source discovery, where the
+ * destination is derived from demand -- a value an attacker can influence by
+ * typing an interest -- and every hop is another chance for a public address to
+ * point at something private. Each hop is re-checked against
+ * `isPublicHttpUrl`, so this is defence in depth rather than the only guard;
+ * three is simply as far as any real feed has ever needed to go, and the cap is
+ * part of what makes a hostile page's cost bounded.
+ */
+const MAX_REDIRECTS = 3;
 
 export type FeedFetch =
   | {

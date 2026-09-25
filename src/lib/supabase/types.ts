@@ -179,6 +179,16 @@ export type Topic = {
   /** Who typed it first. Null once that account is deleted; the topic stays. */
   created_by: string | null;
   created_at: string;
+  /**
+   * The interest match specification (0100): AND across `require` groups, OR
+   * within each, plus boost-only `optional` and vetoing `exclude` terms. An
+   * empty object means "derive from `terms`", which is the behaviour before
+   * specifications existed. Semantics live in `src/lib/match-spec.ts`.
+   */
+  match_spec: Json;
+  /** `derived` or `enriched`; null while the specification is empty. */
+  match_spec_source: string | null;
+  match_spec_updated_at: string | null;
 };
 
 export type UserTopic = {
@@ -714,6 +724,31 @@ export type EventRow = {
    * no followed subject is not re-examined for ever.
    */
   classified_at: string | null;
+  /**
+   * Accepted material transitions (0097). Distinct from `coverage_revision`,
+   * which counts article attachment including reprints: this counts only the
+   * times the event's material state genuinely moved. The unit of re-delivery —
+   * `user_events.delivered_revision` compares against it.
+   */
+  material_revision: number;
+  /**
+   * The material state (`event-version.ts`) as of the last accepted transition.
+   * Null means "never measured": the first finalization after 0097 adopts the
+   * current state and advances no revision.
+   */
+  material_fingerprint: string | null;
+  /**
+   * When this system *discovered* the current material change. Drives the
+   * re-entry and re-match queues. Never used for freshness — discovery time is
+   * not occurrence time.
+   */
+  last_material_change_at: string | null;
+  /**
+   * When the evidence behind the current material state was published. Drives
+   * freshness lanes and briefing order, so a late-discovered development cannot
+   * present itself as today's news.
+   */
+  material_occurrence_at: string | null;
 };
 
 export type Article = {
@@ -776,6 +811,17 @@ export type UserEvent = {
   /** Durable deduplication marker; digest history may be purged independently. */
   briefed_at: string | null;
   /**
+   * The latest event `material_revision` this reader received (0099). Written
+   * when a digest delivers the event, not when it is matched. A closed
+   * relationship may reopen only when the event has moved past this value.
+   */
+  delivered_revision: number;
+  /**
+   * How unusual the event's material delta is for this topic's own history
+   * (0099). A signal for ordering, never a gate; null means not computed.
+   */
+  subject_significance: number | null;
+  /**
    * Set when this match was never briefed and has aged past every cadence's
    * window (0068). A mark, not a delete — the row still records that this
    * reader matched this event, which dedupe and analytics both read. Rows with
@@ -815,6 +861,12 @@ export type DigestItem = {
   event_id: string;
   position: number;
   why_it_matters: string;
+  /**
+   * The event's `material_revision` when this item was delivered (0099), so
+   * delivery history can answer "which revision did this reader get" even after
+   * the digest itself is purged.
+   */
+  delivered_revision: number;
 };
 
 export type Delivery = {
@@ -1070,7 +1122,17 @@ export type Database = {
         NotificationPreferences,
         Exclude<keyof NotificationPreferences, "user_id">
       >;
-      topics: Table<Topic, "id" | "kind" | "terms" | "created_by" | "created_at">;
+      topics: Table<
+        Topic,
+        | "id"
+        | "kind"
+        | "terms"
+        | "created_by"
+        | "created_at"
+        | "match_spec"
+        | "match_spec_source"
+        | "match_spec_updated_at"
+      >;
       user_topics: Table<
         UserTopic,
         | "importance"
@@ -1180,6 +1242,10 @@ export type Database = {
         | "analysis_deferred_until"
         | "tags"
         | "classified_at"
+        | "material_revision"
+        | "material_fingerprint"
+        | "last_material_change_at"
+        | "material_occurrence_at"
       >;
       articles: Table<
         Article,
@@ -1249,6 +1315,8 @@ export type Database = {
         | "engaged_at"
         | "briefed_at"
         | "expired_at"
+        | "delivered_revision"
+        | "subject_significance"
       >;
       digests: Table<
         Digest,
@@ -1263,7 +1331,7 @@ export type Database = {
         | "generation_attempts"
         | "generation_failure_reason"
       >;
-      digest_items: Table<DigestItem, "why_it_matters">;
+      digest_items: Table<DigestItem, "why_it_matters" | "delivered_revision">;
       deliveries: Table<
         Delivery,
         | "id"

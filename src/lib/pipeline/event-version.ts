@@ -31,8 +31,13 @@
  *     detail, while 12 becoming 400 is not. Buckets are logarithmic for the
  *     same reason a $40M round and a $4B acquisition are different events but
  *     $40M and $45M are one.
- *   - **Identity.** The companies, countries and CVEs the coverage is about, as
- *     a set. A new principal entering the story is a development.
+ *   - **Identity.** The CVEs the coverage is about, and the releases it names
+ *     (`version:2.0`). Stable identifiers, not every proper noun in the text: a
+ *     new principal entering the story is only a development when it arrives
+ *     with a version or a CVE, which is the narrow claim this module can
+ *     actually keep. (The previous comment here claimed companies and
+ *     countries; the code never extracted them, and this comment now describes
+ *     what it does.)
  *
  * Everything else is deliberately ignored.
  *
@@ -55,6 +60,7 @@
  */
 
 import { extractFacts, type ExtractedFacts } from "./extract";
+import { markersIn, releaseIdentity } from "./marker-packs";
 
 /**
  * Status transitions that make an event a different event.
@@ -220,11 +226,15 @@ export type MaterialState = {
 export function materialState(coverageText: string, facts?: ExtractedFacts): MaterialState {
   const extracted = facts ?? extractFacts(coverageText, 0);
 
-  const markers = DEVELOPMENT_MARKERS.filter(({ marker, pattern }) =>
+  const latin = DEVELOPMENT_MARKERS.filter(({ marker, pattern }) =>
     marker === "deal_confirmed"
       ? hasAffirmativeDealConfirmation(coverageText)
       : pattern.test(coverageText),
   ).map(({ marker }) => marker);
+  // Other languages, plus the version-gated release stages, from
+  // `marker-packs.ts`. The English terms above are the same concepts and
+  // de-duplicate, so the union only ever adds what the list cannot see.
+  const markers = [...latin, ...markersIn(coverageText)];
 
   // Money, counts and percentages are the numbers whose size changes the story.
   // Versions, dates and CVSS scores are identity, not magnitude, and are folded
@@ -246,7 +256,12 @@ export function materialState(coverageText: string, facts?: ExtractedFacts): Mat
     if (value !== null) magnitudes.push(`casualty:${magnitudeBucket(value)}`);
   }
 
-  const entities = [...extracted.cves.map((c) => `cve:${c.value}`)];
+  const entities = [
+    ...extracted.cves.map((c) => `cve:${c.value}`),
+    // `2.0` announced and `2.0` at release-candidate are two material states
+    // even before the stage markers are considered; this is the identity half.
+    ...releaseIdentity(coverageText).versions.map((version) => `version:${version}`),
+  ];
 
   return {
     markers: stableSet(markers),
@@ -272,7 +287,7 @@ export function materialFingerprint(state: MaterialState): string {
  * serving prose written under the old rules. This is the same reasoning
  * `translate.ts` applies to its own prompt version, and the same trap.
  */
-export const MATERIAL_VERSION_SCHEME = 1;
+export const MATERIAL_VERSION_SCHEME = 2;
 
 /**
  * Twelve hex characters of SHA-256 over the material fingerprint.
@@ -304,4 +319,113 @@ export async function contentVersion(
  */
 export function coverageTextOf(articles: { title: string; excerpt: string | null }[]): string {
   return articles.map((a) => `${a.title}\n${a.excerpt ?? ""}`).join("\n---\n");
+}
+
+/* ---------------------------------------------------------------------------
+ * The two clocks
+ * ------------------------------------------------------------------------- */
+
+/**
+ * When the coverage actually happened, as far as the world's timestamps go.
+ *
+ * The newest `published_at` in an event's coverage, or null when not one
+ * article carries a date. Deliberately the *publication* time and not the
+ * fetch time: an old article discovered today was published when it was
+ * published, and the whole point of keeping this separate from
+ * `last_material_change_at` is that ingestion must never be able to age a
+ * story forward.
+ */
+export function latestPublishedAt(
+  articles: readonly { published_at: string | null }[],
+): string | null {
+  let newest: number | null = null;
+  let newestIso: string | null = null;
+  for (const article of articles) {
+    if (!article.published_at) continue;
+    const at = Date.parse(article.published_at);
+    if (!Number.isFinite(at)) continue;
+    if (newest === null || at > newest) {
+      newest = at;
+      newestIso = article.published_at;
+    }
+  }
+  return newestIso;
+}
+
+export type MaterialRevisionDecision = {
+  /** True when the event's revision must advance. */
+  changed: boolean;
+  /** The fingerprint worth storing, or null to leave the stored one alone. */
+  fingerprint: string | null;
+  /**
+   * When the newly established material state's evidence was published. Null
+   * when the decision is not to advance.
+   */
+  occurrenceAt: string | null;
+  /** Why, in one word, for the pipeline report and for tests. */
+  reason: "first_finalization" | "material_change" | "unchanged" | "stale_evidence";
+};
+
+/**
+ * Whether a finalization advances the event's material revision.
+ *
+ * Three cases, and the third is the one the product turns on:
+ *
+ *   - **First finalization.** Adopt the state and its occurrence time, advance
+ *     no revision. An event a reader has never seen has nothing to re-deliver.
+ *   - **Material change.** The fingerprint moved *and* the coverage contains
+ *     evidence published after the state we already recorded. The revision
+ *     advances and the occurrence moves to that evidence's publication time --
+ *     not to `now`, so a development reported last week is dated last week.
+ *   - **Stale evidence.** The fingerprint moved but no article is newer than
+ *     what established the current state: a rehash or a late-discovered copy
+ *     that happens to mention a new number. No revision, and the stored
+ *     fingerprint is left alone so a later genuine change is still measured
+ *     against the state the reader actually received.
+ *
+ * The fourth outcome is the boring one: nothing moved, so nothing happens.
+ * `now` is accepted for symmetry with the callers and is deliberately unused --
+ * the decision is a function of evidence, never of wall-clock time.
+ */
+export function decideMaterialRevision(input: {
+  storedFingerprint: string | null;
+  storedOccurrenceAt: string | null;
+  nextFingerprint: string;
+  latestPublishedAt: string | null;
+  now: Date;
+}): MaterialRevisionDecision {
+  if (input.storedFingerprint === null) {
+    return {
+      changed: false,
+      fingerprint: input.nextFingerprint,
+      occurrenceAt: input.latestPublishedAt,
+      reason: "first_finalization",
+    };
+  }
+
+  if (input.storedFingerprint === input.nextFingerprint) {
+    return { changed: false, fingerprint: null, occurrenceAt: null, reason: "unchanged" };
+  }
+
+  const newest = input.latestPublishedAt === null ? null : Date.parse(input.latestPublishedAt);
+  const previous = input.storedOccurrenceAt === null ? null : Date.parse(input.storedOccurrenceAt);
+
+  // Strictly newer, and undated coverage counts as not newer: an event whose
+  // state changed on evidence we cannot date is not a revision, because
+  // freshness cannot be claimed for it.
+  const advanced =
+    newest !== null &&
+    Number.isFinite(newest) &&
+    (previous === null || !Number.isFinite(previous) || newest > previous);
+
+  if (!advanced) {
+    return { changed: false, fingerprint: null, occurrenceAt: null, reason: "stale_evidence" };
+  }
+
+  return {
+    changed: true,
+    fingerprint: input.nextFingerprint,
+    occurrenceAt: input.latestPublishedAt,
+    reason: "material_change",
+  };
 }

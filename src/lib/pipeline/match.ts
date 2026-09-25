@@ -58,10 +58,20 @@ import type {
   TopicImportance,
   TopicKind,
 } from "@/lib/supabase/types";
-import { matchesTerms, normaliseText } from "@/lib/topics";
+import { normaliseText } from "@/lib/topics";
+import { evaluateSpec, specForTopic, type MatchSpec } from "@/lib/match-spec";
+import {
+  briefingScore,
+  historyFrom,
+  observationsFor,
+  relevanceStrength,
+  subjectSignificance,
+  type SubjectHistory,
+  type SubjectObservations,
+} from "./subject-significance";
 import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
 import { fireAlerts } from "./alerts";
-import { activeCutoff } from "./freshness";
+import { MAX_WEEKLY_AGE_HOURS, activeCutoff } from "./freshness";
 
 type Db = SupabaseClient<Database>;
 
@@ -80,6 +90,28 @@ const IN_CHUNK = 100;
 
 /** Rows per insert. The body is JSON, so this is about keeping one failure small. */
 const WRITE_CHUNK = 500;
+
+/**
+ * Reopened relationships per reader per run.
+ *
+ * Reopening is one statement per pair rather than a batched upsert, because each
+ * pair carries its own relevance and the list is expected to be empty or tiny.
+ * The cap is the guarantee that stays true even if that expectation is wrong:
+ * a pathological revision burst costs a bounded number of writes and the rest
+ * wait for the next run.
+ */
+const REOPEN_CAP = 200;
+
+/**
+ * The feature flag for interest-conditional admission (P4).
+ *
+ * Off means the behaviour that shipped: an event reaches a topic when its shared
+ * importance clears the topic's floor. On adds the subject-relative term, which
+ * can only ever raise a topic's score -- see `subject-significance.ts`. The flag
+ * exists because that term can admit events the shared score would not, and a
+ * change of that kind is measured before it is enabled, never after.
+ */
+export const SUBJECT_SIGNIFICANCE_FLAG = "subject_significance_enabled";
 
 /**
  * Confidence for a source→topic link this stage observed rather than an
@@ -113,6 +145,11 @@ export type MatchOptions = {
    * must not dump a week's worth of "breaking" mail into a new inbox.
    */
   skipAlerts?: boolean | undefined;
+  /**
+   * Interest-conditional admission. Absent means "read the feature flag", which
+   * fails closed: an unreadable flag is the behaviour that shipped.
+   */
+  subjectSignificance?: boolean | undefined;
   /** Passed through to alert sends. Absent on a dry run, required on Cloudflare. */
   email?: EmailEnv | undefined;
   telegram?: TelegramEnv | undefined;
@@ -144,6 +181,19 @@ export type Candidate = {
   novelty: number;
   /** When the world saw the event — for alert freshness. */
   firstSeenAt: string;
+  /**
+   * Accepted material transitions (0097). 0 means the event has never moved
+   * since its first finalization. A reader who holds revision N is reopened
+   * only when this is greater than N.
+   */
+  materialRevision: number;
+  /**
+   * When the evidence behind the current material state was published. Null for
+   * an event that has never been revised, where `firstSeenAt` is already the
+   * right clock. This is what a re-delivered update ages on: occurrence, never
+   * discovery.
+   */
+  materialOccurrenceAt: string | null;
   topics: CandidateTopic[];
   /**
    * Normalised concepts from the shared analysis pass (0049). Written once per
@@ -161,12 +211,18 @@ export type ReaderTopic = {
   label: string;
   /**
    * `predefined` reaches events through `event_topics`, which analysis wrote.
-   * `custom` reaches them through `terms` against the shared signal, because
-   * the model was never given the vocabulary to classify it.
+   * `custom` reaches them through its match spec against the shared signal,
+   * because the model was never given the vocabulary to classify it.
    */
   kind: TopicKind;
   /** Deterministic match terms. ALL must be present. Empty for predefined. */
   terms: string[];
+  /**
+   * The stored specification, or null when the topic has never been given one
+   * (0100). Null and an empty object both mean "derive from `terms`", which is
+   * exactly the behaviour this stage had before specifications existed.
+   */
+  spec: MatchSpec | null;
   importance: TopicImportance;
   weight: number;
   keywords: string[];
@@ -193,6 +249,12 @@ export type ReaderOutcome = {
   inserted: number;
   /** Already in `user_events` from an earlier run. Not rewritten. */
   known: number;
+  /**
+   * Closed relationships reopened because the story materially moved since the
+   * revision this reader holds. The only path by which a reader can receive an
+   * event twice.
+   */
+  reopened: number;
   misses: Record<MissReason, number>;
   detail: string;
 };
@@ -207,6 +269,10 @@ export type MatchReport = {
   candidates: number;
   matched: number;
   inserted: number;
+  /** Material updates that reopened a reader's closed relationship. */
+  reopened: number;
+  /** Whether the interest-conditional admission rule was in force for this run. */
+  subjectSignificance: boolean;
   /** Source→topic links this run observed. See `recordObservedCoverage`. */
   coverageLinks: number;
   outcomes: ReaderOutcome[];
@@ -289,9 +355,12 @@ function selects(
   if (topic.keywords.some((keyword) => fields.some((f) => related(f, keyword)))) return true;
 
   // A reader-created interest, which the model was never given the vocabulary
-  // to classify. Every term must appear, so "India vs China" needs both
-  // countries and is not satisfied by a story about either one alone.
-  return topic.kind === "custom" && matchesTerms(signal, topic.terms);
+  // to classify. The spec decides: every `require` group must be satisfied and a
+  // group may be satisfied by any of its aliases, so "Arsenal" reaches the North
+  // London derby while "India vs China" still needs both countries. A topic with
+  // no stored spec derives one from its terms, which is the previous AND-over-all
+  // behaviour exactly -- see `match-spec.ts`.
+  return topic.kind === "custom" && evaluateSpec(specForTopic(topic), signal).matched;
 }
 
 /**
@@ -311,7 +380,11 @@ function selects(
  * operator seeing `excluded` knows a topic selected the event and the reader's
  * own term overruled it, which is the promise the landing page makes out loud.
  */
-export function decide(candidate: Candidate, reader: Reader): Verdict {
+export function decide(
+  candidate: Candidate,
+  reader: Reader,
+  context?: SignificanceContext,
+): Verdict {
   // Following nothing must not mean "show everything". This is the bug
   // `src/lib/matching.ts` was written to fix, in its purest form.
   if (reader.topics.length === 0) return { matched: false, reason: "no-topics" };
@@ -323,7 +396,16 @@ export function decide(candidate: Candidate, reader: Reader): Verdict {
   if (selected.length === 0) return { matched: false, reason: "no-topic-match" };
 
   const dial = thresholdFor(reader.density);
-  const admitting = selected.filter((t) => candidate.importance >= floorFor(t.importance, dial));
+  // Two ways to clear a topic's floor, and which one is in force is the feature
+  // flag: the shared importance alone (shipped behaviour), or the larger of that
+  // and the subject-relative term (`subject-significance.ts`). The second is
+  // per-topic on purpose -- a subject-significant development reaches the
+  // readers of that subject and nobody else.
+  const admitting = selected.filter((t) =>
+    context
+      ? admissionScore(candidate, t, fields, signal, context) >= floorFor(t.importance, dial)
+      : candidate.importance >= floorFor(t.importance, dial),
+  );
   if (admitting.length === 0) return { matched: false, reason: "below-threshold" };
 
   // Muting a source is not excluding a story. Three outlets covered it and the
@@ -349,6 +431,53 @@ export function decide(candidate: Candidate, reader: Reader): Verdict {
     relevance: relevanceOf(candidate, admitting, reader),
     topics: admitting.map((t) => t.label),
   };
+}
+
+/**
+ * How firmly one topic selected this event, for the interest-conditional path.
+ *
+ * The exact join (`event_topics`) and a reader's own keyword are both strong by
+ * construction: one is the analysis pass's own answer, and the other is a word
+ * the reader attached to the subject. A match spec has to earn it -- see
+ * `relevanceStrength`.
+ */
+function selectionIsStrong(
+  topic: ReaderTopic,
+  candidate: Candidate,
+  fields: string[],
+  signal: string,
+): boolean {
+  if (candidate.topics.some((t) => t.id === topic.topicId)) return true;
+  if (topic.keywords.some((keyword) => fields.some((f) => related(f, keyword)))) return true;
+  if (topic.kind !== "custom") return false;
+
+  const spec = specForTopic(topic);
+  const match = evaluateSpec(spec, signal);
+  if (!match.matched) return false;
+  return relevanceStrength(spec, match).strong;
+}
+
+/**
+ * The importance one topic compares against its floor.
+ *
+ * Never below `importance`: the subject-relative term can lift a story into a
+ * reader's briefing and can never push one out of it. Without a context (the
+ * flag off, or a caller that only wants the shared rule) this is exactly the
+ * shipped behaviour.
+ */
+function admissionScore(
+  candidate: Candidate,
+  topic: ReaderTopic,
+  fields: string[],
+  signal: string,
+  context: SignificanceContext,
+): number {
+  return briefingScore({
+    importance: candidate.importance,
+    relevanceStrong: selectionIsStrong(topic, candidate, fields, signal),
+    subject: context.significant(candidate.eventId, topic.topicId),
+    novelty: candidate.novelty,
+  });
 }
 
 /**
@@ -397,15 +526,29 @@ export async function match(db: Db, options: MatchOptions = {}): Promise<MatchRe
   const readers = await loadReaders(db, options);
   const candidates = await loadCandidates(db, options);
 
+  // Interest-conditional admission, if it is on. The flag is read once per run
+  // and fails closed; the baselines are built once per run and shared by every
+  // reader that follows the same subject.
+  const subjectSignificance = options.subjectSignificance ?? (await subjectSignificanceEnabled(db));
+  const context = subjectSignificance
+    ? buildSignificanceContext(
+        candidates,
+        await topicIndex(db),
+        new Set(readers.readers.flatMap((reader) => reader.topics.map((t) => t.topicId))),
+      )
+    : null;
+
   const outcomes: ReaderOutcome[] = [];
   let inserted = 0;
   let matched = 0;
+  let reopened = 0;
 
   for (const reader of readers.readers) {
-    const outcome = await matchReader(db, reader, candidates, options);
+    const outcome = await matchReader(db, reader, candidates, options, context);
     outcomes.push(outcome);
     inserted += outcome.inserted;
     matched += outcome.matched;
+    reopened += outcome.reopened;
   }
 
   const coverageLinks = options.dryRun
@@ -420,9 +563,32 @@ export async function match(db: Db, options: MatchOptions = {}): Promise<MatchRe
     candidates: candidates.length,
     matched,
     inserted,
+    reopened,
+    subjectSignificance,
     coverageLinks,
     outcomes,
   };
+}
+
+/**
+ * Whether the interest-conditional rule is enabled, read from the flag table.
+ *
+ * Fails closed, and noisily: a rule that can admit events the shared score would
+ * not is not one to switch on because a query errored. The flag is the same kind
+ * of operational switch `source_discovery_enabled` is, read the same way.
+ */
+async function subjectSignificanceEnabled(db: Db): Promise<boolean> {
+  const { data, error } = await db
+    .from("feature_flags")
+    .select("enabled")
+    .eq("key", SUBJECT_SIGNIFICANCE_FLAG)
+    .maybeSingle();
+
+  if (error) {
+    console.warn(`match: reading ${SUBJECT_SIGNIFICANCE_FLAG} failed: ${error.message}`);
+    return false;
+  }
+  return data?.enabled === true;
 }
 
 /**
@@ -476,7 +642,11 @@ async function recordObservedCoverage(
     const signal = signalOf(candidate);
 
     for (const topic of custom.values()) {
-      if (!matchesTerms(signal, topic.terms)) continue;
+      // The same evaluator the reader join uses, so a subject recorded as
+      // covered and a subject that matched a reader cannot disagree about what
+      // the subject means. `specForTopic` falls back to the derived spec, which
+      // is the AND-over-terms behaviour this line used to have.
+      if (!evaluateSpec(specForTopic(topic), signal).matched) continue;
       for (const source of candidate.sources) {
         const key = `${source.id}:${topic.topicId}`;
         if (seen.has(key)) continue;
@@ -515,6 +685,7 @@ async function matchReader(
   reader: Reader,
   candidates: Candidate[],
   options: MatchOptions,
+  context: SignificanceContext | null,
 ): Promise<ReaderOutcome> {
   const misses: Record<MissReason, number> = {
     "no-topics": 0,
@@ -527,17 +698,50 @@ async function matchReader(
   const hits: { eventId: string; relevance: number }[] = [];
 
   for (const candidate of candidates) {
-    const verdict = decide(candidate, reader);
+    const verdict = decide(candidate, reader, context ?? undefined);
     if (verdict.matched) hits.push({ eventId: candidate.eventId, relevance: verdict.relevance });
     else misses[verdict.reason] += 1;
   }
 
-  const already = await existingPairs(
+  const known = await existingPairs(
     db,
     reader.userId,
     hits.map((h) => h.eventId),
   );
-  const fresh = hits.filter((h) => !already.has(h.eventId));
+  const fresh = hits.filter((h) => !known.has(h.eventId));
+
+  // Relationships that are closed -- delivered, or aged out -- and whose event
+  // has since moved to a revision this reader has not received. Reopening is
+  // the only path to re-delivery, it is gated on a revision delta rather than
+  // on a re-match, and it is deliberately not an alert: a story that develops
+  // over a week is a briefing, not an interruption.
+  const revisionOf = new Map(candidates.map((c) => [c.eventId, c.materialRevision] as const));
+  const reopened = options.dryRun
+    ? []
+    : hits.filter((hit) => {
+        const prior = known.get(hit.eventId);
+        if (!prior) return false;
+        if (prior.briefed_at === null && prior.expired_at === null) return false;
+        const current = revisionOf.get(hit.eventId) ?? 0;
+        return current > prior.delivered_revision;
+      });
+
+  for (const hit of reopened.slice(0, REOPEN_CAP)) {
+    // One statement per reopened pair, and the cap is what keeps that honest:
+    // material transitions are the rarest event in the pipeline, so the common
+    // case is an empty list rather than a loop.
+    const { error } = await db
+      .from("user_events")
+      .update({
+        relevance: hit.relevance,
+        matched_at: (options.now ?? new Date()).toISOString(),
+        briefed_at: null,
+        expired_at: null,
+      })
+      .eq("user_id", reader.userId)
+      .eq("event_id", hit.eventId);
+    if (error) throw new Error(`reopening user_events: ${error.message}`);
+  }
 
   if (!options.dryRun && fresh.length > 0) {
     for (let i = 0; i < fresh.length; i += WRITE_CHUNK) {
@@ -585,26 +789,47 @@ async function matchReader(
     matched: hits.length,
     inserted: options.dryRun ? 0 : fresh.length,
     known: hits.length - fresh.length,
+    reopened: reopened.length,
     misses,
     detail:
       `${hits.length}/${candidates.length} matched at importance >= ${threshold}` +
-      (options.dryRun ? " (dry run)" : `, ${fresh.length} new`),
+      (options.dryRun ? " (dry run)" : `, ${fresh.length} new`) +
+      (reopened.length > 0 ? `, ${reopened.length} reopened` : ""),
   };
 }
 
-/** Which of these events this reader already has. Keeps `matched_at` stable. */
-async function existingPairs(db: Db, userId: string, eventIds: string[]): Promise<Set<string>> {
-  const found = new Set<string>();
+/**
+ * Which of these events this reader already has, and in what delivery state.
+ *
+ * The read used to return a bare set of ids, which was enough while a match was
+ * final: a pair existed or it did not, and a second run wrote nothing. Material
+ * revisions make "exists" insufficient -- the question is now *which revision
+ * the reader holds* -- so this returns the delivery state alongside the id.
+ * `matched_at` stays stable for pairs that need no action, exactly as before.
+ */
+type PriorPair = {
+  event_id: string;
+  briefed_at: string | null;
+  expired_at: string | null;
+  delivered_revision: number;
+};
+
+async function existingPairs(
+  db: Db,
+  userId: string,
+  eventIds: string[],
+): Promise<Map<string, PriorPair>> {
+  const found = new Map<string, PriorPair>();
 
   for (const chunk of chunked(eventIds, IN_CHUNK)) {
     const { data, error } = await db
       .from("user_events")
-      .select("event_id")
+      .select("event_id, briefed_at, expired_at, delivered_revision")
       .eq("user_id", userId)
       .in("event_id", chunk);
 
     if (error) throw new Error(`reading user_events: ${error.message}`);
-    for (const row of data ?? []) found.add(row.event_id);
+    for (const row of (data ?? []) as PriorPair[]) found.set(row.event_id, row);
   }
 
   return found;
@@ -731,6 +956,7 @@ export async function loadReaders(
             label: topic.label,
             kind: topic.kind,
             terms: topic.terms,
+            spec: topic.spec,
             importance:
               PLAN_LIMITS[plan].notificationControl === "basic" ? "notable" : f.importance,
             weight: f.weight,
@@ -750,16 +976,127 @@ export async function loadReaders(
   return { readers, paused };
 }
 
-type IndexedTopic = { slug: string; label: string; kind: TopicKind; terms: string[] };
+type IndexedTopic = {
+  slug: string;
+  label: string;
+  kind: TopicKind;
+  terms: string[];
+  spec: MatchSpec | null;
+};
 
 async function topicIndex(db: Db): Promise<Map<string, IndexedTopic>> {
-  const { data, error } = await db.from("topics").select("id, slug, label, kind, terms");
+  const { data, error } = await db
+    .from("topics")
+    .select("id, slug, label, kind, terms, match_spec");
   if (error) throw new Error(`reading topics: ${error.message}`);
   return new Map(
-    (data ?? []).map(
-      (t) => [t.id, { slug: t.slug, label: t.label, kind: t.kind, terms: t.terms }] as const,
-    ),
+    (data ?? []).map((t) => {
+      const stored = (t as { match_spec?: unknown }).match_spec;
+      return [
+        t.id,
+        {
+          slug: t.slug,
+          label: t.label,
+          kind: t.kind,
+          terms: t.terms,
+          spec: stored && typeof stored === "object" ? (stored as MatchSpec) : null,
+        },
+      ] as const;
+    }),
   );
+}
+
+/**
+ * Topic-relative baselines, computed once per run and shared by every reader.
+ *
+ * The whole cost argument for this product is that shared work happens once, so
+ * subject significance is not per reader: one observation set per event, one
+ * history per followed topic, and a memo per (event, topic) pair. A thousand
+ * readers following Rust pay for this once.
+ *
+ * The history is built from the events this run can see, which is the honest
+ * limit of what the stage knows: it is the subject's recent coverage rather than
+ * its whole archive. A database-backed baseline (the topic's events over the
+ * last N days) is the next step if the shadow says the signal is too thin; it
+ * costs one bounded query, and it is deliberately not taken until there is
+ * evidence that the cheaper baseline is insufficient.
+ */
+export type SignificanceContext = {
+  observations: Map<string, SubjectObservations>;
+  history: Map<string, SubjectHistory>;
+  /** The subject score for one (event, topic) pair, computed at most once. */
+  significant: (eventId: string, topicId: string) => number;
+};
+
+const EMPTY_HISTORY: SubjectHistory = { markerCounts: new Map(), magnitudes: [], events: 0 };
+
+/**
+ * Build the baselines for one run.
+ *
+ * Only topics somebody follows are indexed: an event's subject score is only
+ * ever asked for a topic that selected it for a reader, so computing baselines
+ * for the rest of the catalog would be work nothing reads.
+ */
+export function buildSignificanceContext(
+  candidates: Candidate[],
+  topics: Map<string, IndexedTopic>,
+  followedTopicIds: ReadonlySet<string>,
+): SignificanceContext {
+  const observations = new Map<string, SubjectObservations>();
+  for (const candidate of candidates) {
+    observations.set(
+      candidate.eventId,
+      observationsFor(`${candidate.title}\n${candidate.whatHappened}`),
+    );
+  }
+
+  const byTopic = new Map<string, SubjectObservations[]>();
+  const push = (topicId: string, observation: SubjectObservations) => {
+    if (!followedTopicIds.has(topicId)) return;
+    const bucket = byTopic.get(topicId);
+    if (bucket) bucket.push(observation);
+    else byTopic.set(topicId, [observation]);
+  };
+
+  for (const candidate of candidates) {
+    const observation = observations.get(candidate.eventId);
+    if (!observation) continue;
+
+    // The editorial join: `event_topics` is the analysis pass's own answer about
+    // what this event is about, so it is a legitimate observation of the topic.
+    for (const topic of candidate.topics) push(topic.id, observation);
+
+    // Reader-created subjects, which have no `event_topics` row: an event whose
+    // signal satisfies the interest is an observation of that interest. Evaluated
+    // once per run rather than once per reader -- the same work the reader loop
+    // would otherwise repeat for every one of them.
+    const signal = signalOf(candidate);
+    for (const [id, topic] of topics) {
+      if (topic.kind !== "custom" || !followedTopicIds.has(id)) continue;
+      if (!evaluateSpec(specForTopic(topic), signal).matched) continue;
+      push(id, observation);
+    }
+  }
+
+  const history = new Map<string, SubjectHistory>();
+  for (const [topicId, seen] of byTopic) history.set(topicId, historyFrom(seen));
+
+  const memo = new Map<string, number>();
+  return {
+    observations,
+    history,
+    significant: (eventId, topicId) => {
+      const key = `${eventId}:${topicId}`;
+      const cached = memo.get(key);
+      if (cached !== undefined) return cached;
+      const observation = observations.get(eventId);
+      const score = observation
+        ? subjectSignificance(observation, history.get(topicId) ?? EMPTY_HISTORY).score
+        : 0;
+      memo.set(key, score);
+      return score;
+    },
+  };
 }
 
 /**
@@ -769,27 +1106,113 @@ async function topicIndex(db: Db): Promise<Map<string, IndexedTopic>> {
  * reverse. An event that has not been read has no importance to compare against a
  * threshold and no topics to join, so matching it would be matching a placeholder.
  */
+type CandidateEventRow = {
+  id: string;
+  title: string;
+  what_happened: string;
+  importance: number;
+  novelty: number;
+  tags: string[];
+  first_seen_at: string;
+  analysed_at: string | null;
+  material_revision: number;
+  material_occurrence_at: string | null;
+  last_material_change_at: string | null;
+};
+
+/** The fields every candidate query reads. */
+const CANDIDATE_COLUMNS =
+  "id, title, what_happened, importance, novelty, tags, analysed_at, first_seen_at, material_revision, material_occurrence_at, last_material_change_at";
+
+/**
+ * When a candidate actually happened, for ordering and for freshness.
+ *
+ * A materially revised event is dated by its occurrence clock -- when the
+ * evidence for its current state was published -- and everything else by when
+ * the world first saw it. That is the one line that stops a late-discovered
+ * development from being presented as newer than it is.
+ */
+function effectiveAt(event: CandidateEventRow): number {
+  const occurrence = event.material_occurrence_at ?? event.first_seen_at;
+  const parsed = Date.parse(occurrence);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 async function loadCandidates(db: Db, options: MatchOptions): Promise<Candidate[]> {
   const now = options.now ?? new Date();
-  const activeSince = activeCutoff(now);
-  let query = db
-    .from("events")
-    .select("id, title, what_happened, importance, novelty, tags, analysed_at, first_seen_at")
-    .not("analysed_at", "is", null)
-    .eq("status", "complete")
-    .gte("first_seen_at", activeSince.toISOString())
-    .order("analysed_at", { ascending: false })
-    .limit(options.limit ?? CANDIDATES);
+  const limit = options.limit ?? CANDIDATES;
 
+  // The candidate window is the WIDEST cadence's horizon, not the 72-hour work
+  // horizon, and the clock is the occurrence clock.
+  //
+  // Two reasons, both from the same principle. The work horizon answers "what
+  // should we spend analysis on"; this stage answers "what could reach a
+  // reader", and what can reach a reader is whatever the briefing lanes would
+  // accept -- the widest of which is the weekly band. Gating candidates on a
+  // narrower window meant a late-discovered development could be analysed and
+  // then never matched, which is the dead end this architecture removes.
+  //
+  // The occurrence clock, not `first_seen_at`, is what makes that safe: an event
+  // whose current-state evidence is a week old is selected with a week-old
+  // timestamp, so the lanes age it honestly rather than treating late discovery
+  // as fresh news.
+  const windowSince = new Date(now.getTime() - MAX_WEEKLY_AGE_HOURS * 3_600_000).toISOString();
+  const fetchLimit = options.sinceHours === undefined ? limit : limit * 3;
+  const base = () =>
+    db
+      .from("events")
+      .select(CANDIDATE_COLUMNS)
+      .not("analysed_at", "is", null)
+      .eq("status", "complete");
+
+  // Two lanes, merged, rather than one predicate over a coalesce: PostgREST
+  // cannot express `coalesce(a, b) >= x`, and splitting it keeps each filter on a
+  // column that is always populated -- `first_seen_at` is not null, and a
+  // materially revised event always has an occurrence clock (the revision is
+  // what wrote it). An event that has never been revised and is older than the
+  // window is genuinely outside every cadence, so it is not a candidate.
+  const [byFirstSeen, byOccurrence] = await Promise.all([
+    base()
+      .gte("first_seen_at", windowSince)
+      .order("first_seen_at", { ascending: false })
+      .limit(fetchLimit),
+    base()
+      .gt("material_revision", 0)
+      .gte("material_occurrence_at", windowSince)
+      .order("material_occurrence_at", { ascending: false })
+      .limit(fetchLimit),
+  ]);
+  if (byFirstSeen.error) throw new Error(`reading events: ${byFirstSeen.error.message}`);
+  if (byOccurrence.error) throw new Error(`reading revised events: ${byOccurrence.error.message}`);
+
+  const merged = new Map<string, CandidateEventRow>();
+  for (const event of (byFirstSeen.data ?? []) as CandidateEventRow[]) merged.set(event.id, event);
+  for (const event of (byOccurrence.data ?? []) as CandidateEventRow[]) {
+    if (!merged.has(event.id)) merged.set(event.id, event);
+  }
+  let rows = [...merged.values()];
+
+  // "Established within N hours": analysed then for an event that has never
+  // been revised, discovered then for one that has. Applied in memory because it
+  // spans two columns and the page is already bounded; the over-fetch above is
+  // what keeps the cap honest after filtering.
   if (options.sinceHours !== undefined) {
-    const requestedSince = new Date(now.getTime() - options.sinceHours * 3_600_000);
-    const since = requestedSince > activeSince ? requestedSince : activeSince;
-    query = query.gte("analysed_at", since.toISOString());
+    const since = now.getTime() - options.sinceHours * 3_600_000;
+    rows = rows.filter((event) => {
+      const at =
+        event.material_revision > 0
+          ? (event.last_material_change_at ?? event.analysed_at)
+          : event.analysed_at;
+      const parsed = at === null ? Number.NaN : Date.parse(at);
+      return Number.isFinite(parsed) && parsed >= since;
+    });
   }
 
-  const { data: events, error } = await query;
-  if (error) throw new Error(`reading events: ${error.message}`);
-  if (!events || events.length === 0) return [];
+  const events = rows
+    .sort((a, b) => effectiveAt(b) - effectiveAt(a) || a.id.localeCompare(b.id))
+    .slice(0, limit);
+
+  if (events.length === 0) return [];
 
   const eventIds = events.map((e) => e.id);
   const topics = await topicIndex(db);
@@ -841,6 +1264,8 @@ async function loadCandidates(db: Db, options: MatchOptions): Promise<Candidate[
     importance: event.importance,
     novelty: event.novelty,
     firstSeenAt: event.first_seen_at,
+    materialRevision: event.material_revision ?? 0,
+    materialOccurrenceAt: event.material_occurrence_at ?? null,
     // Empty for every event analysed before 0049. Those stay reachable through
     // their title and briefing paragraph rather than being re-analysed, which
     // would cost the corpus twice to populate a matching aid.
@@ -894,6 +1319,7 @@ export function describeMatch(report: MatchReport): string {
   return (
     `match: ${report.readers} readers x ${report.candidates} events, ` +
     `${report.matched} matched, ${report.inserted} new, ` +
+    (report.reopened > 0 ? `${report.reopened} reopened, ` : "") +
     `${report.paused} paused, ${report.coverageLinks} coverage links, ${seconds}s` +
     (reasons ? ` | misses: ${reasons}` : "")
   );

@@ -34,20 +34,24 @@ describe.each(PLAN_TIERS)("%s launch plan", (plan) => {
       eventAt: now.toISOString(),
       importance: 8,
       novelty: 8,
+      materialRevision: 0,
+      deliveredRevision: 0,
     }));
     for (const density of [0, 35, 65, 100]) {
       const cap = capFor(density, plan);
-      expect(selectItems(fresh, new Set(), cap, now)).toHaveLength(p.storiesPerBriefing);
-      expect(selectItems(fresh.slice(0, 3), new Set(), cap, now)).toHaveLength(3);
+      expect(selectItems(fresh, new Map(), cap, now)).toHaveLength(p.storiesPerBriefing);
+      expect(selectItems(fresh.slice(0, 3), new Map(), cap, now)).toHaveLength(3);
       expect(
         selectItems(
           fresh.map((m) => ({ ...m, eventAt: "2020-01-01T00:00:00Z" })),
-          new Set(),
+          new Map(),
           cap,
           now,
         ),
       ).toHaveLength(0);
-      expect(selectItems(fresh, new Set(fresh.map((m) => m.eventId)), cap, now)).toHaveLength(0);
+      expect(selectItems(fresh, new Map(fresh.map((m) => [m.eventId, 0])), cap, now)).toHaveLength(
+        0,
+      );
     }
   });
   it("shares all pricing features with billing and canonical limits", () => {

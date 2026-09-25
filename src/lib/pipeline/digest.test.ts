@@ -23,7 +23,13 @@ function hoursAgo(hours: number): string {
 function match(
   id: string,
   relevance: number,
-  opts: { ageHours?: number; importance?: number; novelty?: number } = {},
+  opts: {
+    ageHours?: number;
+    importance?: number;
+    novelty?: number;
+    materialRevision?: number;
+    deliveredRevision?: number;
+  } = {},
 ): MatchRow {
   const age = opts.ageHours ?? 2;
   return {
@@ -33,6 +39,8 @@ function match(
     eventAt: hoursAgo(age),
     importance: opts.importance ?? 5,
     novelty: opts.novelty ?? 5,
+    materialRevision: opts.materialRevision ?? 0,
+    deliveredRevision: opts.deliveredRevision ?? 0,
   };
 }
 
@@ -45,7 +53,7 @@ describe("selectItems", () => {
   it("keeps the most relevant stories up to the density cap", () => {
     const picked = selectItems(
       [match("a", 4), match("b", 9), match("c", 6)],
-      new Set(),
+      new Map(),
       capFor(35),
       NOW,
     );
@@ -54,22 +62,45 @@ describe("selectItems", () => {
   });
 
   it("drops events already in a previous briefing", () => {
-    const picked = selectItems([match("a", 9), match("b", 8)], new Set(["a"]), 6, NOW);
+    const picked = selectItems([match("a", 9), match("b", 8)], new Map([["a", 0]]), 6, NOW);
     expect(picked.map((p) => p.eventId)).toEqual(["b"]);
   });
 
+  it("re-admits an event whose material revision has moved past what was delivered", () => {
+    const picked = selectItems(
+      [match("a", 9, { materialRevision: 2 }), match("b", 8, { materialRevision: 1 })],
+      new Map([
+        ["a", 1],
+        ["b", 1],
+      ]),
+      6,
+      NOW,
+    );
+    expect(picked.map((p) => p.eventId)).toEqual(["a"]);
+  });
+
+  it("keeps suppressing a revised event the reader has not fallen behind on", () => {
+    const picked = selectItems(
+      [match("a", 9, { materialRevision: 2, deliveredRevision: 2 })],
+      new Map([["a", 2]]),
+      6,
+      NOW,
+    );
+    expect(picked).toEqual([]);
+  });
+
   it("returns nothing rather than padding", () => {
-    expect(selectItems([], new Set(), 6, NOW)).toEqual([]);
-    expect(selectItems([match("a", 1)], new Set(["a"]), 6, NOW)).toEqual([]);
+    expect(selectItems([], new Map(), 6, NOW)).toEqual([]);
+    expect(selectItems([match("a", 1)], new Map([["a", 0]]), 6, NOW)).toEqual([]);
   });
 
   it("leaves a story scored zero out, however much room the cap has left", () => {
-    const picked = selectItems([match("a", 4), match("b", 0), match("c", 0.5)], new Set(), 18, NOW);
+    const picked = selectItems([match("a", 4), match("b", 0), match("c", 0.5)], new Map(), 18, NOW);
     expect(picked.map((p) => p.eventId)).toEqual(["a", "c"]);
   });
 
   it("would rather send a short briefing than one the model tells you to skip", () => {
-    expect(selectItems([match("a", 0), match("b", 0)], new Set(), 18, NOW)).toEqual([]);
+    expect(selectItems([match("a", 0), match("b", 0)], new Map(), 18, NOW)).toEqual([]);
   });
 });
 

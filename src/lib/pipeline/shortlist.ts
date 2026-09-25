@@ -128,6 +128,49 @@ const TITLE_CASE_RATIO = 0.6;
 const VCS_REF = /^[^\s/]+\/\S*\b[0-9a-f]{6,}\b/i;
 
 /**
+ * Scripts that do not separate words with spaces.
+ *
+ * Used for two decisions in this module: whether an unspaced title is a headline
+ * (it is) and whether a token should be searched whole or in windows.
+ */
+const UNSPACED_SCRIPT = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+/**
+ * Shortest run of an unspaced script worth searching.
+ *
+ * Two characters, where `MIN_TOKEN` is three. The Latin floor is about
+ * informativeness -- a two-letter token like `ai` matches half the corpus -- and
+ * it is not a fact about language. In Han, Hangul and kana two characters is
+ * already a word: 東京, 韓国, 音楽, 시장. Applying the Latin floor here dropped
+ * every two-character Japanese and Korean word, which is most of them, and the
+ * result was a shortlist of the longest three or four words in the headline.
+ */
+const MIN_UNSPACED_TOKEN = 2;
+
+/**
+ * Tokens for a run of unspaced characters.
+ *
+ * The whole run first, because verbatim republication is the common case and one
+ * exact pattern matches it -- and it is also the most specific pattern available,
+ * since the trigram index is consulted on the pattern rather than the run.
+ *
+ * Then three-character windows, as many as the run affords: two outlets rarely
+ * phrase one story identically, and a window is the shortest span that is likely
+ * to survive both rephrasings. A run of exactly three characters already is its
+ * own window, and the caller de-duplicates, so nothing is emitted twice.
+ */
+function cjkTokens(run: string): string[] {
+  const chars = [...run];
+  if (chars.length < MIN_UNSPACED_TOKEN) return [];
+
+  const tokens = [run];
+  for (let i = 0; i + 3 <= chars.length && tokens.length < MAX_TOKENS + 2; i += 1) {
+    tokens.push(chars.slice(i, i + 3).join(""));
+  }
+  return tokens;
+}
+
+/**
  * A CI branch tag wearing a headline's clothes.
  *
  * Distinct from a version tag (`v8.2.2`), which is real news from a release feed.
@@ -177,7 +220,14 @@ export function isVcsRef(title: string): boolean {
  */
 export function titleTokens(title: string): string[] {
   const text = title.trim();
-  if (!/\s/.test(text)) return [];
+
+  // A title with no whitespace is usually a version tag or a git ref -- except
+  // when it is Japanese, Chinese or Korean, none of which puts spaces between
+  // words. That exception is the whole of this branch: treating an unspaced CJK
+  // headline as a ref meant CJK coverage never got a shortlist, so it never
+  // clustered and every story became its own one-article event.
+  const unspacedScript = UNSPACED_SCRIPT.test(text);
+  if (!/\s/.test(text) && !unspacedScript) return [];
   if (isVcsRef(text)) return [];
 
   const words: { word: string; proper: boolean }[] = [];
@@ -189,6 +239,19 @@ export function titleTokens(title: string): string[] {
   for (const raw of title.split(/[^\p{L}\p{N}'’-]+/u)) {
     const trimmed = raw.replace(/^[-'’]+|[-'’]+$/g, "");
     const word = trimmed.toLowerCase();
+
+    if (UNSPACED_SCRIPT.test(word)) {
+      // An unspaced run is one "word" to the splitter and a sentence to a
+      // reader. It takes its own token rule -- whole run plus three-character
+      // windows -- because whitespace carries no word boundaries here, and the
+      // Latin length floor would delete every two-character word in the title.
+      for (const token of cjkTokens(word)) {
+        if (seen.has(token)) continue;
+        seen.add(token);
+        words.push({ word: token, proper: false });
+      }
+      continue;
+    }
 
     if (word.length < MIN_TOKEN) continue;
     if (STOPWORDS.has(word)) continue;

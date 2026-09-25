@@ -24,6 +24,7 @@ function topic(label: string, extra: Partial<ReaderTopic> = {}): ReaderTopic {
     label,
     kind: "predefined",
     terms: [],
+    spec: null,
     importance: "notable",
     weight: 1,
     keywords: [],

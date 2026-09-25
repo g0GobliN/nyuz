@@ -246,17 +246,30 @@ export type MatchRow = {
   relevance: number;
   matchedAt: string;
   /**
-   * When the world saw the story, from `events.first_seen_at` — not when we
-   * matched it. Those diverge by exactly the amount the pipeline was behind,
-   * which is precisely the interval a stalled pipeline must not be allowed to
-   * hide. Null when the event row could not be read; treated as undateable and
-   * therefore not current.
+   * When the story the reader is being shown actually happened, which is the
+   * material *occurrence* clock for a revised event and `first_seen_at`
+   * otherwise (0097). Not when we matched it: those diverge by exactly the
+   * amount the pipeline was behind, and for a material update they can diverge
+   * further still -- a development reported a week ago and discovered today is
+   * dated a week ago, so it can re-enter the pipeline without arriving as
+   * today's newest item. Null when the event row could not be read; treated as
+   * undateable and therefore not current.
    */
   eventAt: string | null;
   /** 0..10 shared significance, for the ranking's significance term. */
   importance: number;
   /** 0..10 shared novelty. */
   novelty: number;
+  /**
+   * Accepted material transitions (0097). The unit of re-delivery: a row is
+   * suppressible only while the reader's delivered revision is at or above it.
+   */
+  materialRevision: number;
+  /**
+   * The revision this reader last received, from `user_events` (0099). Durable
+   * across digest purging, unlike the delivery history read below.
+   */
+  deliveredRevision: number;
 };
 
 /**
@@ -301,13 +314,26 @@ export type MatchRow = {
  */
 export function selectItems(
   matches: MatchRow[],
-  already: Set<string>,
+  already: ReadonlyMap<string, number>,
   cap: number,
   now: Date = new Date(),
   frequency: DigestFrequency = "daily",
 ): MatchRow[] {
   const policy = policyFor(frequency);
-  const eligible = matches.filter((row) => row.relevance > 0 && !already.has(row.eventId));
+  // Delivery is revision-aware (0099). The question is no longer "was this event
+  // ever sent" but "has it moved since what this reader received": an event the
+  // reader holds at revision N is suppressed while the event is at revision N,
+  // and sendable again once a material change takes it to N+1. Two sources of
+  // the delivered revision are consulted because one of them is durable
+  // (`user_events.delivered_revision`) and the other survives a purge of the
+  // digest itself (`digest_items.delivered_revision`), and a reader must not
+  // re-receive an unchanged story because one of them went away.
+  const eligible = matches.filter((row) => {
+    if (row.relevance <= 0) return false;
+    const delivered = Math.max(row.deliveredRevision, already.get(row.eventId) ?? 0);
+    const deliveredBefore = already.has(row.eventId) || delivered > 0;
+    return !deliveredBefore || delivered < row.materialRevision;
+  });
   const { priority, backfill } = rankIntoLanes(eligible, now, policy);
   // `cap` is a ceiling, never a target. If the two lanes together come to
   // fourteen, the briefing is fourteen stories long — there is deliberately no
@@ -585,6 +611,9 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     ranked.map((r) => r.eventId),
     now,
     "briefing",
+    // Revision-aware same-event suppression: a materially revised event is not
+    // a repeat of the one this reader already received.
+    new Map(ranked.map((r) => [r.eventId, r.materialRevision] as const)),
   );
   const picked = ranked.filter((r) => distinct.has(r.eventId)).slice(0, cap);
 
@@ -677,11 +706,18 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // Every story the matcher chose, in its ranked position. A story with no
   // shared explanation yet carries an empty one — `why_it_matters` is
   // `not null default ''`, and the templates already render a story without it.
+  const revisionOf = new Map(
+    picked.map((match) => [match.eventId, match.materialRevision] as const),
+  );
   const rows = briefs.map((brief, position) => ({
     digest_id: due.digest_id,
     event_id: brief.eventId,
     position,
     why_it_matters: byImpact.get(brief.eventId) ?? "",
+    // Stamped per item, so delivery history answers "which revision did this
+    // reader get" without a join and without depending on the event still
+    // being in the corpus.
+    delivered_revision: revisionOf.get(brief.eventId) ?? 0,
   }));
 
   const { error } = await db
@@ -697,14 +733,25 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     };
   }
 
-  await db
-    .from("user_events")
-    .update({ briefed_at: new Date().toISOString() })
-    .eq("user_id", due.user_id)
-    .in(
-      "event_id",
-      briefs.map((brief) => brief.eventId),
-    );
+  // One statement per distinct revision rather than per event: almost every
+  // briefing is all revision 0, and a briefing containing a material update is
+  // one extra statement. The durable marker and the revision it refers to are
+  // always written together.
+  const briefedAt = new Date().toISOString();
+  const byRevision = new Map<number, string[]>();
+  for (const brief of briefs) {
+    const revision = revisionOf.get(brief.eventId) ?? 0;
+    const bucket = byRevision.get(revision);
+    if (bucket) bucket.push(brief.eventId);
+    else byRevision.set(revision, [brief.eventId]);
+  }
+  for (const [revision, eventIds] of byRevision) {
+    await db
+      .from("user_events")
+      .update({ briefed_at: briefedAt, delivered_revision: revision })
+      .eq("user_id", due.user_id)
+      .in("event_id", eventIds);
+  }
 
   await finish(db, due.digest_id, "ready", briefs.length, tokens, enrichment);
   await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
@@ -913,7 +960,9 @@ async function loadPref(db: Db, userId: string): Promise<PrefRow | null> {
 async function loadMatches(db: Db, userId: string): Promise<MatchRow[]> {
   const { data, error } = await db
     .from("user_events")
-    .select("event_id, relevance, matched_at, events ( first_seen_at, importance, novelty )")
+    .select(
+      "event_id, relevance, matched_at, delivered_revision, events ( first_seen_at, material_occurrence_at, material_revision, importance, novelty )",
+    )
     .eq("user_id", userId)
     .is("briefed_at", null)
     .is("expired_at", null)
@@ -922,6 +971,8 @@ async function loadMatches(db: Db, userId: string): Promise<MatchRow[]> {
   return (data ?? []).map((row) => {
     const event = row.events as {
       first_seen_at?: string;
+      material_occurrence_at?: string | null;
+      material_revision?: number;
       importance?: number;
       novelty?: number;
     } | null;
@@ -929,14 +980,31 @@ async function loadMatches(db: Db, userId: string): Promise<MatchRow[]> {
       eventId: row.event_id,
       relevance: row.relevance,
       matchedAt: row.matched_at,
-      eventAt: event?.first_seen_at ?? null,
+      // The occurrence clock for a revised event, `first_seen_at` otherwise.
+      // This one line is what keeps a late-discovered development from being
+      // presented as today's news; see MatchRow.eventAt.
+      eventAt: event?.material_occurrence_at ?? event?.first_seen_at ?? null,
       importance: event?.importance ?? 0,
       novelty: event?.novelty ?? 0,
+      materialRevision: event?.material_revision ?? 0,
+      deliveredRevision: row.delivered_revision ?? 0,
     };
   });
 }
 
-async function alreadyBriefed(db: Db, userId: string): Promise<Set<string>> {
+/**
+ * What this reader has already been delivered, by event, as a revision.
+ *
+ * The highest revision in the reader's delivery history per event. A map rather
+ * than a set because "delivered" stopped being a boolean when material revisions
+ * arrived: the reader holds revision N, and the question is whether the event is
+ * still at N.
+ *
+ * History is a second opinion, not the authority -- `user_events.delivered_revision`
+ * is durable and this read is not (see the column comment in 0099). The caller
+ * takes the maximum of the two.
+ */
+async function alreadyBriefed(db: Db, userId: string): Promise<Map<string, number>> {
   const { data, error } = await db
     .from("digests")
     .select("digest_id")
@@ -945,15 +1013,18 @@ async function alreadyBriefed(db: Db, userId: string): Promise<Set<string>> {
   if (error) throw new Error(`reading prior digests: ${error.message}`);
 
   const ids = (data ?? []).map((d) => d.digest_id);
-  const found = new Set<string>();
+  const found = new Map<string, number>();
   if (ids.length === 0) return found;
 
   const { data: items, error: itemError } = await db
     .from("digest_items")
-    .select("event_id")
+    .select("event_id, delivered_revision")
     .in("digest_id", ids);
   if (itemError) throw new Error(`reading prior digest_items: ${itemError.message}`);
-  for (const item of items ?? []) found.add(item.event_id);
+  for (const item of items ?? []) {
+    const revision = item.delivered_revision ?? 0;
+    found.set(item.event_id, Math.max(found.get(item.event_id) ?? 0, revision));
+  }
   return found;
 }
 
