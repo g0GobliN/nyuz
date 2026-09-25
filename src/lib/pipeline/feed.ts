@@ -558,32 +558,86 @@ export function decodeXml(raw: string): string {
 }
 
 /**
- * HTML to a single line of readable text.
+ * HTML to a single line of readable text, with one sentence per block.
  *
- * Block-level tags become spaces rather than nothing, so a description built from
- * `<p>` elements does not come out as one run-together word. Script and style
- * bodies are dropped entirely — a few feeds inline tracking pixels and analytics
- * into the description, and none of that is prose.
+ * Script and style bodies are dropped entirely — a few feeds inline tracking
+ * pixels and analytics into the description, and none of that is prose.
  *
- * A **heading** closes with a full stop instead, because a heading is a label and
- * carries no terminal punctuation of its own. Closing it with a space is what glued
- * the source's furniture to its prose: "Pricing and availability Amazon CloudWatch
- * Omni is now available." arrived at the composer as one sentence, with the label
- * indistinguishable from the body. Ending the heading makes it its own unit, which
- * the furniture filters can then refuse — the article's own title, a subhead, a
- * section label — and the body starts on a sentence boundary.
+ * ---------------------------------------------------------------------------
+ * Why a block boundary is a sentence boundary
+ * ---------------------------------------------------------------------------
+ *
+ * A block boundary used to become a bare space, which is what glued a source's
+ * headings to its prose. "What to Expect from the Introduction Track" and the
+ * paragraph after it arrived at the composer as one sentence, with the label
+ * indistinguishable from the body, and no rule downstream can separate them: a
+ * plain-text excerpt does not say which words were a heading, and the splitter
+ * that guessed cut a real subject out of a real sentence.
+ *
+ * Closing a heading element was the first half of the fix. It is only half,
+ * because a heading does not have to be an `<h1>`-`<h6>`: publishers write it as a
+ * bold line in its own paragraph, as its own `<div>`, or as a line after a `<br>`,
+ * and every one of those marks a block boundary just as clearly. So the rule is
+ * the boundary itself: when a block ends without terminal punctuation and the next
+ * block begins with a capital, the boundary closes the sentence. That is what
+ * makes the heading its own unit — which the furniture filters then refuse, and
+ * the prose after it a sentence the composer can read.
+ *
+ * Deliberately not a per-tag rule: a tag list is a list of the ways publishers
+ * have already been seen to do it, and the next one is not on it. A boundary that
+ * is followed by a lowercase word is left as a join ("He said / that it would
+ * pass." is one sentence a publisher split across two paragraphs), and one that
+ * already ends in punctuation is left alone rather than doubled.
  */
 export function htmlToText(html: string): string {
-  return decodeXml(
+  const text = decodeXml(
     html
       .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ")
-      .replace(/<br\s*\/?>/gi, " ")
-      .replace(/<\/h[1-6]\s*>/gi, ". ")
-      .replace(/<\/(p|div|li|tr|blockquote)\s*>/gi, " ")
+      .replace(/<br\s*\/?>/gi, BLOCK_BREAK)
+      // A heading element always ends its unit, whatever follows it.
+      .replace(/<\/h[1-6]\s*>/gi, `.${BLOCK_BREAK}`)
+      .replace(
+        /<\/(p|div|li|tr|blockquote|section|article|header|footer|figure)\s*>/gi,
+        BLOCK_BREAK,
+      )
       .replace(/<[^>]*>/g, ""),
   )
     .replace(/\s+/g, " ")
     .trim();
+  return joinBlocks(text).trim();
+}
+
+/**
+ * A character no feed text contains, standing in for "a block ended here".
+ *
+ * It has to survive tag stripping and whitespace collapsing, which is why it is
+ * not a space or a sentinel made of punctuation.
+ */
+const BLOCK_BREAK = "\u0000";
+
+/** Punctuation that already closed the sentence, so the boundary adds nothing. */
+const ALREADY_CLOSED = /[.!?…:;,"“”‘’)\]»]$/;
+
+/**
+ * Turn each block boundary into a sentence boundary, or into a plain space.
+ *
+ * A boundary whose text is empty disappears; one whose text already ends in
+ * punctuation keeps the single space; one followed by a lowercase word keeps the
+ * join, because a publisher that split mid-sentence meant it as one sentence.
+ * Everything else ends the sentence, so the next block starts as its own unit.
+ */
+function joinBlocks(text: string): string {
+  return text.replace(
+    new RegExp(`\\s*${BLOCK_BREAK}\\s*`, "g"),
+    (match: string, offset: number, whole: string) => {
+      const before = whole.slice(0, offset);
+      const after = whole.slice(offset + match.length);
+      if (before.trim() === "") return "";
+      if (ALREADY_CLOSED.test(before)) return " ";
+      if (!/^[A-Z]/.test(after)) return " ";
+      return ". ";
+    },
+  );
 }
 
 /** Truncates on a word boundary and marks it, so nothing reads as complete when it is not. */
