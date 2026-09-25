@@ -111,6 +111,27 @@
     -- recent demand are moved to demand. This preserves coverage for
     -- sources that readers actually want.
 
+    -- `updated_at` is written by the statement below, and no other migration
+    -- creates it. It exists in the live project, so this file ran there; a
+    -- database built from these files could not get past this line, because
+    -- `0001` onward never added the column. Wherever the live one came from --
+    -- added by hand, or by a version of this file that is no longer in the
+    -- repository -- the chain has to be able to produce it.
+    --
+    -- Declared here rather than back in `0001`: this is the only statement in
+    -- the whole chain that reads or writes it, so the column arrives exactly
+    -- where it becomes meaningful and no earlier file changes. Nullable with no
+    -- default, to match what the live project has -- and because nothing selects
+    -- this column (no query in `src/` asks for `sources.updated_at`), a fresh
+    -- database and the live one cannot be told apart by behaviour. Only by the
+    -- schema, which is what makes the difference worth closing.
+    --
+    -- `if not exists`, so this file stays a no-op against every environment it
+    -- has actually run in.
+
+    alter table public.sources
+      add column if not exists updated_at timestamptz;
+
     update public.sources
       set coverage_mode = 'demand',
           updated_at = now()
