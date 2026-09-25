@@ -2,7 +2,15 @@
  * Turns a short event summary plus feed excerpts into paragraphs a Read page
  * can set as a news column. No extra model call: the excerpts were stored at
  * ingest.
+ *
+ * Also the digest's paragraph source, so the text it sets in an email is the
+ * same text the site sets -- which is why decoding lives in one place now. This
+ * file used to carry its own five-entity map, so `&nbsp;` resolved here and
+ * `&#x20;` did not, and the two surfaces could disagree about the same stored
+ * summary.
  */
+
+import { decodeEntities } from "./pipeline/source-text";
 
 export function toGrafs(text: string): string[] {
   const raw = text.trim();
@@ -94,13 +102,9 @@ function splitSentences(text: string): string[] {
 }
 
 function stripMarkup(text: string): string {
-  return text
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
+  // Tags first, then the shared decoder, then one collapse -- the order that
+  // keeps an escaped `<script>` from becoming markup after the tag pass.
+  return decodeEntities(text.replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 }

@@ -430,7 +430,15 @@ describe("composeArticle", () => {
       const story = longStory();
       const { article, diagnostics } = composeArticleWithDiagnostics(story);
       const text = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
-      for (const sentence of SENTENCES) expect(text).toContain(sentence.replace(/\.$/, ""));
+      // The assertion is about publishing the facts, not about one phrase inside
+      // them: the story is dated 2026-01-01 and the composer anchors "next year"
+      // to the year it referred to (2027). A relative date is unusable in a story
+      // read later, so the anchored form is what the reader gets.
+      for (const sentence of SENTENCES) {
+        const published = sentence.replace("next year", "2027");
+        expect(validDeterministicSentence(published)).toBe(true);
+        expect(text).toContain(published.replace(/\.$/, ""));
+      }
       expect(article.paragraphs.length).toBeGreaterThan(0);
       expect(diagnostics.paragraphs.rejected).toBe(0);
       expect(diagnostics.fallbackLevel).toBe(1);

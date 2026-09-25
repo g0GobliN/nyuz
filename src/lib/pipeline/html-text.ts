@@ -12,6 +12,8 @@
  * `enrich.ts` treats "not enough text" the same as "couldn't fetch it".
  */
 
+import { decodeEntities } from "./source-text";
+
 const STRIP_TAGS = [
   "script",
   "style",
@@ -26,30 +28,16 @@ const STRIP_TAGS = [
   "template",
 ];
 
-const ENTITIES: Record<string, string> = {
-  "&amp;": "&",
-  "&lt;": "<",
-  "&gt;": ">",
-  "&quot;": '"',
-  "&#39;": "'",
-  "&apos;": "'",
-  "&nbsp;": " ",
-  "&mdash;": "—",
-  "&ndash;": "–",
-  "&rsquo;": "’",
-  "&lsquo;": "‘",
-  "&rdquo;": "”",
-  "&ldquo;": "“",
-  "&hellip;": "…",
-};
-
-function decodeEntities(text: string): string {
-  return text
-    .replace(/&#(\d+);/g, (_, d: string) => String.fromCodePoint(Number(d)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, h: string) => String.fromCodePoint(Number.parseInt(h, 16)))
-    .replace(/&[a-z]+;/gi, (m) => ENTITIES[m] ?? m);
-}
-
+/**
+ * Tags first, then the shared decoder -- the order every caller of
+ * `decodeEntities` must use, so that an escaped `<script>` becomes the harmless
+ * text `<script>` only after the tag pass has already run.
+ *
+ * Decoding used to live here as a private map, which is how one surface could
+ * resolve `&#39;` and another could publish `&#x20;` as four characters. There
+ * is one decoder now, in `source-text.ts`, shared with normalization and with
+ * the pipeline that reads feed fields.
+ */
 function stripTags(fragment: string): string {
   return decodeEntities(fragment.replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")

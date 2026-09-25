@@ -62,6 +62,132 @@
 /** The source a piece of text came from, as far as normalization needs to know. */
 export type SourceContext = { name?: string | undefined; url?: string | undefined };
 
+/* ------------------------------------------------------------------------- */
+/* Entities: one decoder, before anything reads the text                    */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Named references worth resolving. Deliberately a small, closed map: an
+ * unknown `&foo;` is left exactly as it was written, because in a headline
+ * `&foo;` is more likely to be text than to be a mistake.
+ */
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  ensp: " ",
+  emsp: " ",
+  thinsp: " ",
+  shy: "",
+  ndash: "–",
+  mdash: "—",
+  lsquo: "‘",
+  rsquo: "’",
+  ldquo: "“",
+  rdquo: "”",
+  sbquo: "‚",
+  bdquo: "„",
+  hellip: "…",
+  middot: "·",
+  bull: "•",
+  deg: "°",
+  euro: "€",
+  pound: "£",
+  yen: "¥",
+  cent: "¢",
+  copy: "©",
+  reg: "®",
+  trade: "™",
+  times: "×",
+  laquo: "«",
+  raquo: "»",
+  eacute: "é",
+  egrave: "è",
+  uuml: "ü",
+  ouml: "ö",
+  auml: "ä",
+  ccedil: "ç",
+  ntilde: "ñ",
+  aacute: "á",
+  iacute: "í",
+  oacute: "ó",
+  uacute: "ú",
+};
+
+/**
+ * Resolve HTML/XML character references into plain text characters.
+ *
+ * This is the single decode path for everything a reader can see, and it exists
+ * because the same reference arrived by several routes with different handling:
+ * feed XML was decoded at ingest, article pages were decoded by their own
+ * extractor, and stored text written by an older build was decoded by neither.
+ * A page that published the literal string `&#x20;` is what that costs -- the
+ * entity is not whitespace to `\s`, so it survived every collapse, compare and
+ * dedupe downstream, and reached the reader as four characters.
+ *
+ * Numeric references are resolved by code point, decimal and hexadecimal both.
+ * `&amp;#x20;` -- a reference escaped twice, which is what a CMS producing
+ * `&#x20;` inside a description field looks like -- therefore decodes in one
+ * pass to the text `&#x20;`, and the caller's second pass is what turns it into
+ * a space. That is why every consumer of this function decodes and *then*
+ * collapses whitespace: order matters, and a decoder without the collapse would
+ * leave the space visible as a double space instead.
+ *
+ * Plain text only. Nothing here can produce markup that a renderer would
+ * interpret, because the callers strip tags before decoding -- `<script>` that
+ * was escaped in the source becomes the harmless text `&lt;script&gt;` -> `
+ * <script>` only after the tag pass has already run.
+ */
+export function decodeEntities(text: string): string {
+  return text.replace(
+    /&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,31});/g,
+    (whole, body: string) => {
+      if (body.startsWith("#")) {
+        const hex = body[1] === "x" || body[1] === "X";
+        const code = Number.parseInt(hex ? body.slice(2) : body.slice(1), hex ? 16 : 10);
+        if (!Number.isFinite(code) || code <= 0 || code > 0x10ffff) return whole;
+        // Surrogates and non-characters are not text; leave the reference alone
+        // rather than emitting a lone half of a pair.
+        if (code >= 0xd800 && code <= 0xdfff) return whole;
+        try {
+          return String.fromCodePoint(code);
+        } catch {
+          return whole;
+        }
+      }
+      return NAMED_ENTITIES[body.toLowerCase()] ?? whole;
+    },
+  );
+}
+
+/**
+ * True when a reference survived every decoder and is still visible as text.
+ *
+ * The quality gate's backstop: normalization decodes and collapses, so a hit
+ * here means the published string literally contains `&#x20;` or `&amp;`, which
+ * no reader should ever be shown. Kept narrow -- an ampersand followed by a word
+ * and a semicolon is a reference; `AT&T` and `R&D;` are not.
+ */
+export function hasVisibleEntity(text: string): boolean {
+  return /&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,31});/.test(text);
+}
+
+/**
+ * The same boundary, for callers holding a plain string rather than a record.
+ *
+ * A source's *name* is provider text too, and nothing was normalizing it: a feed
+ * titled `The&#x20;Register` -- The Register's own RSS does exactly that, to keep
+ * the space from collapsing -- carried those characters into every attribution
+ * the composer built, which is how `The  Register reports that ...` reached a
+ * reader. Names, labels and titles go through here.
+ */
+export function normalizePlainText(text: string): string {
+  return collapse(text);
+}
+
 export type SourceFamily = "arxiv" | "generic";
 
 export type SourceNormalization = {
@@ -492,10 +618,26 @@ function looksLikeProse(value: string): boolean {
   );
 }
 
+/**
+ * Decode references, then fold every kind of space into one ordinary space.
+ *
+ * The decode is *inside* the collapse on purpose. `&#x20;` and `&nbsp;` are not
+ * matched by `\s`, so collapsing first and decoding second produces a double
+ * space where the reader should see one -- and a double space is the visible
+ * fingerprint of text that was decoded too late. Full-width spaces, zero-width
+ * characters and the narrow no-break spaces are folded here too, because they
+ * come from the same escaping layer and are equally invisible in a source API.
+ *
+ * Decoded twice. The second pass is what resolves a reference that was escaped
+ * once more by an intermediary (`&amp;#x20;`, which is what a CMS publishing
+ * `&#x20;` inside a description field looks like) -- one pass leaves the literal
+ * characters on the page. A third level is left to `hasVisibleEntity` at the
+ * gate, because at that point we are no longer looking at an escaping artefact.
+ */
 function collapse(text: string): string {
-  return text
-    .replace(/\uFEFF/g, "")
-    .replace(/[ \t\u00a0\u2007\u202f]+/g, " ")
+  return decodeEntities(decodeEntities(text))
+    .replace(/\uFEFF|\u200B|\u200C|\u200D|\u2060/g, "")
+    .replace(/[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]+/g, " ")
     .replace(/\s*\n\s*/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -565,6 +707,29 @@ const ATTRIBUTION_OPENING = /^(?:according to|as reported by)\s+([^,;:]{1,80})[,
 export function malformedAttribution(text: string): boolean {
   const match = ATTRIBUTION_OPENING.exec(collapse(text));
   return !!match && isRepositorySourceName(match[1]);
+}
+
+/**
+ * An attribution glued to a clause it cannot introduce.
+ *
+ * The composer is fixed not to build these, and this is the gate's backstop for
+ * any path that still does. Three productions of the same mistake:
+ *
+ *   "The Register reports that Once they were out in the wild, ..."
+ *   "The Register reports that Only half could trace AI decisions ..."
+ *   "The Register reports that "But visibility into how many agents I have?""
+ *
+ * All three are one bug: a capitalised clause (or a quotation) pasted after
+ * `reports that`, which only takes a lower-case declarative or a name. A name is
+ * why this cannot simply test for a capital letter -- `reports that DigiCert
+ * doesn't see ...` is correct English -- so the test is the closed set of
+ * function words that must be lower-case in that position, plus an opening quote.
+ */
+const GLUED_ATTRIBUTION =
+  /\b(?:reports?|reported|said|says|told[^,.;:]{0,24})\s+that\s+(?:Once|When|While|Because|Although|After|Before|If|Since|Only|Both|But|And|Or|So|Yet|However|Meanwhile|Meanwhile)\b|\b(?:reports?|said|says)\s+that\s+["“]/;
+
+export function gluedAttribution(text: string): boolean {
+  return GLUED_ATTRIBUTION.test(collapse(text));
 }
 
 /* ------------------------------------------------------------------------- */

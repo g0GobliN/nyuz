@@ -4,9 +4,18 @@ import { legacyEventIntelligence } from "@/lib/understand";
 import {
   centralTokens,
   cleanDeterministicSentence,
+  contextDependent,
   deterministicFactType,
   editorialNoise,
   hasPredicate,
+  headlineFragment,
+  keepSample,
+  normalizeRelativeTime,
+  recoverableContext,
+  stripUnanchorableTime,
+  unitTextRejection,
+  unresolvableContext,
+  unresolvedContextOpening,
   nearDuplicate,
   normalizeReaderSources,
   normalizeSummary,
@@ -25,7 +34,9 @@ import {
   type ReaderFact,
 } from "./reader-evidence";
 import {
+  gluedAttribution,
   hasSourceMetadata,
+  hasVisibleEntity,
   isRepositorySourceName,
   malformedAttribution,
 } from "./pipeline/source-text";
@@ -37,9 +48,209 @@ function sentence(text: string): string {
   return clean && !/[.!?…]["”]?$/.test(clean) ? `${clean}.` : clean;
 }
 
-function lowerFirst(text: string): string {
+/**
+ * The words that may be lowercased after `reports that`.
+ *
+ * A closed set of function words -- articles, prepositions, conjunctions,
+ * pronouns, quantifiers, common time adverbs. None of them can be a proper noun,
+ * which is the whole reason the set is safe: `DigiCert doesn't see ...` keeps its
+ * capital (a name may not be lowercased), while `Once they were out in the wild`
+ * becomes `once they were out in the wild`, which is what the clause needs to sit
+ * inside a reported sentence.
+ *
+ * This replaces a rule that lowercased only `The`, `A` and `An`, which is how
+ * production shipped "The Register reports that Once they were out in the wild".
+ * The failure was not that the prefix was wrong; it was that the prefix was
+ * attached to a sentence whose first word was not transformed, so a reported
+ * clause read like a headline.
+ */
+const LOWERCASE_AFTER_THAT = new Set([
+  "a",
+  "an",
+  "the",
+  "this",
+  "that",
+  "these",
+  "those",
+  "there",
+  "it",
+  "its",
+  "they",
+  "their",
+  "them",
+  "he",
+  "she",
+  "his",
+  "her",
+  "both",
+  "all",
+  "most",
+  "some",
+  "many",
+  "few",
+  "several",
+  "other",
+  "others",
+  "each",
+  "every",
+  "no",
+  "not",
+  "only",
+  "just",
+  "even",
+  "still",
+  "also",
+  "then",
+  "now",
+  "today",
+  "this",
+  "once",
+  "when",
+  "whenever",
+  "while",
+  "whilst",
+  "because",
+  "although",
+  "though",
+  "after",
+  "before",
+  "if",
+  "since",
+  "as",
+  "until",
+  "unless",
+  "but",
+  "and",
+  "or",
+  "so",
+  "yet",
+  "nor",
+  "however",
+  "meanwhile",
+  "perhaps",
+  "maybe",
+  "predictably",
+  "unsurprisingly",
+  "inevitably",
+  "understandably",
+  "reportedly",
+  "apparently",
+  "arguably",
+  "seemingly",
+  "notably",
+  "interestingly",
+  "famously",
+  "crucially",
+  "ultimately",
+  "increasingly",
+  "reportedly",
+  "nevertheless",
+  "nonetheless",
+  "instead",
+  "otherwise",
+  "in",
+  "on",
+  "at",
+  "for",
+  "with",
+  "without",
+  "within",
+  "by",
+  "from",
+  "to",
+  "into",
+  "onto",
+  "over",
+  "under",
+  "up",
+  "down",
+  "of",
+  "off",
+  "out",
+  "about",
+  "across",
+  "around",
+  "between",
+  "among",
+  "against",
+  "during",
+  "through",
+  "throughout",
+  "against",
+  "despite",
+  "amid",
+  "amidst",
+  "per",
+  "via",
+  "afterward",
+  "afterwards",
+  "later",
+  "earlier",
+  "first",
+  "second",
+  "third",
+  "finally",
+  "now",
+  "more",
+  "less",
+  "like",
+  "unlike",
+  "according",
+]);
+
+/**
+ * The first word lowercased, when doing so cannot damage a name.
+ *
+ * A word that is not in the closed set above is left exactly as the source wrote
+ * it -- which is right for `DigiCert`, and wrong for nothing, because every word
+ * the set contains is a function word.
+ */
+function lowerLeadingWord(text: string): string {
   if (!text) return text;
-  return /^(?:The|A|An)\b/.test(text) ? text[0]!.toLowerCase() + text.slice(1) : text;
+  const bare = (text.split(/\s/, 1)[0] ?? "").replace(/[^\p{L}'’-]/gu, "");
+  if (bare === "" || bare === "I") return text;
+  if (bare.length > 1 && bare === bare.toUpperCase()) return text;
+  return LOWERCASE_AFTER_THAT.has(bare.toLowerCase())
+    ? text[0]!.toLowerCase() + text.slice(1)
+    : text;
+}
+
+/**
+ * A fronted adverbial and the clause it belongs to, or null.
+ *
+ * `X reports that Overall, the cadence ... accelerated` and `PyTorch blog reports
+ * that however, they work best ...` were both in the corpus, and neither is
+ * English: a comma may not follow `that`. The adverbial is what makes the wrap
+ * impossible -- lowercasing it does not help, because the comma remains -- so it
+ * is lifted out in front of the attribution instead, where it is grammatical and
+ * stays next to the clause it modifies. Four words maximum: a longer comma-
+ * terminated opening is a subordinate clause, and splitting there would rewrite
+ * the sentence rather than unsnarl its attribution.
+ */
+const ADVERBIAL_OPENING = new Set(
+  "in on at during after before since by over under within around for from with without between among against later earlier meanwhile however overall still yet instead then now today yesterday tomorrow first second next finally subsequently separately previously initially ultimately notably reportedly according".split(
+    " ",
+  ),
+);
+/** "Ten days later", "Two weeks ago", "Three months after" -- a span, not a term. */
+const TIME_SPAN_OPENING =
+  /^(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s+(?:hour|day|week|month|year)s?\s+(?:later|earlier|ago|after|before|on|in)\b/i;
+
+function frontedOpener(text: string): { opener: string; rest: string } | null {
+  const match = /^([\p{L}][\p{L}\p{N}'’.-]*(?:\s+\S{1,20}){0,3}),\s+([\s\S]+)$/u.exec(text.trim());
+  if (!match) return null;
+  const opener = match[1] ?? "";
+  const rest = (match[2] ?? "").trim();
+  if (opener === "" || rest === "") return null;
+  if (cannotWrap(rest) || !hasPredicate(rest)) return null;
+  // The opener has to *be* an adverbial, because the alternative is a subject:
+  // hoisting "The first briefing" out of "The first briefing, which Allan did
+  // not sign, warned that ..." produced "The first briefing, The Register reports
+  // that which Allan did not sign, warned that ...". Openings are recognised by
+  // their first word, from a closed set of function words, or as a time span.
+  const first = (opener.split(/\s+/, 1)[0] ?? "").replace(/[^\p{L}]/gu, "").toLowerCase();
+  if (!ADVERBIAL_OPENING.has(first) && !TIME_SPAN_OPENING.test(opener)) return null;
+  return { opener, rest };
 }
 
 /**
@@ -88,6 +299,40 @@ export type CompositionDiagnostics = {
     cleanedEvidence: number;
     rejectedMetadataOnly: number;
     authorialVoiceRewrites: number;
+    /** Texts that opened by repeating their own item headline. */
+    strippedHeadlines: number;
+    /** Texts where a standfirst was glued to the sentence after it. */
+    strippedStandfirsts: number;
+    /** Sentences an editorial adverbial was removed from, keeping the fact. */
+    sourceVoiceStripped: number;
+    /** Sentences a fronted editorial frame was removed from, keeping the fact. */
+    strippedFrames: number;
+    /** Sentences refused for carrying a loaded metaphor instead of the fact. */
+    sourceColourRejections: number;
+    /** Bounded before/after examples of each rewrite, for the audit only. */
+    samples: {
+      voiceStrips: string[];
+      frames: string[];
+      standfirstSeams: string[];
+      relativeTimes: string[];
+      droppedContext: string[];
+      /** Narrator resolutions and drops, before/after, to be read by hand. */
+      narrator: string[];
+    };
+    /** Relative time references replaced with the date they meant. */
+    relativeTimesAnchored: number;
+    /** Sentences kept with an unanchorable time phrase removed from them. */
+    relativeTimesStripped: number;
+    /** Reporting wrappers resolved to the actor they named. */
+    narratorWrappersRemoved: number;
+    /**
+     * First-person facts published as the source's own: an observation or an
+     * experiment reported by its author, or the source named as the actor of a
+     * sentence that was only ever about its own work.
+     */
+    authorAttributedFacts: number;
+    /** First-person sentences dropped because the subject could not be restored. */
+    ambiguousNarratorRejected: number;
   };
   /**
    * One claim reaching the composer more than once. `duplicateGroups` counts
@@ -99,6 +344,18 @@ export type CompositionDiagnostics = {
   qualityGate: {
     metadataLeakWarnings: number;
     malformedAttributionWarnings: number;
+    /** Sentences carrying an undecoded HTML reference. Never publishable. */
+    entityLeakWarnings: number;
+    /** Wh-headed units with no question mark: a subhead, not a sentence. */
+    headlineFragmentWarnings: number;
+    /** Sentences whose subject is a pronoun with no antecedent. */
+    unresolvedContextWarnings: number;
+    /** Sentences holding more than one quoted passage. */
+    stackedQuoteWarnings: number;
+    /** Double spaces repaired before publication. */
+    spacingRepairs: number;
+    /** Facts refused because a "this month" could not be made absolute. */
+    relativeTimeRefusals: number;
     /**
      * Decks the gate itself refused, by reason. The deck is the one published
      * unit that is not derived from a selected fact, so it is the one that can
@@ -122,7 +379,16 @@ export type CompositionDiagnostics = {
     deduplicated: number;
     /** Facts refused before any paragraph was built. */
     rejected: number;
-    /** Selected facts not found in the output. Anything above zero is a bug. */
+    /**
+     * Selected facts the composer itself refused, with a reason.
+     *
+     * Refusal is a valid outcome -- a sentence with no antecedent, a wh-headed
+     * fragment -- and it is counted, never silent. These are subtracted from
+     * `lost` below, because `lost` is the counter that means "nobody knows why
+     * this is missing".
+     */
+    refused: number;
+    /** Selected facts not rendered and not refused. Anything above zero is a bug. */
     lost: number;
   };
   paragraphs: {
@@ -144,10 +410,19 @@ export type CompositionDiagnostics = {
     reasons: Record<string, number>;
   };
   /**
-   * How the published facts were ordered. `narrative` means one repository
+   * How the published facts were ordered. `narrative` means one source
    * document, read in its own order; `relevance` means the news ranking.
    */
   ordering: "narrative" | "relevance";
+  /**
+   * How each published block acquired its attribution, by count.
+   *
+   * `reports_that` is the wrapper, `according_to` the deck's opening clause,
+   * `research_clause` the paper-shaped form, and `none` a sentence published as
+   * the source wrote it -- which is what an unsafe wrap now falls back to, so a
+   * jump here is the signal that the composer is refusing to build clauses.
+   */
+  attribution: Record<string, number>;
   /**
    * The no-evidence path: a story with nothing to compose from still has to
    * show *something* under its headline, and that something used to be whatever
@@ -180,18 +455,45 @@ function createDiagnostics(): CompositionDiagnostics {
       cleanedEvidence: 0,
       rejectedMetadataOnly: 0,
       authorialVoiceRewrites: 0,
+      strippedHeadlines: 0,
+      strippedStandfirsts: 0,
+      sourceVoiceStripped: 0,
+      strippedFrames: 0,
+      sourceColourRejections: 0,
+      samples: {
+        voiceStrips: [],
+        frames: [],
+        standfirstSeams: [],
+        relativeTimes: [],
+        droppedContext: [],
+        narrator: [],
+      },
+      /** Relative time references replaced with the date they meant. */
+      relativeTimesAnchored: 0,
+      relativeTimesStripped: 0,
+      narratorWrappersRemoved: 0,
+      authorAttributedFacts: 0,
+      ambiguousNarratorRejected: 0,
     },
     dedupe: { duplicateGroups: 0, preferredCleanVariant: 0, restatements: 0 },
     qualityGate: {
       metadataLeakWarnings: 0,
       malformedAttributionWarnings: 0,
+      entityLeakWarnings: 0,
+      headlineFragmentWarnings: 0,
+      unresolvedContextWarnings: 0,
+      stackedQuoteWarnings: 0,
+      spacingRepairs: 0,
       deckRefusals: 0,
       deckReasons: {},
+      /** Facts refused because a "this month" could not be made absolute. */
+      relativeTimeRefusals: 0,
     },
-    facts: { selected: 0, rendered: 0, deduplicated: 0, rejected: 0, lost: 0 },
+    facts: { selected: 0, rendered: 0, deduplicated: 0, rejected: 0, refused: 0, lost: 0 },
     paragraphs: { assembled: 0, split: 0, rendered: 0, rejected: 0, reasons: {} },
     sentences: { considered: 0, rendered: 0, merged: 0, refused: 0, reasons: {} },
     ordering: "relevance",
+    attribution: {},
     fallback: {
       attempted: 0,
       candidates: 0,
@@ -213,6 +515,25 @@ function tally(counter: Record<string, number>, reason: string): void {
 
 function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
+}
+
+/** How many separate quoted passages a sentence carries. */
+function quotedSpans(text: string): number {
+  return [...text.matchAll(/"[^"]{12,}"|“[^”]{12,}”/g)].length;
+}
+
+/** Two facts are about the same thing when they share subject vocabulary. */
+const SHARED_SUBJECT_MIN = 2;
+
+function sharesSubject(left: string, right: string): boolean {
+  const first = new Set(centralTokens(left));
+  let shared = 0;
+  for (const token of centralTokens(right)) {
+    if (!first.has(token)) continue;
+    shared += 1;
+    if (shared >= SHARED_SUBJECT_MIN) return true;
+  }
+  return false;
 }
 
 /**
@@ -333,7 +654,18 @@ function supplementalEntityFacts(
           ? normalizedRaw.replace(new RegExp(`\\b${surname}\\b`, "i"), entity.name)
           : normalizedRaw,
       );
-      if (validDeterministicSentence(text) && !editorialNoise(text)) {
+      // The same boundary the evidence pass applies. This path rebuilds a
+      // sentence straight out of the source excerpt because it names an entity,
+      // which used to mean it skipped every rule that had already refused that
+      // sentence -- including the one that refuses a sentence whose subject is a
+      // pronoun pointing outside itself. The production fixture showed exactly
+      // that: a fragment the evidence layer had dropped came back through here.
+      if (
+        unitTextRejection(text, false) === null &&
+        !editorialNoise(text) &&
+        !headlineFragment(text) &&
+        !contextDependent(text)
+      ) {
         facts.push({
           text,
           evidence: [sourceIndex + 1],
@@ -353,10 +685,33 @@ function supplementalEntityFacts(
   return facts;
 }
 
+/**
+ * Whether an attribution clause can be built around this sentence at all.
+ *
+ * Every test here is a way `"X reports that "` produces a sentence nobody wrote:
+ * a question ("reports that Why identity built for humans breaks at agent speed"),
+ * a quotation ("reports that "But visibility..."), a headline fragment, a sentence
+ * whose subject is a pronoun with no antecedent ("According to The Register, they
+ * were also commandeering..."), or a stub with no predicate to report. In each
+ * case the fact is published without an invented clause -- provenance is not
+ * weaker for it, because the citation travels with the sentence either way.
+ */
+function cannotWrap(text: string): boolean {
+  return (
+    /\?/.test(text) ||
+    /^["“]/.test(text) ||
+    headlineFragment(text) ||
+    unresolvedContextOpening(text) ||
+    !hasPredicate(text)
+  );
+}
+
 function safeLead(
   lead: ReaderFact | undefined,
   story: Story,
   sourceCount: number,
+  /** Survey labels per source, from `surveyLabels`. */
+  surveys: Map<number, string>,
 ): { text: string; evidence: number[] } {
   if (!lead) return { text: "", evidence: [] };
   const text = sentence(lead.text);
@@ -375,10 +730,144 @@ function safeLead(
       evidence: lead.evidence,
     };
   }
-  if (/^(?:once|when|while|because|although|and|but|or)\b/i.test(text)) {
-    return { text: `${source} reports that ${lowerFirst(text)}`, evidence: lead.evidence };
+  if (cannotWrap(text)) return { text, evidence: lead.evidence };
+  // The survey comes before the publication, and before the subordinator form:
+  // a share of respondents is the survey's finding, and "The Register reports
+  // that only half could trace ..." credits the magazine with the interview.
+  const survey = surveys.get(lead.evidence[0] ?? -1);
+  if (survey && isShareStatistic(text)) {
+    return { text: `According to ${survey}, ${lowerLeadingWord(text)}`, evidence: lead.evidence };
   }
-  return { text: `According to ${source}, ${lowerFirst(text)}`, evidence: lead.evidence };
+  // `Overall, ...` and `Ten days later, ...` cannot follow `that` -- see
+  // `frontedOpener` -- so the adverbial leads the attribution instead.
+  const opener = frontedOpener(text);
+  if (opener) {
+    return {
+      text: `${opener.opener}, ${source} reports that ${lowerLeadingWord(opener.rest)}`,
+      evidence: lead.evidence,
+    };
+  }
+  if (/^(?:once|when|while|because|although|and|but|or)\b/i.test(text)) {
+    return { text: `${source} reports that ${lowerLeadingWord(text)}`, evidence: lead.evidence };
+  }
+  return { text: `According to ${source}, ${lowerLeadingWord(text)}`, evidence: lead.evidence };
+}
+
+/* ------------------------------------------------------------------------- */
+/* Who a statistic belongs to                                                */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * The survey a statistic came from, when the source names one.
+ *
+ * "Only half could trace AI decisions back to the models and data that produced
+ * them." carries no claimant of its own, and the sentence two lines earlier
+ * says "in DigiCert's 2026 AI Trust Pulse survey of 1,001 IT and cybersecurity
+ * decision-makers". Handed to the publication, that sentence credits a magazine
+ * with 1,001 interviews it did not run -- wrong in a way a reader cannot see.
+ *
+ * The label is the source's own words: possessor, optional year, the survey's
+ * name. Nothing is invented, no sample size is spliced into the sentence, and a
+ * sentence that already names its survey is left exactly as written. A label
+ * that starts with "The" or "This" is not a name and is ignored.
+ */
+const SURVEY_LABEL =
+  /([A-Z][\p{L}\p{N}&.'’-]*(?:['’]s)?(?:\s+(?:\d{4}|[A-Z][\p{L}\p{N}&.'’-]*)){0,4}\s+(?:survey|poll|study))/u;
+const NOT_A_SURVEY_OWNER = /^(?:the|a|an|this|that|these|those|its|their|our|his|her|new)$/i;
+
+/** The longest survey label named anywhere in each source's own facts. */
+function surveyLabels(items: { text: string; evidence: number[] }[]): Map<number, string> {
+  const labels = new Map<number, string>();
+  for (const fact of items) {
+    const index = fact.evidence[0];
+    if (index === undefined) continue;
+    const label = SURVEY_LABEL.exec(fact.text)?.[1];
+    if (!label) continue;
+    if (NOT_A_SURVEY_OWNER.test(label.split(/\s+/)[0] ?? "")) continue;
+    const current = labels.get(index);
+    if (current === undefined || label.length > current.length) labels.set(index, label);
+  }
+  return labels;
+}
+
+/**
+ * Whether a sentence reports a share, which is what makes it the survey's claim.
+ *
+ * Both halves are required. The opening quantifier says the sentence is a
+ * proportion rather than an incident, and the share word says the same thing
+ * again from the inside, so "Only three customers complained" -- a count of named
+ * people -- is left to the publication that printed it.
+ */
+const SHARE_OPENING =
+  /^(?:only|just|about|around|roughly|nearly|almost|some|half|two[-\s]thirds?|three[-\s]quarters?|a third|a quarter|a half|one in)\s/i;
+const SHARE_WORD =
+  /\b(?:half|halves|quarter|quarters|third|thirds|per ?cent|percent|percentage|share|majority|minority)\b|\d+\s+(?:out )?of\s+\d+/i;
+
+export function isShareStatistic(text: string): boolean {
+  return SHARE_OPENING.test(text) && SHARE_WORD.test(text);
+}
+
+/**
+ * The path that composes from the legacy intelligence shape has no selected
+ * facts to read a survey label out of -- its items are constructed labels and
+ * numbers rather than the source's own sentences -- so it attributes to the
+ * publication and never to a survey it cannot quote.
+ */
+const NO_SURVEYS: Map<number, string> = new Map();
+
+/* ------------------------------------------------------------------------- */
+/* Relative time, anchored to the story's own date                            */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Replace a source's relative time references with the dates they meant, or
+ * refuse the fact.
+ *
+ * "Earlier this month" is not wrong, it is unusable: a story is read days or
+ * weeks after it was written and kept in the archive for as long as a plan
+ * allows, so the reader cannot tell which month it was. The story's own date is
+ * the anchor, and a phrase that cannot be anchored that way -- a week has no
+ * name -- refuses the fact instead, which is counted. One pass over the inputs,
+ * before selection, so the deck, the paragraphs and the entity facts all read
+ * the same list.
+ */
+function anchorRelativeTimes(
+  facts: ReaderFact[],
+  publishedAt: string,
+  diagnostics: CompositionDiagnostics,
+): ReaderFact[] {
+  const parsed = publishedAt ? new Date(publishedAt) : null;
+  const at = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+  const kept: ReaderFact[] = [];
+  for (const fact of facts) {
+    const timed = normalizeRelativeTime(fact.text, at);
+    if (timed === null) {
+      // A week cannot be named and "the last month" is not the calendar month
+      // before this one, so there is no absolute form to write. The phrase is a
+      // modifier rather than a fact, so the sentence is kept without it, and only
+      // a sentence that stops being a sentence is refused whole. Refusing all of
+      // them is how the Greek prime minister's remark published an empty page:
+      // every sentence it had said "this week".
+      const trimmed = stripUnanchorableTime(fact.text);
+      if (trimmed === null) {
+        diagnostics.qualityGate.relativeTimeRefusals += 1;
+        refuseBlock(fact.text, "relative_time", diagnostics);
+        continue;
+      }
+      diagnostics.sourceNormalization.relativeTimesStripped += 1;
+      keepSample(diagnostics.sourceNormalization.samples.relativeTimes, fact.text, trimmed);
+      kept.push({ ...fact, text: trimmed });
+      continue;
+    }
+    if (timed.changed) {
+      diagnostics.sourceNormalization.relativeTimesAnchored += 1;
+      keepSample(diagnostics.sourceNormalization.samples.relativeTimes, fact.text, timed.text);
+      kept.push({ ...fact, text: timed.text });
+      continue;
+    }
+    kept.push(fact);
+  }
+  return kept;
 }
 
 /**
@@ -397,9 +886,20 @@ function researchAttribution(type: DeterministicFactType): string {
   return "A new paper reports";
 }
 
-function attributedFactText(text: string, evidence: number[], story: Story): string {
+function attributedFactText(
+  text: string,
+  evidence: number[],
+  story: Story,
+  /** Survey labels per source, from `surveyLabels`. */
+  surveys: Map<number, string>,
+): string {
   const type = deterministicFactType(text);
-  if (!evidence.length || !["claim", "estimate", "projection"].includes(type)) return text;
+  if (!evidence.length) return text;
+  const survey = surveys.get(evidence[0] ?? -1);
+  // A share of respondents is a finding, whichever way the sentence is typed,
+  // and it is the survey's -- so the type test does not gate it.
+  const statistic = Boolean(survey) && isShareStatistic(text);
+  if (!statistic && !["claim", "estimate", "projection"].includes(type)) return text;
   if (AUTHORIAL_OPENING.test(text)) return text;
   if (
     /\b(?:according to|reports?|said|says|estimates?|projects?|found|argues?|claims?)\b/i.test(text)
@@ -407,9 +907,14 @@ function attributedFactText(text: string, evidence: number[], story: Story): str
     return text;
   const source = sourceNameForEvidence(evidence, story.sourceList);
   if (!source) return text;
-  return isRepositorySourceName(source)
-    ? `${researchAttribution(type)}: ${text}`
-    : `${source} reports that ${lowerFirst(text)}`;
+  // The sentence decides the shape, not the source: an ungrammatical wrap is
+  // worse than no wrap, and the citation already carries the provenance.
+  if (cannotWrap(text)) return text;
+  if (statistic && survey) return `According to ${survey}, ${lowerLeadingWord(text)}`;
+  if (isRepositorySourceName(source)) return `${researchAttribution(type)}: ${text}`;
+  const opener = frontedOpener(text);
+  if (opener) return `${opener.opener}, ${source} reports that ${lowerLeadingWord(opener.rest)}`;
+  return `${source} reports that ${lowerLeadingWord(text)}`;
 }
 
 export type DeterministicQualityReport = {
@@ -563,13 +1068,43 @@ function qualityGate(
         refuse("metadata_leak");
         continue;
       }
+      // An undecoded `&#x20;` is four characters on the page. Nothing below this
+      // point may publish one, whatever route brought it here.
+      if (hasVisibleEntity(part)) {
+        diagnostics.qualityGate.entityLeakWarnings += 1;
+        refuse("entity_leak");
+        continue;
+      }
       if (!validDeterministicSentence(part)) {
         refuse("invalid_sentence");
         continue;
       }
-      if (malformedAttribution(part)) {
+      if (malformedAttribution(part) || gluedAttribution(part)) {
         diagnostics.qualityGate.malformedAttributionWarnings += 1;
         refuse("malformed_attribution");
+        continue;
+      }
+      // A wh-headed unit with no question mark is a subhead that lost its
+      // punctuation: "Why identity built for humans breaks at agent speed".
+      if (headlineFragment(part)) {
+        diagnostics.qualityGate.headlineFragmentWarnings += 1;
+        refuse("headline_fragment");
+        continue;
+      }
+      // "Both saw agents make their way onto the open internet", and a fronted
+      // clause whose main clause is a pronoun: the subject is outside the
+      // sentence, and no ordering of the page supplies it. The softer class --
+      // `they`, `this`, `these` -- was already decided by the composer, which is
+      // the only place that knows what is published next to what.
+      if (unresolvableContext(part)) {
+        diagnostics.qualityGate.unresolvedContextWarnings += 1;
+        refuse("unresolved_context");
+        continue;
+      }
+      // Two long quoted passages in one sentence is a concatenation, not speech.
+      if (quotedSpans(part) > 1) {
+        diagnostics.qualityGate.stackedQuoteWarnings += 1;
+        refuse("stacked_quotes");
         continue;
       }
       // A paragraph that only restates the deck is the deck, not a paragraph.
@@ -586,7 +1121,11 @@ function qualityGate(
       const existing = index.get(key);
       if (existing === undefined) {
         index.set(key, sentencesWithEvidence.length);
-        sentencesWithEvidence.push({ text: part, evidence: [...paragraph.evidence] });
+        // Deduplicated: a paragraph assembled from facts that all cite one source
+        // was carrying `[1]` twice per block, which read as machinery rather than
+        // as provenance. The renderer dedupes too; this keeps the stored article
+        // honest for anything else that reads it.
+        sentencesWithEvidence.push({ text: part, evidence: [...new Set(paragraph.evidence)] });
         published += 1;
         continue;
       }
@@ -624,6 +1163,15 @@ function qualityGate(
   }
 
   const cap = sentencesWithEvidence.length > 12 ? 8 : 6;
+  // Whitespace is repaired rather than punished: a double space is a seam from
+  // text assembly (an attribution prefix pasted onto a cleaned sentence), not a
+  // claim, and dropping the fact over it would fail in the wrong direction. The
+  // counter exists so the seam is visible in diagnostics instead of silent.
+  for (const block of assembled) {
+    const tidy = block.text.replace(/\s{2,}/g, " ").trim();
+    if (tidy !== block.text) diagnostics.qualityGate.spacingRepairs += 1;
+    block.text = tidy;
+  }
   const blocks = assembled.slice(0, cap);
   for (const block of assembled.slice(cap)) {
     for (let count = 0; count < block.sentences; count++) {
@@ -644,9 +1192,31 @@ function deterministicParagraphs(
   facts: ReaderFact[],
   story: Story,
   diagnostics: CompositionDiagnostics,
+  surveys: Map<number, string>,
 ): ArticleParagraph[] {
   const groups: ReaderFact[][] = [];
   for (const fact of facts) {
+    /**
+     * A `they` or a `this` in a ranked list has nothing to point at.
+     *
+     * Source order is what makes an anaphoric sentence readable -- the sentence
+     * the author wrote before it is the sentence the reader just read. Ranking
+     * destroys that guarantee: relevance order puts whatever scored highest first,
+     * so "they were also commandeering a German website" can land three paragraphs
+     * away from the agents it means. Rather than publish a mystery, the fact is
+     * refused here and counted, which is the same trade the gate makes for the
+     * class no ordering can fix.
+     */
+    if (
+      contextDependent(fact.text) &&
+      !recoverableContext(fact.text) &&
+      !unresolvableContext(fact.text)
+    ) {
+      diagnostics.qualityGate.unresolvedContextWarnings += 1;
+      diagnostics.facts.refused += 1;
+      refuseBlock(fact.text, "unresolved_context", diagnostics);
+      continue;
+    }
     const type = deterministicFactType(fact.text, fact.quote);
     const target =
       type === "fact" || type === "claim" || type === "estimate" || type === "projection"
@@ -657,11 +1227,31 @@ function deterministicParagraphs(
             ? 2
             : 1;
     const prior = groups[target];
+    const sameSource =
+      !!prior && prior.some((item) => item.evidence.some((ref) => fact.evidence.includes(ref)));
+    /**
+     * A paragraph is one idea, so facts join it only when they are about what it
+     * is already about.
+     *
+     * The old condition was "same source", which is satisfied by every fact of a
+     * single-source story -- so eight unrelated sentences became one paragraph and
+     * the reader got OpenAI, then a survey, then Meta, then JFrog in a single
+     * block. Two shared content words is a low bar and a decisive one: it groups
+     * adjacent evidence about one incident and refuses to group evidence about
+     * two.
+     *
+     * The exception is a group still shorter than the paragraph floor: a fact that
+     * has nowhere better to go joins it rather than being dropped for the crime of
+     * arriving alone. Failing towards a slightly looser paragraph is better than
+     * failing towards a missing fact.
+     */
+    const underFloor =
+      !!prior && countWords(prior.map((item) => item.text).join(" ")) < MIN_PARAGRAPH_WORDS;
     if (
       prior &&
       prior.length < 8 &&
-      (prior.some((item) => item.evidence.some((ref) => fact.evidence.includes(ref))) ||
-        prior.length === 0)
+      sameSource &&
+      (sharesSubject(prior.map((item) => item.text).join(" "), fact.text) || underFloor)
     )
       prior.push(fact);
     else if (!prior) groups[target] = [fact];
@@ -671,7 +1261,7 @@ function deterministicParagraphs(
     .filter((group): group is ReaderFact[] => !!group?.length)
     .map((group) => {
       const parts = group
-        .map((fact) => factSentence(fact, story, diagnostics))
+        .map((fact) => factSentence(fact, story, diagnostics, surveys))
         .filter((text): text is string => text !== null);
       return { text: parts.join(" "), evidence: citationRefs(group) };
     })
@@ -694,11 +1284,13 @@ function factSentence(
   fact: ReaderFact,
   story: Story,
   diagnostics: CompositionDiagnostics,
+  surveys: Map<number, string>,
 ): string | null {
-  const attributed = sentence(attributedFactText(fact.text, fact.evidence, story));
+  const attributed = sentence(attributedFactText(fact.text, fact.evidence, story, surveys));
   const text = validDeterministicSentence(attributed) ? attributed : sentence(fact.text);
   if (validDeterministicSentence(text)) return text;
   diagnostics.sentences.refused += 1;
+  diagnostics.facts.refused += 1;
   tally(diagnostics.sentences.reasons, "invalid_sentence");
   return null;
 }
@@ -722,14 +1314,56 @@ function narrativeParagraphs(
   facts: ReaderFact[],
   story: Story,
   diagnostics: CompositionDiagnostics,
+  /** Source position of the sentence already published as the deck. */
+  deckOrder: number,
+  surveys: Map<number, string>,
 ): ArticleParagraph[] {
   const paragraphs: ArticleParagraph[] = [];
+  let previousOrder = deckOrder;
   for (const fact of facts) {
-    const text = factSentence(fact, story, diagnostics);
+    const text = factSentence(fact, story, diagnostics, surveys);
     if (text === null) continue;
-    paragraphs.push({ text, evidence: [...fact.evidence] });
+    // Here, unlike the ranked path, adjacency can actually be checked: the fact
+    // the author wrote immediately before this one is the one just published, so
+    // "That boundary is only meaningful if..." has a boundary in hand. One
+    // sentence gap -- because the sentence between them was refused, or because
+    // two sentences were merged -- and the pronoun is pointing at a page that no
+    // longer says what it meant.
+    if (
+      contextDependent(text) &&
+      !recoverableContext(text) &&
+      !unresolvableContext(text) &&
+      fact.sourceOrder !== previousOrder + 1
+    ) {
+      diagnostics.qualityGate.unresolvedContextWarnings += 1;
+      diagnostics.facts.refused += 1;
+      refuseBlock(text, "unresolved_context", diagnostics);
+      continue;
+    }
+    paragraphs.push({ text, evidence: [...new Set(fact.evidence)] });
+    previousOrder = fact.sourceOrder;
   }
   return paragraphs;
+}
+
+/**
+ * Which form of attribution a published block wears, read off its own text.
+ *
+ * Read rather than recorded, deliberately: the counters have to describe the
+ * prose that exists, not the intention that produced it, which is the same rule
+ * the audit script applies when it counts defects on the published page.
+ */
+function attributionShape(block: string): string {
+  if (/^(?:A new paper reports|The paper (?:argues|estimates|projects)):/.test(block))
+    return "research_clause";
+  // Read off the prose, like every other shape here: a deck that credits a poll
+  // because it read the label is the thing being counted, not the intent.
+  if (/^According to [^,]{0,80}\b(?:survey|poll|study)\b/i.test(block))
+    return "according_to_survey";
+  if (/^According to /.test(block)) return "according_to";
+  if (/^[^.!?]{1,60} reports that /.test(block)) return "reports_that";
+  if (/^[^.!?]{1,60} (?:said|says) /.test(block)) return "speaker";
+  return "none";
 }
 
 /**
@@ -747,7 +1381,17 @@ function finishDiagnostics(
 ): void {
   const blocks = [article.deck.text, ...article.paragraphs.map((paragraph) => paragraph.text)];
   diagnostics.facts.rendered = facts.filter((fact) => carries(blocks, fact.text)).length;
-  diagnostics.facts.lost = Math.max(0, diagnostics.facts.selected - diagnostics.facts.rendered);
+  // A refused fact is explained, so it is not lost: `lost` has to keep meaning
+  // "selected, valid, and published nowhere", or the number stops being a bug
+  // report and starts being a style preference.
+  diagnostics.facts.lost = Math.max(
+    0,
+    diagnostics.facts.selected - diagnostics.facts.rendered - diagnostics.facts.refused,
+  );
+  for (const block of blocks) {
+    if (block === "") continue;
+    tally(diagnostics.attribution, attributionShape(block));
+  }
   diagnostics.fallbackLevel = auditDeterministicArticle(article, diagnostics).fallbackLevel;
 }
 
@@ -791,7 +1435,11 @@ export function judgeFallbackDeck(
   const summary = normalizeSummary(candidate);
   if (summary.reason !== null) return { text: "", reason: summary.reason };
   const text = sentence(summary.text);
-  if (malformedAttribution(text)) return { text: "", reason: "malformed_attribution" };
+  if (malformedAttribution(text) || gluedAttribution(text))
+    return { text: "", reason: "malformed_attribution" };
+  // A stored summary that is really a subhead is furniture like any other.
+  if (headlineFragment(text)) return { text: "", reason: "headline_fragment" };
+  if (hasVisibleEntity(text)) return { text: "", reason: "entity_leak" };
   if (editorialNoise(text)) return { text: "", reason: "editorial_noise" };
   if (!validDeckSentence(text)) return { text: "", reason: "malformed_sentence" };
   if (titleDuplicate(text, title)) return { text: "", reason: "title_duplicate" };
@@ -851,9 +1499,30 @@ function applyFallbackDeck(
   diagnostics: CompositionDiagnostics,
 ): void {
   diagnostics.fallback.attempted += 1;
-  for (const candidate of candidates) {
-    if (candidate.trim() === "") continue;
+  const parsed = story.publishedAt ? new Date(story.publishedAt) : null;
+  const at = parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
+  for (const raw of candidates) {
+    if (raw.trim() === "") continue;
     diagnostics.fallback.candidates += 1;
+    // The event summary is prose from the same day as the event, so it carries
+    // the same "this month" problem a source sentence does.
+    const timed = normalizeRelativeTime(raw, at);
+    // Same repair as the facts get: the unanchorable phrase is dropped and the
+    // sentence around it kept, because an empty deck is worse than a deck without
+    // "this week" in it.
+    const stripped = timed === null ? stripUnanchorableTime(raw) : null;
+    if (timed === null && stripped === null) {
+      diagnostics.fallback.rejected += 1;
+      diagnostics.qualityGate.relativeTimeRefusals += 1;
+      tally(diagnostics.fallback.reasons, "relative_time");
+      continue;
+    }
+    if (stripped !== null) diagnostics.sourceNormalization.relativeTimesStripped += 1;
+    if (timed !== null && timed.changed) {
+      diagnostics.sourceNormalization.relativeTimesAnchored += 1;
+      keepSample(diagnostics.sourceNormalization.samples.relativeTimes, raw, timed.text);
+    }
+    const candidate = timed?.text ?? stripped ?? raw;
     const verdict = judgeFallbackDeck(candidate, story.title);
     if (verdict.reason === null) {
       deck.text = verdict.text;
@@ -899,41 +1568,87 @@ export function composeArticleWithDiagnostics(story: Story): {
     diagnostics.sourceNormalization = { ...normalization };
     const cleanStory: Story = { ...story, sourceList: sources };
     const selection = selectReaderEvidence(story.title, sources);
-    const facts = mergeFacts(
+    // Furniture counters come from *this* pass, which is the one that strips
+    // headlines and standfirsts, while voice and colour are counted in the
+    // evidence pass, where each unit is judged. Taking the whole set from either
+    // pass alone reports zeros for the other's fields: this pass runs first, so
+    // by the time evidence sees the text there is no metadata left to remove.
+    diagnostics.sourceNormalization = {
+      ...normalization,
+      // Standfirst seams, voice wrappers and fronted frames are found per
+      // sentence, in the evidence pass, along with source colour.
+      strippedStandfirsts: selection.sourceNormalization.strippedStandfirsts,
+      sourceVoiceStripped: selection.sourceNormalization.sourceVoiceStripped,
+      strippedFrames: selection.sourceNormalization.strippedFrames,
+      sourceColourRejections: selection.sourceNormalization.sourceColourRejections,
+      // The narrator is classified in the same pass, and for the same reason:
+      // these counters say what happened to a sentence the voice test would have
+      // refused, and they were reporting zero while the samples below showed the
+      // rewrites -- a report that contradicts its own evidence.
+      narratorWrappersRemoved: selection.sourceNormalization.narratorWrappersRemoved,
+      authorAttributedFacts: selection.sourceNormalization.authorAttributedFacts,
+      ambiguousNarratorRejected: selection.sourceNormalization.ambiguousNarratorRejected,
+      samples: selection.sourceNormalization.samples,
+    };
+    // The story's own date anchors any relative time reference in a source's
+    // own words, before anything is selected: the deck, the paragraphs and the
+    // entity facts all read this list, so anchoring once here is the only way
+    // they can agree about what "this month" meant.
+    const dated = anchorRelativeTimes(
       [...selection.facts, ...supplementalEntityFacts(cleanStory, selection)],
+      story.publishedAt,
       diagnostics,
     );
+    const facts = mergeFacts(dated, diagnostics);
     diagnostics.facts.selected = facts.length;
+    // Which survey each source names, for the statistics that do not name one
+    // themselves -- see `surveyLabels`.
+    const surveys = surveyLabels(facts);
     const independentSources = new Set(
       story.sourceList.map((source) => source.name.trim().toLowerCase()).filter(Boolean),
     ).size;
     /**
-     * One paper, read in the order it was written.
+     * One document, read in the order it was written.
      *
-     * Deliberately narrow: a single source *entry*, from a repository, whose
-     * facts all came from that source's own text. `sourceOrder` is a position
-     * within one document, so it is only meaningful when there is exactly one
-     * document -- two arXiv articles for one event, or facts whose order was
-     * already rearranged by article-page enrichment, would interleave two
-     * sequences into nonsense.
+     * The condition is the guarantee that `sourceOrder` needs to mean anything:
+     * a single source *entry*, and every selected fact taken from that entry's
+     * own text. Then a position is a position in one document, and reading
+     * forwards cannot interleave two sequences. It used to require a repository
+     * on top of that, which is why a real single-source production feature still
+     * came out scrambled: the DigiCert story was ranked by relevance, so the
+     * reader got governance framing, then an agent escape, then a German website,
+     * then the survey, then the mechanism, then a customer quote, then back to
+     * the escape. Two arXiv articles for one event, or facts whose order was
+     * already rearranged by article-page enrichment, still take the ranking path.
+     *
+     * `researchNarrative` is the paper-shaped part of this, and stays narrow: a
+     * paper's own first sentence is its lead, so the deck comes from position
+     * zero. A news feature keeps a relevance-selected deck, because the strongest
+     * fact is the right opening and a test pins that. What changes for it is the
+     * *body*, which now reads forwards -- that is the difference between an
+     * article and a pile of ranked excerpts.
      */
-    const researchNarrative =
-      story.sourceList.length === 1 &&
-      isRepositorySourceName(story.sourceList[0]?.name) &&
-      facts.every((fact) => fact.origin === "rss");
-    if (researchNarrative) {
-      // Scoring answers "what matters most", which is the wrong question for a
-      // paper: its own first sentence is its lead, and everything after it
-      // assumes the reader has passed the sentences before.
+    const oneDocument =
+      story.sourceList.length === 1 && facts.every((fact) => fact.origin === "rss");
+    const researchNarrative = oneDocument && isRepositorySourceName(story.sourceList[0]?.name);
+    /**
+     * The relevance-selected lead, captured before source order re-sorts the list.
+     *
+     * `mergeFacts` returns copies and sorts by score, so this is position zero as
+     * it stood -- and it has to be read *now*, because the deck's question ("what
+     * matters most") is not the body's question ("what came next"). Comparing by
+     * sentence key rather than by identity, because the fact in hand is a copy.
+     */
+    const rankedLead =
+      (selection.lead
+        ? facts.find((fact) => sentenceKey(fact.text) === sentenceKey(selection.lead!.text))
+        : undefined) ?? facts[0];
+    if (oneDocument) {
       facts.sort((a, b) => a.sourceOrder - b.sourceOrder);
       diagnostics.ordering = "narrative";
     }
-    const lead = researchNarrative
-      ? facts[0]
-      : selection.lead && facts.includes(selection.lead)
-        ? selection.lead
-        : facts[0];
-    const leadText = lead ? safeLead(lead, story, independentSources).text : "";
+    const lead = researchNarrative ? facts[0] : rankedLead;
+    const leadText = lead ? safeLead(lead, story, independentSources, surveys).text : "";
     const deck = { text: leadText, evidence: lead ? [...lead.evidence] : [] };
     // No fact survived selection, so the deck has to come from somewhere else --
     // and that "somewhere else" is the stored event summary. It is a candidate,
@@ -959,21 +1674,21 @@ export function composeArticleWithDiagnostics(story: Story): {
     // instinct -- the central actor belongs up front. For a paper it would pull
     // sentence seven ahead of the sentence that explains it, so the narrative
     // path reads the facts where the author put them and never consults it.
-    const remaining = researchNarrative
+    const remaining = oneDocument
       ? facts.filter((fact) => fact !== lead)
       : [
           ...priorityFacts,
           ...facts.filter((fact) => fact !== lead && !priorityFacts.includes(fact)),
         ];
-    const paragraphs = researchNarrative
-      ? narrativeParagraphs(remaining, story, diagnostics)
+    const paragraphs = oneDocument
+      ? narrativeParagraphs(remaining, story, diagnostics, lead?.sourceOrder ?? -1, surveys)
       : [
-          ...deterministicParagraphs(remaining, story, diagnostics),
+          ...deterministicParagraphs(remaining, story, diagnostics, surveys),
           ...priorityFacts
             .filter((fact) => !remaining.slice(0, 8).includes(fact))
             .slice(0, 3)
             .map((fact) => ({
-              text: sentence(attributedFactText(fact.text, fact.evidence, story)),
+              text: sentence(attributedFactText(fact.text, fact.evidence, story, surveys)),
               evidence: fact.evidence,
             })),
         ];
@@ -982,7 +1697,7 @@ export function composeArticleWithDiagnostics(story: Story): {
     // article has not introduced yet. In narrative order the paper has already
     // said what it means to say, in the order it meant to say it, so nothing is
     // spliced in.
-    for (const entity of researchNarrative
+    for (const entity of oneDocument
       ? []
       : selection.entities.filter((item) => item.role !== "REPORTING_SOURCE")) {
       if (composedText.includes(entity.name) || !entity.name.includes(" ")) continue;
@@ -1009,10 +1724,20 @@ export function composeArticleWithDiagnostics(story: Story): {
         paragraphs.unshift({ text: sentence(text), evidence: [sourceIndex + 1] });
       if (paragraphs.length >= 8) break;
     }
+    /**
+     * Prior-coverage background, kept out of the thin-evidence cap.
+     *
+     * The cap exists so a story with two facts does not pad itself out, and it
+     * counts *evidence* paragraphs. Background about an earlier nyuz story is not
+     * that: it was attached deliberately, it is one sentence, and dropping it as
+     * if it were padding is how a thin story silently loses the context the
+     * product promised to attach.
+     */
+    const related: ArticleParagraph[] = [];
     for (const candidate of story.relatedEvents ?? []) {
       const context = relatedContext({ title: story.title, summary: leadText }, candidate);
       if (context && validDeterministicSentence(context))
-        paragraphs.push({ text: sentence(context), evidence: [] });
+        related.push({ text: sentence(context), evidence: [] });
     }
     // Thin evidence should remain thin; rich evidence is capped at four useful blocks.
     // Whatever the cap drops is counted, so a fact behind it is explicable.
@@ -1020,7 +1745,9 @@ export function composeArticleWithDiagnostics(story: Story): {
     for (const block of paragraphs.slice(capped.length)) {
       refuseBlock(block.text, "thin_evidence_cap", diagnostics);
     }
-    const gated = qualityGate({ deck, paragraphs: capped }, story.title, diagnostics);
+    paragraphs.length = 0;
+    paragraphs.push(...capped, ...related);
+    const gated = qualityGate({ deck, paragraphs }, story.title, diagnostics);
     finishDiagnostics(gated, facts, diagnostics);
 
     return { article: gated, diagnostics };
@@ -1044,7 +1771,7 @@ export function composeArticleWithDiagnostics(story: Story): {
     const evidence: number[] = [];
     const paragraph = { text: "", evidence };
     for (const item of items) {
-      const text = sentence(attributedFactText(item.text, item.evidence, story));
+      const text = sentence(attributedFactText(item.text, item.evidence, story, NO_SURVEYS));
       if (!validDeterministicSentence(text) || editorialNoise(text)) continue;
       const existing = seen.find((candidate) => repeats(candidate.text, text));
       if (existing) {

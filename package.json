@@ -32,7 +32,8 @@
     "cron:test": "node --env-file=.env scripts/test-scheduled.mjs",
     "telegram:webhook": "node --env-file=.env scripts/tsrun.mjs scripts/telegram-webhook.ts",
     "topics:backfill": "node --env-file=.env scripts/tsrun.mjs scripts/topic-backfill.ts",
-    "vapid": "node --env-file=.env scripts/tsrun.mjs scripts/vapid.ts"
+    "vapid": "node --env-file=.env scripts/tsrun.mjs scripts/vapid.ts",
+    "audit:reader": "node --env-file=.env scripts/tsrun.mjs scripts/reader-composer-audit.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"

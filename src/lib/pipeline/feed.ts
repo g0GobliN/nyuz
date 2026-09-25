@@ -564,13 +564,22 @@ export function decodeXml(raw: string): string {
  * `<p>` elements does not come out as one run-together word. Script and style
  * bodies are dropped entirely — a few feeds inline tracking pixels and analytics
  * into the description, and none of that is prose.
+ *
+ * A **heading** closes with a full stop instead, because a heading is a label and
+ * carries no terminal punctuation of its own. Closing it with a space is what glued
+ * the source's furniture to its prose: "Pricing and availability Amazon CloudWatch
+ * Omni is now available." arrived at the composer as one sentence, with the label
+ * indistinguishable from the body. Ending the heading makes it its own unit, which
+ * the furniture filters can then refuse — the article's own title, a subhead, a
+ * section label — and the body starts on a sentence boundary.
  */
 export function htmlToText(html: string): string {
   return decodeXml(
     html
       .replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, " ")
       .replace(/<br\s*\/?>/gi, " ")
-      .replace(/<\/(p|div|li|h[1-6]|tr|blockquote)\s*>/gi, " ")
+      .replace(/<\/h[1-6]\s*>/gi, ". ")
+      .replace(/<\/(p|div|li|tr|blockquote)\s*>/gi, " ")
       .replace(/<[^>]*>/g, ""),
   )
     .replace(/\s+/g, " ")
