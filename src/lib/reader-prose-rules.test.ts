@@ -302,6 +302,21 @@ describe("attribution follows the adverbial that cannot sit after `that`", () =>
     expect(text).not.toMatch(/reports that which/i);
   });
 
+  it("drops an affirmation the source was answering a question with", () => {
+    // The corpus published "The Register reports that Yes, the servers still
+    // required a username and password for access ...": a reported clause may not
+    // open on an affirmation, and the question the tipster was answering is not on
+    // the page. The marker goes; the fact stays.
+    const text = composedText(
+      "Yes, the servers still required a username and password for access, but an enterprising hacker could have tried guessing the credentials.",
+    );
+    expect(text).not.toMatch(/reports that Yes\b/);
+    expect(text).toContain("the servers still required a username and password");
+    // The comma is what makes the marker an answer: "No more than half could trace
+    // ..." keeps its `No`, because that one is part of the measure. A quantity is
+    // not an answer, and only an answer may not follow `that`.
+  });
+
   it("drops an orphan rather than repairing it with a determiner", () => {
     // The corpus deck read "According to The Guardian World, the was also
     // revealed that the inquiry ..." -- the word before the pronoun was "The",

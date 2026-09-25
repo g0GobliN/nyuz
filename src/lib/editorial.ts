@@ -49,6 +49,23 @@ function sentence(text: string): string {
 }
 
 /**
+ * A discourse marker the source was answering a question with.
+ *
+ * The corpus supplied "Yes, the servers still required a username and password for
+ * access ...", the tipster answering a question the reader never saw. After
+ * `reports that` it reads "The Register reports that Yes, the servers ... ", which
+ * is not English -- a reported clause may not open on an affirmation. The comma is
+ * required, and is what keeps this away from a quantity: "No more than half could
+ * trace ..." keeps its `No`, because that `No` is part of the measure.
+ */
+const DISCOURSE_MARKER =
+  /^(?:Yes|No|Well|Okay|OK|Right|Sure|Indeed|Exactly|True|Honestly|Frankly)\s*,\s+/i;
+/** The sentence as a reported clause, without the marker it cannot open on. */
+function withoutDiscourseMarker(text: string): string {
+  return text.replace(DISCOURSE_MARKER, "");
+}
+
+/**
  * The words that may be lowercased after `reports that`.
  *
  * A closed set of function words -- articles, prepositions, conjunctions,
@@ -743,14 +760,20 @@ function safeLead(
   const opener = frontedOpener(text);
   if (opener) {
     return {
-      text: `${opener.opener}, ${source} reports that ${lowerLeadingWord(opener.rest)}`,
+      text: `${opener.opener}, ${source} reports that ${lowerLeadingWord(withoutDiscourseMarker(opener.rest))}`,
       evidence: lead.evidence,
     };
   }
   if (/^(?:once|when|while|because|although|and|but|or)\b/i.test(text)) {
-    return { text: `${source} reports that ${lowerLeadingWord(text)}`, evidence: lead.evidence };
+    return {
+      text: `${source} reports that ${lowerLeadingWord(withoutDiscourseMarker(text))}`,
+      evidence: lead.evidence,
+    };
   }
-  return { text: `According to ${source}, ${lowerLeadingWord(text)}`, evidence: lead.evidence };
+  return {
+    text: `According to ${source}, ${lowerLeadingWord(withoutDiscourseMarker(text))}`,
+    evidence: lead.evidence,
+  };
 }
 
 /* ------------------------------------------------------------------------- */
@@ -913,8 +936,9 @@ function attributedFactText(
   if (statistic && survey) return `According to ${survey}, ${lowerLeadingWord(text)}`;
   if (isRepositorySourceName(source)) return `${researchAttribution(type)}: ${text}`;
   const opener = frontedOpener(text);
-  if (opener) return `${opener.opener}, ${source} reports that ${lowerLeadingWord(opener.rest)}`;
-  return `${source} reports that ${lowerLeadingWord(text)}`;
+  if (opener)
+    return `${opener.opener}, ${source} reports that ${lowerLeadingWord(withoutDiscourseMarker(opener.rest))}`;
+  return `${source} reports that ${lowerLeadingWord(withoutDiscourseMarker(text))}`;
 }
 
 export type DeterministicQualityReport = {
