@@ -2,6 +2,7 @@ import type { Story } from "@/lib/story";
 import type { ArticleParagraph, ReaderArticle } from "@/lib/reader-article";
 import { legacyEventIntelligence } from "@/lib/understand";
 import {
+  alreadyAttributed,
   centralTokens,
   cleanDeterministicSentence,
   contextDependent,
@@ -198,6 +199,10 @@ export type CompositionDiagnostics = {
     strippedFrames: number;
     /** Sentences refused for carrying a loaded metaphor instead of the fact. */
     sourceColourRejections: number;
+    /** Frames moved behind the fact they were in front of ("The paper reports: X"). */
+    reportFramesMoved: number;
+    /** Frames deleted because the fact already named its own claimant. */
+    reportFramesDropped: number;
     /** Bounded before/after examples of each rewrite, for the audit only. */
     samples: {
       voiceStrips: string[];
@@ -353,6 +358,8 @@ function createDiagnostics(): CompositionDiagnostics {
       sourceVoiceStripped: 0,
       strippedFrames: 0,
       sourceColourRejections: 0,
+      reportFramesMoved: 0,
+      reportFramesDropped: 0,
       samples: {
         voiceStrips: [],
         frames: [],
@@ -608,6 +615,12 @@ function cannotWrap(text: string): boolean {
     // glued-attribution defect, whatever else the unit is.
     headingUnit(text) ||
     unresolvedContextOpening(text) ||
+    // A sentence that already names its own claimant -- "Researchers also
+    // observed ...", "The study found ..." -- is attributed. Wrapping it again
+    // produced "According to Nature, Researchers also observed ...": two
+    // attributions on one fact, and a capital after a comma. See
+    // `alreadyAttributed`.
+    alreadyAttributed(text) ||
     !hasPredicate(text)
   );
 }
@@ -632,7 +645,7 @@ function safeLead(
   }
   if (isRepositorySourceName(source)) {
     return {
-      text: `${researchAttribution(deterministicFactType(text))}: ${text}`,
+      text: attributedTail(text, researchAttribution(deterministicFactType(text))),
       evidence: lead.evidence,
     };
   }
@@ -801,19 +814,37 @@ function anchorRelativeTimes(
 }
 
 /**
- * How a research repository introduces a claim.
+ * How a research repository's claim is attributed, after the fact.
  *
  * arXiv is where a paper is posted, not a party to anything, so it can never be
  * the claimant: `According to arXiv cs.CR, ...` credits a subject category with
- * a research finding. The paper is the actor, and the form ends in a colon
- * because the sentence that follows is a complete one -- lowercasing its first
- * word would be a guess about whether that word is a proper noun.
+ * a research finding. The paper is the actor.
+ *
+ * The attribution follows the sentence rather than leading it, because a fact
+ * that leads has to be lowercased to follow a colon or a `that`, and that would
+ * be a guess about whether its first word is a proper noun. "A new paper
+ * reports: DigiCert will ..." was that guess avoided by publishing a label;
+ * "DigiCert will ..., a new paper reports" needs no guess and reads as prose.
+ * See `normalizeReportFraming`, which does the same for a source's own labels.
  */
 function researchAttribution(type: DeterministicFactType): string {
-  if (type === "projection") return "The paper projects";
-  if (type === "estimate") return "The paper estimates";
-  if (type === "claim") return "The paper argues";
-  return "A new paper reports";
+  if (type === "projection") return "the paper projects";
+  if (type === "estimate") return "the paper estimates";
+  if (type === "claim") return "the paper argues";
+  return "a new paper reports";
+}
+
+/**
+ * The fact, with its attribution after it: "DigiCert will ..., a new paper
+ * reports."
+ *
+ * Only for a fact that ends in a full stop. A question cannot take a trailing
+ * attribution, and a fact carrying its attribution in the middle of it would
+ * read as two claims if one were appended to the end.
+ */
+function attributedTail(text: string, attribution: string): string {
+  if (/[!?…]\s*$/.test(text)) return text;
+  return `${text.replace(/[.!?]+$/, "")}, ${attribution}.`;
 }
 
 function attributedFactText(
@@ -832,6 +863,7 @@ function attributedFactText(
   if (!statistic && !["claim", "estimate", "projection"].includes(type)) return text;
   if (AUTHORIAL_OPENING.test(text)) return text;
   if (
+    alreadyAttributed(text) ||
     /\b(?:according to|reports?|said|says|estimates?|projects?|found|argues?|claims?)\b/i.test(text)
   )
     return text;
@@ -841,7 +873,7 @@ function attributedFactText(
   // worse than no wrap, and the citation already carries the provenance.
   if (cannotWrap(text)) return text;
   if (statistic && survey) return `According to ${survey}, ${statisticClause(text)}`;
-  if (isRepositorySourceName(source)) return `${researchAttribution(type)}: ${text}`;
+  if (isRepositorySourceName(source)) return attributedTail(text, researchAttribution(type));
   const opener = frontedOpener(text);
   if (opener)
     return `${opener.opener}, ${source} reports that ${withoutDiscourseMarker(opener.rest)}`;

@@ -559,7 +559,14 @@ describe("composeArticle", () => {
     });
 
     it("uses neutral paper attribution instead of crediting the repository", () => {
-      expect(composeArticle(arxivStory([])).deck.text).toMatch(/^A new paper reports: /);
+      const deck = composeArticle(arxivStory([])).deck.text;
+      // The attribution follows the fact. A leading label has to be lower-cased
+      // to become a clause, and whether the word after it is a proper noun is not
+      // something the composer can know -- which is why the label existed. The
+      // paper is still the actor, and arXiv is still not.
+      expect(deck).toMatch(/, a new paper reports\.$/);
+      expect(deck).not.toMatch(/arXiv/i);
+      expect(deck).not.toMatch(/^[^:]{0,40}: /);
     });
 
     it("composes the same text whichever order the dirty and clean variants arrive", () => {
@@ -699,9 +706,14 @@ describe("composeArticle", () => {
 
       it("does not stack one attribution on another", () => {
         // The deck used to be prefixed regardless, which with a resolved author
-        // subject read "A new paper reports: The authors call ...".
+        // subject read "A new paper reports: The authors call ...". A label is
+        // gone from the article entirely now, so the assertion is about the fact
+        // rather than about one spelling of the frame.
         const { article } = composed();
-        expect(article.deck.text).not.toMatch(/^A new paper reports: The authors/);
+        expect(article.deck.text).not.toMatch(
+          /\b(?:paper|study|authors|researchers)\b[^.]{0,40}:\s/,
+        );
+        expect(article.deck.text).not.toMatch(/reports?\s+that\s+The authors\b/);
       });
 
       it("keeps provenance on every block it publishes", () => {

@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { composeArticleWithDiagnostics, isShareStatistic, judgeFallbackDeck } from "./editorial";
 import { htmlToText } from "./pipeline/feed";
 import {
+  alreadyAttributed,
   cleanDeterministicSentence,
   editorialNoise,
   hasPredicate,
   headingUnit,
   normalizeRelativeTime,
+  normalizeReportFraming,
   resolveNarrator,
   sourceSeam,
   stripEditorialVoice,
@@ -158,8 +160,8 @@ const oneSource = (excerpt: string, name = "The Register"): Story => ({
   timeline: [],
 });
 
-const composedText = (excerpt: string): string => {
-  const { article } = composeArticleWithDiagnostics(oneSource(excerpt));
+const composedText = (excerpt: string, name = "The Register"): string => {
+  const { article } = composeArticleWithDiagnostics(oneSource(excerpt, name));
   return [article.deck.text, ...article.paragraphs.map((paragraph) => paragraph.text)].join(" ");
 };
 
@@ -761,6 +763,138 @@ describe("an editorial adverb is a wrapper only when a clause follows it", () =>
       removed: false,
     });
     expect(stripEditorialVoice("")).toEqual({ text: "", removed: false });
+  });
+});
+
+/**
+ * A document's own label, and the two rewrites it may get.
+ *
+ * The class this exists for is the abstract read aloud: "The paper projects:",
+ * "A new paper reports:", "The authors present:" -- a colon label announcing a
+ * fact, which is how a paper writes a section and how a briefing must not write
+ * a sentence. Each case below is one of those, with the decoys that make the rule
+ * structural rather than a word filter: a colon that introduces a list, a colon
+ * with no verb in front of it, and the comma form of an attribution, which is
+ * ordinary English.
+ */
+describe("a document's colon label is published as prose", () => {
+  it("moves a clause behind the fact it was announcing", () => {
+    expect(
+      normalizeReportFraming(
+        "The paper projects: Most of the activity consisted of automated discovery, fingerprinting, and model enumeration.",
+      ),
+    ).toEqual({
+      text: "Most of the activity consisted of automated discovery, fingerprinting, and model enumeration, the paper projects.",
+      moved: 1,
+      dropped: 0,
+    });
+  });
+
+  it("moves the label with the adjective in it, which is not a word filter", () => {
+    expect(normalizeReportFraming("A new paper reports: 40 endpoints were exposed.")).toEqual({
+      text: "40 endpoints were exposed, a new paper reports.",
+      moved: 1,
+      dropped: 0,
+    });
+    expect(
+      normalizeReportFraming("The latest study estimates: revenue will double by 2027."),
+    ).toEqual({
+      text: "Revenue will double by 2027, the latest study estimates.",
+      moved: 1,
+      dropped: 0,
+    });
+  });
+
+  it("takes the colon out when the verb takes an object", () => {
+    // "The authors present: the first systematic study" is one sentence with a
+    // colon in the middle; nothing moves and no attribution changes hands.
+    expect(
+      normalizeReportFraming("The authors present: the first systematic study of it."),
+    ).toEqual({
+      text: "The authors present the first systematic study of it.",
+      moved: 0,
+      dropped: 0,
+    });
+  });
+
+  it("drops the frame when the fact already names its claimant", () => {
+    // One attribution in front of another: "A new paper reports: The authors
+    // call this loopjacking" was the deck this rule exists for.
+    expect(
+      normalizeReportFraming("The paper reports: the authors found 40 exposed endpoints."),
+    ).toEqual({ text: "the authors found 40 exposed endpoints.", moved: 0, dropped: 1 });
+  });
+
+  it("rewrites a label that follows another sentence", () => {
+    expect(
+      normalizeReportFraming("The deal closed on Friday. The paper projects: revenue will double."),
+    ).toEqual({
+      text: "The deal closed on Friday. Revenue will double, the paper projects.",
+      moved: 1,
+      dropped: 0,
+    });
+  });
+
+  it("leaves a colon that is not a label alone", () => {
+    for (const text of [
+      // A list the sentence introduces: the colon is inside the sentence, not a
+      // frame in front of one.
+      "The paper describes three failure modes: ordering, latency and cost.",
+      // No verb, so no frame: a title and a subtitle, and a field label.
+      "The study: a randomized trial of 200 patients.",
+      "Results: 14 pages, 3 figures.",
+      // A party to the story, not a document: this colon introduces segments.
+      "The company reports three segments: cloud, devices and ads.",
+      // The comma form is ordinary English and is left exactly as written.
+      "According to the paper, the attack works by exploiting exposed credentials.",
+    ]) {
+      expect(normalizeReportFraming(text)).toEqual({ text, moved: 0, dropped: 0 });
+    }
+  });
+
+  it("recognises the attribution a sentence already carries", () => {
+    for (const text of [
+      "Researchers also observed model management abuse against the infrastructure.",
+      "The study found that the bulk of the traffic was automated.",
+      "The authors present the first systematic study of it.",
+      "According to the report, the market doubled.",
+      "The Register reports that DigiCert doesn't see it as a manual problem.",
+      // A trailing attribution counts: the composer's own moved frames.
+      "Most of the activity was automated, the paper projects.",
+    ])
+      expect(alreadyAttributed(text), text).toBe(true);
+
+    for (const text of [
+      // A subject, not an attribution.
+      "The company's servers were breached in July.",
+      "The researchers were not available for comment.",
+      "Most of the activity consisted of automated discovery.",
+      // A named party, but nothing is reported.
+      "The authors' names were removed before publication.",
+    ])
+      expect(alreadyAttributed(text), text).toBe(false);
+  });
+
+  it("publishes the finding, with the attribution after it", () => {
+    const text = composedText(
+      "The paper projects: Most of the activity consisted of automated discovery.",
+    );
+    expect(text).toContain("Most of the activity consisted of automated discovery");
+    expect(text).toMatch(/, the paper projects\.$/);
+    // The projection is still the paper's, and no label survives.
+    expect(text).not.toMatch(/\b(?:paper|study|authors|researchers)\b[^.]{0,40}:\s/);
+  });
+
+  it("does not stack a second attribution on a sentence that has one", () => {
+    // The deck read "According to Nature, Researchers also observed model
+    // management abuse ...": two attributions on one fact, and a capital after a
+    // comma. The sentence already said whose finding it was.
+    const text = composedText(
+      "Researchers also observed model management abuse, path traversal and prompt injection.",
+      "Nature",
+    );
+    expect(text).not.toContain("According to Nature, Researchers");
+    expect(text).toContain("Researchers also observed");
   });
 });
 

@@ -1152,6 +1152,176 @@ export function stripFrontedFrame(text: string): string {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Report framing: a label in front of a fact                                */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * The document, or the group that wrote it, in front of a colon.
+ *
+ * Only the nouns a document is called by. "The paper", "the authors", "the
+ * study" -- never a party to the story, because a company's colon is a list
+ * introduction ("The company reports three segments: cloud, devices, ads") and
+ * not a frame around a sentence.
+ */
+const FRAME_SUBJECT =
+  "(?:the|a|an|this|that|their|our|its|one)?\\s*(?:new|recent|latest|full)?\\s*(?:paper|study|report|survey|analysis|review|preprint|research|authors?|researchers?|scientists?|team|findings|results)";
+
+/**
+ * A verb that introduces a clause: what follows is a sentence of its own.
+ *
+ * These are the frames the composer moves to the end of the fact. A clause may
+ * not follow `that` while keeping the capital its source gave it -- "The paper
+ * reports that Most of the activity ..." reads as a misspelling of a name, and
+ * the codebase's position, stated in `REPORTED_CLAUSE_WORDS`, is that lowering
+ * the word is a guess about whether it is a proper noun. So the fact leads and
+ * the attribution follows it, which is grammatical with either.
+ */
+const FRAME_CLAUSE_VERB =
+  "reports?|reported|says?|said|states?|stated|notes?|noted|finds?|found|shows?|showed|argues?|argued|claims?|claimed|warns?|warned|projects?|projected|estimates?|estimated|forecasts?|forecast|predicts?|predicted|expects?|expected|suggests?|suggested|concludes?|concluded|observes?|observed|speculates?|speculated|recommends?|recommended";
+
+/**
+ * A verb that takes an object, where the colon is the whole defect.
+ *
+ * "The authors present: the first systematic study of it" is one sentence with a
+ * colon in the middle of it; deleting the colon is the entire repair, and no
+ * attribution moves.
+ */
+const FRAME_OBJECT_VERB =
+  "presents?|presented|describes?|described|documents?|documented|details?|detailed|outlines?|outlined|releases?|released|announces?|announced|publishes?|published|introduces?|introduced|unveils?|unveiled|proposes?|proposed|offers?|offered";
+
+/** A frame at the start of a sentence: `The paper reports: <fact>`. */
+const REPORT_FRAME = new RegExp(
+  `^(${FRAME_SUBJECT}(?:['’]s)?(?:\\s+${FRAME_SUBJECT}(?:['’]s)?)?\\s+(?:${FRAME_CLAUSE_VERB}|${FRAME_OBJECT_VERB}))\\s*:\\s+(\\S[\\s\\S]*)$`,
+  "iu",
+);
+
+/**
+ * The same shape with the attribution spelled as a prepositional phrase.
+ *
+ * "According to the paper: X" is the label form of "According to the paper, X",
+ * and the comma form is ordinary English that is left exactly as written.
+ */
+const ACCORDING_FRAME = new RegExp(
+  `^(according to\\s+${FRAME_SUBJECT})\\s*:\\s+(\\S[\\s\\S]*)$`,
+  "iu",
+);
+
+/**
+ * Whether a sentence already carries an attribution of its own.
+ *
+ * The composer used to wrap every lead of a single-source story in "According
+ * to <outlet>, ", including the ones that were already attributed, which is how
+ * the deck read "According to Nature, Researchers also observed model management
+ * abuse ..." -- one attribution glued to another, and a capital after a comma.
+ * A sentence that names its own claimant is published as the source wrote it:
+ * the claim is not weaker for it, and the citation travels with the block.
+ *
+ * Structural, and deliberately narrow: the claimant must be one of the nouns a
+ * document or author group is called by, or a named party that *reports*, and a
+ * reporting verb must follow it. "The company's servers were breached" is a
+ * subject, not an attribution, and is still wrapped.
+ */
+const CLAIMANT =
+  "(?:the\\s+|a\\s+|an\\s+|our\\s+|their\\s+)?(?:authors?|researchers?|scientists?|study|paper|report|survey|team|analysts?|officials?|investigators?|company|firm|spokesperson|agency|analysis|research)";
+const REPORTING_PREDICATE =
+  "(?:reports?|reported|says?|said|states?|stated|notes?|noted|finds?|found|shows?|showed|observ(?:e|es|ed)|presents?|presented|describes?|described|argues?|argued|claims?|claimed|warns?|warned|announces?|announced|tells?|told|estimates?|estimated|projects?|projected|concludes?|concluded|documents?|documented|details?|detailed|adds?|added)";
+const ALREADY_ATTRIBUTED = new RegExp(
+  // A publication's own name is one to three words: "The Register reports
+  // that ..." as well as "Reuters reports that ...".
+  `^(?:according to\\b|(?:\\S+\\s+){1,3}reports?\\s+that\\b|${CLAIMANT}\\b[^,.;:]{0,40}?\\b${REPORTING_PREDICATE}\\b)` +
+    // Or the attribution a moved frame left behind: `X, the paper projects.`
+    // Carrying one at the end is carrying one, and wrapping the sentence again
+    // would put a second attribution in front of it.
+    `|,\\s*(?:according to\\s+${FRAME_SUBJECT}|${FRAME_SUBJECT}\\s+(?:${REPORTING_PREDICATE}))\\s*[.!?]?\\s*$`,
+  "i",
+);
+
+export function alreadyAttributed(text: string): boolean {
+  return ALREADY_ATTRIBUTED.test(text.trim());
+}
+
+/** The frame a sentence opens with, if it opens with one. */
+function readReportFrame(
+  sentence: string,
+): { label: string; rest: string; clause: boolean } | null {
+  const according = ACCORDING_FRAME.exec(sentence);
+  if (according) {
+    return { label: according[1] ?? "", rest: (according[2] ?? "").trim(), clause: true };
+  }
+  const frame = REPORT_FRAME.exec(sentence);
+  if (!frame) return null;
+  const label = frame[1] ?? "";
+  const rest = (frame[2] ?? "").trim();
+  if (rest === "") return null;
+  return {
+    label,
+    rest,
+    clause: new RegExp(`(?:${FRAME_CLAUSE_VERB})$`, "i").test(label),
+  };
+}
+
+/** One sentence's worth: the colon came out, so the capital is already right. */
+function withoutColon(label: string, rest: string): string {
+  return `${label} ${rest}`;
+}
+
+/**
+ * Publish a document's own colon label as prose, without inventing or losing a
+ * single fact.
+ *
+ * The three outcomes, and why each is a fact-preserving one:
+ *
+ *   "The paper reports: 40 endpoints were exposed."
+ *     -> "40 endpoints were exposed, the paper reports."
+ *   "The authors present: the first systematic study of it."
+ *     -> "The authors present the first systematic study of it."
+ *   "The paper reports: the authors found 40 exposed endpoints."
+ *     -> "The authors found 40 exposed endpoints."
+ *
+ * A clause moves to the end, where its capital is correct and its claim is still
+ * the document's. A noun phrase after a verb that takes an object only loses its
+ * colon. And a fact that already names its own claimant loses the frame, because
+ * one attribution in front of another is the defect `AUTHORIAL_OPENING` exists
+ * for -- "A new paper reports: The authors call this ......" was the deck.
+ *
+ * Nothing is paraphrased and nothing is dropped but the frame itself.
+ */
+export function normalizeReportFraming(text: string): {
+  text: string;
+  /** Frames deleted because the fact was already attributed. */
+  dropped: number;
+  /** Frames moved behind the fact they were in front of. */
+  moved: number;
+} {
+  let dropped = 0;
+  let moved = 0;
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  const out = sentences.map((sentence) => {
+    const frame = readReportFrame(sentence);
+    if (!frame) return sentence;
+    const { label, rest } = frame;
+    if (alreadyAttributed(rest)) {
+      dropped += 1;
+      return rest;
+    }
+    // A trailing attribution takes a clause, and the fact has to be one sentence
+    // for the comma to sit where the writer would put it.
+    if (frame.clause && !/[.!?]\s/.test(rest)) {
+      moved += 1;
+      const clause = rest.replace(/[.!?]+$/, "");
+      // The clause now opens the sentence. It was written mid-sentence after a
+      // colon, so a lower-case first letter is the source's own spelling and
+      // takes the capital a sentence start needs -- and a name that was already
+      // capitalised is untouched.
+      const opener = clause[0]!.toUpperCase() + clause.slice(1);
+      return `${opener}, ${label[0]!.toLowerCase()}${label.slice(1)}.`;
+    }
+    return withoutColon(label, rest);
+  });
+  return { text: out.join(" "), dropped, moved };
+}
+
+/* ------------------------------------------------------------------------- */
 /* Relative time                                                            */
 /* ------------------------------------------------------------------------- */
 
@@ -2241,6 +2411,10 @@ export type ReaderSourceNormalization = {
   strippedFrames: number;
   /** Sentences refused for carrying a loaded metaphor instead of the fact. */
   sourceColourRejections: number;
+  /** Frames moved behind the fact they were in front of ("The paper reports: X"). */
+  reportFramesMoved: number;
+  /** Frames deleted because the fact already named its own claimant. */
+  reportFramesDropped: number;
   /**
    * A bounded before/after example of each rewrite, for the audit only.
    *
@@ -2309,6 +2483,8 @@ function emptyNormalizationStats(): ReaderSourceNormalization & ReaderDedupe {
     sourceVoiceStripped: 0,
     strippedFrames: 0,
     sourceColourRejections: 0,
+    reportFramesMoved: 0,
+    reportFramesDropped: 0,
     samples: {
       voiceStrips: [],
       frames: [],
@@ -2375,7 +2551,12 @@ function normalizeReaderSource(
       stats.rejectedMetadataOnly += 1;
       return undefined;
     }
-    return furniture.text;
+    // Last, because the frame is around the sentence that survives everything
+    // else: `We present: <fact>` is the authors' pronoun before it is a label.
+    const framing = normalizeReportFraming(furniture.text);
+    stats.reportFramesMoved += framing.moved;
+    stats.reportFramesDropped += framing.dropped;
+    return framing.text;
   };
 
   const excerpt = source.excerpt === undefined ? undefined : keep(source.excerpt);
