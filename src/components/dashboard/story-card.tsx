@@ -1,5 +1,13 @@
 import { Link } from "@tanstack/react-router";
-import { Bookmark, EyeOff, Sparkles, ThumbsDown, ThumbsUp, VolumeX } from "lucide-react";
+import {
+  AlertCircle,
+  Bookmark,
+  EyeOff,
+  Sparkles,
+  ThumbsDown,
+  ThumbsUp,
+  VolumeX,
+} from "lucide-react";
 import { becauseYouFollow } from "@/lib/matching";
 import type { Story } from "@/lib/story";
 import type { FeedbackState, Vote } from "@/lib/feedback-store";
@@ -20,6 +28,7 @@ export function StoryCard({
   feedback,
   onVote,
   onSave,
+  saveError,
   onDismiss,
   onMute,
 }: {
@@ -29,7 +38,8 @@ export function StoryCard({
   index: number;
   feedback: FeedbackState;
   onVote: (id: string, v: Vote) => void;
-  onSave: (id: string) => void;
+  onSave: (story: Story) => void;
+  saveError?: string | undefined;
   onDismiss: (id: string) => void;
   onMute: (topic: string) => void;
 }) {
@@ -112,7 +122,7 @@ export function StoryCard({
           Read <span aria-hidden>→</span>
         </Link>
         <button
-          onClick={() => onSave(story.id)}
+          onClick={() => onSave(story)}
           aria-pressed={saved}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12.5px] transition-colors",
@@ -152,6 +162,19 @@ export function StoryCard({
           ) : null}
         </div>
       </div>
+      {/* Said out loud rather than shown by the button alone. A rollback and a
+          tap the reader never made look identical otherwise, and the button
+          reporting "Save" again is not a reason to believe the story went
+          anywhere. Weight and the glyph carry it: --destructive is monochrome. */}
+      {saveError ? (
+        <p
+          role="alert"
+          className="mt-3 flex items-start gap-1.5 text-[12px] font-medium leading-relaxed text-destructive"
+        >
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>{saveError}</span>
+        </p>
+      ) : null}
     </article>
   );
 }

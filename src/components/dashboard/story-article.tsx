@@ -1,4 +1,4 @@
-import { Bookmark, ExternalLink, ThumbsDown, ThumbsUp } from "lucide-react";
+import { AlertCircle, Bookmark, ExternalLink, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { composeArticle } from "@/lib/editorial";
 import { articleMinutes } from "@/lib/reader-article";
@@ -20,6 +20,7 @@ export function StoryArticle({
   gridClassName,
   onVote,
   onToggleSaved,
+  saveError,
   onReachEnd,
 }: {
   story: Story;
@@ -29,6 +30,7 @@ export function StoryArticle({
   gridClassName?: string;
   onVote: (vote: Vote) => void;
   onToggleSaved: () => void;
+  saveError?: string | undefined;
   onReachEnd: () => void;
 }) {
   const article = composeArticle(story);
@@ -216,6 +218,17 @@ export function StoryArticle({
             <Bookmark className={cn("h-3.5 w-3.5", saved && "fill-current")} />
             {saved ? "Saved" : "Save for later"}
           </button>
+          {/* The button has already flipped back by the time this is read, which
+              on its own is indistinguishable from a tap that never landed. */}
+          {saveError ? (
+            <p
+              role="alert"
+              className="mt-3 flex items-start gap-1.5 text-[12px] font-medium leading-relaxed text-destructive"
+            >
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span>{saveError}</span>
+            </p>
+          ) : null}
         </div>
       </aside>
     </article>

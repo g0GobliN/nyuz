@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   clearFeedback,
   loadFeedback,
@@ -7,7 +8,9 @@ import {
   saveStory,
   saveVote,
 } from "@/lib/server/feedback";
+import { humanError } from "@/lib/errors";
 import type { FeedbackVote } from "@/lib/feedback-weights";
+import type { Story } from "@/lib/story";
 
 export type Vote = "useful" | "not-useful";
 
@@ -25,6 +28,51 @@ export const EMPTY_FEEDBACK: FeedbackState = {
   mutedTopics: [],
 };
 
+const SAVED_QUERY_KEY = ["briefing", "saved"] as const;
+
+/**
+ * Saves the reader has been shown and the server has not confirmed yet, keyed by
+ * story id, in the order they were tapped.
+ *
+ * Module scope, not a `useRef`, for one reason: `useFeedback` is mounted once
+ * per route, so a bookmark tapped on Home would be forgotten by the instance the
+ * Saved shelf is drawn from — precisely the moment the reader goes to look for
+ * it. An entry lives from the tap until its write has settled *and* the
+ * authoritative list has landed, so the map is never larger than the saves
+ * actually in flight.
+ */
+const pendingSaves = new Map<string, { saved: boolean; story: Story }>();
+
+/**
+ * The shelf, as the reader just changed it.
+ *
+ * `loadSavedStories` is a server list, so a response that overlaps a tap cannot
+ * contain that tap's story — and a response that started before an un-save still
+ * contains a story the reader has removed. The shelf renders whatever came back,
+ * which is how a story saved on a slow connection read as "Nothing saved yet"
+ * for the length of a round trip. Merging the unconfirmed changes over the
+ * answer makes the shelf agree with the button immediately, and the refetch that
+ * follows a settled write takes over from there.
+ */
+export function withPendingSaved(stories: Story[]): Story[] {
+  if (pendingSaves.size === 0) return stories;
+
+  const added: Story[] = [];
+  const removed = new Set<string>();
+  for (const entry of pendingSaves.values()) {
+    if (entry.saved) added.push(entry.story);
+    else removed.add(entry.story.id);
+  }
+  if (added.length === 0 && removed.size === 0) return stories;
+
+  // Newest first, the same order the optimistic cache write uses. A story the
+  // server also returned is dropped in favour of the copy the reader tapped, so
+  // it cannot appear twice.
+  const addedIds = new Set(added.map((story) => story.id));
+  const server = stories.filter((story) => !removed.has(story.id) && !addedIds.has(story.id));
+  return added.length === 0 ? server : [...added, ...server];
+}
+
 /**
  * The reader's signals — votes, saves, dismissals, and muted topics are all
  * server state now, keyed by user, so the same reader sees the same feed on
@@ -37,10 +85,22 @@ export const EMPTY_FEEDBACK: FeedbackState = {
  * the server never took — a thumb that looks recorded and is not is worse
  * than one that visibly did not stick, because the reader has no reason to
  * try again.
+ *
+ * A save also has to reach the shelf, which is a *different* cache entry — see
+ * `toggleSaved`. The shelf is updated optimistically with the same full Story
+ * the reader is looking at, and `withPendingSaved` holds that story there until
+ * the server's own list can be trusted to contain it. Between them, a slow
+ * connection never turns a just-saved story back into an empty shelf.
  */
 export function useFeedback() {
+  const queryClient = useQueryClient();
   const [state, setState] = useState<FeedbackState>(EMPTY_FEEDBACK);
+  const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
   const [hydrated, setHydrated] = useState(false);
+  // Saves for one story are serialized. This keeps a quick Save → Unsave
+  // sequence in the same order on the server as it appears in the UI, while
+  // different stories can still save independently.
+  const saveChains = useRef(new Map<string, Promise<unknown>>());
 
   useEffect(() => {
     let live = true;
@@ -51,7 +111,7 @@ export function useFeedback() {
         setState((prev) => ({
           ...prev,
           votes: fromServerVotes(server.votes),
-          saved: server.saved,
+          saved: mergePendingSaves(server.saved, pendingSaves),
           dismissed: server.dismissed,
           mutedTopics: server.mutedTopics,
         }));
@@ -98,24 +158,87 @@ export function useFeedback() {
     );
   }, []);
 
-  const toggleSaved = useCallback((id: string) => {
-    let nowSaved = false;
+  const toggleSaved = useCallback(
+    (story: Story) => {
+      const { id } = story;
+      const nowSaved = !state.saved.includes(id);
+      const previous = saveChains.current.get(id) ?? Promise.resolve();
+      // Identity, not just the id: a newer toggle replaces this entry, and only
+      // the newest tap is allowed to retire the hold on the shelf.
+      const entry = { saved: nowSaved, story };
 
-    setState((prev) => {
-      nowSaved = !prev.saved.includes(id);
-      return {
-        ...prev,
-        saved: nowSaved ? [...prev.saved, id] : prev.saved.filter((x) => x !== id),
-      };
-    });
-
-    void saveStory({ data: { eventId: id, saved: nowSaved } }).catch(() => {
+      // Change both views before the network call: the button and the Saved
+      // shelf should agree immediately, even when the next response is slow.
       setState((prev) => ({
         ...prev,
-        saved: nowSaved ? prev.saved.filter((x) => x !== id) : [...prev.saved, id],
+        saved: nowSaved ? [...prev.saved, id] : prev.saved.filter((x) => x !== id),
       }));
-    });
-  }, []);
+      pendingSaves.set(id, entry);
+      setSaveErrors((prev) => {
+        if (!prev[id]) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      queryClient.setQueryData<Story[]>(SAVED_QUERY_KEY, (current) => {
+        if (nowSaved) {
+          return [story, ...(current ?? []).filter((item) => item.id !== id)];
+        }
+        return current?.filter((item) => item.id !== id);
+      });
+
+      // A later toggle waits for the earlier write, so the server cannot end in
+      // the opposite state merely because two requests completed out of order.
+      const request = previous
+        .catch(() => undefined)
+        .then(() => saveStory({ data: { eventId: id, saved: nowSaved } }));
+      saveChains.current.set(id, request);
+
+      void request
+        .then(() => {
+          // Now that the write has landed, ask for the authoritative list — and
+          // keep this save's hold on the shelf until that answer arrives. A
+          // response already in flight when the reader tapped cannot contain the
+          // save, so retiring the hold any earlier is exactly when the shelf
+          // would go empty again.
+          void queryClient.invalidateQueries({ queryKey: SAVED_QUERY_KEY }).finally(() => {
+            if (pendingSaves.get(id) === entry) pendingSaves.delete(id);
+          });
+        })
+        .catch((error: unknown) => {
+          // An older request must not undo a newer toggle. The newest request
+          // owns the visible state and will either succeed or roll itself back.
+          if (saveChains.current.get(id) !== request) return;
+
+          if (pendingSaves.get(id) === entry) pendingSaves.delete(id);
+          setState((prev) => ({
+            ...prev,
+            saved: nowSaved
+              ? prev.saved.filter((item) => item !== id)
+              : prev.saved.includes(id)
+                ? prev.saved
+                : [...prev.saved, id],
+          }));
+          queryClient.setQueryData<Story[]>(SAVED_QUERY_KEY, (current) => {
+            if (nowSaved) return current?.filter((item) => item.id !== id);
+            return [story, ...(current ?? []).filter((item) => item.id !== id)];
+          });
+          setSaveErrors((prev) => ({
+            ...prev,
+            [id]: humanError(
+              error,
+              nowSaved
+                ? "Could not save this story. Try again."
+                : "Could not remove this story from Saved. Try again.",
+            ),
+          }));
+        })
+        .finally(() => {
+          if (saveChains.current.get(id) === request) saveChains.current.delete(id);
+        });
+    },
+    [queryClient, state.saved],
+  );
 
   const dismiss = useCallback((id: string) => {
     setState((prev) =>
@@ -160,6 +283,9 @@ export function useFeedback() {
 
   const reset = useCallback(() => {
     setState(EMPTY_FEEDBACK);
+    // Nothing the server has not confirmed can survive a reset, and leaving the
+    // holds in place would re-add them to the shelf on the next feedback read.
+    pendingSaves.clear();
     // Clears the stored votes and returns every topic weight to base. Without
     // this, "reset" would erase what the reader can see and keep what the
     // pipeline reads.
@@ -178,6 +304,7 @@ export function useFeedback() {
     state,
     hydrated,
     signals,
+    saveErrors,
     vote,
     toggleSaved,
     dismiss,
@@ -205,4 +332,16 @@ function fromServerVotes(votes: Record<string, FeedbackVote>): Record<string, Vo
     out[id] = vote === "useful" ? "useful" : "not-useful";
   }
   return out;
+}
+
+function mergePendingSaves(
+  saved: string[],
+  pending: Map<string, { saved: boolean; story: Story }>,
+): string[] {
+  const merged = new Set(saved);
+  for (const [id, entry] of pending) {
+    if (entry.saved) merged.add(id);
+    else merged.delete(id);
+  }
+  return [...merged];
 }

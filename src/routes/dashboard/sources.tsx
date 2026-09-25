@@ -3,9 +3,11 @@ import { humanError } from "@/lib/errors";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, Plus, Trash2, Volume2, VolumeX } from "lucide-react";
 import { useState } from "react";
-import { DashboardShell, PageHeader } from "@/components/dashboard/shell";
+import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
+import { LoadState } from "@/components/dashboard/load-state";
 import { Loading } from "@/components/loading";
 import { Button } from "@/components/kit";
+import { loadPhase } from "@/lib/load-state";
 import { loadWatchedSources, setSourcePref, type WatchedSource } from "@/lib/server/briefing";
 import {
   followCustomSource,
@@ -47,6 +49,17 @@ function Sources() {
   const groups = sources.data ?? [];
   const total = groups.reduce((n, g) => n + g.items.length, 0);
   const priorities = groups.flatMap((g) => g.items).filter((item) => item.priorityActive).length;
+  // Both counts are claims about the reader's watched feeds, so neither is
+  // printed from a request that has not answered: a zero beside "feeds
+  // monitored" is the same false answer as an empty list, in a smaller size.
+  // Same function, same inputs as the panel below draws from.
+  const phase = loadPhase(sources, { hasContent: groups.length > 0 });
+  const eye =
+    phase === "waiting"
+      ? "Reading your feeds"
+      : phase === "failed"
+        ? "We couldn't read your feeds"
+        : `${total} feeds monitored`;
 
   const toggle = (item: WatchedSource, next: SourcePref) => {
     save.mutate({ sourceId: item.id, pref: item.pref === next ? "normal" : next });
@@ -55,13 +68,17 @@ function Sources() {
   return (
     <DashboardShell title="Sources">
       <PageHeader
-        eyebrow={`${total} feeds monitored`}
+        eyebrow={eye}
         title="Sources we're watching for you."
         sub="You never have to touch this. It exists for the times you want a publication weighted differently, or gone."
       />
 
       <p className="mb-5 text-[12.5px] text-muted-foreground">
-        {priorities} of {formatTopicLimit(prioritySourceLimit)} priority sources ·{" "}
+        {sources.data ? (
+          <>
+            {priorities} of {formatTopicLimit(prioritySourceLimit)} priority sources ·{" "}
+          </>
+        ) : null}
         {PLAN_NAMES[plan]} plan. You can mute any source.
       </p>
       {limitError ? (
@@ -70,32 +87,46 @@ function Sources() {
         </p>
       ) : null}
 
-      {sources.isLoading ? <Loading label="Reading your feeds" className="justify-center" /> : null}
-
-      <div className="space-y-8">
-        {groups.map((g) => (
-          <section key={g.group}>
-            <div className="flex items-baseline justify-between">
-              <h2 className="text-[15px] font-medium">{g.group}</h2>
-              <span className="text-[12px] tabular-nums text-muted-foreground">
-                {g.items.length} feeds
-              </span>
-            </div>
-            <div className="mt-3 space-y-2">
-              {g.items.map((item) => (
-                <Row
-                  key={item.id}
-                  name={item.name}
-                  state={item.pref}
-                  priorityActive={item.priorityActive}
-                  onPriority={() => toggle(item, "priority")}
-                  onMute={() => toggle(item, "muted")}
-                />
-              ))}
-            </div>
-          </section>
-        ))}
-      </div>
+      {/*
+        Three states, decided once, in src/lib/load-state.ts. This list maps over
+        `groups`, which is the same empty array whether the request died or the
+        reader follows nothing — so a failure used to draw an empty page under
+        "Sources we're watching for you.", which reads as "nyuz watches nothing
+        for me". There is no `empty` slot here: a successful read with no groups
+        draws no list, and the copy around the panel is the section's own.
+      */}
+      <LoadState
+        query={sources}
+        hasContent={groups.length > 0}
+        content={
+          <div className="space-y-8">
+            {groups.map((g) => (
+              <section key={g.group}>
+                <div className="flex items-baseline justify-between">
+                  <h2 className="text-[15px] font-medium">{g.group}</h2>
+                  <span className="text-[12px] tabular-nums text-muted-foreground">
+                    {g.items.length} feeds
+                  </span>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {g.items.map((item) => (
+                    <Row
+                      key={item.id}
+                      name={item.name}
+                      state={item.pref}
+                      priorityActive={item.priorityActive}
+                      onPriority={() => toggle(item, "priority")}
+                      onMute={() => toggle(item, "muted")}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        }
+        loading={<Loading label="Reading your feeds" className="justify-center" />}
+        failed="We couldn't read your sources."
+      />
 
       <p className="mt-10 text-[13px] leading-relaxed text-muted-foreground">
         Muting a source does not hide an event. If the same story is reported elsewhere, it still
@@ -182,7 +213,23 @@ function CustomSources() {
         from it are matched, grouped and briefed exactly like everything else.
       </p>
 
-      {custom.isLoading ? <Loading label="Reading your sources" className="mt-6" /> : null}
+      {/*
+        The wait and the failure only. Everything below is the section's own body
+        and is written from `data`, so the panel's "something to show" state is
+        "the answer arrived" and it draws nothing itself — `content={null}` is
+        deliberate, and the section around it is what the reader is meant to see.
+        A failed read used to leave this section looking like a reader who
+        follows nothing, with no form either, since `canAdd` needs the plan's
+        limit to come back.
+      */}
+      <LoadState
+        query={custom}
+        hasContent={data !== undefined}
+        content={null}
+        loading={<Loading label="Reading your sources" />}
+        failed="We couldn't read your own sources."
+        className="mt-6"
+      />
 
       {data && !canAdd ? (
         <p className="mt-5 text-[13px] leading-relaxed">

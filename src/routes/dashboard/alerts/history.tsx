@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { ArrowLeft } from "lucide-react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
+import { LoadState } from "@/components/dashboard/load-state";
 import { humanError } from "@/lib/errors";
 import { Button } from "@/components/kit";
 import { Loading } from "@/components/loading";
@@ -70,76 +71,96 @@ function AlertHistory() {
           title={`Alerts are not included on ${PLAN_NAMES[plan]}.`}
           body="Your daily briefing still carries every matched story within its limit."
         />
-      ) : historyQ.isLoading ? (
-        <Loading label="Reading alert history" className="justify-center" />
-      ) : alerts.length === 0 ? (
-        <EmptyState
-          title="No alerts yet."
-          body="Breaking alerts fire outside your schedule, for events that should not wait. None have gone out."
-        />
       ) : (
-        <>
-          <div className="space-y-9">
-            {months.map((month) => (
-              <section key={month.key}>
-                <h2 className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                  {month.label}
-                </h2>
-                <ul className="mt-4 space-y-3">
-                  {month.alerts.map((alert) => (
-                    <li key={alert.digestId}>
-                      <Link
-                        to="/dashboard/story/$id"
-                        params={{ id: alert.eventId }}
-                        search={{ from: "alerts" }}
-                        className="block rounded-3xl border border-hairline bg-surface p-5 transition-colors hover:border-foreground/20"
-                      >
-                        <p className="text-[12px] tabular-nums text-muted-foreground">
-                          {formatStoryTime(alert.at)}
-                        </p>
-                        <p className="mt-2 text-[15px] font-medium leading-snug">{alert.title}</p>
-                        {alert.why ? (
-                          <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-                            {alert.why}
-                          </p>
-                        ) : null}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </div>
+        /*
+         * Three states, decided once, in src/lib/load-state.ts. "No alerts yet."
+         * is the sentence that would make somebody believe alerts are broken
+         * rather than quiet, and it read the same empty array a dead request
+         * leaves behind — so it lives in `empty`, which only an answer reaches.
+         *
+         * `!entitled` is above rather than in `given`: the query is
+         * `enabled: false` for a plan without alert history, and a disabled
+         * query is pending forever, so a state that makes the request moot
+         * belongs in front of the panel or it spins instead of saying so.
+         */
+        <LoadState
+          query={historyQ}
+          hasContent={alerts.length > 0}
+          content={
+            <>
+              <div className="space-y-9">
+                {months.map((month) => (
+                  <section key={month.key}>
+                    <h2 className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                      {month.label}
+                    </h2>
+                    <ul className="mt-4 space-y-3">
+                      {month.alerts.map((alert) => (
+                        <li key={alert.digestId}>
+                          <Link
+                            to="/dashboard/story/$id"
+                            params={{ id: alert.eventId }}
+                            search={{ from: "alerts" }}
+                            className="block rounded-3xl border border-hairline bg-surface p-5 transition-colors hover:border-foreground/20"
+                          >
+                            <p className="text-[12px] tabular-nums text-muted-foreground">
+                              {formatStoryTime(alert.at)}
+                            </p>
+                            <p className="mt-2 text-[15px] font-medium leading-snug">
+                              {alert.title}
+                            </p>
+                            {alert.why ? (
+                              <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+                                {alert.why}
+                              </p>
+                            ) : null}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
 
-          {/*
+              {/*
             A failed page said nothing at all before this: the spinner stopped,
             the list did not grow, and the only honest reading available to a
             reader was "I must have no older alerts". A page that cannot load
             has to say so.
           */}
-          {historyQ.isError ? (
-            <p className="mt-8 text-center text-[12.5px] text-muted-foreground">
-              {humanError(historyQ.error, "Could not load older alerts.")}
-            </p>
-          ) : null}
+              {historyQ.isError ? (
+                <p className="mt-8 text-center text-[12.5px] text-muted-foreground">
+                  {humanError(historyQ.error, "Could not load older alerts.")}
+                </p>
+              ) : null}
 
-          {historyQ.hasNextPage ? (
-            <div className="mt-8 flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void historyQ.fetchNextPage()}
-                disabled={historyQ.isFetchingNextPage}
-              >
-                {historyQ.isFetchingNextPage ? "Loading…" : "Load older alerts"}
-              </Button>
-            </div>
-          ) : historyQ.isError ? null : (
-            <p className="mt-8 text-center text-[12px] text-muted-foreground">
-              That is every alert in the last {limits.alertRetentionDays} days.
-            </p>
+              {historyQ.hasNextPage ? (
+                <div className="mt-8 flex justify-center">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void historyQ.fetchNextPage()}
+                    disabled={historyQ.isFetchingNextPage}
+                  >
+                    {historyQ.isFetchingNextPage ? "Loading…" : "Load older alerts"}
+                  </Button>
+                </div>
+              ) : historyQ.isError ? null : (
+                <p className="mt-8 text-center text-[12px] text-muted-foreground">
+                  That is every alert in the last {limits.alertRetentionDays} days.
+                </p>
+              )}
+            </>
+          }
+          loading={<Loading label="Reading alert history" className="justify-center" />}
+          failed="We couldn't read your alert history."
+          empty={() => (
+            <EmptyState
+              title="No alerts yet."
+              body="Breaking alerts fire outside your schedule, for events that should not wait. None have gone out."
+            />
           )}
-        </>
+        />
       )}
     </DashboardShell>
   );

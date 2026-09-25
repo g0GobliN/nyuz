@@ -4,10 +4,12 @@ import { ArrowRight, Clock, Sparkles } from "lucide-react";
 import { useMemo } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { InstallCard } from "@/components/dashboard/install-card";
+import { LoadState } from "@/components/dashboard/load-state";
 import { StoryCard } from "@/components/dashboard/story-card";
 import { PanelLoading } from "@/components/loading";
 import { LinkButton } from "@/components/kit";
 import { useDisplayName } from "@/lib/auth";
+import { loadPhase } from "@/lib/load-state";
 import { useFeedback } from "@/lib/feedback-store";
 import { useImpressions } from "@/lib/use-engagement";
 import { usePrefs } from "@/lib/prefs-store";
@@ -46,7 +48,8 @@ function greeting() {
 function DashboardHome() {
   const { prefs } = usePrefs();
   const who = useDisplayName(prefs.name);
-  const { state, signals, vote, toggleSaved, dismiss, muteTopic, restore } = useFeedback();
+  const { state, signals, saveErrors, vote, toggleSaved, dismiss, muteTopic, restore } =
+    useFeedback();
   const ref = useReveal<HTMLDivElement>();
 
   const feed = useQuery({
@@ -81,6 +84,24 @@ function DashboardHome() {
       ? nextBriefingLabel(new Date(feed.data.nextAt), prefs.timezone)
       : `Tomorrow · ${prefs.time}`;
 
+  // One decision for the panel and for the header above it: the header is the
+  // loudest line on the page, and every sentence it could print is a claim about
+  // the reader's briefing. "Came back quiet" while the request is still in
+  // flight is as false as it is after a failure, and a reader with no topics has
+  // nothing to match against whatever this request does — so the header asks the
+  // same function the panel below renders from.
+  const phase = loadPhase(feed, { hasContent: visible.length > 0, hasGiven: noTopics });
+  const sub =
+    phase === "content"
+      ? `Your nyuz found ${visible.length} ${visible.length === 1 ? "thing" : "things"} worth knowing.`
+      : phase === "waiting"
+        ? "Reading today's briefing…"
+        : phase === "failed"
+          ? "We couldn't reach your briefing."
+          : phase === "given"
+            ? "Nothing to match against yet."
+            : "Your nyuz came back quiet.";
+
   return (
     <DashboardShell title="Home">
       <div ref={ref}>
@@ -91,11 +112,7 @@ function DashboardHome() {
             month: "long",
           })}
           title={who ? `${greeting()}, ${who}.` : `${greeting()}.`}
-          sub={
-            visible.length > 0
-              ? `Your nyuz found ${visible.length} ${visible.length === 1 ? "thing" : "things"} worth knowing.`
-              : "Your nyuz came back quiet."
-          }
+          sub={sub}
         >
           <LinkButton to="/dashboard/briefing" variant="outline" size="sm">
             Read as a briefing <ArrowRight className="h-4 w-4" />
@@ -111,8 +128,18 @@ function DashboardHome() {
 
         <div className="grid gap-8 lg:grid-cols-[1fr_260px]">
           <div className="space-y-4">
-            {visible.length > 0 ? (
-              visible.map((story, i) => (
+            {/*
+              Three states, decided once, in src/lib/load-state.ts. `given`
+              outranks the failure because having no topics is a fact about the
+              reader that no request can change, and its action still leads
+              somewhere when this one has died; the two sentences inside `empty`
+              read the feed, so they are reachable only from a feed that
+              answered.
+            */}
+            <LoadState
+              query={feed}
+              hasContent={visible.length > 0}
+              content={visible.map((story, i) => (
                 <StoryCard
                   key={story.id}
                   story={story}
@@ -121,38 +148,46 @@ function DashboardHome() {
                   feedback={state}
                   onVote={vote}
                   onSave={toggleSaved}
+                  saveError={saveErrors[story.id]}
                   onDismiss={dismiss}
                   onMute={muteTopic}
                 />
-              ))
-            ) : feed.isLoading ? (
-              <PanelLoading label="Building your feed" />
-            ) : noTopics ? (
-              <EmptyState
-                title="You haven't told us what to watch for yet."
-                body="Pick a few topics and your briefing starts filling in. Until then there is nothing to match against, so there is nothing here."
-                action={
-                  <LinkButton to="/dashboard/topics" variant="outline" size="sm">
-                    Choose my topics
-                  </LinkButton>
-                }
-              />
-            ) : quiet ? (
-              <EmptyState
-                title="Nothing matched your topics."
-                body={`Nothing in the last ${feed.data?.windowHours ?? 48} hours touched ${prefs.topics.slice(0, 3).join(", ")}. A quiet day is a real answer, not a failure.`}
-                action={
-                  <LinkButton to="/dashboard/topics" variant="outline" size="sm">
-                    Adjust my topics
-                  </LinkButton>
-                }
-              />
-            ) : (
-              <EmptyState
-                title="Your briefing is still assembling."
-                body="Matches are in. The personal briefing goes out at the time you set — until then this page shows what has already been matched for you."
-              />
-            )}
+              ))}
+              loading={<PanelLoading label="Building your feed" />}
+              given={
+                noTopics ? (
+                  <EmptyState
+                    title="You haven't told us what to watch for yet."
+                    body="Pick a few topics and your briefing starts filling in. Until then there is nothing to match against, so there is nothing here."
+                    action={
+                      <LinkButton to="/dashboard/topics" variant="outline" size="sm">
+                        Choose my topics
+                      </LinkButton>
+                    }
+                  />
+                ) : null
+              }
+              failed="We couldn't load your briefing."
+              empty={() =>
+                quiet ? (
+                  <EmptyState
+                    title="Nothing matched your topics."
+                    body={`Nothing in the last ${feed.data?.windowHours ?? 48} hours touched ${prefs.topics.slice(0, 3).join(", ")}. A quiet day is a real answer, not a failure.`}
+                    action={
+                      <LinkButton to="/dashboard/topics" variant="outline" size="sm">
+                        Adjust my topics
+                      </LinkButton>
+                    }
+                  />
+                ) : (
+                  <EmptyState
+                    title="Your briefing is still assembling."
+                    body="Matches are in. The personal briefing goes out at the time you set — until then this page shows what has already been matched for you."
+                  />
+                )
+              }
+              className="space-y-4"
+            />
 
             {hidden > 0 ? (
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-hairline bg-surface-2 px-5 py-4 text-[13px]">
@@ -179,7 +214,19 @@ function DashboardHome() {
                   <p className="text-[12.5px] leading-relaxed text-muted-foreground">
                     No topics yet. Add a few and they appear here.
                   </p>
+                ) : phase === "waiting" ? (
+                  <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                    Counting what matched each topic…
+                  </p>
+                ) : phase === "failed" ? (
+                  <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                    Topic counts couldn't be loaded with the rest of the page.
+                  </p>
                 ) : (
+                  /* The counts are the feed's, topic by topic, so they are drawn
+                     only from a feed that answered — and an empty list would
+                     draw every topic as "—" with no bar, which reads as nothing
+                     having matched anything. */
                   prefs.topics.slice(0, 6).map((topic) => {
                     const hits = stories.filter((s) => s.topics.includes(topic)).length;
                     const pct = stories.length > 0 ? Math.round((hits / stories.length) * 100) : 0;

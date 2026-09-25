@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowRight, Bell, BellOff } from "lucide-react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
+import { LoadState } from "@/components/dashboard/load-state";
 import { Chip, LinkButton } from "@/components/kit";
 import { Loading } from "@/components/loading";
 import { usePrefs } from "@/lib/prefs-store";
@@ -93,46 +94,57 @@ function Alerts() {
 
       <section className="mt-10">
         <h2 className="text-[17px] font-medium tracking-tight">Recent alerts</h2>
-        {alertsQ.isLoading ? (
-          <Loading label="Reading recent alerts" className="justify-center" />
-        ) : off && sent.length === 0 ? (
-          <div className="mt-4">
-            <EmptyState
-              title="Nothing to show while alerts are off."
-              body="Turn them back on and anything urgent enough to interrupt you will be listed here."
-            />
-          </div>
-        ) : sent.length === 0 ? (
-          <div className="mt-4">
-            <EmptyState
-              title="No alerts sent yet."
-              body="Breaking alerts fire outside your schedule, for events that should not wait. None have gone out."
-            />
-          </div>
-        ) : (
-          <ul className="mt-4 space-y-3">
-            {sent.map((alert) => (
-              <li key={alert.digestId}>
-                <Link
-                  to="/dashboard/story/$id"
-                  params={{ id: alert.eventId }}
-                  search={{ from: "alerts" }}
-                  className="block rounded-3xl border border-hairline bg-surface p-5 transition-colors hover:border-foreground/20"
-                >
-                  <p className="text-[12px] tabular-nums text-muted-foreground">
-                    {formatStoryTime(alert.at)}
-                  </p>
-                  <p className="mt-2 text-[15px] font-medium leading-snug">{alert.title}</p>
-                  {alert.why ? (
-                    <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
-                      {alert.why}
+        {/*
+          Three states, decided once, in src/lib/load-state.ts. Both sentences
+          in `empty` are claims about what has gone out, so neither can be drawn
+          from a request that has not answered — including the one about alerts
+          being off, which is not purely a fact about settings: it also says
+          there is nothing to list.
+        */}
+        <LoadState
+          query={alertsQ}
+          hasContent={sent.length > 0}
+          content={
+            <ul className="space-y-3">
+              {sent.map((alert) => (
+                <li key={alert.digestId}>
+                  <Link
+                    to="/dashboard/story/$id"
+                    params={{ id: alert.eventId }}
+                    search={{ from: "alerts" }}
+                    className="block rounded-3xl border border-hairline bg-surface p-5 transition-colors hover:border-foreground/20"
+                  >
+                    <p className="text-[12px] tabular-nums text-muted-foreground">
+                      {formatStoryTime(alert.at)}
                     </p>
-                  ) : null}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+                    <p className="mt-2 text-[15px] font-medium leading-snug">{alert.title}</p>
+                    {alert.why ? (
+                      <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+                        {alert.why}
+                      </p>
+                    ) : null}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          }
+          loading={<Loading label="Reading recent alerts" className="justify-center" />}
+          failed="We couldn't read your recent alerts."
+          empty={() =>
+            off ? (
+              <EmptyState
+                title="Nothing to show while alerts are off."
+                body="Turn them back on and anything urgent enough to interrupt you will be listed here."
+              />
+            ) : (
+              <EmptyState
+                title="No alerts sent yet."
+                body="Breaking alerts fire outside your schedule, for events that should not wait. None have gone out."
+              />
+            )
+          }
+          className="mt-4"
+        />
         {showHistory ? (
           <Link
             to="/dashboard/alerts/history"

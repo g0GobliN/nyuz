@@ -11,7 +11,10 @@ import { useCallback, useEffect, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard/shell";
 import { StoryArticle } from "@/components/dashboard/story-article";
 import { PanelLoading } from "@/components/loading";
+import { Button } from "@/components/kit";
+import { humanError } from "@/lib/errors";
 import { useFeedback } from "@/lib/feedback-store";
+import { loadPhase } from "@/lib/load-state";
 import { useReadTracking } from "@/lib/use-engagement";
 import type { QueueItem, ReadingQueue } from "@/lib/reading-queue";
 import { asQueueSource, useReadingQueue, type QueueSource } from "@/lib/use-reading-queue";
@@ -102,7 +105,7 @@ function StoryDetail() {
     reachedEnd.current = true;
   }, []);
 
-  const { state, vote, toggleSaved } = useFeedback();
+  const { state, saveErrors, vote, toggleSaved } = useFeedback();
   const saved = story ? state.saved.includes(story.id) : false;
   const current = story ? state.votes[story.id] : undefined;
 
@@ -154,10 +157,66 @@ function StoryDetail() {
 
   useStoryShortcuts(queue, open);
 
-  if (storyQ.isLoading) {
+  /*
+   * Which of the three states this page is in, decided where every other
+   * screen decides it: src/lib/load-state.ts owns the order. A page cannot use
+   * the panel component — its failure is a sentence and a way back rather than
+   * the shared card — but it takes the same decision, so the reader cannot end
+   * up under a branch this file reasoned about differently.
+   *
+   * `waiting` rather than a check on `isLoading`: React Query calls a query
+   * between two retry attempts neither loading nor settled for a beat, and that
+   * beat used to be read as a story the reader does not have.
+   */
+  const phase = loadPhase(storyQ, { hasContent: Boolean(story) });
+
+  if (phase === "waiting") {
     return (
       <DashboardShell>
         <PanelLoading label="Preparing the event" />
+      </DashboardShell>
+    );
+  }
+
+  /*
+   * A request that failed is not a fact about the reader's briefing.
+   *
+   * This screen is where a push lands, so it is opened on a cold launch far more
+   * often than from inside the app — on iOS, out of a suspended app whose radio
+   * has not come back yet, which is where the first request after a resume most
+   * often fails. Reporting that as "This event is not in your briefing" tells
+   * the reader a story is gone when it is not, and hands them nothing to do
+   * about it. The failure now says what happened and offers the retry; only a
+   * load that *succeeded* and returned nothing is allowed to make a claim about
+   * their briefing, and that is what `loadPhase` encodes: `failed` is reachable
+   * only with nothing on screen, so a background refetch that fails behind a
+   * rendered story cannot replace it with an apology.
+   */
+  if (phase === "failed") {
+    return (
+      <DashboardShell>
+        <p className="text-[15px]">
+          {online
+            ? "Couldn't load this story."
+            : "You're offline, and this story isn't stored on this device."}
+        </p>
+        {/* The reason, verbatim enough to act on. "Couldn't load" with nothing
+            under it is a dead end whether the fix is a retry or a sign-in, and
+            this line is what a screenshot of this screen can be read for. */}
+        <p className="mt-3 text-[13px] text-muted-foreground">
+          {humanError(storyQ.error, "The request did not complete.")}
+        </p>
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void storyQ.refetch()}
+            disabled={storyQ.isFetching}
+          >
+            {storyQ.isFetching ? "Trying…" : "Try again"}
+          </Button>
+          <BackToFeed />
+        </div>
       </DashboardShell>
     );
   }
@@ -168,7 +227,7 @@ function StoryDetail() {
         {/* Two reasons a story can be missing, and they ask different things of
             the reader. Offline, the useful sentence says the copy was never
             made — the usual case for a story opened from a link rather than
-            from Saved. */}
+            from Saved. Reached only when the load answered and had nothing. */}
         <p className="text-[15px]">
           {online
             ? "This event is not in your briefing."
@@ -198,7 +257,8 @@ function StoryDetail() {
           current={current}
           gridClassName={READING_GRID}
           onVote={(value) => vote(story.id, value)}
-          onToggleSaved={() => toggleSaved(story.id)}
+          onToggleSaved={() => toggleSaved(story)}
+          saveError={story ? saveErrors[story.id] : undefined}
           onReachEnd={onReachEnd}
         />
 

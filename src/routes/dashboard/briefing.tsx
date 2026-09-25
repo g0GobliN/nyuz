@@ -4,9 +4,11 @@ import { Bookmark, Mail, MessageCircle } from "lucide-react";
 import { useMemo } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { BriefingPreview } from "@/components/briefing-preview";
+import { LoadState } from "@/components/dashboard/load-state";
 import { PanelLoading } from "@/components/loading";
 import { Chip, LinkButton } from "@/components/kit";
 import { useDisplayName } from "@/lib/auth";
+import { withPendingSaved } from "@/lib/feedback-store";
 import { usePrefs } from "@/lib/prefs-store";
 import { withOfflineFallback } from "@/lib/offline/fallback";
 import { useWarmSavedStories } from "@/lib/offline/warm";
@@ -24,12 +26,12 @@ export const Route = createFileRoute("/dashboard/briefing")({
   // is dropped rather than forwarded — the server would refuse it anyway, and
   // falling back to the latest briefing is the harmless reading of a typo.
   //
-  // `tab` is which of the two views is showing, and it is in the URL because the
-  // installed app's Saved tab has to be able to open it. It used to be local
-  // state, which meant Saved was unreachable except by tapping a chip on this
-  // page: not linkable, not restored by the back button, and lost by opening a
-  // story and coming back — the reader would return to Today with no sign of
-  // where they had been. Defaults to today, so a bare /dashboard/briefing is
+  // `tab` is which of the two views is showing, and it is in the URL so the saved
+  // view is a place rather than a mode: linkable, restored by the back button,
+  // and not lost by opening a story and coming back — which is what local state
+  // used to do, returning the reader to Today with no sign of where they had
+  // been. Both chromes' strips open this route as a whole, so the chips are how
+  // you choose the view; defaults to today, so a bare /dashboard/briefing is
   // unchanged.
   validateSearch: (search: Record<string, unknown>): { digest?: string; tab?: Tab } => {
     const digest = search["digest"];
@@ -88,7 +90,14 @@ function Briefing() {
     queryKey: ["briefing", "saved"],
     networkMode: "offlineFirst",
     queryFn: () => withOfflineFallback(["briefing", "saved"], () => loadSavedStories()),
-    staleTime: 60_000,
+    // Always stale, unlike the two lists either side of it. A bookmark is tapped
+    // from wherever the story is — including another device — so the shelf is the
+    // one screen where last minute's copy is the wrong answer, and the count it
+    // prints on the Today chip is the same answer in smaller type. A save also
+    // marks this entry stale directly (`toggleSaved`), which covers the reader
+    // who never leaves the page this was mounted on. Offline it costs nothing:
+    // the fallback serves the archive without making a request.
+    staleTime: 0,
   });
   // Only used to name the day on screen. History is fetched a month at a time
   // now, so the digest id goes with the request: the server resolves which
@@ -103,15 +112,27 @@ function Briefing() {
   const day = historyQ.data?.days.find((d) => d.digestId === digest);
 
   const today = todayQ.data ?? [];
-  const saved = savedQ.data ?? [];
+  // Bookmarked but not yet confirmed by the server, merged over the list the
+  // server last returned — the shelf has to agree with the Save button the
+  // reader just pressed, and it is the answer from *before* that press. Memoised
+  // on the query data for the same reason the merge exists: a new array here
+  // would restart the warming effect below on every render.
+  const saved = useMemo(() => withPendingSaved(savedQ.data ?? []), [savedQ.data]);
   // Gives the shelf a reading copy while there is a network to fetch one. See
   // src/lib/offline/warm.ts for why Saved is warmed and Home is not.
   useWarmSavedStories(saved);
   const shown = tab === "today" ? today : saved;
-  // An in-flight query and a genuinely empty briefing look identical once the
-  // data defaults to []. Without this the page asserts "No briefing today"
-  // before it has asked, which is the one thing a briefing must never get wrong.
-  const waiting = tab === "today" ? todayQ.isLoading : savedQ.isLoading;
+  // The query behind whichever chip is up. The two answer with the same shape,
+  // so the chips choose which list is asked for, not what comes back.
+  const shownQ = tab === "today" ? todayQ : savedQ;
+  // A count is a claim as well, and it is the one the reader checks first. Both
+  // chips print the length of a list, and neither a list that failed to load nor
+  // one that has not answered yet has a length worth reporting: "Saved · 0"
+  // beside a bookmark the reader just made is the reading that sends them
+  // looking for a story that was never gone. An answer is the only thing that
+  // has a length.
+  const todayTally = todayQ.data !== undefined ? String(today.length) : "—";
+  const savedTally = savedQ.data !== undefined ? String(saved.length) : "—";
 
   return (
     <DashboardShell title="My briefing">
@@ -136,11 +157,11 @@ function Briefing() {
 
       <div className="mb-7 flex flex-wrap items-center gap-2">
         <Chip active={tab === "today"} onClick={() => setTab("today")}>
-          {day ? day.weekday : "Today"} · {today.length}
+          {day ? day.weekday : "Today"} · {todayTally}
         </Chip>
         <Chip active={tab === "saved"} onClick={() => setTab("saved")}>
-          <Bookmark className="mr-1 inline h-3 w-3" />
-          Saved · {saved.length}
+          <Bookmark className="h-3 w-3" />
+          Saved · {savedTally}
         </Chip>
         <div className="ml-auto flex items-center gap-2 text-[12px] text-muted-foreground">
           {prefs.channels.email ? (
@@ -156,49 +177,67 @@ function Briefing() {
         </div>
       </div>
 
-      {waiting ? (
-        <PanelLoading
-          label={tab === "today" ? "Fetching today's briefing" : "Fetching your saves"}
-        />
-      ) : shown.length > 0 ? (
-        <BriefingPreview
-          key={tab}
-          stories={shown}
-          time={pretty}
-          name={who}
-          className="animate-rise"
-        />
-      ) : tab === "saved" ? (
-        <EmptyState
-          title="Nothing saved yet."
-          body="Save a story from your home feed and it stays here past its retention window."
-          action={
-            <LinkButton to="/dashboard" variant="outline" size="sm">
-              Back to today
-            </LinkButton>
-          }
-        />
-      ) : digest ? (
-        <EmptyState
-          title={day ? `No briefing on ${day.date}.` : "No briefing that day."}
-          body="Nothing crossed the threshold you had set. We would rather send nothing than fill the space."
-          action={
-            <LinkButton to="/dashboard/history" variant="outline" size="sm">
-              Back to history
-            </LinkButton>
-          }
-        />
-      ) : (
-        <EmptyState
-          title="No briefing today."
-          body="Nothing crossed the threshold you set. A quiet day is a real answer, not a failure."
-          action={
-            <LinkButton to="/dashboard/delivery" variant="outline" size="sm">
-              Lower my threshold
-            </LinkButton>
-          }
-        />
-      )}
+      {/*
+        Three states, decided once, in src/lib/load-state.ts. The failure is
+        only reachable with nothing on screen, so a refetch dying behind a
+        briefing that is already up never replaces it with an apology; and every
+        sentence in `empty` is a claim about what was delivered, so none of them
+        can be written from a request that has not answered.
+      */}
+      <LoadState
+        query={shownQ}
+        hasContent={shown.length > 0}
+        content={
+          <BriefingPreview
+            key={tab}
+            stories={shown}
+            time={pretty}
+            name={who}
+            className="animate-rise"
+          />
+        }
+        loading={
+          <PanelLoading
+            label={tab === "today" ? "Fetching today's briefing" : "Fetching your saves"}
+          />
+        }
+        failed={
+          tab === "saved" ? "We couldn't load your saves." : "We couldn't load this briefing."
+        }
+        empty={() =>
+          tab === "saved" ? (
+            <EmptyState
+              title="Nothing saved yet."
+              body="Save a story from your home feed and it stays here past its retention window."
+              action={
+                <LinkButton to="/dashboard" variant="outline" size="sm">
+                  Back to today
+                </LinkButton>
+              }
+            />
+          ) : digest ? (
+            <EmptyState
+              title={day ? `No briefing on ${day.date}.` : "No briefing that day."}
+              body="Nothing crossed the threshold you had set. We would rather send nothing than fill the space."
+              action={
+                <LinkButton to="/dashboard/history" variant="outline" size="sm">
+                  Back to history
+                </LinkButton>
+              }
+            />
+          ) : (
+            <EmptyState
+              title="No briefing today."
+              body="Nothing crossed the threshold you set. A quiet day is a real answer, not a failure."
+              action={
+                <LinkButton to="/dashboard/delivery" variant="outline" size="sm">
+                  Lower my threshold
+                </LinkButton>
+              }
+            />
+          )
+        }
+      />
 
       <p className="mt-8 text-center text-[12px] leading-relaxed text-muted-foreground">
         Source descriptions and generated coverage can contain errors. Every story links to the

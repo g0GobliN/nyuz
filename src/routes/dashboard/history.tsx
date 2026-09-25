@@ -3,8 +3,10 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { useState } from "react";
 import { HistoryMonthSelector } from "@/components/dashboard/history-month-selector";
+import { LoadState } from "@/components/dashboard/load-state";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
 import { Loading } from "@/components/loading";
+import { loadPhase } from "@/lib/load-state";
 import { loadHistory, searchStories, type HistoryDay } from "@/lib/server/briefing";
 import { useReveal } from "@/lib/use-reveal";
 
@@ -38,6 +40,7 @@ function HistoryPage() {
     staleTime: 30_000,
   });
 
+  const found = results.data ?? [];
   const days = history.data?.days ?? [];
   const months = history.data?.months ?? [];
   const openMonth = history.data?.month ?? null;
@@ -48,12 +51,26 @@ function HistoryPage() {
   const plan = history.data?.plan ?? "uno";
   const graceUntil = history.data?.graceUntil ?? null;
   const readable = months.reduce((n, m) => n + m.count, 0);
+  // The archive's state, asked once for the words above the panel — the
+  // eyebrow counts what the archive holds, so on a request that has not
+  // answered, or one that failed, the honest answer is that we do not know yet.
+  // Same function, same inputs as the panel below draws from, so the two can
+  // never disagree.
+  const phase = loadPhase(history, { hasContent: readable > 0 });
+  const eye =
+    phase === "waiting"
+      ? "Opening your archive"
+      : phase === "failed"
+        ? "We couldn't open your archive"
+        : readable === 0
+          ? "No briefings yet"
+          : `${readable} briefings you can open`;
 
   return (
     <DashboardShell title="History">
       <div ref={ref}>
         <PageHeader
-          eyebrow={readable === 0 ? "No briefings yet" : `${readable} briefings you can open`}
+          eyebrow={eye}
           title="Everything your nyuz has sent."
           sub="Pick a month. Your plan decides how far back the archive goes."
         />
@@ -70,58 +87,114 @@ function HistoryPage() {
 
         {term.length >= 2 ? (
           <section className="mt-8">
-            <p className="text-[12.5px] text-muted-foreground">
-              {(results.data ?? []).length}{" "}
-              {(results.data ?? []).length === 1 ? "result" : "results"} for &ldquo;{term}&rdquo;
-            </p>
-            <div className="mt-4 space-y-2">
-              {results.isLoading ? (
-                <Loading label="Searching your archive" className="justify-center" />
-              ) : null}
-              {(results.data ?? []).map((s) => (
-                <Link
-                  key={s.id}
-                  to="/dashboard/story/$id"
-                  params={{ id: s.id }}
-                  className="block rounded-2xl border border-hairline bg-surface px-5 py-4 transition-colors hover:border-border"
-                >
-                  <p className="text-[11px] uppercase tracking-[0.14em] text-signal">{s.org}</p>
-                  <p className="mt-1.5 text-[15px] font-medium leading-snug">{s.title}</p>
-                  <p className="mt-2 text-[12.5px] text-muted-foreground">
-                    {s.sources} sources · {s.time}
-                  </p>
-                </Link>
-              ))}
-              {!results.isLoading && results.data?.length === 0 ? (
-                <EmptyState
-                  title="Nothing in your archive matches that."
-                  body="Search covers the window your plan keeps. Try a company name or a topic."
-                />
-              ) : null}
-            </div>
+            {/*
+              Three states, decided once, in src/lib/load-state.ts. The count and
+              "Nothing in your archive matches that." are both the answer to the
+              search, so both live inside slots only an answer reaches: a request
+              that never ran used to print "0 results for …", which is the right
+              answer to the wrong question.
+            */}
+            <LoadState
+              query={results}
+              hasContent={found.length > 0}
+              content={
+                <>
+                  <SearchCount found={found.length} term={term} />
+                  <div className="mt-4 space-y-2">
+                    {found.map((s) => (
+                      <Link
+                        key={s.id}
+                        to="/dashboard/story/$id"
+                        params={{ id: s.id }}
+                        className="block rounded-2xl border border-hairline bg-surface px-5 py-4 transition-colors hover:border-border"
+                      >
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-signal">
+                          {s.org}
+                        </p>
+                        <p className="mt-1.5 text-[15px] font-medium leading-snug">{s.title}</p>
+                        <p className="mt-2 text-[12.5px] text-muted-foreground">
+                          {s.sources} sources · {s.time}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                </>
+              }
+              loading={<Loading label="Searching your archive" className="justify-center" />}
+              failed="We couldn't search your archive."
+              empty={() => (
+                <>
+                  <SearchCount found={found.length} term={term} />
+                  <div className="mt-4">
+                    <EmptyState
+                      title="Nothing in your archive matches that."
+                      body="Search covers the window your plan keeps. Try a company name or a topic."
+                    />
+                  </div>
+                </>
+              )}
+            />
           </section>
         ) : (
           <div className="mt-10">
-            {history.isLoading ? (
-              <Loading label="Opening your archive" />
-            ) : readable === 0 ? (
-              <EmptyState
-                title="No briefings yet."
-                body="Once a briefing is generated it lands here, including the quiet days."
-              />
-            ) : (
-              <>
-                <HistoryMonthSelector months={months} selected={showing} onSelect={setMonth} />
-                <Days days={showing === openMonth ? days : []} loading={history.isFetching} />
-              </>
-            )}
+            {/*
+              Three states, decided once, in src/lib/load-state.ts. "No
+              briefings yet." is the last thing somebody should conclude from a
+              bad connection, so it lives in `empty`; the failure is reachable
+              only with nothing on screen, so a month that fails to open behind
+              a rendered archive keeps the archive.
+            */}
+            <LoadState
+              query={history}
+              hasContent={readable > 0}
+              content={
+                <>
+                  <HistoryMonthSelector months={months} selected={showing} onSelect={setMonth} />
+                  <Days days={showing === openMonth ? days : []} loading={history.isFetching} />
+                </>
+              }
+              loading={<Loading label="Opening your archive" />}
+              failed="We couldn't open your archive."
+              empty={() => (
+                <EmptyState
+                  title="No briefings yet."
+                  body="Once a briefing is generated it lands here, including the quiet days."
+                />
+              )}
+            />
 
             {graceUntil ? <GraceNote until={graceUntil} /> : null}
-            {!history.isLoading && plan !== "omni" ? <UpgradeNote /> : null}
+            {/*
+             * The plan is read from the same answer as the archive, and it falls
+             * back to the cheapest one — so without `history.data` a failed
+             * request pitched an upgrade at the reader's actual plan.
+             */}
+            {history.data && plan !== "omni" ? <UpgradeNote /> : null}
           </div>
         )}
       </div>
     </DashboardShell>
+  );
+}
+
+/**
+ * The count above the search results.
+ *
+ * Its own component because it is drawn in two states — a search that found
+ * something and a search that found nothing — and both of them are answers. It
+ * is deliberately absent from the wait: a count is a claim, and "0 results" is
+ * not a claim a request that has not run may make.
+ */
+function SearchCount({ found, term }: { found: number; term: string }) {
+  /*
+   * One expression rather than JSX text: prettier wraps that line, and a wrap
+   * inside `&ldquo;{term}&rdquo;` renders the closing quote with a space in
+   * front of it.
+   */
+  return (
+    <p className="text-[12.5px] text-muted-foreground">
+      {`${found} ${found === 1 ? "result" : "results"} for “${term}”`}
+    </p>
   );
 }
 
