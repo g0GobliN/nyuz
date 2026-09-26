@@ -503,13 +503,12 @@ async function selfTest() {
 
 const argument = process.argv[2];
 if (argument === "--self-test") {
-  process.exit((await selfTest()) ? 0 : 1);
-}
-if (!argument || !/^https?:\/\//.test(argument)) {
+  process.exitCode = (await selfTest()) ? 0 : 1;
+} else if (!argument || !/^https?:\/\//.test(argument)) {
   console.error("usage: node scripts/pwa-check.mjs https://nyuz.app");
   console.error("       node scripts/pwa-check.mjs --self-test   (after npm run build)");
-  process.exit(2);
+  process.exitCode = 2;
+} else {
+  const results = await runChecks(argument);
+  process.exitCode = report(results) ? 0 : 1;
 }
-
-const results = await runChecks(argument);
-process.exit(report(results) ? 0 : 1);

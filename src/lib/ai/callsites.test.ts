@@ -20,7 +20,9 @@ describe("only shared stories and explicit admin tests may invoke providers", ()
       "src/lib/server/ai-config.ts",
     ]);
     const violations: string[] = [];
-    for (const file of [...files("src"), ...files("scripts")]) {
+    for (const file of [...files("src"), ...files("scripts")].map((path) =>
+      path.replaceAll("\\", "/"),
+    )) {
       if (file.includes("test-support") || file === "src/test-setup.ts") continue;
       const parsed = ts.createSourceFile(
         file,

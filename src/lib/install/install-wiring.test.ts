@@ -31,7 +31,7 @@ const read = (path: string) => readFileSync(path, "utf8");
 function sourceFiles(): string[] {
   return readdirSync("src", { recursive: true, encoding: "utf8" })
     .filter((name) => /\.tsx?$/.test(name) && !/\.test\./.test(name))
-    .map((name) => `src/${name}`)
+    .map((name) => `src/${name}`.replaceAll("\\", "/"))
     .sort();
 }
 

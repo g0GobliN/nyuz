@@ -46,9 +46,9 @@ export default defineConfig({
           // cron that fires and does nothing, so the handler logs the
           // unrecognised schedule rather than returning quietly.
           //
-          // DIGEST_CRON is every minute but only generates on every fifth: the
-          // trigger limit below is why that split is a minute check rather than
-          // a fourth entry in this array.
+          // DIGEST_CRON generates and delivers every minute. The trigger limit
+          // below is why digest work shares the existing one-minute trigger
+          // rather than registering a fourth cron entry.
           //
           // Three, because Cloudflare registers three Cron Triggers per Worker
           // and silently drops the rest. cron.test.ts holds this list to the
