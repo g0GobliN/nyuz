@@ -1196,15 +1196,159 @@ const REPORT_FRAME = new RegExp(
 );
 
 /**
- * The same shape with the attribution spelled as a prepositional phrase.
+ * `According to <claimant>, <rest>` -- or its label form with a colon -- for any
+ * claimant at all.
  *
- * "According to the paper: X" is the label form of "According to the paper, X",
- * and the comma form is ordinary English that is left exactly as written.
+ * The claimant is read structurally, not from a list: one to eight tokens with
+ * no clause punctuation between `according to` and the comma or colon. That is
+ * what makes "According to Krebs on Security, ...", "According to The New York
+ * Times, ...", "According to police, ..." and "According to the paper: ..." the
+ * same construction. The earlier pattern accepted only the nouns a document is
+ * called by, and only with a colon, so every named publication went through
+ * untouched. What happens to a frame once it is read -- dropped, moved, or kept
+ * -- is `resolveAccordingFrame`'s decision, not this pattern's.
  */
-const ACCORDING_FRAME = new RegExp(
-  `^(according to\\s+${FRAME_SUBJECT})\\s*:\\s+(\\S[\\s\\S]*)$`,
-  "iu",
-);
+const ACCORDING_FRAME =
+  /^according to\s+((?:[^\s,:;!?"“”()]+)(?:\s+[^\s,:;!?"“”()]+){0,7})\s*([,:])\s+(\S[\s\S]*)$/iu;
+
+export type AccordingFrame = {
+  /** Who the sentence credits, as written: "Krebs on Security", "police". */
+  claimant: string;
+  /** What they are credited with, without the frame. */
+  rest: string;
+  /** `,` is ordinary English; `:` is the label form. */
+  form: "comma" | "colon";
+};
+
+/** The `According to <claimant>` frame a sentence opens with, if any. */
+export function readAccordingFrame(sentence: string): AccordingFrame | null {
+  const match = ACCORDING_FRAME.exec(sentence.trim());
+  if (!match) return null;
+  const claimant = (match[1] ?? "").trim();
+  const rest = (match[3] ?? "").trim();
+  if (claimant === "" || rest === "") return null;
+  return { claimant, rest, form: match[2] === ":" ? "colon" : "comma" };
+}
+
+/** A source name reduced to what two spellings of it share. */
+function sourceKey(name: string): string {
+  return name
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/['’]s?(?=\s|$)/g, "")
+    .replace(/^the\s+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Whether a claimant is one of the story's own cited sources.
+ *
+ * Compared by normalized name, never by a list of publications. A leading
+ * article, case and a possessive are ignored. Prefix matches are deliberately
+ * rejected: "police" is not necessarily "Police Scotland", and dropping the
+ * former attribution could turn a third-party claim into an asserted fact.
+ */
+export function isOwnSource(claimant: string, sources: readonly string[]): boolean {
+  const claim = sourceKey(claimant);
+  if (claim.length < 3) return false;
+  return sources.some((name) => {
+    const own = sourceKey(name);
+    if (own.length < 3) return false;
+    return claim === own;
+  });
+}
+
+/**
+ * Whether taking the attribution off this clause would change what it asserts.
+ *
+ * A claim, an estimate or a projection is somebody's -- "the company expects
+ * revenue to double" is not a fact about revenue -- and a quotation is somebody's
+ * words. A plain report of what happened is not, and its provenance is exactly
+ * what the citation on the block already carries.
+ */
+function attributionMatters(clause: string): boolean {
+  if (/^["“]/.test(clause)) return true;
+  const type = deterministicFactType(clause);
+  return type === "claim" || type === "estimate" || type === "projection";
+}
+
+/** A speech or reporting verb: the clause says whose claim it is. */
+const NAMES_SPEAKER =
+  /\b(?:said|says|told|tells|stated|states|announced|confirmed|argued|argues|claimed|claims|warned|warns|according to)\b/i;
+
+function capitalised(text: string): string {
+  return text === "" ? text : text[0]!.toUpperCase() + text.slice(1);
+}
+
+export type OwnAttribution = {
+  text: string;
+  /**
+   *   dropped  the frame was provenance only; the citation carries it
+   *   moved    the clause is a claim, so the attribution follows it
+   *   kept     a claim that cannot take a trailing attribution keeps the frame
+   */
+  action: "dropped" | "moved" | "kept";
+};
+
+/**
+ * A clause attributed to the story's own source, published as prose.
+ *
+ * The source is already on the page: every block carries its citation and the
+ * story lists its sources. So "According to Krebs on Security, <fact>" in a
+ * Krebs on Security story says nothing the citation does not, and it costs the
+ * sentence its shape -- a frame in front, and often the clause's own capital
+ * after a comma ("According to Krebs on Security, Army soldier who ...").
+ *
+ *   a plain fact    -> the fact:                  "Army soldier who pleaded ..."
+ *   a claim         -> the fact, then its source: "Revenue will double, according to Reuters."
+ *   a claim that is -> left framed, because a trailing attribution cannot follow
+ *   a question or      a question, an exclamation or a quotation's closing mark
+ *   a quotation
+ *
+ * The attribution only ever leaves a clause that does not need it: a claim,
+ * estimate, projection or quotation keeps it, so nothing the source merely
+ * reported is published as established.
+ */
+export function attributeToOwnSource(clause: string, claimant: string): OwnAttribution {
+  const body = clause.trim();
+  // A clause that names its own speaker -- "OpenAI said ...", "Police said ..."
+  // -- already carries the attribution that matters. The outlet is provenance
+  // for the sentence, not the claimant of it, and appending it would credit the
+  // claim twice.
+  if (!attributionMatters(body) || alreadyAttributed(body) || NAMES_SPEAKER.test(body)) {
+    return { text: capitalised(body), action: "dropped" };
+  }
+  if (/^["“]/.test(body) || /[?!…]["”]?\s*$/.test(body)) {
+    return { text: `According to ${claimant}, ${body}`, action: "kept" };
+  }
+  return {
+    text: `${capitalised(body.replace(/[.!?]+$/, ""))}, according to ${claimant}.`,
+    action: "moved",
+  };
+}
+
+/**
+ * The `According to <claimant>` frame on one sentence, resolved.
+ *
+ *   own source      -> `attributeToOwnSource`: dropped, moved behind a claim, or kept
+ *   anyone else     -> preserved as written: "According to police, the suspect
+ *                      was arrested" is police's claim, and removing the frame
+ *                      would publish it as a fact. A third-party outlet, a
+ *                      study, researchers, officials: all the same.
+ *
+ * The colon label form of a frame that is not the story's own is handled by
+ * `normalizeReportFraming`, which moves it behind the fact.
+ */
+export function resolveAccordingFrame(
+  sentence: string,
+  ownSources: readonly string[],
+): { text: string; action: OwnAttribution["action"] | "preserved" | "none" } {
+  const frame = readAccordingFrame(sentence);
+  if (!frame) return { text: sentence, action: "none" };
+  if (!isOwnSource(frame.claimant, ownSources)) return { text: sentence, action: "preserved" };
+  return attributeToOwnSource(frame.rest, frame.claimant);
+}
 
 /**
  * Whether a sentence already carries an attribution of its own.
@@ -1232,7 +1376,7 @@ const ALREADY_ATTRIBUTED = new RegExp(
     // Or the attribution a moved frame left behind: `X, the paper projects.`
     // Carrying one at the end is carrying one, and wrapping the sentence again
     // would put a second attribution in front of it.
-    `|,\\s*(?:according to\\s+${FRAME_SUBJECT}|${FRAME_SUBJECT}\\s+(?:${REPORTING_PREDICATE}))\\s*[.!?]?\\s*$`,
+    `|,\\s*(?:according to\\s+[^,.;:!?]{1,80}|${FRAME_SUBJECT}\\s+(?:${REPORTING_PREDICATE}))\\s*[.!?]?\\s*$`,
   "i",
 );
 
@@ -1244,10 +1388,11 @@ export function alreadyAttributed(text: string): boolean {
 function readReportFrame(
   sentence: string,
 ): { label: string; rest: string; clause: boolean } | null {
-  const according = ACCORDING_FRAME.exec(sentence);
-  if (according) {
-    return { label: according[1] ?? "", rest: (according[2] ?? "").trim(), clause: true };
+  const according = readAccordingFrame(sentence);
+  if (according?.form === "colon") {
+    return { label: `According to ${according.claimant}`, rest: according.rest, clause: true };
   }
+  if (according) return null;
   const frame = REPORT_FRAME.exec(sentence);
   if (!frame) return null;
   const label = frame[1] ?? "";
@@ -1284,9 +1429,16 @@ function withoutColon(label: string, rest: string): string {
  * one attribution in front of another is the defect `AUTHORIAL_OPENING` exists
  * for -- "A new paper reports: The authors call this ......" was the deck.
  *
- * Nothing is paraphrased and nothing is dropped but the frame itself.
+ * And "According to <this source>, <fact>" -- a publication crediting itself --
+ * goes through `attributeToOwnSource`, given the names in `ownSources`.
+ *
+ * The fact is not paraphrased; only its frame can be removed or moved.
  */
-export function normalizeReportFraming(text: string): {
+export function normalizeReportFraming(
+  text: string,
+  /** The name of the source this text came from, and any alias of it. */
+  ownSources: readonly string[] = [],
+): {
   text: string;
   /** Frames deleted because the fact was already attributed. */
   dropped: number;
@@ -1297,6 +1449,16 @@ export function normalizeReportFraming(text: string): {
   let moved = 0;
   const sentences = text.split(/(?<=[.!?])\s+/);
   const out = sentences.map((sentence) => {
+    const own = resolveAccordingFrame(sentence, ownSources);
+    if (own.action === "dropped") {
+      dropped += 1;
+      return own.text;
+    }
+    if (own.action === "moved") {
+      moved += 1;
+      return own.text;
+    }
+    if (own.action === "kept") return own.text;
     const frame = readReportFrame(sentence);
     if (!frame) return sentence;
     const { label, rest } = frame;
@@ -2553,7 +2715,7 @@ function normalizeReaderSource(
     }
     // Last, because the frame is around the sentence that survives everything
     // else: `We present: <fact>` is the authors' pronoun before it is a label.
-    const framing = normalizeReportFraming(furniture.text);
+    const framing = normalizeReportFraming(furniture.text, name === undefined ? [] : [name]);
     stats.reportFramesMoved += framing.moved;
     stats.reportFramesDropped += framing.dropped;
     return framing.text;

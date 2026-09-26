@@ -3,6 +3,7 @@ import type { ArticleParagraph, ReaderArticle } from "@/lib/reader-article";
 import { legacyEventIntelligence } from "@/lib/understand";
 import {
   alreadyAttributed,
+  attributeToOwnSource,
   centralTokens,
   cleanDeterministicSentence,
   contextDependent,
@@ -670,16 +671,22 @@ function safeLead(
   }
   const clause = withoutDiscourseMarker(text);
   // `Once they were out in the wild ...` is the one opening a reported clause may
-  // not keep -- the gate refuses it, so the composer lowers it. Everything else
-  // keeps the capital its source wrote: "According to The Register, All Things
-  // Considered host ..." is right, and "all Things Considered host ..." is not.
+  // not keep -- the gate refuses it, so the composer lowers it.
   if (SUBORDINATE_CLAUSE_OPENING.test(clause)) {
     return {
       text: `${source} reports that ${reportedClause(clause) ?? clause}`,
       evidence: lead.evidence,
     };
   }
-  return { text: `According to ${source}, ${clause}`, evidence: lead.evidence };
+  // Everything else keeps the capital its source wrote -- "All Things Considered
+  // host ..." is a name, and lowering it after `that` would be a guess -- so it
+  // cannot follow `reports that`. This used to publish "According to <outlet>,
+  // <clause>", which is how the deck read "According to Krebs on Security, Army
+  // soldier who pleaded guilty ...": the story's own source, credited in front of
+  // a fact its citation already carries. The same rule a source's own frame
+  // gets decides it: a plain fact stands alone, and a claim, estimate or
+  // projection keeps its attribution after it. See `attributeToOwnSource`.
+  return { text: attributeToOwnSource(clause, source).text, evidence: lead.evidence };
 }
 
 /* ------------------------------------------------------------------------- */

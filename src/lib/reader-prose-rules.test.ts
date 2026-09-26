@@ -7,6 +7,7 @@ import {
   editorialNoise,
   hasPredicate,
   headingUnit,
+  isOwnSource,
   normalizeRelativeTime,
   normalizeReportFraming,
   resolveNarrator,
@@ -463,7 +464,7 @@ describe("attribution follows the adverbial that cannot sit after `that`", () =>
     expect(text).not.toMatch(/reports? that (?:Overall|Ten|However|Meanwhile)\b/);
   });
 
-  it("does not hoist a subject out of its own sentence", () => {
+  it("drops a redundant source wrapper without hoisting the subject", () => {
     // "The first briefing, which Allan did not sign, warned that ..." is one
     // sentence whose first three words are its subject; hoisting them in front of
     // an attribution produced "The first briefing, The Register reports that
@@ -471,13 +472,10 @@ describe("attribution follows the adverbial that cannot sit after `that`", () =>
     const text = composedText(
       "The first briefing, which Allan did not sign, warned that the environment had become highly challenging.",
     );
-    // The attribution clause goes in front and the sentence keeps its subject.
-    // Its capital is kept too: `The first briefing` and `The Register` are the
-    // same shape to a reader, and a rule that lowercases one lowercases the other
-    // -- which is how the corpus published "all Things Considered host ...".
-    expect(text).toContain(
-      "According to The Register, The first briefing, which Allan did not sign, warned",
-    );
+    // The story itself came from The Register, so its citation already carries
+    // that provenance. Dropping the wrapper leaves the source's subject intact.
+    expect(text).toContain("The first briefing, which Allan did not sign, warned");
+    expect(text).not.toContain("According to The Register");
     expect(text).not.toMatch(/reports that which/i);
   });
 
@@ -490,7 +488,7 @@ describe("attribution follows the adverbial that cannot sit after `that`", () =>
       "Yes, the servers still required a username and password for access, but an enterprising hacker could have tried guessing the credentials.",
     );
     expect(text).not.toMatch(/reports that Yes\b/);
-    expect(text).toContain("the servers still required a username and password");
+    expect(text).toContain("The servers still required a username and password");
     // The comma is what makes the marker an answer: "No more than half could trace
     // ..." keeps its `No`, because that one is part of the measure. A quantity is
     // not an answer, and only an answer may not follow `that`.
@@ -895,6 +893,68 @@ describe("a document's colon label is published as prose", () => {
     );
     expect(text).not.toContain("According to Nature, Researchers");
     expect(text).toContain("Researchers also observed");
+  });
+});
+
+describe("generic according-to source frames", () => {
+  it.each([
+    [
+      "According to Krebs on Security, Army soldier was sentenced for hacking multiple companies.",
+      "Krebs on Security",
+    ],
+    ["According to Reuters, The company expects revenue to double by 2027.", "Reuters"],
+    [
+      "According to The New York Times, The agency released its findings on Tuesday.",
+      "The New York Times",
+    ],
+    ["According to the BBC, The agency opened an inquiry on Tuesday.", "BBC"],
+    ["According to the paper, The attack exploits exposed credentials.", "The paper"],
+    ["According to the report, The market grew by 12 percent last year.", "The report"],
+    ["According to researchers, The method reduced errors in every trial.", "Researchers"],
+  ])("recognizes and resolves a redundant frame for %s", (input, ownSource) => {
+    const result = normalizeReportFraming(input, [ownSource]);
+    expect(result.text).not.toMatch(/^According to /i);
+    expect(result.dropped + result.moved).toBe(1);
+    if (ownSource === "Reuters") expect(result.text).toMatch(/according to Reuters\.$/i);
+  });
+
+  it("keeps police attribution when police are not the story's source", () => {
+    const input = "According to police, The suspect was arrested on Tuesday.";
+    expect(normalizeReportFraming(input, ["Reuters"])).toEqual({
+      text: input,
+      moved: 0,
+      dropped: 0,
+    });
+  });
+
+  it("matches source names structurally, without treating unrelated claimants as aliases", () => {
+    expect(isOwnSource("the BBC", ["BBC"])).toBe(true);
+    expect(isOwnSource("Krebs on Security", ["Reuters"])).toBe(false);
+    expect(isOwnSource("police", ["Police Scotland"])).toBe(false);
+  });
+
+  it("normalizes the final briefing and preserves a third-party police claim", () => {
+    const redundant = composedText(
+      "According to Krebs on Security, Army soldier pleaded guilty to hacking multiple telecommunications companies.",
+      "Krebs on Security",
+    );
+    expect(redundant).not.toMatch(/According to Krebs on Security/i);
+    expect(redundant).toContain("Army soldier pleaded guilty to hacking");
+
+    const material = composedText(
+      "According to police, The suspect was arrested after investigators recovered the stolen equipment.",
+      "Reuters",
+    );
+    expect(material).toMatch(/According to police, The suspect was arrested/);
+  });
+
+  it("does not wrap an existing reporting construction a second time", () => {
+    const text = composedText(
+      "Krebs on Security reports that the company exposed customer records.",
+      "Krebs on Security",
+    );
+    expect(text).toContain("Krebs on Security reports that");
+    expect(text).not.toContain("Krebs on Security reports that Krebs on Security reports");
   });
 });
 

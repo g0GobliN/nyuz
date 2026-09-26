@@ -65,10 +65,11 @@ describe("production deterministic Read quality", () => {
       ),
     ).toHaveLength(2);
   });
-  it("leads with the exposed environment, identifies Schut, and preserves attribution", () => {
+  it("leads with the exposed environment and identifies Schut without repeating its source", () => {
     const s = story(0);
     const a = composeArticle(s);
-    expect(a.deck.text).toMatch(/According to The Register, Richard Schut/);
+    expect(a.deck.text).toMatch(/Richard Schut and his team discovered/);
+    expect(a.deck.text).not.toMatch(/According to The Register/);
     expect(a.deck.text).toMatch(/accessible outside the network.*live customer information/);
     expect(a.deck.evidence).toEqual([1]);
     expect(textOf(s)).not.toMatch(

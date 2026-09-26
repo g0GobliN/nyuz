@@ -177,9 +177,7 @@ describe("the production story: what must never be published again", () => {
     // publication talking about its own point. The deck is what is left.
     expect(article.deck.text).not.toMatch(/for a company that built its success/i);
     expect(article.deck.text).not.toMatch(/Perhaps predictably/i);
-    expect(article.deck.text).toBe(
-      "According to The Register, DigiCert doesn't see agent management as a manual problem.",
-    );
+    expect(article.deck.text).toBe("DigiCert doesn't see agent management as a manual problem.");
     expect(diagnostics.sourceNormalization.strippedFrames).toBeGreaterThanOrEqual(1);
     // Counted rewrites carry a before/after example, so a reviewer can check the
     // rule rather than trust the number.
@@ -232,16 +230,15 @@ describe("the production story: what must never be published again", () => {
     for (const block of composed().blocks) expect(unresolvedContextOpening(block)).toBe(false);
   });
 
-  it("uses one clean source name in every attribution", () => {
+  it("does not repeat the story's own source name in the prose", () => {
     const { text } = composed();
     // The rule is about the *malformed* name, not the name: The Register's own RSS
-    // escapes its space, so the stored string is `The  Register` (two spaces) and
-    // used to reach the page that way. Naming the publication is correct and
-    // expected -- what must never appear is the doubled space or an entity.
+    // escapes its space, so the stored string is `The  Register` (two spaces).
+    // The citation already identifies the source, so neither spelling belongs
+    // in the prose as a redundant attribution.
     expect(text).not.toContain("The  Register");
     expect(text).not.toMatch(/The\s+Register&#/);
-    expect(text).toContain("The Register");
-    expect(text).toMatch(/According to The Register, /);
+    expect(text).not.toContain("According to The Register");
   });
 
   it("leaves no spacing seam and no stray reference behind", () => {
@@ -358,7 +355,6 @@ describe("the production story: structure the reader depends on", () => {
     ).toBe(1);
     expect(diagnostics.sourceNormalization.sourceVoiceStripped).toBeGreaterThanOrEqual(1);
     expect(diagnostics.sourceNormalization.strippedFrames).toBeGreaterThanOrEqual(1);
-    expect(diagnostics.attribution["according_to"]).toBeGreaterThanOrEqual(1);
     expect(diagnostics.attribution["according_to_survey"]).toBeGreaterThanOrEqual(1);
   });
 
