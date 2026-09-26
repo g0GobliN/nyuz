@@ -705,7 +705,18 @@ export type EventRow = {
   before_state: string | null;
   after_state: string | null;
   first_seen_at: string;
+  /**
+   * Row creation time in practice: nothing in the pipeline moves it after the
+   * insert. Read by retention and rendered as-is. Not a coverage clock -- see
+   * `coverage_changed_at`.
+   */
   last_updated_at: string;
+  /**
+   * When this event's coverage last changed (0102): an article attached,
+   * detached or was edited. Written only by the attachment trigger, atomically
+   * with `coverage_revision`. The re-entry lane's clock.
+   */
+  coverage_changed_at: string;
   analysed_at: string | null;
   analysis_tokens: number;
   /** Versioned shared intelligence for the evidence-driven Understand page (0046). */
@@ -816,11 +827,6 @@ export type UserEvent = {
    * relationship may reopen only when the event has moved past this value.
    */
   delivered_revision: number;
-  /**
-   * How unusual the event's material delta is for this topic's own history
-   * (0099). A signal for ordering, never a gate; null means not computed.
-   */
-  subject_significance: number | null;
   /**
    * Set when this match was never briefed and has aged past every cadence's
    * window (0068). A mark, not a delete — the row still records that this
@@ -1236,6 +1242,7 @@ export type Database = {
         | "after_state"
         | "first_seen_at"
         | "last_updated_at"
+        | "coverage_changed_at"
         | "analysed_at"
         | "analysis_tokens"
         | "understand"
@@ -1316,7 +1323,6 @@ export type Database = {
         | "briefed_at"
         | "expired_at"
         | "delivered_revision"
-        | "subject_significance"
       >;
       digests: Table<
         Digest,
@@ -1834,8 +1840,20 @@ export type Database = {
         };
         Returns: string;
       };
+      /**
+       * Three-argument form: revision 0, no subject qualification -- the
+       * behaviour before 0103. The five-argument form is what alerts call.
+       */
       claim_alert: {
-        Args: { p_user_id: string; p_event_id: string; p_importance: number };
+        Args:
+          | { p_user_id: string; p_event_id: string; p_importance: number }
+          | {
+              p_user_id: string;
+              p_event_id: string;
+              p_importance: number;
+              p_revision: number;
+              p_subject_qualified: boolean;
+            };
         Returns: string;
       };
       create_alert_delivery: {
@@ -1846,8 +1864,27 @@ export type Database = {
           p_scheduled_for: string;
           p_why: string;
           p_channels: DeliveryChannel[];
+          /** 0103: the material revision delivered; stamped on both durable records. */
+          p_revision: number;
+          /** 0103: claimed subject-significant; honoured only while the flag is on. */
+          p_subject_qualified: boolean;
         };
         Returns: string;
+      };
+      /** Each topic's most recent complete events, for the significance baseline (0103). */
+      subject_history: {
+        Args: { p_topic_ids: string[]; p_since: string; p_per_topic: number };
+        Returns: {
+          topic_id: string;
+          event_id: string;
+          title: string;
+          what_happened: string;
+          first_seen_at: string;
+          topic_kind: string;
+          tags: string[];
+          other_topics: Json;
+          source_names: string[];
+        }[];
       };
       record_ai_attempt: {
         Args: { p_id: string; p_meta: Json; p_usage?: Json };

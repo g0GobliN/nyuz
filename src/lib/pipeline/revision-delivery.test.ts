@@ -2,8 +2,15 @@ import { describe, expect, it, vi } from "vitest";
 import { analyse } from "./analyse";
 import { match } from "./match";
 import { digest } from "./digest";
-import { asDb, type FakeDb, type Row } from "@/lib/test-support/fake-db";
-import { newsPipelineFixture, READER_ID, seedPendingNews } from "@/lib/test-support/news-pipeline";
+import { activeCutoff } from "./freshness";
+import { asDb, type FakeDb } from "@/lib/test-support/fake-db";
+import {
+  attachArticle,
+  newsPipelineFixture,
+  READER_ID,
+  seedPendingNews,
+  type FakeClock,
+} from "@/lib/test-support/news-pipeline";
 
 /**
  * The material re-entry lifecycle, end to end, against the fake database.
@@ -14,9 +21,11 @@ import { newsPipelineFixture, READER_ID, seedPendingNews } from "@/lib/test-supp
  * not re-deliver do (a reprint, a metadata-only update, and evidence older than
  * the state the reader already holds).
  *
- * The fixture's finalization RPC is taught the 0098 semantics below, because
- * FakeDb does not execute SQL. Nothing else in these tests writes the material
- * state by hand: it is always the pipeline that decides.
+ * The fixture's RPCs and its trigger emulation reproduce the SQL
+ * (`test-support/news-pipeline.ts`), because FakeDb does not execute SQL. No
+ * test here writes a timestamp or a material column by hand: every clock is
+ * moved by the production write that moves it, and `schema-migrations.test.ts`
+ * runs that write on real PostgreSQL.
  */
 
 const HOUR = 3_600_000;
@@ -25,57 +34,37 @@ const DAY = 24 * HOUR;
 const T0 = new Date("2026-09-18T09:00:00Z"); // the story breaks
 
 /**
- * A fixture whose finalization RPC follows the test's clock.
+ * The shared pipeline fixture, on a clock the test moves.
  *
- * The clock is mutable on purpose: every phase of the lifecycle happens at a
- * different time, and the discovery clock (`last_material_change_at`) has to be
- * written as the time of the run that discovered the change.
+ * Finalization writes the material state and nothing else, and attaching an
+ * article is what moves the coverage clock -- the production semantics.
  */
-function fixture(clock: { now: Date }) {
-  const db = newsPipelineFixture(clock.now);
-  db.rpcs["finish_event_finalization"] = (a) => {
-    const row = db.rows("events").find((e) => e["id"] === a["p_event_id"]);
-    if (!row) return false;
-    const material = (a["p_material"] ?? {}) as {
-      fingerprint?: string | null;
-      changed?: boolean;
-      occurrence_at?: string | null;
-    };
-    Object.assign(row, a["p_metadata"] as Row, {
-      status: "complete",
-      analysed_at: row["analysed_at"] ?? clock.now.toISOString(),
-      last_updated_at: clock.now.toISOString(),
-      metadata_dirty: false,
-    });
-    if (material.fingerprint) row["material_fingerprint"] = material.fingerprint;
-    if (material.changed) {
-      row["material_revision"] = ((row["material_revision"] as number) ?? 0) + 1;
-      row["last_material_change_at"] = clock.now.toISOString();
-    }
-    if (material.occurrence_at) row["material_occurrence_at"] = material.occurrence_at;
-    for (const topic_id of a["p_topics"] as string[])
-      db.rows("event_topics").push({ event_id: row["id"], topic_id, topics: { label: "OpenAI" } });
-    return true;
-  };
-  return db;
+function fixture(clock: FakeClock) {
+  return newsPipelineFixture(clock.now, clock);
 }
 
-/** One attachment, with the evidence it carries and when the world saw it. */
-function attach(db: FakeDb, now: Date, title: string, body: string, publishedAt: Date) {
-  db.rows("articles").push({
-    id: `a${db.rows("articles").length}`,
-    event_id: db.rows("events")[0]?.["id"] ?? null,
-    title,
-    excerpt: body,
-    source_id: "s",
-    sources: { name: "OpenAI News" },
-    published_at: publishedAt.toISOString(),
-    url: `https://news.example.com/${title.replace(/\W+/g, "-").toLowerCase()}`,
-  });
-  const event = db.rows("events")[0]!;
-  event["metadata_dirty"] = true;
-  event["coverage_revision"] = ((event["coverage_revision"] as number) ?? 1) + 1;
-  event["last_updated_at"] = now.toISOString();
+/**
+ * One attachment, with the evidence it carries and when the world saw it.
+ *
+ * Goes through `attachArticle`, the emulation of the 0085/0102 trigger -- the
+ * only thing that marks the event dirty and stamps `coverage_changed_at`, exactly
+ * as `update articles set event_id = ...` does in production.
+ */
+function attach(db: FakeDb, clock: FakeClock, title: string, body: string, publishedAt: Date) {
+  attachArticle(
+    db,
+    {
+      id: `a${db.rows("articles").length}`,
+      event_id: db.rows("events")[0]?.["id"] ?? null,
+      title,
+      excerpt: body,
+      source_id: "s",
+      sources: { name: "OpenAI News" },
+      published_at: publishedAt.toISOString(),
+      url: `https://news.example.com/${title.replace(/\W+/g, "-").toLowerCase()}`,
+    },
+    clock,
+  );
 }
 
 /** FakeDb does not resolve embedded selects; mirror what PostgREST would return. */
@@ -105,29 +94,26 @@ function reschedule(db: FakeDb, now: Date) {
 /** Run the three stages a reader's delivery depends on, in order. */
 async function cycle(db: FakeDb, now: Date) {
   await analyse(asDb(db), { now });
-  // The fake RPC reads the clock below; keep them in step.
   await match(asDb(db), { now, skipAlerts: true });
   embedEvents(db);
   return digest(asDb(db), { now, skipSend: true });
 }
 
+/** The story, broken at T0 and delivered once, the way every case below starts. */
+async function deliveredAtT0() {
+  const firstRun = new Date(T0.getTime() + HOUR);
+  const clock = { now: firstRun };
+  const db = fixture(clock);
+  seedPendingNews(db, T0);
+  const briefing = await cycle(db, firstRun);
+  return { db, clock, briefing };
+}
+
 describe("material re-entry and revision-aware delivery", () => {
   it("carries a reader from revision 0 to revision 3, and refuses everything in between", async () => {
-    // The story breaks, and the pipeline is healthy: first delivery, same day.
-    const firstRun = new Date(T0.getTime() + HOUR);
-    const clock = { now: firstRun };
-    const db = fixture(clock);
-    seedPendingNews(db, T0);
-    const event = db.rows("events")[0]!;
-    event["first_seen_at"] = T0.toISOString();
-    event["last_updated_at"] = T0.toISOString();
-    event["material_revision"] = 0;
-    event["material_fingerprint"] = null;
-    event["material_occurrence_at"] = null;
-    db.rows("articles")[0]!["published_at"] = T0.toISOString();
-
     // --- Case A: first delivery -------------------------------------------------
-    const briefing = await cycle(db, firstRun);
+    const { db, clock, briefing } = await deliveredAtT0();
+    const firstRun = clock.now;
     expect(briefing.generated).toBe(1);
     expect(db.rows("events")[0]?.["material_revision"]).toBe(0);
     expect(db.rows("events")[0]?.["material_fingerprint"]).toBeTruthy();
@@ -146,7 +132,7 @@ describe("material re-entry and revision-aware delivery", () => {
     reschedule(db, metadataOnly);
     attach(
       db,
-      metadataOnly,
+      clock,
       "OpenAI model coverage continues",
       "The model remains available to existing customers.",
       metadataOnly,
@@ -161,7 +147,7 @@ describe("material re-entry and revision-aware delivery", () => {
     reschedule(db, reprint);
     attach(
       db,
-      reprint,
+      clock,
       "OpenAI model still available",
       "The model remains available to existing customers.",
       reprint,
@@ -176,7 +162,7 @@ describe("material re-entry and revision-aware delivery", () => {
     reschedule(db, development);
     attach(
       db,
-      development,
+      clock,
       "OpenAI 2.0 release candidate published",
       "The first OpenAI 2.0 release candidate is now available for testing.",
       development,
@@ -211,7 +197,7 @@ describe("material re-entry and revision-aware delivery", () => {
     });
     attach(
       db,
-      afterPurge,
+      clock,
       "OpenAI 2.0 released",
       "OpenAI 2.0 is now available to download.",
       afterPurge,
@@ -230,7 +216,7 @@ describe("material re-entry and revision-aware delivery", () => {
     db.rows("user_events")[0]!["briefed_at"] = staleAttempt.toISOString();
     attach(
       db,
-      staleAttempt,
+      clock,
       "OpenAI 2.0 patch available",
       "A patch for OpenAI 2.0 is available now.",
       new Date(staleAttempt.getTime() - 3 * DAY),
@@ -247,7 +233,7 @@ describe("material re-entry and revision-aware delivery", () => {
     reschedule(db, genuine);
     attach(
       db,
-      genuine,
+      clock,
       "OpenAI 2.0.1 released",
       "OpenAI 2.0.1 is now available and fixes the reported issue.",
       genuine,
@@ -268,13 +254,6 @@ describe("material re-entry and revision-aware delivery", () => {
     const clock = { now: firstRun };
     const db = fixture(clock);
     seedPendingNews(db, newest);
-    const event = db.rows("events")[0]!;
-    event["first_seen_at"] = newest.toISOString();
-    event["last_updated_at"] = newest.toISOString();
-    event["material_revision"] = 0;
-    event["material_fingerprint"] = null;
-    event["material_occurrence_at"] = null;
-    db.rows("articles")[0]!["published_at"] = newest.toISOString();
     await cycle(db, firstRun);
     expect(db.rows("events")[0]?.["material_occurrence_at"]).toBe(newest.toISOString());
 
@@ -283,7 +262,7 @@ describe("material re-entry and revision-aware delivery", () => {
     reschedule(db, later);
     attach(
       db,
-      later,
+      clock,
       "OpenAI 2.0 release candidate published",
       "The first OpenAI 2.0 release candidate is now available for testing.",
       new Date(T0.getTime() + 2 * DAY), // published before the state we hold
@@ -305,5 +284,85 @@ describe("material re-entry and revision-aware delivery", () => {
     // stage level, on the request path that now writes material state.
     expect(db.rpcCalls.some((call) => call.fn === "finish_event_finalization")).toBe(true);
     expect(vi.isMockFunction(fetch)).toBe(false);
+  });
+});
+
+/**
+ * The case the re-entry lane exists for, past the window the old query happened
+ * to cover.
+ *
+ * The previous version of the lane read `last_updated_at`, which nothing in
+ * production moves after the insert, so its "attachment lookback" was an event
+ * *creation* lookback: fourteen days after the story broke, no new coverage could
+ * reach analysis. The nine-day case above never noticed, because nine days is
+ * inside fourteen. These are fifteen and thirty.
+ */
+describe("re-entry is driven by coverage activity, not by how old the event is", () => {
+  it.each([15, 30])(
+    "re-enters, revises and re-delivers an event %i days after it was created",
+    async (days) => {
+      const { db, clock, briefing } = await deliveredAtT0();
+      expect(briefing.generated).toBe(1);
+      const createdAt = db.rows("events")[0]?.["coverage_changed_at"];
+
+      const later = new Date(T0.getTime() + days * DAY);
+      clock.now = later;
+      reschedule(db, later);
+      attach(
+        db,
+        clock,
+        "OpenAI 2.0 release candidate published",
+        "The first OpenAI 2.0 release candidate is now available for testing.",
+        later,
+      );
+
+      const event = db.rows("events")[0]!;
+      // The live lane cannot take it: it was first seen long before the horizon.
+      expect(Date.parse(event["first_seen_at"] as string)).toBeLessThan(
+        activeCutoff(later).getTime(),
+      );
+      // What makes it eligible is the attachment's own write, and nothing else.
+      expect(event["coverage_changed_at"]).toBe(later.toISOString());
+      expect(event["coverage_changed_at"]).not.toBe(createdAt);
+      expect(event["last_updated_at"]).toBe(T0.toISOString());
+
+      const analysed = await analyse(asDb(db), { now: later });
+      expect(analysed.outcomes.map((o) => [o.eventId, o.decision])).toEqual([
+        [event["id"], "analysed"],
+      ]);
+      expect(event["material_revision"]).toBe(1);
+      expect(event["last_material_change_at"]).toBe(later.toISOString());
+      expect(event["material_occurrence_at"]).toBe(later.toISOString());
+      // Finalization is not coverage activity: it left the coverage clock alone.
+      expect(event["coverage_changed_at"]).toBe(later.toISOString());
+
+      await match(asDb(db), { now: later, skipAlerts: true });
+      embedEvents(db);
+      expect((await digest(asDb(db), { now: later, skipSend: true })).generated).toBe(1);
+      expect(db.rows("user_events")[0]?.["delivered_revision"]).toBe(1);
+    },
+  );
+
+  it("does not reach an old event whose coverage has not moved recently", async () => {
+    // Coverage attached on day 2 and the pipeline never finalized it (a stall),
+    // so the row is dirty -- but its coverage last moved fifteen days before the
+    // run. The lane is bounded by coverage recency, which is what keeps it from
+    // becoming a corpus scan of every stale dirty row.
+    const { db, clock } = await deliveredAtT0();
+    clock.now = new Date(T0.getTime() + 2 * DAY);
+    attach(
+      db,
+      clock,
+      "OpenAI 2.0 release candidate published",
+      "The first OpenAI 2.0 release candidate is now available for testing.",
+      clock.now,
+    );
+    const event = db.rows("events")[0]!;
+    expect(event["metadata_dirty"]).toBe(true);
+
+    clock.now = new Date(T0.getTime() + 17 * DAY);
+    const analysed = await analyse(asDb(db), { now: clock.now });
+    expect(analysed.outcomes).toEqual([]);
+    expect(event["material_revision"]).toBe(0);
   });
 });

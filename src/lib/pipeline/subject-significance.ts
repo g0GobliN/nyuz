@@ -67,7 +67,7 @@
  * on, which is the same bargain the deterministic scorer struck.
  */
 
-import { IMPORTANT_FLOOR } from "./alerts";
+import { IMPORTANT_FLOOR } from "./alert-floor";
 import { materialState } from "./event-version";
 import type { MatchSpec, SpecMatch } from "@/lib/match-spec";
 import { ALERT_FLOOR, shadowReport, type ScoredPair, type ShadowReport } from "./scoring-shadow";
@@ -123,6 +123,33 @@ export type SubjectHistory = {
   /** How many events the history was built from. */
   events: number;
 };
+
+/**
+ * A subject's history with one of its own events taken back out.
+ *
+ * The baseline an event is judged against must not contain that event: a marker
+ * that only it carries would otherwise count as "seen once", and a first
+ * occurrence could never be recognised as one. The history is built once per
+ * topic per run, and this subtracts one observation's contribution rather than
+ * rebuilding it per event.
+ */
+export function historyWithout(
+  history: SubjectHistory,
+  observation: SubjectObservations,
+): SubjectHistory {
+  const markerCounts = new Map(history.markerCounts);
+  for (const marker of new Set(observation.markers)) {
+    const count = (markerCounts.get(marker) ?? 0) - 1;
+    if (count > 0) markerCounts.set(marker, count);
+    else markerCounts.delete(marker);
+  }
+  const magnitudes = [...history.magnitudes];
+  for (const magnitude of observation.magnitudes) {
+    const at = magnitudes.indexOf(magnitude);
+    if (at >= 0) magnitudes.splice(at, 1);
+  }
+  return { markerCounts, magnitudes, events: Math.max(0, history.events - 1) };
+}
 
 export function historyFrom(observations: readonly SubjectObservations[]): SubjectHistory {
   const markerCounts = new Map<string, number>();
@@ -424,10 +451,18 @@ export function alertEligible(
  *
  * Expressed as a pair of scores so it measures the thing that matters -- the
  * reader's briefing and their phone -- rather than the distance between two
- * numbers. `ai` is today's behaviour (`importance`/`novelty`), `deterministic`
- * is the interest-conditional score, and the shared shadow machinery then
- * reports agreement at every floor the product actually uses, plus the alert
- * misses that would stop a promotion on their own.
+ * numbers. `ai` is today's behaviour, `deterministic` is the
+ * interest-conditional rule, and the shared shadow machinery then reports
+ * agreement at every floor the product actually uses, plus the alert misses
+ * that would stop a promotion on their own.
+ *
+ * The two sides differ in the *rule* and in nothing else. Both carry the same
+ * novelty -- the shared `events.novelty` that `relevanceOf` orders by -- because
+ * the rule under test changes admission, not novelty. An earlier version fed
+ * the new side `max(novelty, readerNovelty(...))`, mixing a 0..10 score with a
+ * 0/1 flag; that moved the ranking metrics for events the rule never touched,
+ * and a shadow that measures its own change of units measures nothing.
+ * Reader novelty is still used where the rule uses it: alert eligibility.
  */
 export function significanceShadow(rows: readonly SignificanceRow[]): SignificanceShadow {
   const pairs: ScoredPair[] = rows.map((row) => ({
@@ -440,10 +475,7 @@ export function significanceShadow(rows: readonly SignificanceRow[]): Significan
         subject: row.subject,
         novelty: row.novelty,
       }),
-      // Novelty is the reader-relative value here: the shadow's question is
-      // whether the *ordering* changes for someone who has not seen this
-      // revision, and 1 is that reader.
-      novelty: Math.max(row.novelty, readerNovelty(row.deliveredRevision, row.currentRevision)),
+      novelty: row.novelty,
       confidence: "high",
     },
   }));

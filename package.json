@@ -26,6 +26,7 @@
     "audit:cluster": "node --env-file=.env scripts/tsrun.mjs scripts/cluster-audit.ts",
     "audit:ledger": "node --env-file=.env scripts/tsrun.mjs scripts/ledger-attribution.ts",
     "shadow:scoring": "node --env-file=.env scripts/tsrun.mjs scripts/scoring-shadow.ts",
+    "shadow:significance": "node --env-file=.env scripts/tsrun.mjs scripts/significance-shadow.ts",
     "repair:stranded": "node --env-file=.env scripts/tsrun.mjs scripts/settle-stranded.ts",
     "email:preview": "node scripts/tsrun.mjs scripts/email-preview.ts",
     "pipeline": "node --env-file=.env scripts/tsrun.mjs scripts/pipeline.ts",

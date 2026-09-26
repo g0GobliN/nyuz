@@ -8,17 +8,26 @@
  * A topic needs discovery when all three of these are true:
  *
  *   1. the flag is on,
- *   2. no source is mapped to the topic in `source_topics` -- nothing is being
- *      collected for it, and
- *   3. no job for it is open, and none finished inside the cooldown window.
+ *   2. its coverage reading (`cadence.ts`) has an appetite for it, and
+ *   3. no job for it is open, and none started inside its cooldown window.
  *
- * The third is the coverage test and it is deliberately the cheapest possible
- * one. `source_topics` is the same table `refresh_source_demand` reads, so
- * "mapped" means exactly "this subject keeps a feed collected"; a topic with a
- * mapped source is not a gap, whatever its briefing currently contains. The
- * alternative -- counting events or articles per topic on every save -- would
- * be a fuzzy test of a question the collection system already answers, run on
- * the hot path of onboarding.
+ * The reading is built here, per topic, from four bounded reads -- followers,
+ * the subject's own recent events (`subject_history`, 0103), its mapped sources
+ * in `source_topics`, and its unresolved discovery candidates -- and it is the
+ * one place the two questions meet:
+ *
+ *   untracked, strong        off       nobody waits, or two sources on pace
+ *   trial                    paused    candidates are still being tried
+ *   none, unmapped, stale    queue     nothing collected, or gone quiet
+ *   thin                     backoff   one source on pace: once per its own
+ *                                      stale window, not once a day
+ *
+ * "No mapped source" is always a gap (`none` or `unmapped`), never a reason to
+ * back off -- a subject is not left undiscovered because it has no source.
+ *
+ * If the reading cannot be built (a read fails), the decision falls back to the
+ * rule this stage shipped with: a mapped source is coverage, no mapped source is
+ * a gap. That fallback can only be *as* eager as before, never more.
  *
  * ---------------------------------------------------------------------------
  * Topic-level, shared, and never per reader
@@ -44,6 +53,13 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
+import {
+  classifyCoverage,
+  coverageSignalsFrom,
+  discoveryAppetite,
+  rediscoveryAfterHours,
+  type CoverageReading,
+} from "./cadence";
 
 type Db = SupabaseClient<Database>;
 
@@ -68,6 +84,15 @@ export const MAX_TOPICS_PER_ENQUEUE = 4;
 /** The latest follow rows read to find subjects that need coverage. */
 export const FOLLOW_READ_LIMIT = 200;
 
+/**
+ * How far back a subject's pace is measured, and how many of its events. A
+ * year, because a seasonal subject needs four gaps to have a pace at all; thirty
+ * events, because a median of thirty gaps is already stable and the read is
+ * per topic.
+ */
+export const PACE_HISTORY_DAYS = 365;
+export const PACE_HISTORY_EVENTS = 30;
+
 export type CoverageTopic = {
   id: string;
   label: string;
@@ -86,6 +111,12 @@ export type GapFacts = {
    * the meaning it had, which is the conservative reading.
    */
   staleCoverage?: boolean;
+  /**
+   * The full coverage reading, when the production loader could build one. It
+   * supersedes `hasSourceLink`/`staleCoverage`: the appetite decides, and the
+   * cooldown follows the subject's own pace for a `thin` subject.
+   */
+  reading?: CoverageReading | undefined;
   /** A job for this topic is pending or running. */
   hasOpenJob: boolean;
   /** When the most recent job for this topic was created, in ms. */
@@ -94,21 +125,111 @@ export type GapFacts = {
 };
 
 export type GapDecision =
-  { queue: true } | { queue: false; reason: "covered" | "in-flight" | "cooling-down" };
+  | { queue: true }
+  | { queue: false; reason: "covered" | "untracked" | "trial" | "in-flight" | "cooling-down" };
 
 /**
  * The pure decision. Every rule is here so it is the same rule in a test as in
  * production, and so the report can say *why* nothing was queued.
  */
 export function gapFor(facts: GapFacts): GapDecision {
-  if (facts.hasSourceLink && facts.staleCoverage !== true) {
+  const reading = facts.reading;
+  if (reading) {
+    const appetite = discoveryAppetite(reading);
+    if (reading.classification === "untracked") return { queue: false, reason: "untracked" };
+    if (appetite === "off") return { queue: false, reason: "covered" };
+    if (appetite === "paused") return { queue: false, reason: "trial" };
+  } else if (facts.hasSourceLink && facts.staleCoverage !== true) {
     return { queue: false, reason: "covered" };
   }
   if (facts.hasOpenJob) return { queue: false, reason: "in-flight" };
-  if (facts.lastJobAtMs !== null && facts.nowMs - facts.lastJobAtMs < COOLDOWN_HOURS * 3_600_000) {
+  const cooldownHours = reading ? rediscoveryAfterHours(reading, COOLDOWN_HOURS) : COOLDOWN_HOURS;
+  if (facts.lastJobAtMs !== null && facts.nowMs - facts.lastJobAtMs < cooldownHours * 3_600_000) {
     return { queue: false, reason: "cooling-down" };
   }
   return { queue: true };
+}
+
+/**
+ * The coverage reading for each topic, or null if any read failed.
+ *
+ * Four reads for the whole batch (at most `MAX_TOPICS_PER_ENQUEUE` topics, so
+ * every one is small): follower counts, the subjects' own recent events, their
+ * mapped sources, and their unresolved discovery candidates -- the "trials".
+ * Null rather than a partial answer, so a failure falls back to the shipped rule
+ * as a whole instead of mixing two rules in one pass.
+ */
+export async function loadCoverageReadings(
+  db: Db,
+  topicIds: string[],
+  now: Date,
+): Promise<Map<string, CoverageReading> | null> {
+  if (topicIds.length === 0) return new Map();
+  try {
+    const since = new Date(now.getTime() - PACE_HISTORY_DAYS * 24 * 3_600_000).toISOString();
+    const [followers, history, links, trials] = await Promise.all([
+      Promise.all(
+        topicIds.map((id) =>
+          db
+            .from("user_topics")
+            .select("topic_id", { count: "exact", head: true })
+            .eq("topic_id", id)
+            .eq("muted", false),
+        ),
+      ),
+      db.rpc("subject_history", {
+        p_topic_ids: topicIds,
+        p_since: since,
+        p_per_topic: PACE_HISTORY_EVENTS,
+      }),
+      db.from("source_topics").select("topic_id").in("topic_id", topicIds),
+      db
+        .from("source_candidates")
+        .select("first_topic_id")
+        .in("first_topic_id", topicIds)
+        .eq("status", "discovered"),
+    ]);
+    for (const result of [...followers, history, links, trials]) {
+      if (result.error) throw new Error(result.error.message);
+    }
+
+    const times = new Map<string, string[]>();
+    for (const row of history.data ?? []) {
+      const list = times.get(row.topic_id) ?? [];
+      list.push(row.first_seen_at);
+      times.set(row.topic_id, list);
+    }
+    const tally = (ids: (string | null)[]) => {
+      const counts = new Map<string, number>();
+      for (const id of ids) if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+      return counts;
+    };
+    const mapped = tally((links.data ?? []).map((row) => row.topic_id));
+    const open = tally((trials.data ?? []).map((row) => row.first_topic_id));
+
+    const readings = new Map<string, CoverageReading>();
+    topicIds.forEach((topicId, index) => {
+      readings.set(
+        topicId,
+        classifyCoverage(
+          coverageSignalsFrom({
+            topicId,
+            demandUsers: followers[index]?.count ?? 0,
+            eventTimes: times.get(topicId) ?? [],
+            mappedSources: mapped.get(topicId) ?? 0,
+            openTrials: open.get(topicId) ?? 0,
+            now,
+          }),
+        ),
+      );
+    });
+    return readings;
+  } catch (error) {
+    console.warn(
+      `discovery: reading coverage failed, using the mapped-source rule: ${String(error)}`,
+    );
+    return null;
+  }
 }
 
 export type EnqueueResult = {
@@ -179,12 +300,15 @@ export async function enqueueDiscoveryForTopics(
     if (!Number.isNaN(at) && (latest.get(job.topic_id) ?? 0) < at) latest.set(job.topic_id, at);
   }
 
+  const readings = await loadCoverageReadings(db, ids, now);
+
   let queued = 0;
   let skipped = 0;
 
   for (const topic of wanted) {
     const decision = gapFor({
       hasSourceLink: covered.has(topic.id),
+      reading: readings?.get(topic.id),
       hasOpenJob: open.has(topic.id),
       lastJobAtMs: latest.get(topic.id) ?? null,
       nowMs: now.getTime(),

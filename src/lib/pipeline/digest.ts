@@ -60,8 +60,15 @@ import { policyFor, rankIntoLanes } from "./freshness";
 
 type Db = SupabaseClient<Database>;
 
-/** Four readers leave room for their database and delivery subrequests on Workers Free. */
-const BATCH = 4;
+/** Eight readers keep a synchronized 1,000-reader cohort within the 130-minute slot window. */
+const BATCH = 8;
+
+/** Email, Telegram and push are the supported channels; bound queued sends too. */
+const MAX_DELIVERY_CHANNELS = 3;
+
+/** Smaller than Supabase's default PostgREST row cap. */
+const SCHEDULE_PAGE_SIZE = 500;
+const SCHEDULE_USER_CHUNK = 100;
 
 /** How long a `generating` claim is honoured before another run may take it. */
 const STALE_MINUTES = 15;
@@ -74,10 +81,9 @@ const MAX_ATTEMPTS = 5;
  *
  * The retryable errors are the ones where the far side is asking for less
  * traffic — a Resend or Telegram 429, a push service 503. Retrying every reader
- * on the next five-minute tick answers being rate limited with a synchronised
- * burst against whoever just rate limited us, and burns all five attempts
- * inside twenty-five minutes, so a half-hour outage failed the entire batch
- * permanently.
+ * on the next one-minute tick would answer a rate limit with a synchronised
+ * burst against whoever just rate limited us. Backoff spreads retries across
+ * the provider incident rather than exhausting them during a short outage.
  *
  * These four delays stretch the same five attempts across roughly eighty
  * minutes, which is long enough to sit out a typical provider incident, while
@@ -425,56 +431,78 @@ const PREF_COLUMNS =
   "user_id, send_at, timezone, days, channels, frequency, density, paused, instructions, language";
 
 async function scheduleUpcoming(db: Db, now: Date, options: DigestOptions): Promise<number> {
-  let query = db.from("notification_preferences").select(PREF_COLUMNS);
-  if (options.userIds) query = query.in("user_id", options.userIds);
+  let scheduledCount = 0;
+  const userBatches: (string[] | undefined)[] = options.userIds
+    ? chunked(options.userIds, SCHEDULE_USER_CHUNK)
+    : [undefined];
+  for (const userIds of userBatches) {
+    for (let offset = 0; ; offset += SCHEDULE_PAGE_SIZE) {
+      let query = db
+        .from("notification_preferences")
+        .select(PREF_COLUMNS)
+        .order("user_id")
+        .range(offset, offset + SCHEDULE_PAGE_SIZE - 1);
+      if (userIds) query = query.in("user_id", userIds);
 
-  const { data, error } = await query;
-  if (error) throw new Error(`reading notification_preferences: ${error.message}`);
+      const { data, error } = await query;
+      if (error) throw new Error(`reading notification_preferences: ${error.message}`);
+      const rows = (data ?? []) as PrefRow[];
+      if (rows.length === 0) break;
 
-  const rows = (data ?? []) as PrefRow[];
-  if (rows.length === 0) return 0;
-  const { data: subscriptions, error: planError } = await db
-    .from("subscriptions")
-    .select("user_id, plan")
-    .in(
-      "user_id",
-      rows.map((row) => row.user_id),
-    );
-  if (planError) throw new Error(`Reading schedule plans: ${planError.message}`);
-  const plans = new Map((subscriptions ?? []).map((row) => [row.user_id, row.plan]));
-  const scheduled: { user_id: string; scheduled_for: string; status: "scheduled" }[] = [];
+      const pageUserIds = rows.map((row) => row.user_id);
+      const { data: subscriptions, error: planError } = await db
+        .from("subscriptions")
+        .select("user_id, plan")
+        .in("user_id", pageUserIds)
+        .order("user_id")
+        .range(0, pageUserIds.length - 1);
+      if (planError) throw new Error(`Reading schedule plans: ${planError.message}`);
+      const plans = new Map((subscriptions ?? []).map((row) => [row.user_id, row.plan]));
+      const scheduled: { user_id: string; scheduled_for: string; status: "scheduled" }[] = [];
 
-  for (const row of rows) {
-    if (row.paused) continue;
-    const plan = plans.get(row.user_id) ?? "uno";
-    const slot = options.immediate
-      ? now
-      : nextSlot(
-          {
-            sendAt: PLAN_LIMITS[plan].customDeliveryTime ? row.send_at : STANDARD_DELIVERY_TIME,
-            timezone: row.timezone,
-            days: row.days,
-            frequency: "daily",
-          },
-          now,
-        );
-    if (slot === null) continue;
-    scheduled.push({
-      user_id: row.user_id,
-      scheduled_for: slot.toISOString(),
-      status: "scheduled",
-    });
+      for (const row of rows) {
+        if (row.paused) continue;
+        const plan = plans.get(row.user_id) ?? "uno";
+        const slot = options.immediate
+          ? now
+          : nextSlot(
+              {
+                sendAt: PLAN_LIMITS[plan].customDeliveryTime ? row.send_at : STANDARD_DELIVERY_TIME,
+                timezone: row.timezone,
+                days: row.days,
+                frequency: "daily",
+              },
+              now,
+            );
+        if (slot === null) continue;
+        scheduled.push({
+          user_id: row.user_id,
+          scheduled_for: slot.toISOString(),
+          status: "scheduled",
+        });
+      }
+
+      if (options.dryRun !== true && scheduled.length > 0) {
+        const { error: writeError } = await db.from("digests").upsert(scheduled, {
+          onConflict: "user_id,scheduled_for",
+          ignoreDuplicates: true,
+        });
+        if (writeError) throw new Error(`scheduling digest: ${writeError.message}`);
+      }
+      scheduledCount += scheduled.length;
+      if (rows.length < SCHEDULE_PAGE_SIZE) break;
+    }
   }
 
-  if (options.dryRun !== true && scheduled.length > 0) {
-    const { error: writeError } = await db.from("digests").upsert(scheduled, {
-      onConflict: "user_id,scheduled_for",
-      ignoreDuplicates: true,
-    });
-    if (writeError) throw new Error(`scheduling digest: ${writeError.message}`);
-  }
+  return scheduledCount;
+}
 
-  return scheduled.length;
+function chunked<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let offset = 0; offset < values.length; offset += size) {
+    chunks.push(values.slice(offset, offset + size));
+  }
+  return chunks;
 }
 
 type DueRow = {
@@ -1168,7 +1196,9 @@ async function deliverDue(
     .eq("status", "queued")
     .in("channel", ["email", "telegram", "push"])
     .lt("attempts", MAX_ATTEMPTS)
-    .or(`next_attempt_at.is.null,next_attempt_at.lte.${new Date().toISOString()}`);
+    .or(`next_attempt_at.is.null,next_attempt_at.lte.${new Date().toISOString()}`)
+    .order("id")
+    .limit((options.limit ?? BATCH) * MAX_DELIVERY_CHANNELS);
   if (digestIds) query = query.in("digest_id", digestIds);
 
   const { data, error } = await query;
@@ -1243,7 +1273,7 @@ async function deliverDue(
  * `scheduled_for` for each digest behind a batch of queued deliveries.
  *
  * One query for the batch rather than one per row: this runs on every
- * five-minute tick, and the Workers subrequest budget is the reason every other
+ * one-minute tick, and the Workers subrequest budget is the reason every other
  * read in this file is batched too.
  */
 async function deliveryDeadlines(db: Db, digestIds: string[]): Promise<Map<string, number>> {

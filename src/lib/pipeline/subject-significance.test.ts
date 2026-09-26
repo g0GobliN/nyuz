@@ -408,6 +408,7 @@ describe("the interest-conditional rule is off until a context says otherwise", 
           ]),
         ],
       ]),
+      members: new Map<string, Set<string>>(),
       significant: () =>
         subjectSignificance(observationsFor(event.title), historyFrom([obs(["release_announced"])]))
           .score,
@@ -490,20 +491,99 @@ describe("the shadow reports what turning it on would change, before it is turne
     expect(typeof verdict.ready).toBe("boolean");
   });
 
-  it("counts a new revision as novel for the reader who holds the old one", () => {
-    const shadow = significanceShadow([
+  it("uses reader novelty where the rule does -- the alert -- and nowhere else", () => {
+    const row = (deliveredRevision: number): SignificanceRow => ({
+      eventId: `holds-${deliveredRevision}`,
+      importance: 3,
+      novelty: 0,
+      relevanceStrong: true,
+      subject: SUBJECT_SIGNIFICANT_FLOOR,
+      deliveredRevision,
+      currentRevision: 3,
+    });
+    // Holding revision 2 of a revision-3 story: the development is new to this
+    // reader, so the alert rule would fire. Holding revision 3: it would not.
+    const shadow = significanceShadow([row(2), row(3)]);
+    expect(shadow.alertChanges.gained).toEqual(["holds-2"]);
+  });
+});
+
+describe("the shadow compares like with like", () => {
+  it("scores both sides with the same novelty, so equal inputs agree exactly", () => {
+    // No subject signal anywhere: the rule under test changes nothing, so the
+    // shadow must report perfect agreement. The previous version fed the new
+    // side max(novelty, readerNovelty) -- a 0..10 score against a 0/1 flag --
+    // which reordered these rows and reported disagreement the rule never caused.
+    const rows: SignificanceRow[] = [
       {
-        eventId: "revision",
-        importance: 3,
+        eventId: "a",
+        importance: 4,
         novelty: 0,
+        relevanceStrong: false,
+        subject: 0,
+        deliveredRevision: null,
+        currentRevision: 0,
+      },
+      {
+        eventId: "b",
+        importance: 4,
+        novelty: 0.5,
+        relevanceStrong: false,
+        subject: 0,
+        deliveredRevision: 0,
+        currentRevision: 0,
+      },
+      {
+        eventId: "c",
+        importance: 3,
+        novelty: 2,
         relevanceStrong: true,
         subject: 0,
-        deliveredRevision: 2,
-        currentRevision: 3,
+        deliveredRevision: null,
+        currentRevision: 2,
+      },
+      {
+        eventId: "d",
+        importance: 2,
+        novelty: 0,
+        relevanceStrong: false,
+        subject: 0,
+        deliveredRevision: 1,
+        currentRevision: 1,
+      },
+    ];
+    const shadow = significanceShadow(rows);
+    expect(shadow.changedAdmissions).toBe(0);
+    for (const ranking of shadow.report.ranking) {
+      expect(ranking.topNOverlap, `top ${ranking.n}`).toBe(1);
+      expect(ranking.pairwiseAgreement, `top ${ranking.n}`).toBe(1);
+    }
+    for (const floor of shadow.report.admission) expect(floor.agreement).toBe(1);
+  });
+
+  it("attributes every disagreement to the rule", () => {
+    // One row the rule lifts: exactly one admission changes, and the novelty
+    // the ranking reads is identical on both sides.
+    const shadow = significanceShadow([
+      {
+        eventId: "lifted",
+        importance: 1,
+        novelty: 1,
+        relevanceStrong: true,
+        subject: SUBJECT_SIGNIFICANT_FLOOR,
+        deliveredRevision: null,
+        currentRevision: 1,
+      },
+      {
+        eventId: "plain",
+        importance: 5,
+        novelty: 1,
+        relevanceStrong: false,
+        subject: 0,
+        deliveredRevision: null,
+        currentRevision: 0,
       },
     ]);
-    expect(shadow.report.events).toBe(1);
-    // Novelty here is reader-relative, so the row is scored as novel.
-    expect(shadow.report.distribution.deterministic[3]).toBe(1);
+    expect(shadow.changedAdmissions).toBe(1);
   });
 });

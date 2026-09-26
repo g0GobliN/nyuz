@@ -20,11 +20,12 @@ import type { BreakingMode, Database } from "@/lib/supabase/types";
 import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
 import { flushDeliveries, queuedChannels, deliveryTargets } from "./digest";
 import { FLASH_POLICY, ageHours } from "./freshness";
+import { IMPORTANT_FLOOR } from "./alert-floor";
+import { alertEligible } from "./subject-significance";
+
+export { IMPORTANT_FLOOR };
 
 type Db = SupabaseClient<Database>;
-
-/** Same floor as Minimal density: "only the things you would regret missing". */
-export const IMPORTANT_FLOOR = 6;
 
 /**
  * Plura's rolling 24-hour ceiling. `claim_alert` (0037) is authoritative;
@@ -87,13 +88,39 @@ export type AlertHit = {
   eventId: string;
   importance: number;
   /**
-   * When the world saw the event, from `events.first_seen_at`.
+   * When the event's current state happened: `events.material_occurrence_at`
+   * for a materially revised event, `first_seen_at` otherwise -- the occurrence
+   * clock, never the discovery clock, so a development reported last week and
+   * discovered today is not breaking news.
    *
    * Required rather than optional, and null-able rather than absent, because
    * "we do not know when this happened" has to be a decision this module makes
    * and not a field a caller can forget. An undated event is not breaking.
    */
   eventAt: string | null;
+  /**
+   * The event's `material_revision` at match time (0097). With it, a claim or
+   * a delivered alert covers that revision and no later one: revision 1 alerted
+   * suppresses revision 1 again, and leaves revision 2 to be reconsidered.
+   * Absent means a caller that is not revision-aware, which keeps the id-only
+   * suppression this module always had.
+   */
+  revision?: number | undefined;
+  /**
+   * The interest-conditional signals for this reader and event (P4), present
+   * only when the match stage computed them. Read only while the
+   * `subject_significance_enabled` flag is on.
+   */
+  significance?: AlertSignificance | undefined;
+};
+
+export type AlertSignificance = {
+  /** Some admitting topic matched this event firmly (`relevanceStrength`). */
+  relevanceStrong: boolean;
+  /** The subject score of the firmest such topic (`subjectSignificance`). */
+  subject: number;
+  /** Reader novelty: 1 when this reader does not hold the current revision. */
+  novelty: number;
 };
 
 /**
@@ -133,6 +160,12 @@ export function paceAlerts(input: { hits: AlertHit[]; recent: Date[]; now: Date 
 export type AlertOptions = {
   userId: string;
   hits: AlertHit[];
+  /**
+   * Whether the interest-conditional alert rule is in force (the
+   * `subject_significance_enabled` flag, as the match stage read it). Absent or
+   * false is the shipped rule, exactly: `shouldAlert` on importance alone.
+   */
+  subjectSignificance?: boolean | undefined;
   now?: Date | undefined;
   email?: EmailEnv | undefined;
   telegram?: TelegramEnv | undefined;
@@ -150,6 +183,31 @@ export function shouldAlert(breaking: BreakingMode, importance: number): boolean
   if (breaking === "off") return false;
 
   return importance >= IMPORTANT_FLOOR;
+}
+
+/**
+ * The alert rule for one hit, with the flag's two states spelled out.
+ *
+ *   flag off, or no signals   `shouldAlert` -- the shipped rule, unchanged
+ *   flag on                   `alertEligible`: importance at the floor, OR a
+ *                             firmly matched interest carrying a subject
+ *                             development this reader does not hold yet
+ *
+ * `subjectQualified` is true only for the second route. It travels to
+ * `claim_alert` (0103), which re-reads the flag and is the authority: a hit
+ * below the importance floor cannot be claimed while the flag is off, whatever
+ * this function returns.
+ */
+export function alertDecision(
+  breaking: BreakingMode,
+  hit: Pick<AlertHit, "importance" | "significance">,
+  subjectSignificance: boolean,
+): { alert: boolean; subjectQualified: boolean } {
+  if (breaking === "off") return { alert: false, subjectQualified: false };
+  const shipped = shouldAlert(breaking, hit.importance);
+  if (!subjectSignificance || !hit.significance) return { alert: shipped, subjectQualified: false };
+  const eligible = alertEligible({ importance: hit.importance, ...hit.significance });
+  return { alert: eligible, subjectQualified: eligible && !shipped };
 }
 
 /**
@@ -213,25 +271,42 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
   const toQueue = queuedChannels(prefs.channels, await deliveryTargets(db, options.userId));
   if (toQueue.length === 0) return { ...empty, skipped: options.hits.length };
 
-  const admitted = hits.filter((h) => shouldAlert(breaking, h.importance));
+  const qualified = new Set<string>();
+  const admitted = hits.filter((h) => {
+    const decision = alertDecision(breaking, h, options.subjectSignificance === true);
+    if (decision.subjectQualified) qualified.add(h.eventId);
+    return decision.alert;
+  });
   if (admitted.length === 0) return { ...empty, skipped: options.hits.length };
 
-  const known = await alreadyAlerted(
+  // Revision-aware when the caller is: an alert already delivered for this
+  // event covers its revision and every earlier one, and nothing later. A hit
+  // with no revision is suppressed by id, as it always was.
+  const alerted = await alreadyAlerted(
     db,
     options.userId,
     admitted.map((h) => h.eventId),
   );
+  const alreadySent = (h: AlertHit) => {
+    const delivered = alerted.get(h.eventId);
+    if (delivered === undefined) return false;
+    return h.revision === undefined || delivered >= h.revision;
+  };
+  const revisionAware = admitted.filter((h) => h.revision !== undefined);
   const distinct = await suppressDeliveredDuplicates(
     db,
     options.userId,
     admitted
-      .filter((h) => !known.has(h.eventId))
+      .filter((h) => !alreadySent(h))
       .sort((a, b) => b.importance - a.importance)
       .map((h) => h.eventId),
     now,
     "alert",
+    revisionAware.length > 0
+      ? new Map(revisionAware.map((h) => [h.eventId, h.revision ?? 0] as const))
+      : undefined,
   );
-  const fresh = admitted.filter((h) => !known.has(h.eventId) && distinct.has(h.eventId));
+  const fresh = admitted.filter((h) => !alreadySent(h) && distinct.has(h.eventId));
   if (fresh.length === 0) {
     return { ...empty, skipped: options.hits.length };
   }
@@ -269,6 +344,8 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
       p_scheduled_for: scheduledFor,
       p_why: event.whatHappened || event.title,
       p_channels: toQueue,
+      p_revision: hit.revision ?? 0,
+      p_subject_qualified: qualified.has(hit.eventId),
     });
     if (createError) throw new Error(`creating alert: ${createError.message}`);
     if (!result?.startsWith("ok:")) continue;
@@ -317,8 +394,19 @@ async function recentAlertTimes(db: Db, userId: string, now: Date): Promise<Date
     .filter((at): at is Date => at !== null);
 }
 
-async function alreadyAlerted(db: Db, userId: string, eventIds: string[]): Promise<Set<string>> {
-  const found = new Set<string>();
+/**
+ * The highest revision of each event this reader has already been alerted to.
+ *
+ * Read from `digest_items.delivered_revision` on the reader's alert digests,
+ * which `create_alert_delivery` stamps (0103). Rows from before that migration
+ * carry 0, which is what every event alerted then was.
+ */
+async function alreadyAlerted(
+  db: Db,
+  userId: string,
+  eventIds: string[],
+): Promise<Map<string, number>> {
+  const found = new Map<string, number>();
   if (eventIds.length === 0) return found;
 
   const { data: digests, error } = await db
@@ -332,11 +420,14 @@ async function alreadyAlerted(db: Db, userId: string, eventIds: string[]): Promi
 
   const { data: items, error: itemError } = await db
     .from("digest_items")
-    .select("event_id")
+    .select("event_id, delivered_revision")
     .in("digest_id", ids)
     .in("event_id", eventIds);
   if (itemError) throw new Error(`reading alert items: ${itemError.message}`);
-  for (const row of items ?? []) found.add(row.event_id);
+  for (const row of items ?? []) {
+    const revision = row.delivered_revision ?? 0;
+    found.set(row.event_id, Math.max(found.get(row.event_id) ?? 0, revision));
+  }
   return found;
 }
 

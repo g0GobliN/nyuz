@@ -690,26 +690,6 @@ export function assignTags(text: string): string[] {
 }
 
 /**
- * Assign topics using the same matching logic as `matchesTerms` from topics.ts.
- *
- * This provides a more rigorous check that mirrors how the selector
- * matches topics against reader interests.
- */
-export function assignTopicsByTerms(text: string): string[] {
-  const normalised = normaliseText(text);
-  const assigned: string[] = [];
-
-  for (const topic of TOPIC_POOL) {
-    const terms = topicTerms(topic);
-    if (terms.length > 0 && matchesTerms(normalised, terms)) {
-      assigned.push(topic);
-    }
-  }
-
-  return assigned.slice(0, 5);
-}
-
-/**
  * Compare code-assigned topics against AI-assigned topics.
  *
  * Returns comparison metrics for shadow mode.

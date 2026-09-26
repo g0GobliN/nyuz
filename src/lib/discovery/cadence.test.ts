@@ -166,8 +166,17 @@ describe("the classes are distinct states, not one number", () => {
       classifyCoverage(signals({ eventTimes: cadence(24, 6, 500) })).classification,
       classifyCoverage(signals({ eventTimes: cadence(24, 6, 6) })).classification,
       classifyCoverage(signals({ eventTimes: cadence(24, 6, 6), mappedSources: 1 })).classification,
+      classifyCoverage(signals({ eventTimes: cadence(24, 6, 6), mappedSources: 0 })).classification,
     ]);
-    expect([...seen].sort()).toEqual(["none", "stale", "strong", "thin", "trial", "untracked"]);
+    expect([...seen].sort()).toEqual([
+      "none",
+      "stale",
+      "strong",
+      "thin",
+      "trial",
+      "unmapped",
+      "untracked",
+    ]);
   });
 });
 

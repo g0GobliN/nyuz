@@ -13,7 +13,8 @@
  * So `content_version` cannot be derived from anything that moves on its own.
  * Not the source count -- "one more outlet ran it" is the single most common
  * thing that happens to an event and the single least informative. Not
- * `last_updated_at`, which stage 3 bumps whenever an article attaches. Not the
+ * `coverage_changed_at`, which the attachment trigger stamps whenever an article
+ * attaches (0102). Not the
  * headline, which every outlet words differently and some rewrite twice an hour.
  * A version keyed on any of those would regenerate continuously while telling
  * the reader nothing new, which is the old eager behaviour wearing a cache.
@@ -62,92 +63,19 @@
 import { extractFacts, type ExtractedFacts } from "./extract";
 import { markersIn, releaseIdentity } from "./marker-packs";
 
-/**
- * Status transitions that make an event a different event.
+/*
+ * Development markers -- the status transitions that make an event a different
+ * event -- are defined once, in `marker-packs.ts`, per language. This module
+ * used to carry its own copy of the English list; two copies of a rule are two
+ * rules, and they had already begun to differ (see that file). Each marker is a
+ * *destination* state: it fires when coverage contains the phrase, regardless of
+ * what it said before, because comparing against a previous state would need the
+ * previous coverage text, which nothing keeps.
  *
- * Each entry is a *destination* state: the marker fires when coverage contains
- * the phrase, regardless of what it said before. That is deliberate --
- * comparing against a previous state would need the previous coverage text,
- * which nothing keeps, and "the word 'confirmed' is now present" is enough to
- * separate a version. The patterns are anchored on word boundaries so
- * "unconfirmed" does not read as "confirmed".
- *
- * Kept small on purpose. Every pattern added here is a new reason to spend
- * money, so a pattern earns its place by naming a transition a reader would be
- * misinformed by not seeing.
+ * Kept small on purpose. Every marker is a new reason to spend money and to
+ * re-deliver, so a marker earns its place by naming a transition a reader would
+ * be misinformed by not seeing.
  */
-const DEVELOPMENT_MARKERS: { readonly marker: string; readonly pattern: RegExp }[] = [
-  // Deals: agreed and closed are different events from "in talks".
-  { marker: "deal_confirmed", pattern: /\b(?:has |have |was |were )?confirmed\b/i },
-  { marker: "deal_agreed", pattern: /\b(?:has|have) agreed to (?:buy|acquire|merge)\b/i },
-  {
-    marker: "deal_completed",
-    pattern: /\b(?:deal|acquisition|merger|takeover) (?:has )?(?:closed|completed)\b/i,
-  },
-  {
-    marker: "deal_abandoned",
-    pattern:
-      /\b(?:called off|abandoned|walked away from|terminated) the (?:deal|merger|acquisition)\b/i,
-  },
-
-  // Courts and regulators: a ruling is not a filing.
-  { marker: "court_ruled", pattern: /\b(?:ruled|ruling|verdict|judgment|judgement)\b/i },
-  { marker: "court_settled", pattern: /\b(?:settled|settlement reached)\b/i },
-  {
-    marker: "charges_filed",
-    pattern: /\b(?:charged with|indicted|pleaded (?:guilty|not guilty))\b/i,
-  },
-  { marker: "regulator_approved", pattern: /\b(?:approved|cleared|authorised|authorized) by\b/i },
-  { marker: "regulator_blocked", pattern: /\b(?:blocked|rejected|refused|vetoed) the\b/i },
-  {
-    marker: "policy_enacted",
-    pattern: /\b(?:signed into law|came into force|takes effect|enacted)\b/i,
-  },
-
-  // Shipping: a launch is not a leak.
-  {
-    marker: "released",
-    pattern: /\b(?:has |have )?(?:launched|released|shipped|went on sale|now available)\b/i,
-  },
-  { marker: "recalled", pattern: /\b(?:recalled|pulled from sale|withdrawn)\b/i },
-
-  // Corporate and personnel.
-  {
-    marker: "results_reported",
-    pattern:
-      /\b(?:reported|posted) (?:quarterly |annual |full-year )?(?:results|earnings|revenue)\b/i,
-  },
-  {
-    marker: "resigned",
-    pattern: /\b(?:resigned|stepped down|has been (?:fired|ousted|dismissed))\b/i,
-  },
-  {
-    marker: "filed_bankruptcy",
-    pattern: /\b(?:filed for bankruptcy|chapter 11|entered administration|liquidation)\b/i,
-  },
-
-  // Safety and security: a patch changes what a reader should do.
-  {
-    marker: "patch_available",
-    pattern: /\b(?:patch|fix|update) (?:is )?(?:available|released)\b/i,
-  },
-  { marker: "exploited_in_wild", pattern: /\bexploited in the wild\b/i },
-
-  // Casualty events: "died" after "injured" is a development.
-  { marker: "fatalities", pattern: /\b(?:killed|dead|died|fatalities|death toll)\b/i },
-];
-
-function hasAffirmativeDealConfirmation(text: string): boolean {
-  return (text.match(/[^.!?;\n]+[.!?;]?/g) ?? []).some(
-    (sentence) =>
-      /\bconfirmed\b/i.test(sentence) &&
-      !sentence.endsWith("?") &&
-      /\b(?:deal|agreement|acquisition|merger|takeover|acquire|buy|merge)\b/i.test(sentence) &&
-      !/\b(?:no|not|never|neither|without|unconfirmed|uncertain|unverified|if|whether|may|might|could|would|expected|reportedly|allegedly|rumou?rs?|awaiting|pending|yet|declined|refused)\b|\b\w+n['’]t\b/i.test(
-        sentence,
-      ),
-  );
-}
 
 /**
  * Casualty figures, which `extract.ts` does not cover.
@@ -226,15 +154,9 @@ export type MaterialState = {
 export function materialState(coverageText: string, facts?: ExtractedFacts): MaterialState {
   const extracted = facts ?? extractFacts(coverageText, 0);
 
-  const latin = DEVELOPMENT_MARKERS.filter(({ marker, pattern }) =>
-    marker === "deal_confirmed"
-      ? hasAffirmativeDealConfirmation(coverageText)
-      : pattern.test(coverageText),
-  ).map(({ marker }) => marker);
-  // Other languages, plus the version-gated release stages, from
-  // `marker-packs.ts`. The English terms above are the same concepts and
-  // de-duplicate, so the union only ever adds what the list cannot see.
-  const markers = [...latin, ...markersIn(coverageText)];
+  // Every language pack the text is written in, plus the version-gated release
+  // stages -- one definition, in `marker-packs.ts`.
+  const markers = markersIn(coverageText);
 
   // Money, counts and percentages are the numbers whose size changes the story.
   // Versions, dates and CVSS scores are identity, not magnitude, and are folded
@@ -288,6 +210,44 @@ export function materialFingerprint(state: MaterialState): string {
  * `translate.ts` applies to its own prompt version, and the same trap.
  */
 export const MATERIAL_VERSION_SCHEME = 2;
+
+/**
+ * The revision of the marker *rules*, stamped on the fingerprint an event stores.
+ *
+ * Distinct from `MATERIAL_VERSION_SCHEME` because the two protect different
+ * things. The scheme invalidates the Understand cache, which costs money to
+ * refill, so it moves only when every cached explanation is genuinely stale.
+ * This one protects the *revision* decision: when the rules change, a stored
+ * fingerprint computed under the old rules differs from today's for reasons
+ * that have nothing to do with the story, and comparing the two would advance a
+ * revision -- and re-deliver -- on a code change. A stamp mismatch is therefore
+ * a re-baseline, never a development (see `decideMaterialRevision`).
+ *
+ *   (none)  0097: the English list and the first language packs
+ *   3       bare `RC`, version-gated CJK stages, one canonical marker source
+ */
+export const MATERIAL_RULES_REVISION = 3;
+
+/** The stamp in front of a stored fingerprint: `v2r3`. */
+export function materialStamp(): string {
+  return `v${MATERIAL_VERSION_SCHEME}r${MATERIAL_RULES_REVISION}`;
+}
+
+/**
+ * The fingerprint `finish_event_finalization` stores for this coverage.
+ *
+ * The one place the stored form is built, so the pipeline and the tests cannot
+ * disagree about the stamp.
+ */
+export function storedMaterialFingerprint(coverageText: string): string {
+  return `${materialStamp()}|${materialFingerprint(materialState(coverageText))}`;
+}
+
+/** The stamp of a stored fingerprint: everything before the first `|`. */
+function stampOf(fingerprint: string): string {
+  const at = fingerprint.indexOf("|");
+  return at < 0 ? fingerprint : fingerprint.slice(0, at);
+}
 
 /**
  * Twelve hex characters of SHA-256 over the material fingerprint.
@@ -363,7 +323,8 @@ export type MaterialRevisionDecision = {
    */
   occurrenceAt: string | null;
   /** Why, in one word, for the pipeline report and for tests. */
-  reason: "first_finalization" | "material_change" | "unchanged" | "stale_evidence";
+  reason:
+    "first_finalization" | "rules_changed" | "material_change" | "unchanged" | "stale_evidence";
 };
 
 /**
@@ -400,6 +361,23 @@ export function decideMaterialRevision(input: {
       fingerprint: input.nextFingerprint,
       occurrenceAt: input.latestPublishedAt,
       reason: "first_finalization",
+    };
+  }
+
+  // Measured under different rules: the difference is the code's, not the
+  // story's. Adopt today's reading of the same coverage and keep the stored
+  // occurrence, exactly as a first finalization would -- a rules change must
+  // never be what re-delivers a story. The cost is honest and paid once per
+  // event: a genuine development that lands in the very run that re-baselines
+  // is absorbed into the new baseline rather than delivered as a revision.
+  // Every later development is measured against a fingerprint computed under
+  // the rules that will judge it.
+  if (stampOf(input.storedFingerprint) !== stampOf(input.nextFingerprint)) {
+    return {
+      changed: false,
+      fingerprint: input.nextFingerprint,
+      occurrenceAt: null,
+      reason: "rules_changed",
     };
   }
 

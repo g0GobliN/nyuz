@@ -31,8 +31,8 @@ const SITEMAP_PATH = "/sitemap.xml";
 type UnsubscribeServerEnv = ServerEnv & UnsubscribeEnv;
 type HealthEnv = ServerEnv & { HEALTHCHECK_TOKEN?: string };
 
-function unsubscribePage(message: string, status = 200): Response {
-  const safe = message.replace(
+function escapeHtml(value: string): string {
+  return value.replace(
     /[&<>"']/g,
     (char) =>
       ({
@@ -43,8 +43,15 @@ function unsubscribePage(message: string, status = 200): Response {
         "'": "&#39;",
       })[char] ?? char,
   );
+}
+
+function unsubscribePage(message: string, status = 200, confirmationToken?: string): Response {
+  const safe = escapeHtml(message);
+  const confirmation = confirmationToken
+    ? `<form method="post" action="/api/unsubscribe?token=${encodeURIComponent(confirmationToken)}"><button type="submit">Unsubscribe from email briefings</button></form>`
+    : "";
   return new Response(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Email preferences — nyuz</title></head><body><main><h1>${safe}</h1><p>You can change all notification channels from Delivery settings after signing in.</p></main></body></html>`,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Email preferences — nyuz</title></head><body><main><h1>${safe}</h1><p>You can change all notification channels from Delivery settings after signing in.</p>${confirmation}</main></body></html>`,
     {
       status,
       headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
@@ -56,9 +63,24 @@ async function handleUnsubscribe(request: Request, env?: UnsubscribeServerEnv): 
   if (request.method !== "GET" && request.method !== "POST") {
     return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, POST" } });
   }
-  const token = new URL(request.url).searchParams.get("token") ?? "";
+  const url = new URL(request.url);
+  let token = url.searchParams.get("token") ?? "";
+  if (request.method === "POST" && token === "") {
+    const form = await request.formData();
+    token = String(form.get("token") ?? "");
+  }
   const userId = await verifyUnsubscribeToken(token, env);
   if (!userId) return unsubscribePage("This unsubscribe link is invalid or expired.", 400);
+
+  // Email security scanners routinely prefetch GET links. Showing a form keeps
+  // those reads harmless while the RFC 8058 one-click POST remains immediate.
+  if (request.method === "GET") {
+    return unsubscribePage(
+      "Confirm that you want to unsubscribe from email briefings.",
+      200,
+      token,
+    );
+  }
 
   const db = createAdminClient(env);
   const { data, error } = await db

@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SecretBag } from "@/lib/ai/config";
 import { related } from "@/lib/relate";
 import { normaliseText } from "@/lib/topics";
-import { evaluateSpec, specForTopic } from "@/lib/match-spec";
+import { topicMatches } from "@/lib/match-spec";
 import type { Database } from "@/lib/supabase/types";
 import { analyse } from "./analyse";
 import { loadReaders, match, type Reader } from "./match";
@@ -190,14 +190,15 @@ export function worthAnalysing(
   // finalize has not been analysed, so it has no tags yet. It is judged by the
   // topic's own specification, which for a topic that has never been given one
   // is the AND-over-terms rule stage 5 used to apply here -- see `match-spec.ts`.
-  const custom = reader.topics.filter((t) => t.kind === "custom" && t.terms.length > 0);
+  const custom = reader.topics.filter((t) => t.kind === "custom");
 
   const chosen: PendingEvent[] = [];
   for (const event of events) {
     if (chosen.length >= limit) break;
+    const headline = normaliseText(event.title);
     const named =
       wanted.some((term) => related(event.title, term)) ||
-      custom.some((t) => evaluateSpec(specForTopic(t), normaliseText(event.title)).matched);
+      custom.some((t) => topicMatches(t, headline));
     if (!named) continue;
     if (vetoes.some((term) => related(event.title, term))) continue;
     chosen.push(event);

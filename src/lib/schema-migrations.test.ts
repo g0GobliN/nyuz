@@ -27,11 +27,13 @@
  * The chain this was written for
  * ---------------------------------------------------------------------------
  *
- * `0096`–`0101` are the newest files here: discovery, then the material-revision
- * series. Applying them proves they run *after* the ninety-five that came
- * before, and the assertions below pin the specific columns and flags those two
- * workstreams depend on -- so a later edit that removes `discovery_jobs.method`
- * or `events.material_revision` fails here rather than in production.
+ * `0096`–`0102` are the newest files here: discovery, then the material-revision
+ * series and the coverage clock it re-enters on. Applying them proves they run
+ * *after* the ninety-five that came before, and the assertions below pin the
+ * specific columns and flags those workstreams depend on -- so a later edit that
+ * removes `discovery_jobs.method` or `events.material_revision` fails here rather
+ * than in production. The coverage clock is also *executed* (the last block):
+ * its correctness is a trigger side effect no fake can be trusted to model.
  *
  * ---------------------------------------------------------------------------
  * What a green run does not prove
@@ -263,7 +265,9 @@ describe("what the material-revision chain left behind (0097–0101)", () => {
 
   it("records which revision a reader was delivered, on both sides of the send", async () => {
     expect(await columnsOf("user_events")).toContain("delivered_revision");
-    expect(await columnsOf("user_events")).toContain("subject_significance");
+    // 0099 added `subject_significance` here; 0103 removed it, because nothing
+    // wrote or read it and its (reader, event) grain was not the model.
+    expect(await columnsOf("user_events")).not.toContain("subject_significance");
     expect(await columnsOf("digest_items")).toContain("delivered_revision");
   });
 
@@ -272,5 +276,284 @@ describe("what the material-revision chain left behind (0097–0101)", () => {
       expect.arrayContaining(["match_spec", "match_spec_source", "match_spec_updated_at"]),
     );
     expect(await flagEnabled("subject_significance_enabled")).toBe(false);
+  });
+});
+
+/**
+ * The re-entry clock, executed rather than described (0102).
+ *
+ * `revision-delivery.test.ts` drives the pipeline against a fake whose trigger
+ * emulation stamps `coverage_changed_at`; this is the other half of that bargain.
+ * It runs the real `finish_article_cluster`, the real attachment trigger and the
+ * real `finish_event_finalization` on PostgreSQL, so removing the trigger's write
+ * -- the production behaviour the lane depends on -- fails here and not only in a
+ * fake that could have been taught the wrong thing.
+ */
+describe("the coverage clock that drives re-entry (0102)", () => {
+  /** The lane's predicate, as `analyse.ts` spells it through PostgREST. */
+  const REENTRY_LANE = `
+    select id from public.events
+     where (metadata_dirty or status in ('pending', 'analysing'))
+       and first_seen_at < now() - interval '72 hours'
+       and coverage_changed_at >= now() - interval '14 days'
+     order by coverage_changed_at desc`;
+
+  async function oldEvent(daysOld: number): Promise<string> {
+    // As an event looks after its first finalization: complete, clean, and with
+    // every clock at its creation -- including the coverage clock, so the only
+    // thing that can move it below is the attachment.
+    const { rows } = await db.query<{ id: string }>(
+      `insert into public.events
+         (title, status, first_seen_at, last_updated_at, coverage_changed_at,
+          analysed_at, metadata_dirty, coverage_revision, material_fingerprint,
+          material_occurrence_at)
+       values ('Rust 2.0 announced', 'complete',
+               now() - make_interval(days => $1), now() - make_interval(days => $1),
+               now() - make_interval(days => $1), now() - make_interval(days => $1),
+               false, 1, 'v2|m=|n=|e=version:2.0', now() - make_interval(days => $1))
+       returning id`,
+      [daysOld],
+    );
+    return rows[0]!.id;
+  }
+
+  async function attachThroughCluster(eventId: string, url: string): Promise<void> {
+    const { rows } = await db.query<{ id: string }>(
+      `insert into public.articles (url, title, excerpt, published_at, content_hash)
+       values ($1, 'Rust 2.0 RC is out', 'The release candidate is ready.', now(), md5($1))
+       returning id`,
+      [url],
+    );
+    const articleId = rows[0]!.id;
+    const owner = "00000000-0000-4000-8000-000000000001";
+    const claimed = await db.query<{ ok: boolean }>(
+      "select public.claim_article_cluster($1, $2) as ok",
+      [articleId, owner],
+    );
+    expect(claimed.rows[0]?.ok).toBe(true);
+    const finished = await db.query<{ target: string }>(
+      "select public.finish_article_cluster($1, $2, $3, false) as target",
+      [articleId, owner, eventId],
+    );
+    expect(finished.rows[0]?.target).toBe(eventId);
+  }
+
+  async function eventRow(id: string) {
+    const { rows } = await db.query<{
+      metadata_dirty: boolean;
+      coverage_revision: number;
+      recent_coverage: boolean;
+      creation_unmoved: boolean;
+      material_revision: number;
+      discovered: boolean;
+    }>(
+      `select metadata_dirty, coverage_revision,
+              coverage_changed_at > now() - interval '1 minute' as recent_coverage,
+              last_updated_at < now() - interval '10 days' as creation_unmoved,
+              material_revision,
+              last_material_change_at is not null as discovered
+         from public.events where id = $1`,
+      [id],
+    );
+    return rows[0]!;
+  }
+
+  it("is a not-null column the re-entry index is built on", async () => {
+    expect(await columnsOf("events")).toContain("coverage_changed_at");
+    const { rows } = await db.query<{ indexname: string; indexdef: string }>(
+      `select indexname, indexdef from pg_indexes
+        where tablename = 'events' and indexname like 'events_%reentry%'`,
+    );
+    expect(rows.map((row) => row.indexname)).toEqual(["events_coverage_reentry_idx"]);
+    expect(rows[0]?.indexdef).toContain("coverage_changed_at DESC");
+  });
+
+  it.each([15, 30])(
+    "is stamped when an article attaches to a %i-day-old event, and nothing else moves",
+    async (days) => {
+      const eventId = await oldEvent(days);
+      const lane = async () => (await db.query<{ id: string }>(REENTRY_LANE)).rows.map((r) => r.id);
+      expect(await lane()).not.toContain(eventId);
+
+      await attachThroughCluster(eventId, `https://example.com/rust-rc-${days}`);
+
+      const after = await eventRow(eventId);
+      expect(after.metadata_dirty).toBe(true);
+      expect(after.coverage_revision).toBe(2);
+      expect(after.recent_coverage).toBe(true);
+      // `last_updated_at` keeps the meaning its readers depend on.
+      expect(after.creation_unmoved).toBe(true);
+      // Attachment is not a material change: no revision, no discovery clock.
+      expect(after.material_revision).toBe(0);
+      expect(after.discovered).toBe(false);
+      expect(await lane()).toContain(eventId);
+    },
+  );
+
+  it("lets finalization advance the revision without touching the coverage clock", async () => {
+    const eventId = await oldEvent(21);
+    await attachThroughCluster(eventId, "https://example.com/rust-rc-21");
+    const before = await db.query<{ at: string }>(
+      "select coverage_changed_at::text as at from public.events where id = $1",
+      [eventId],
+    );
+
+    const owner = "00000000-0000-4000-8000-000000000002";
+    await db.query("select public.claim_event_finalization($1, $2)", [eventId, owner]);
+    const saved = await db.query<{ ok: boolean }>(
+      `select public.finish_event_finalization($1, $2, 2,
+         '{"title":"Rust 2.0 RC","what_happened":"","importance":3,"novelty":2,"tags":[],"article_count":2,"publisher_count":1}'::jsonb,
+         '{}'::uuid[],
+         jsonb_build_object('fingerprint', 'v2r3|m=release_candidate|n=|e=version:2.0',
+                            'changed', true, 'occurrence_at', now()::text)) as ok`,
+      [eventId, owner],
+    );
+    expect(saved.rows[0]?.ok).toBe(true);
+
+    const after = await eventRow(eventId);
+    expect(after.material_revision).toBe(1);
+    expect(after.discovered).toBe(true);
+    expect(after.metadata_dirty).toBe(false);
+    const clock = await db.query<{ at: string }>(
+      "select coverage_changed_at::text as at from public.events where id = $1",
+      [eventId],
+    );
+    expect(clock.rows[0]?.at).toBe(before.rows[0]?.at);
+  });
+});
+
+/**
+ * P4 and revision-aware alerts, executed (0103).
+ *
+ * `claim_alert` is the authority on what may interrupt a reader, so the two
+ * rules it gained are asserted here against the real function: a sub-floor
+ * alert is claimable only for a subject-qualified hit *and* only while the flag
+ * is on, and a claim covers its revision and no later one.
+ */
+describe("the alert gate and the subject history (0103)", () => {
+  async function reader(): Promise<string> {
+    const { rows } = await db.query<{ id: string }>(
+      "insert into auth.users (email) values ($1) returning id",
+      [`reader-${crypto.randomUUID()}@example.com`],
+    );
+    const id = rows[0]!.id;
+    await db.query(
+      `insert into public.subscriptions (user_id, plan) values ($1, 'omni')
+       on conflict (user_id) do update set plan = 'omni'`,
+      [id],
+    );
+    return id;
+  }
+
+  async function event(title: string, status = "complete", daysAgo = 1): Promise<string> {
+    const { rows } = await db.query<{ id: string }>(
+      `insert into public.events (title, status, first_seen_at)
+       values ($1, $2::event_status, now() - make_interval(days => $3)) returning id`,
+      [title, status, daysAgo],
+    );
+    return rows[0]!.id;
+  }
+
+  async function setFlag(enabled: boolean): Promise<void> {
+    await db.query(
+      "update public.feature_flags set enabled = $1 where key = 'subject_significance_enabled'",
+      [enabled],
+    );
+  }
+
+  const claim = async (
+    user: string,
+    eventId: string,
+    importance: number,
+    revision: number,
+    qualified: boolean,
+  ) =>
+    (
+      await db.query<{ result: string }>(
+        "select public.claim_alert($1, $2, $3, $4, $5) as result",
+        [user, eventId, importance, revision, qualified],
+      )
+    ).rows[0]?.result;
+
+  it("admits a sub-floor alert only for a qualified hit while the flag is on", async () => {
+    const user = await reader();
+    const eventId = await event("Rust 2.0 RC");
+    await setFlag(false);
+    expect(await claim(user, eventId, 3, 0, true)).toBe("importance");
+    await setFlag(true);
+    expect(await claim(user, eventId, 3, 0, false)).toBe("importance");
+    expect(await claim(user, eventId, 3, 0, true)).toBe("ok");
+    await setFlag(false);
+  });
+
+  it("claims each revision once, and keeps the old signature's meaning", async () => {
+    const user = await reader();
+    const eventId = await event("Rust 2.0 RC");
+    expect(await claim(user, eventId, 8, 1, false)).toBe("ok");
+    expect(await claim(user, eventId, 8, 1, false)).toBe("duplicate");
+    expect(await claim(user, eventId, 8, 2, false)).toBe("ok");
+    // The three-argument form is revision 0, which an alerted revision covers.
+    const legacy = await db.query<{ result: string }>(
+      "select public.claim_alert($1, $2, 8) as result",
+      [user, eventId],
+    );
+    expect(legacy.rows[0]?.result).toBe("duplicate");
+  });
+
+  it("stamps the delivered revision on the alert item and the relationship", async () => {
+    const user = await reader();
+    const eventId = await event("Rust 2.0 released");
+    await db.query("insert into public.user_events (user_id, event_id) values ($1, $2)", [
+      user,
+      eventId,
+    ]);
+    const created = await db.query<{ result: string }>(
+      `select public.create_alert_delivery($1, $2, 8, now(), 'why', array['email']::delivery_channel[], 2, false) as result`,
+      [user, eventId],
+    );
+    expect(created.rows[0]?.result).toMatch(/^ok:/);
+    const item = await db.query<{ delivered_revision: number }>(
+      "select delivered_revision from public.digest_items where event_id = $1",
+      [eventId],
+    );
+    expect(item.rows.map((r) => r.delivered_revision)).toEqual([2]);
+    const pair = await db.query<{ delivered_revision: number; briefed: boolean }>(
+      "select delivered_revision, briefed_at is not null as briefed from public.user_events where user_id = $1 and event_id = $2",
+      [user, eventId],
+    );
+    expect(pair.rows[0]).toEqual({ delivered_revision: 2, briefed: true });
+  });
+
+  it("returns each subject's recent complete history, bounded per topic", async () => {
+    const { rows } = await db.query<{ id: string }>(
+      `insert into public.topics (slug, label, kind, terms) values ($1, 'Subject', 'custom', '{subject}') returning id`,
+      [`subject-${crypto.randomUUID().slice(0, 8)}`],
+    );
+    const topicId = rows[0]!.id;
+    const recent = [
+      await event("one", "complete", 1),
+      await event("two", "complete", 2),
+      await event("three", "complete", 3),
+    ];
+    const pending = await event("pending", "pending", 1);
+    const ancient = await event("ancient", "complete", 400);
+    for (const eventId of [...recent, pending, ancient]) {
+      await db.query("insert into public.event_topics (event_id, topic_id) values ($1, $2)", [
+        eventId,
+        topicId,
+      ]);
+    }
+
+    const history = await db.query<{ event_id: string }>(
+      "select event_id from public.subject_history(array[$1]::uuid[], now() - interval '90 days', 2)",
+      [topicId],
+    );
+    expect(history.rows.map((r) => r.event_id)).toEqual(recent.slice(0, 2));
+
+    const capped = await db.query<{ n: number }>(
+      "select count(*)::integer as n from public.subject_history(array[$1]::uuid[], now() - interval '90 days', 100000)",
+      [topicId],
+    );
+    expect(capped.rows[0]?.n).toBe(3);
   });
 });

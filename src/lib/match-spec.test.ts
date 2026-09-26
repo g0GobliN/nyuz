@@ -249,12 +249,16 @@ describe("promotion needs evidence from outside the term's own matches", () => {
     const promoted = promotionCandidates(spec, evidence(PROMOTION_MIN_MATCHES));
     expect(promoted.map((t) => t.text)).toEqual(["borrow checker"]);
     const next = promoteTerms(spec, promoted);
-    expect(next.require).toHaveLength(2);
+    // Promoted to an alternative name of the group it aliases -- an OR inside the
+    // one constraint -- never a new AND group. Appending it as its own group (the
+    // previous behaviour, which this test used to bless) narrowed the interest:
+    // every Rust story that did not mention the borrow checker stopped reaching
+    // the people following Rust.
+    expect(next.require).toEqual([[{ text: "rust" }, { text: "borrow checker" }]]);
     expect(next.optional).toEqual([]);
-    expect(evaluateSpec(next, normaliseText("The borrow checker got simpler")).matched).toBe(false);
-    expect(evaluateSpec(next, normaliseText("Rust borrow checker changes land")).matched).toBe(
-      true,
-    );
+    expect(evaluateSpec(next, normaliseText("Rust 1.90 ships a faster linker")).matched).toBe(true);
+    expect(evaluateSpec(next, normaliseText("The borrow checker got simpler")).matched).toBe(true);
+    expect(evaluateSpec(spec, normaliseText("The borrow checker got simpler")).matched).toBe(false);
   });
 
   it("promotes immediately when the reader engaged with the subject", () => {

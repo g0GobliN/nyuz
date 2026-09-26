@@ -18,6 +18,7 @@ import { MAX_TOPIC_LABEL } from "@/lib/topics";
 import { isSupportedTimezone } from "@/lib/timezones";
 import { backfill } from "@/lib/pipeline/backfill";
 import { queueDiscoverySafely } from "@/lib/discovery/coverage";
+import { newTopicRow } from "@/lib/match-spec-store";
 
 /**
  * The reader's own settings, on the server.
@@ -436,17 +437,13 @@ async function resolveTopics(actor: Actor, topics: KeptTopic[]): Promise<string[
       // subject at the same moment a no-op rather than an error, and it is the
       // reason the loser of that race still ends up on the winner's row: the
       // re-read below resolves whatever is actually there.
+      // `newTopicRow` is the creation half of the match-spec lifecycle: a
+      // predefined topic keeps an empty term list and no spec (it reaches events
+      // through `event_topics`), and a custom one is stored with the spec derived
+      // from its terms, source `derived` -- see `match-spec-store.ts`.
+      const now = new Date();
       await db.from("topics").upsert(
-        creatable.map((topic) => ({
-          slug: topic.slug,
-          label: topic.label,
-          kind: topic.predefined ? ("predefined" as const) : ("custom" as const),
-          // Predefined topics keep an empty term list: they reach events through
-          // `event_topics`, which the model writes, and giving them terms as
-          // well would widen the editorial list by a side effect.
-          terms: topic.predefined ? [] : topic.terms,
-          created_by: userId,
-        })),
+        creatable.map((topic) => newTopicRow(topic, userId, now)),
         { onConflict: "slug", ignoreDuplicates: true },
       );
 

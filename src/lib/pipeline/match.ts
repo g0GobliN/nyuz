@@ -59,13 +59,25 @@ import type {
   TopicKind,
 } from "@/lib/supabase/types";
 import { normaliseText } from "@/lib/topics";
-import { evaluateSpec, specForTopic, type MatchSpec } from "@/lib/match-spec";
+import {
+  evaluateSpec,
+  customTopicSignal,
+  specForTopic,
+  specStatus,
+  topicMatches,
+  topicVetoes,
+} from "@/lib/match-spec";
 import {
   briefingScore,
   historyFrom,
+  historyWithout,
   observationsFor,
+  readerNovelty,
   relevanceStrength,
+  significanceShadow,
   subjectSignificance,
+  type SignificanceRow,
+  type SignificanceShadow,
   type SubjectHistory,
   type SubjectObservations,
 } from "./subject-significance";
@@ -78,15 +90,18 @@ type Db = SupabaseClient<Database>;
 /**
  * Events considered per run, newest analysis first.
  *
- * Generous compared with the model stages, because this one is free: the ceiling
- * is PostgREST's 1000-row response cap and the size of the `in` filters that
- * follow, not money. 400 events is a few thousand articles' worth of coverage,
- * which is more than a day of real feeds produces.
+ * Generous compared with the model stages, because this one is free. Keep the
+ * page at PostgREST's default 1000-row cap; a smaller application limit can
+ * starve eligible events in a busy rolling window. Larger backlogs need a
+ * durable cursor rather than a larger request.
  */
-const CANDIDATES = 400;
+const CANDIDATES = 1_000;
 
 /** Ids per `in` filter. They travel in the URL, which has a limit around 16 KB. */
 const IN_CHUNK = 100;
+
+/** Keep every PostgREST page below the project default row cap. */
+const READ_PAGE_SIZE = 500;
 
 /** Rows per insert. The body is JSON, so this is about keeping one failure small. */
 const WRITE_CHUNK = 500;
@@ -150,6 +165,13 @@ export type MatchOptions = {
    * fails closed: an unreadable flag is the behaviour that shipped.
    */
   subjectSignificance?: boolean | undefined;
+  /**
+   * Measure the interest-conditional rule against the shipped one, over this
+   * run's candidates and readers, without letting it decide anything (P4
+   * shadow). The report then carries `significanceShadow`. Combine with
+   * `dryRun` for a read-only operator run -- `npm run shadow:significance`.
+   */
+  significanceShadow?: boolean | undefined;
   /** Passed through to alert sends. Absent on a dry run, required on Cloudflare. */
   email?: EmailEnv | undefined;
   telegram?: TelegramEnv | undefined;
@@ -165,7 +187,26 @@ export type MissReason =
   | "excluded";
 
 export type Verdict =
-  { matched: true; relevance: number; topics: string[] } | { matched: false; reason: MissReason };
+  | {
+      matched: true;
+      relevance: number;
+      topics: string[];
+      /**
+       * The interest-conditional signals over the topics that admitted the
+       * event, present only when a significance context was given. What the
+       * alert rule reads.
+       */
+      significance?: TopicSignals | undefined;
+    }
+  | { matched: false; reason: MissReason };
+
+/** The P4 signals for one event, over some set of one reader's topics. */
+export type TopicSignals = {
+  /** At least one of the topics matched the event firmly. */
+  relevanceStrong: boolean;
+  /** The subject score of the firmest such topic (the best overall if none). */
+  subject: number;
+};
 
 export type CandidateTopic = { id: string; slug: string; label: string };
 export type CandidateSource = { id: string; name: string };
@@ -218,11 +259,13 @@ export type ReaderTopic = {
   /** Deterministic match terms. ALL must be present. Empty for predefined. */
   terms: string[];
   /**
-   * The stored specification, or null when the topic has never been given one
-   * (0100). Null and an empty object both mean "derive from `terms`", which is
-   * exactly the behaviour this stage had before specifications existed.
+   * The stored specification as the row holds it (0100), read by
+   * `specForTopic`: null or `{}` derive from `terms` -- exactly the behaviour
+   * this stage had before specifications existed -- a valid spec is itself, and
+   * a malformed one selects nothing rather than falling back to something
+   * broader.
    */
-  spec: MatchSpec | null;
+  spec: unknown;
   importance: TopicImportance;
   weight: number;
   keywords: string[];
@@ -273,6 +316,14 @@ export type MatchReport = {
   reopened: number;
   /** Whether the interest-conditional admission rule was in force for this run. */
   subjectSignificance: boolean;
+  /**
+   * Where the subject baselines came from: the subjects' own history, or
+   * nowhere (the history read failed, so every subject score is 0 and the rule
+   * cannot lift anything), or not needed (neither the rule nor the shadow ran).
+   */
+  significanceHistory: "loaded" | "unavailable" | "not-needed";
+  /** The P4 shadow comparison, when `significanceShadow` was asked for. */
+  significanceShadow?: SignificanceShadow | undefined;
   /** Source→topic links this run observed. See `recordObservedCoverage`. */
   coverageLinks: number;
   outcomes: ReaderOutcome[];
@@ -334,6 +385,24 @@ function signalOf(candidate: Candidate): string {
   return signal;
 }
 
+const TOPIC_SIGNALS = new WeakMap<Candidate, Map<string, string>>();
+
+/**
+ * A custom topic cannot be evidence for itself. `event_topics` includes the
+ * topic's own slug and label in `Candidate.topics`; feeding those back into its
+ * evaluator would make a stale link satisfy a spec derived from that label.
+ */
+function signalForTopic(candidate: Candidate, topicId: string): string {
+  const cached = TOPIC_SIGNALS.get(candidate)?.get(topicId);
+  if (cached !== undefined) return cached;
+
+  const signal = customTopicSignal(candidate, topicId);
+  const byTopic = TOPIC_SIGNALS.get(candidate) ?? new Map<string, string>();
+  byTopic.set(topicId, signal);
+  TOPIC_SIGNALS.set(candidate, byTopic);
+  return signal;
+}
+
 /**
  * Whether one followed topic reaches this event.
  *
@@ -345,10 +414,28 @@ function selects(
   fields: string[],
   signal: string,
 ): boolean {
+  const topicSignal = topic.kind === "custom" ? signalForTopic(candidate, topic.topicId) : signal;
+
+  // A custom topic's own exclusions come first and veto every route below,
+  // including the exact join: an `event_topics` link written by an earlier
+  // finalization, before the topic gained an exclusion, must not be a way
+  // around it. Predefined topics carry no spec, so this is a no-op for them.
+  if (topic.kind === "custom" && topicVetoes(topic, topicSignal)) return false;
+
+  // A custom topic whose stored spec cannot be read selects nothing, on every
+  // route -- the fail-closed reading `specForTopic` gives the spec route, held
+  // here for the join and the keywords too.
+  if (topic.kind === "custom" && specStatus(topic) === "malformed") return false;
+
   // The exact join the plan asks for. `event_topics` against `user_topics`, on
   // the id — no text comparison can be looser or wrong, and it is what analysis
   // was constrained to write.
-  if (candidate.topics.some((t) => t.id === topic.topicId)) return true;
+  // Predefined topics are editorially assigned and their ids remain
+  // authoritative. A custom topic's link records the spec that was in force
+  // when it was finalized, though; after an operator edits that spec, the link
+  // cannot bypass its current require groups. Re-evaluate custom topics below
+  // with the same signal and evaluator as classification.
+  if (topic.kind !== "custom" && candidate.topics.some((t) => t.id === topic.topicId)) return true;
 
   // Free text the reader added to a topic. This is the only channel where
   // spelling matters, so it is the channel `related` exists for.
@@ -360,7 +447,7 @@ function selects(
   // London derby while "India vs China" still needs both countries. A topic with
   // no stored spec derives one from its terms, which is the previous AND-over-all
   // behaviour exactly -- see `match-spec.ts`.
-  return topic.kind === "custom" && evaluateSpec(specForTopic(topic), signal).matched;
+  return topic.kind === "custom" && topicMatches(topic, topicSignal);
 }
 
 /**
@@ -397,15 +484,24 @@ export function decide(
 
   const dial = thresholdFor(reader.density);
   // Two ways to clear a topic's floor, and which one is in force is the feature
-  // flag: the shared importance alone (shipped behaviour), or the larger of that
-  // and the subject-relative term (`subject-significance.ts`). The second is
-  // per-topic on purpose -- a subject-significant development reaches the
-  // readers of that subject and nobody else.
-  const admitting = selected.filter((t) =>
-    context
-      ? admissionScore(candidate, t, fields, signal, context) >= floorFor(t.importance, dial)
-      : candidate.importance >= floorFor(t.importance, dial),
-  );
+  // flag: the shared importance alone (shipped behaviour, no context), or the
+  // larger of that and the subject-relative term (`subject-significance.ts`).
+  // The second is per-topic on purpose -- a subject-significant development
+  // reaches the readers of that subject and nobody else.
+  const signalsOf = context
+    ? new Map(
+        selected.map(
+          (t) => [t.topicId, topicSignals(candidate, t, fields, signal, context)] as const,
+        ),
+      )
+    : null;
+  const admitting = selected.filter((t) => {
+    const signals = signalsOf?.get(t.topicId);
+    const score = signals
+      ? briefingScore({ importance: candidate.importance, ...signals, novelty: candidate.novelty })
+      : candidate.importance;
+    return score >= floorFor(t.importance, dial);
+  });
   if (admitting.length === 0) return { matched: false, reason: "below-threshold" };
 
   // Muting a source is not excluding a story. Three outlets covered it and the
@@ -430,6 +526,60 @@ export function decide(
     matched: true,
     relevance: relevanceOf(candidate, admitting, reader),
     topics: admitting.map((t) => t.label),
+    ...(signalsOf
+      ? {
+          significance: strongest(
+            admitting.flatMap((t) => {
+              const signals = signalsOf.get(t.topicId);
+              return signals ? [signals] : [];
+            }),
+          ),
+        }
+      : {}),
+  };
+}
+
+/**
+ * The P4 signals over every topic that *selected* the event for this reader,
+ * whether or not it cleared the floor -- or null if no topic selected it.
+ *
+ * The shadow's view: it asks what the rule would do for a (reader, event) pair
+ * the shipped rule already considered, so selection is the same on both sides
+ * and only the floor comparison differs.
+ */
+export function shadowSignals(
+  candidate: Candidate,
+  reader: Reader,
+  context: SignificanceContext,
+): TopicSignals | null {
+  const fields = haystack(candidate);
+  const signal = signalOf(candidate);
+  const selected = reader.topics.filter((topic) => selects(topic, candidate, fields, signal));
+  if (selected.length === 0) return null;
+  return strongest(selected.map((t) => topicSignals(candidate, t, fields, signal, context)));
+}
+
+/** One topic's signals for one event. */
+function topicSignals(
+  candidate: Candidate,
+  topic: ReaderTopic,
+  fields: string[],
+  signal: string,
+  context: SignificanceContext,
+): TopicSignals {
+  return {
+    relevanceStrong: selectionIsStrong(topic, candidate, fields, signal),
+    subject: context.significant(candidate.eventId, topic.topicId),
+  };
+}
+
+/** The firmest of several topics' signals: strong ones first, then the higher score. */
+function strongest(signals: readonly TopicSignals[]): TopicSignals {
+  const strong = signals.filter((s) => s.relevanceStrong);
+  const pool = strong.length > 0 ? strong : signals;
+  return {
+    relevanceStrong: strong.length > 0,
+    subject: pool.reduce((best, s) => Math.max(best, s.subject), 0),
   };
 }
 
@@ -455,29 +605,6 @@ function selectionIsStrong(
   const match = evaluateSpec(spec, signal);
   if (!match.matched) return false;
   return relevanceStrength(spec, match).strong;
-}
-
-/**
- * The importance one topic compares against its floor.
- *
- * Never below `importance`: the subject-relative term can lift a story into a
- * reader's briefing and can never push one out of it. Without a context (the
- * flag off, or a caller that only wants the shared rule) this is exactly the
- * shipped behaviour.
- */
-function admissionScore(
-  candidate: Candidate,
-  topic: ReaderTopic,
-  fields: string[],
-  signal: string,
-  context: SignificanceContext,
-): number {
-  return briefingScore({
-    importance: candidate.importance,
-    relevanceStrong: selectionIsStrong(topic, candidate, fields, signal),
-    subject: context.significant(candidate.eventId, topic.topicId),
-    novelty: candidate.novelty,
-  });
 }
 
 /**
@@ -522,33 +649,49 @@ function relevanceOf(candidate: Candidate, admitting: ReaderTopic[], reader: Rea
  */
 export async function match(db: Db, options: MatchOptions = {}): Promise<MatchReport> {
   const startedAt = (options.now ?? new Date()).toISOString();
+  const now = options.now ?? new Date();
 
-  const readers = await loadReaders(db, options);
-  const candidates = await loadCandidates(db, options);
+  // The topic table is read once per run and shared: readers, candidates and
+  // the significance baselines all resolve topics from this one map.
+  const topics = await topicIndex(db);
+  const readers = await loadReaders(db, options, topics);
+  const candidates = await loadCandidates(db, options, topics);
 
   // Interest-conditional admission, if it is on. The flag is read once per run
   // and fails closed; the baselines are built once per run and shared by every
-  // reader that follows the same subject.
+  // reader that follows the same subject. The shadow builds the same context
+  // but never lets it decide anything.
   const subjectSignificance = options.subjectSignificance ?? (await subjectSignificanceEnabled(db));
-  const context = subjectSignificance
-    ? buildSignificanceContext(
-        candidates,
-        await topicIndex(db),
-        new Set(readers.readers.flatMap((reader) => reader.topics.map((t) => t.topicId))),
-      )
-    : null;
+  const wantShadow = options.significanceShadow === true;
+  const built =
+    subjectSignificance || wantShadow
+      ? await significanceContextFor(db, candidates, readers.readers, now)
+      : null;
+  const context = built?.context ?? null;
+  const decisionContext = subjectSignificance ? context : null;
 
   const outcomes: ReaderOutcome[] = [];
+  const shadowRows: SignificanceRow[] = [];
   let inserted = 0;
   let matched = 0;
   let reopened = 0;
 
   for (const reader of readers.readers) {
-    const outcome = await matchReader(db, reader, candidates, options, context);
+    const outcome = await matchReader(
+      db,
+      reader,
+      candidates,
+      options,
+      decisionContext,
+      subjectSignificance,
+    );
     outcomes.push(outcome);
     inserted += outcome.inserted;
     matched += outcome.matched;
     reopened += outcome.reopened;
+    if (wantShadow && context) {
+      shadowRows.push(...(await significanceShadowRows(db, reader, candidates, context)));
+    }
   }
 
   const coverageLinks = options.dryRun
@@ -565,9 +708,48 @@ export async function match(db: Db, options: MatchOptions = {}): Promise<MatchRe
     inserted,
     reopened,
     subjectSignificance,
+    significanceHistory: built ? (built.historyLoaded ? "loaded" : "unavailable") : "not-needed",
+    ...(wantShadow ? { significanceShadow: significanceShadow(shadowRows) } : {}),
     coverageLinks,
     outcomes,
   };
+}
+
+/**
+ * One shadow row per (reader, event) the shipped rule considered: the event was
+ * selected by one of the reader's topics, and either admitted or held below the
+ * floor. Selection is identical under both rules, so every row is a pair on
+ * which only the rule under test can disagree.
+ */
+async function significanceShadowRows(
+  db: Db,
+  reader: Reader,
+  candidates: Candidate[],
+  context: SignificanceContext,
+): Promise<SignificanceRow[]> {
+  const considered: { candidate: Candidate; signals: TopicSignals }[] = [];
+  for (const candidate of candidates) {
+    const shipped = decide(candidate, reader);
+    if (!shipped.matched && shipped.reason !== "below-threshold") continue;
+    const signals = shadowSignals(candidate, reader, context);
+    if (signals) considered.push({ candidate, signals });
+  }
+  if (considered.length === 0) return [];
+
+  const prior = await existingPairs(
+    db,
+    reader.userId,
+    considered.map(({ candidate }) => candidate.eventId),
+  );
+  return considered.map(({ candidate, signals }) => ({
+    eventId: candidate.eventId,
+    importance: candidate.importance,
+    novelty: candidate.novelty,
+    relevanceStrong: signals.relevanceStrong,
+    subject: signals.subject,
+    deliveredRevision: prior.get(candidate.eventId)?.delivered_revision ?? null,
+    currentRevision: candidate.materialRevision,
+  }));
 }
 
 /**
@@ -639,14 +821,13 @@ async function recordObservedCoverage(
 
   for (const candidate of candidates) {
     if (candidate.sources.length === 0) continue;
-    const signal = signalOf(candidate);
 
     for (const topic of custom.values()) {
       // The same evaluator the reader join uses, so a subject recorded as
       // covered and a subject that matched a reader cannot disagree about what
       // the subject means. `specForTopic` falls back to the derived spec, which
       // is the AND-over-terms behaviour this line used to have.
-      if (!evaluateSpec(specForTopic(topic), signal).matched) continue;
+      if (!topicMatches(topic, signalForTopic(candidate, topic.topicId))) continue;
       for (const source of candidate.sources) {
         const key = `${source.id}:${topic.topicId}`;
         if (seen.has(key)) continue;
@@ -686,6 +867,7 @@ async function matchReader(
   candidates: Candidate[],
   options: MatchOptions,
   context: SignificanceContext | null,
+  subjectSignificance: boolean,
 ): Promise<ReaderOutcome> {
   const misses: Record<MissReason, number> = {
     "no-topics": 0,
@@ -695,11 +877,17 @@ async function matchReader(
     excluded: 0,
   };
 
-  const hits: { eventId: string; relevance: number }[] = [];
+  const hits: { eventId: string; relevance: number; significance?: TopicSignals | undefined }[] =
+    [];
 
   for (const candidate of candidates) {
     const verdict = decide(candidate, reader, context ?? undefined);
-    if (verdict.matched) hits.push({ eventId: candidate.eventId, relevance: verdict.relevance });
+    if (verdict.matched)
+      hits.push({
+        eventId: candidate.eventId,
+        relevance: verdict.relevance,
+        significance: verdict.significance,
+      });
     else misses[verdict.reason] += 1;
   }
 
@@ -761,15 +949,34 @@ async function matchReader(
     }
 
     if (!options.skipAlerts) {
-      const importanceOf = new Map(candidates.map((c) => [c.eventId, c.importance] as const));
-      const eventAtOf = new Map(candidates.map((c) => [c.eventId, c.firstSeenAt] as const));
+      const candidateOf = new Map(candidates.map((c) => [c.eventId, c] as const));
       await fireAlerts(db, {
         userId: reader.userId,
-        hits: fresh.map((h) => ({
-          eventId: h.eventId,
-          importance: importanceOf.get(h.eventId) ?? 0,
-          eventAt: eventAtOf.get(h.eventId) ?? null,
-        })),
+        // Every hit carries its revision, so alert suppression is revision-aware
+        // (a revision this reader was alerted to stays suppressed; a newer one is
+        // reconsidered), and its occurrence clock once the event has materially
+        // moved -- the development's time, never the discovery time.
+        hits: fresh.map((h) => {
+          const candidate = candidateOf.get(h.eventId);
+          const revision = candidate?.materialRevision ?? 0;
+          return {
+            eventId: h.eventId,
+            importance: candidate?.importance ?? 0,
+            eventAt: candidate
+              ? revision > 0
+                ? (candidate.materialOccurrenceAt ?? candidate.firstSeenAt)
+                : candidate.firstSeenAt
+              : null,
+            revision,
+            // A fresh pair has never been delivered, so reader novelty is 1 --
+            // computed, not assumed, so it stays revision-relative if this path
+            // ever carries reopened pairs.
+            ...(h.significance
+              ? { significance: { ...h.significance, novelty: readerNovelty(null, revision) } }
+              : {}),
+          };
+        }),
+        subjectSignificance,
         ...(options.now ? { now: options.now } : {}),
         ...(options.email ? { email: options.email } : {}),
         ...(options.telegram ? { telegram: options.telegram } : {}),
@@ -854,53 +1061,124 @@ function groupByUser<T extends { user_id: string }>(rows: T[]): Map<string, T[]>
   return out;
 }
 
+type PageResponse<T> = {
+  data: T[] | null;
+  error: { message: string } | null;
+};
+
+async function readPages<T>(
+  fetchPage: (from: number, to: number) => PromiseLike<PageResponse<T>>,
+  what: string,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += READ_PAGE_SIZE) {
+    const { data, error } = await fetchPage(offset, offset + READ_PAGE_SIZE - 1);
+    if (error) throw new Error(`${what}: ${error.message}`);
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < READ_PAGE_SIZE) return rows;
+  }
+}
+
+async function readUserPages<T>(
+  userIds: string[],
+  fetchPage: (ids: string[], from: number, to: number) => PromiseLike<PageResponse<T>>,
+  what: string,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (const ids of chunked(userIds, IN_CHUNK)) {
+    rows.push(...(await readPages((from, to) => fetchPage(ids, from, to), what)));
+  }
+  return rows;
+}
+
 export async function loadReaders(
   db: Db,
   options: MatchOptions,
+  topicMap?: Map<string, IndexedTopic>,
 ): Promise<{ readers: Reader[]; paused: number }> {
-  let query = db.from("notification_preferences").select("user_id, density, paused");
-  if (options.userIds) query = query.in("user_id", options.userIds);
-
-  const { data: prefs, error } = await query;
-  if (error) throw new Error(`reading notification_preferences: ${error.message}`);
-
-  const rows = prefs ?? [];
+  const rows = options.userIds
+    ? await readUserPages(
+        options.userIds,
+        (ids, from, to) =>
+          db
+            .from("notification_preferences")
+            .select("user_id, density, paused")
+            .in("user_id", ids)
+            .order("user_id")
+            .range(from, to),
+        "reading notification_preferences",
+      )
+    : await readPages(
+        (from, to) =>
+          db
+            .from("notification_preferences")
+            .select("user_id, density, paused")
+            .order("user_id")
+            .range(from, to),
+        "reading notification_preferences",
+      );
   const wanted = options.includePaused ? rows : rows.filter((r) => !r.paused);
   const paused = rows.length - wanted.length;
   if (wanted.length === 0) return { readers: [], paused };
 
   const userIds = wanted.map((r) => r.user_id);
-  const topics = await topicIndex(db);
+  const topics = topicMap ?? (await topicIndex(db));
 
-  const { data: followed, error: followError } = await db
-    .from("user_topics")
-    .select("user_id, topic_id, importance, weight, keywords, exclude_keywords, muted, created_at")
-    .in("user_id", userIds)
-    // A muted topic is a topic the reader switched off. It selects nothing, and
-    // its exclude_keywords veto nothing either, because it is not in play.
-    .eq("muted", false);
-  if (followError) throw new Error(`reading user_topics: ${followError.message}`);
-
-  const { data: exclusions, error: exclusionError } = await db
-    .from("user_exclusions")
-    .select("user_id, term")
-    .in("user_id", userIds);
-  if (exclusionError) throw new Error(`reading user_exclusions: ${exclusionError.message}`);
-
-  const { data: sourcePrefs, error: sourceError } = await db
-    .from("user_source_prefs")
-    .select("user_id, source_id, pref, created_at")
-    .in("user_id", userIds);
-  if (sourceError) throw new Error(`reading user_source_prefs: ${sourceError.message}`);
-
-  const { data: subs, error: subError } = await db
-    .from("subscriptions")
-    .select("user_id, plan")
-    .in("user_id", userIds);
-  if (subError) throw new Error(`reading subscriptions: ${subError.message}`);
-  const planOf = new Map<string, PlanTier>(
-    (subs ?? []).map((row) => [row.user_id, row.plan] as const),
-  );
+  const [followed, exclusions, sourcePrefs, subs] = await Promise.all([
+    readUserPages(
+      userIds,
+      (ids, from, to) =>
+        db
+          .from("user_topics")
+          .select(
+            "user_id, topic_id, importance, weight, keywords, exclude_keywords, muted, created_at",
+          )
+          .in("user_id", ids)
+          // A muted topic is a reader's explicit opt-out.
+          .eq("muted", false)
+          .order("user_id")
+          .order("topic_id")
+          .range(from, to),
+      "reading user_topics",
+    ),
+    readUserPages(
+      userIds,
+      (ids, from, to) =>
+        db
+          .from("user_exclusions")
+          .select("user_id, term")
+          .in("user_id", ids)
+          .order("user_id")
+          .order("term")
+          .range(from, to),
+      "reading user_exclusions",
+    ),
+    readUserPages(
+      userIds,
+      (ids, from, to) =>
+        db
+          .from("user_source_prefs")
+          .select("user_id, source_id, pref, created_at")
+          .in("user_id", ids)
+          .order("user_id")
+          .order("source_id")
+          .range(from, to),
+      "reading user_source_prefs",
+    ),
+    readUserPages(
+      userIds,
+      (ids, from, to) =>
+        db
+          .from("subscriptions")
+          .select("user_id, plan")
+          .in("user_id", ids)
+          .order("user_id")
+          .range(from, to),
+      "reading subscriptions",
+    ),
+  ]);
+  const planOf = new Map<string, PlanTier>(subs.map((row) => [row.user_id, row.plan] as const));
 
   // Indexed once rather than filtered per reader. These two used to be
   // `.filter(r => r.user_id === row.user_id)` inside the map below, which is
@@ -911,6 +1189,7 @@ export async function loadReaders(
   // ten thousand.
   const followedBy = groupByUser(followed ?? []);
   const sourcePrefsBy = groupByUser(sourcePrefs ?? []);
+  const exclusionsBy = groupByUser(exclusions ?? []);
 
   const readers = wanted.map((row) => {
     const plan = planOf.get(row.user_id) ?? "uno";
@@ -966,9 +1245,8 @@ export async function loadReaders(
           },
         ];
       }),
-      exclusions: keepUsableExclusions(
-        (exclusions ?? []).filter((e) => e.user_id === row.user_id).map((e) => e.term),
-      ).kept,
+      exclusions: keepUsableExclusions((exclusionsBy.get(row.user_id) ?? []).map((e) => e.term))
+        .kept,
       sourcePrefs: new Map(effectiveSourcePrefs),
     };
   });
@@ -981,28 +1259,28 @@ type IndexedTopic = {
   label: string;
   kind: TopicKind;
   terms: string[];
-  spec: MatchSpec | null;
+  /** The stored `match_spec`, unparsed: `specForTopic` decides what it means. */
+  spec: unknown;
 };
 
 async function topicIndex(db: Db): Promise<Map<string, IndexedTopic>> {
-  const { data, error } = await db
-    .from("topics")
-    .select("id, slug, label, kind, terms, match_spec");
-  if (error) throw new Error(`reading topics: ${error.message}`);
+  const data = await readPages(
+    (from, to) =>
+      db
+        .from("topics")
+        .select("id, slug, label, kind, terms, match_spec")
+        .order("id")
+        .range(from, to),
+    "reading topics",
+  );
   return new Map(
-    (data ?? []).map((t) => {
-      const stored = (t as { match_spec?: unknown }).match_spec;
-      return [
-        t.id,
-        {
-          slug: t.slug,
-          label: t.label,
-          kind: t.kind,
-          terms: t.terms,
-          spec: stored && typeof stored === "object" ? (stored as MatchSpec) : null,
-        },
-      ] as const;
-    }),
+    data.map(
+      (t) =>
+        [
+          t.id,
+          { slug: t.slug, label: t.label, kind: t.kind, terms: t.terms, spec: t.match_spec },
+        ] as const,
+    ),
   );
 }
 
@@ -1011,36 +1289,104 @@ async function topicIndex(db: Db): Promise<Map<string, IndexedTopic>> {
  *
  * The whole cost argument for this product is that shared work happens once, so
  * subject significance is not per reader: one observation set per event, one
- * history per followed topic, and a memo per (event, topic) pair. A thousand
+ * history per relevant topic, and a memo per (event, topic) pair. A thousand
  * readers following Rust pay for this once.
  *
- * The history is built from the events this run can see, which is the honest
- * limit of what the stage knows: it is the subject's recent coverage rather than
- * its whole archive. A database-backed baseline (the topic's events over the
- * last N days) is the next step if the shadow says the signal is too thin; it
- * costs one bounded query, and it is deliberately not taken until there is
- * evidence that the cheaper baseline is insufficient.
+ * The baseline is the subject's **own history**, read from the database
+ * (`subject_history`, 0103): each relevant topic's most recent complete events
+ * over `SUBJECT_HISTORY_DAYS`, at most `SUBJECT_HISTORY_PER_TOPIC` of them,
+ * plus whatever this run's candidates the topic selects. The first version used
+ * only the current candidate page, so a topic with fewer than
+ * `MIN_BASELINE_EVENTS` events in one run scored zero and the baseline moved
+ * every run.
+ *
+ * An event is never part of its own baseline (`historyWithout`): a marker that
+ * only it carries must read as a first occurrence, not as "seen once".
  */
 export type SignificanceContext = {
   observations: Map<string, SubjectObservations>;
   history: Map<string, SubjectHistory>;
+  /** The event ids each topic's history was built from. */
+  members: Map<string, Set<string>>;
   /** The subject score for one (event, topic) pair, computed at most once. */
   significant: (eventId: string, topicId: string) => number;
+};
+
+/** How far back a subject's own history reaches. */
+export const SUBJECT_HISTORY_DAYS = 90;
+
+/** Events per subject in the baseline: enough for a percentile, bounded per topic. */
+export const SUBJECT_HISTORY_PER_TOPIC = 60;
+
+/** Topics per `subject_history` call. */
+const HISTORY_TOPIC_CHUNK = 100;
+
+/** One row of `subject_history`. */
+export type SubjectHistoryRow = {
+  topic_id: string;
+  event_id: string;
+  title: string;
+  what_happened: string;
+  topic_kind?: string;
+  tags?: string[];
+  other_topics?: unknown;
+  source_names?: string[];
 };
 
 const EMPTY_HISTORY: SubjectHistory = { markerCounts: new Map(), magnitudes: [], events: 0 };
 
 /**
- * Build the baselines for one run.
+ * Which followed topics could be asked for a subject score this run, and which
+ * of this run's candidates each one selects.
  *
- * Only topics somebody follows are indexed: an event's subject score is only
- * ever asked for a topic that selected it for a reader, so computing baselines
- * for the rest of the catalog would be work nothing reads.
+ * Scoped, and that is the point: a topic enters only if somebody follows it and
+ * it selects at least one candidate -- by the editorial join, or, for a custom
+ * topic, by its own spec. The spec is evaluated for followed custom topics only,
+ * so the cost is candidates x followed custom topics, never candidates x the
+ * whole catalogue. (A topic reached only through a reader's private keyword has
+ * no entry and scores 0: that route is the reader's, not the subject's.)
+ */
+export function relevantTopics(
+  candidates: readonly Candidate[],
+  readers: readonly Reader[],
+): Map<string, Set<string>> {
+  const followed = new Map<string, ReaderTopic>();
+  for (const reader of readers) for (const t of reader.topics) followed.set(t.topicId, t);
+  const custom = [...followed.values()].filter((t) => t.kind === "custom");
+
+  const selections = new Map<string, Set<string>>();
+  const add = (topicId: string, eventId: string) => {
+    const set = selections.get(topicId) ?? new Set<string>();
+    set.add(eventId);
+    selections.set(topicId, set);
+  };
+
+  for (const candidate of candidates) {
+    for (const linked of candidate.topics) {
+      const topic = followed.get(linked.id);
+      if (
+        topic &&
+        (topic.kind !== "custom" || topicMatches(topic, signalForTopic(candidate, topic.topicId)))
+      )
+        add(topic.topicId, candidate.eventId);
+    }
+    if (custom.length === 0) continue;
+    for (const topic of custom) {
+      if (topicMatches(topic, signalForTopic(candidate, topic.topicId)))
+        add(topic.topicId, candidate.eventId);
+    }
+  }
+  return selections;
+}
+
+/**
+ * The baselines for one run, from this run's selections and the subjects' own
+ * history. Pure, so the rule is testable without a database.
  */
 export function buildSignificanceContext(
-  candidates: Candidate[],
-  topics: Map<string, IndexedTopic>,
-  followedTopicIds: ReadonlySet<string>,
+  candidates: readonly Candidate[],
+  selections: ReadonlyMap<string, ReadonlySet<string>>,
+  historyRows: readonly SubjectHistoryRow[],
 ): SignificanceContext {
   const observations = new Map<string, SubjectObservations>();
   for (const candidate of candidates) {
@@ -1049,53 +1395,125 @@ export function buildSignificanceContext(
       observationsFor(`${candidate.title}\n${candidate.whatHappened}`),
     );
   }
-
-  const byTopic = new Map<string, SubjectObservations[]>();
-  const push = (topicId: string, observation: SubjectObservations) => {
-    if (!followedTopicIds.has(topicId)) return;
-    const bucket = byTopic.get(topicId);
-    if (bucket) bucket.push(observation);
-    else byTopic.set(topicId, [observation]);
-  };
-
-  for (const candidate of candidates) {
-    const observation = observations.get(candidate.eventId);
-    if (!observation) continue;
-
-    // The editorial join: `event_topics` is the analysis pass's own answer about
-    // what this event is about, so it is a legitimate observation of the topic.
-    for (const topic of candidate.topics) push(topic.id, observation);
-
-    // Reader-created subjects, which have no `event_topics` row: an event whose
-    // signal satisfies the interest is an observation of that interest. Evaluated
-    // once per run rather than once per reader -- the same work the reader loop
-    // would otherwise repeat for every one of them.
-    const signal = signalOf(candidate);
-    for (const [id, topic] of topics) {
-      if (topic.kind !== "custom" || !followedTopicIds.has(id)) continue;
-      if (!evaluateSpec(specForTopic(topic), signal).matched) continue;
-      push(id, observation);
+  for (const row of historyRows) {
+    if (!observations.has(row.event_id)) {
+      observations.set(row.event_id, observationsFor(`${row.title}\n${row.what_happened}`));
     }
   }
 
+  const members = new Map<string, Set<string>>();
+  for (const [topicId, eventIds] of selections) members.set(topicId, new Set(eventIds));
+  for (const row of historyRows) {
+    const set = members.get(row.topic_id) ?? new Set<string>();
+    set.add(row.event_id);
+    members.set(row.topic_id, set);
+  }
+
   const history = new Map<string, SubjectHistory>();
-  for (const [topicId, seen] of byTopic) history.set(topicId, historyFrom(seen));
+  for (const [topicId, eventIds] of members) {
+    const seen = [...eventIds].flatMap((id) => {
+      const observation = observations.get(id);
+      return observation ? [observation] : [];
+    });
+    history.set(topicId, historyFrom(seen));
+  }
 
   const memo = new Map<string, number>();
   return {
     observations,
     history,
+    members,
     significant: (eventId, topicId) => {
       const key = `${eventId}:${topicId}`;
       const cached = memo.get(key);
       if (cached !== undefined) return cached;
       const observation = observations.get(eventId);
-      const score = observation
-        ? subjectSignificance(observation, history.get(topicId) ?? EMPTY_HISTORY).score
-        : 0;
+      let score = 0;
+      if (observation) {
+        const full = history.get(topicId) ?? EMPTY_HISTORY;
+        const own = members.get(topicId)?.has(eventId) === true;
+        score = subjectSignificance(
+          observation,
+          own ? historyWithout(full, observation) : full,
+        ).score;
+      }
       memo.set(key, score);
       return score;
     },
+  };
+}
+
+/**
+ * The subjects' own history, for the topics that can be asked about this run.
+ *
+ * One bounded RPC per hundred topics. A failed read is not a failed match: the
+ * context is built with no history, every subject score is then 0, and the rule
+ * can lift nothing -- exactly the shipped behaviour -- while the report says the
+ * history was unavailable.
+ */
+async function significanceContextFor(
+  db: Db,
+  candidates: Candidate[],
+  readers: Reader[],
+  now: Date,
+): Promise<{ context: SignificanceContext; historyLoaded: boolean }> {
+  const selections = relevantTopics(candidates, readers);
+  const topicIds = [...selections.keys()];
+  const since = new Date(now.getTime() - SUBJECT_HISTORY_DAYS * 24 * 3_600_000).toISOString();
+
+  const rows: SubjectHistoryRow[] = [];
+  let historyLoaded = true;
+  for (const chunk of chunked(topicIds, HISTORY_TOPIC_CHUNK)) {
+    const { data, error } = await db.rpc("subject_history", {
+      p_topic_ids: chunk,
+      p_since: since,
+      p_per_topic: SUBJECT_HISTORY_PER_TOPIC,
+    });
+    if (error) {
+      console.warn(`match: reading subject history failed: ${error.message}`);
+      historyLoaded = false;
+      rows.length = 0;
+      break;
+    }
+    rows.push(...((data ?? []) as SubjectHistoryRow[]));
+  }
+
+  const topicById = new Map<string, ReaderTopic>();
+  for (const reader of readers) {
+    for (const topic of reader.topics) topicById.set(topic.topicId, topic);
+  }
+  const currentRows = rows.filter((row) => {
+    const topic = topicById.get(row.topic_id);
+    if (!topic || topic.kind !== "custom") return true;
+    const otherTopics = Array.isArray(row.other_topics)
+      ? row.other_topics.flatMap((value) => {
+          if (value === null || typeof value !== "object" || Array.isArray(value)) return [];
+          const item = value as { id?: unknown; slug?: unknown; label?: unknown };
+          return typeof item.id === "string" &&
+            typeof item.slug === "string" &&
+            typeof item.label === "string"
+            ? [{ id: item.id, slug: item.slug, label: item.label }]
+            : [];
+        })
+      : [];
+    const signal = customTopicSignal(
+      {
+        title: row.title,
+        whatHappened: row.what_happened,
+        tags: row.tags ?? [],
+        topics: otherTopics,
+        sources: (row.source_names ?? []).map((name) => ({ name })),
+      },
+      topic.topicId,
+    );
+    return topicMatches(topic, signal);
+  });
+
+  return {
+    context: historyLoaded
+      ? buildSignificanceContext(candidates, selections, currentRows)
+      : buildSignificanceContext(candidates, new Map(), []),
+    historyLoaded,
   };
 }
 
@@ -1138,7 +1556,11 @@ function effectiveAt(event: CandidateEventRow): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function loadCandidates(db: Db, options: MatchOptions): Promise<Candidate[]> {
+async function loadCandidates(
+  db: Db,
+  options: MatchOptions,
+  topics: Map<string, IndexedTopic>,
+): Promise<Candidate[]> {
   const now = options.now ?? new Date();
   const limit = options.limit ?? CANDIDATES;
 
@@ -1215,7 +1637,6 @@ async function loadCandidates(db: Db, options: MatchOptions): Promise<Candidate[
   if (events.length === 0) return [];
 
   const eventIds = events.map((e) => e.id);
-  const topics = await topicIndex(db);
   const sources = await sourceIndex(db);
 
   const eventTopics = new Map<string, CandidateTopic[]>();
@@ -1276,9 +1697,11 @@ async function loadCandidates(db: Db, options: MatchOptions): Promise<Candidate[
 }
 
 async function sourceIndex(db: Db): Promise<Map<string, string>> {
-  const { data, error } = await db.from("sources").select("id, name");
-  if (error) throw new Error(`reading sources: ${error.message}`);
-  return new Map((data ?? []).map((s) => [s.id, s.name] as const));
+  const data = await readPages(
+    (from, to) => db.from("sources").select("id, name").order("id").range(from, to),
+    "reading sources",
+  );
+  return new Map(data.map((s) => [s.id, s.name] as const));
 }
 
 function chunked<T>(items: T[], size: number): T[][] {

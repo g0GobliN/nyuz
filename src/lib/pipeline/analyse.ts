@@ -7,49 +7,60 @@ import { assignTags } from "./topic-assign";
 import { isVcsRef } from "./shortlist";
 import { activeCutoff } from "./freshness";
 import {
-  MATERIAL_VERSION_SCHEME,
   coverageTextOf,
   decideMaterialRevision,
   latestPublishedAt,
-  materialFingerprint,
-  materialState,
+  storedMaterialFingerprint,
 } from "./event-version";
 
 /**
- * How far back an attachment can be for an old event to re-enter analysis.
+ * How recently an old event's coverage must have changed for it to re-enter.
  *
- * The live lane is bounded by the work horizon; this lane is bounded by how
- * recently evidence actually arrived. Without a bound, every stale dirty row in
- * the corpus would be a candidate and the lane would be a corpus scan. Two
- * weeks is long enough to cover a story that developed while a source was
- * failing and short enough that nothing is re-read twice a month for nothing.
+ * Measured on `coverage_changed_at` (0102), which the attachment trigger stamps
+ * in the same statement that bumps `coverage_revision` -- so this is "an article
+ * attached in the last fortnight", independent of how old the event is. A
+ * thirty-day-old event that gains coverage today is inside it; an event created
+ * yesterday whose coverage has not moved since is inside the live lane instead.
+ *
+ * The bound is what keeps the lane from being a corpus scan: without it, every
+ * dirty row that ever failed to finalize would be a candidate. Two weeks covers
+ * a story that developed while a source was failing, and is short enough that
+ * nothing is re-read for nothing.
  */
 export const REENTRY_LOOKBACK_HOURS = 14 * 24;
 
 /**
  * Share of a batch the re-entry lane may take when live work is saturating it.
  *
- * This is the 0068 guarantee expressed as arithmetic: live work can never be
- * crowded out, because it owns the batch and re-entry is confined to a quarter
- * of it. When live work is undersupplied, re-entry takes the spare capacity
- * instead, so the lane is never starved either.
+ * A ceiling, never a floor: see `laneTake`.
  */
-const REENTRY_SHARE = 0.25;
+export const REENTRY_SHARE = 0.25;
 
 /**
- * How a batch is split between live work and material re-entry.
+ * How many rows the re-entry lane may take from a batch.
  *
- * The 0068 guarantee, as arithmetic: live work owns the batch, and re-entry may
- * take a quarter of it when live work is saturating the run. When live work is
- * undersupplied the spare capacity goes to re-entry instead, so the lane is
- * never starved either. Extracted so the guarantee is testable without a
- * database -- it is the one rule in this stage that must not drift.
+ * The 0068 guarantee, as arithmetic, with the small-batch case stated exactly:
+ *
+ *   live undersupplied   re-entry may take all the spare capacity, because the
+ *                        alternative is idle capacity rather than protected work
+ *   live saturating      re-entry may take `floor(limit x REENTRY_SHARE)` and
+ *                        not a row more -- so a batch of 1, 2 or 3 stays entirely
+ *                        live, and a batch of 100 gives re-entry at most 25
+ *
+ * The earlier form reserved `max(1, ...)`, which handed the only slot of a
+ * one-row batch to re-entry while live work was waiting -- the violation this
+ * rule exists to prevent.
+ *
+ * Live work takes whatever re-entry does not actually use (see `analyse`), so
+ * an empty re-entry lane never costs live work a slot.
  */
 export function laneTake(limit: number, liveCount: number): { reentry: number; fromLive: number } {
-  const spare = Math.max(0, limit - liveCount);
-  const reserve = Math.max(1, Math.floor(limit * REENTRY_SHARE));
+  const size = Math.max(0, Math.floor(limit));
+  const live = Math.max(0, Math.min(size, Math.floor(liveCount)));
+  const spare = size - live;
+  const reserve = Math.floor(size * REENTRY_SHARE);
   const reentry = spare > 0 ? spare : reserve;
-  return { reentry, fromLive: Math.max(0, limit - reentry) };
+  return { reentry, fromLive: size - reentry };
 }
 
 /** One row of the analysis queue. Named so the lane merge has a shape. */
@@ -62,11 +73,11 @@ type QueueRow = {
   material_fingerprint: string | null;
   material_occurrence_at: string | null;
   material_revision: number;
-  last_updated_at: string;
+  coverage_changed_at: string;
 };
 
 const QUEUE_COLUMNS =
-  "id,title,first_seen_at,coverage_revision,analysed_at,material_fingerprint,material_occurrence_at,material_revision,last_updated_at";
+  "id,title,first_seen_at,coverage_revision,analysed_at,material_fingerprint,material_occurrence_at,material_revision,coverage_changed_at";
 type Db = SupabaseClient<Database>;
 export type AnalyseOptions = {
   limit?: number | undefined;
@@ -167,15 +178,19 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
     const liveRows = (live.data ?? []) as QueueRow[];
 
     const take = laneTake(limit, liveRows.length).reentry;
+    if (take === 0) return liveRows.slice(0, limit);
 
     const reentrySince = new Date(now.getTime() - REENTRY_LOOKBACK_HOURS * 3_600_000).toISOString();
     // The same work predicate as the live lane -- pending, analysing or dirty --
-    // with the horizon replaced by attachment recency. An event discovered late
-    // from an old article is still work worth doing: its freshness is already
-    // honest (`first_seen_at` carries the article's publication time), and the
+    // with the horizon replaced by coverage recency. `coverage_changed_at` is
+    // stamped by the attachment trigger (0102), so an event from last month that
+    // gained an article today is here, and one whose coverage has not moved is
+    // not, however recently it was created. An event discovered late from an old
+    // article is still work worth doing: its freshness is honest
+    // (`material_occurrence_at` is publication time, never this clock), and the
     // digest lanes age it accordingly. What the horizon was protecting against
-    // is not "an old story" but "an unbounded backlog", and the lookback plus
-    // the lane share bound this one the same way.
+    // is not "an old story" but "an unbounded backlog", and the lookback plus the
+    // lane share bound this one the same way.
     const reentry = await db
       .from("events")
       .select(QUEUE_COLUMNS)
@@ -183,23 +198,23 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
         `metadata_dirty.eq.true,status.eq.pending,status.eq.analysing${options.retryFailed ? ",status.eq.failed" : ""}`,
       )
       .lt("first_seen_at", cutoff)
-      .gte("last_updated_at", reentrySince)
-      .order("last_updated_at", { ascending: false })
+      .gte("coverage_changed_at", reentrySince)
+      .order("coverage_changed_at", { ascending: false })
       .limit(take);
     if (reentry.error) throw new Error(reentry.error.message);
     const reentryRows = (reentry.data ?? []) as QueueRow[];
 
-    // When live work is undersupplied there is spare capacity and re-entry takes
-    // it; when it is saturated, the reserve comes out of the tail of the live
-    // page, never out of its head -- the newest live work is the work that
-    // matters, and the split is arithmetic rather than a judgement call.
-    const fromLive = laneTake(limit, liveRows.length).fromLive;
-    return [...liveRows.slice(0, Math.max(0, fromLive)), ...reentryRows];
+    // Live work takes every slot re-entry did not actually use. The reserve is a
+    // ceiling on re-entry, not a hole in the batch: when the lane comes back
+    // short, the live tail fills it. When it is full, the reserve comes out of
+    // the tail of the live page, never its head -- the newest live work is the
+    // work that matters.
+    return [...liveRows.slice(0, Math.max(0, limit - reentryRows.length)), ...reentryRows];
   };
   const [events, sourceRows, topicRows] = await Promise.all([
     select(),
     db.from("sources").select("id,name,homepage,kind,feed_url"),
-    db.from("topics").select("id,slug,label,terms"),
+    db.from("topics").select("id,slug,label,kind,terms,match_spec"),
   ]);
   for (const result of [sourceRows, topicRows])
     if (result.error) throw new Error(result.error.message);
@@ -211,6 +226,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
   // unions with below -- see topic-assign.ts and classify.ts for why.
   const sourceSignals = sourceSignalsFrom(sourceRows.data ?? []);
   const topics = (topicRows.data ?? []) as TopicRow[];
+  const customTopicIds = new Set(topics.filter((t) => t.kind === "custom").map((t) => t.id));
   const outcomes: EventOutcome[] = [];
   for (const event of events) {
     const owner = crypto.randomUUID();
@@ -259,9 +275,7 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
       // that has never been measured: the first finalization adopts the state
       // and advances no revision, so nothing already delivered becomes
       // re-deliverable just because this code shipped.
-      const nextFingerprint = `v${MATERIAL_VERSION_SCHEME}|${materialFingerprint(
-        materialState(coverageTextOf(articles)),
-      )}`;
+      const nextFingerprint = storedMaterialFingerprint(coverageTextOf(articles));
       const material = decideMaterialRevision({
         // `?? null` rather than a bare read: a row written before 0097 has
         // neither column, and "absent" must mean "never measured", not
@@ -290,8 +304,17 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
         .select("topic_id")
         .eq("event_id", event.id);
       if (candidates.error) throw new Error(candidates.error.message);
+      // Candidates are unioned in so this recompute can never land narrower
+      // than classification -- except for a custom topic, whose match spec is
+      // re-evaluated here on a haystack at least as wide as classification's.
+      // A candidate written before the topic gained an exclusion must not become
+      // a permanent `event_topics` link the reader join would honour: the spec
+      // as it stands now is the authority, in this stage as in every other.
       const finalTopics = [
-        ...new Set([...topicIds, ...(candidates.data ?? []).map((t) => t.topic_id)]),
+        ...new Set([
+          ...topicIds,
+          ...(candidates.data ?? []).map((t) => t.topic_id).filter((id) => !customTopicIds.has(id)),
+        ]),
       ];
       const tags = assignTags(text.join(" "));
       if (!options.dryRun) {

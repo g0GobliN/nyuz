@@ -38,6 +38,25 @@
  * a failure on its first quiet Tuesday.
  *
  * ---------------------------------------------------------------------------
+ * What "no mapped source" means
+ * ---------------------------------------------------------------------------
+ *
+ * `mappedSources === 0` means nothing is collected *for* this subject: whatever
+ * coverage it has arrived incidentally, through feeds collected for something
+ * else. That is the definition of a discovery gap, and it is what the discovery
+ * stage has always acted on (`coverage.ts`). An earlier version of this file
+ * read it as "thin, back off" -- the opposite -- which, once wired, would have
+ * suppressed discovery for a subject precisely because it had no source. So it
+ * is its own state:
+ *
+ *   none       followed, and no relevant event has ever arrived
+ *   unmapped   followed, events arrive, but no source is collected for it
+ *   thin       one mapped source, inside its own pace
+ *   strong     two or more mapped sources, inside its own pace
+ *
+ * and both `none` and `unmapped` want discovery.
+ *
+ * ---------------------------------------------------------------------------
  * Where the numbers come from
  * ---------------------------------------------------------------------------
  *
@@ -48,8 +67,18 @@
  * a batch, and belongs to the discovery stage rather than here.
  */
 
-/** Observations of a subject's gaps needed before its pace means anything. */
+/**
+ * Gaps between a subject's events needed before its pace means anything.
+ *
+ * Intervals, not events: a median of fewer than three gaps is one or two
+ * coincidences. Three gaps need four observations -- `MIN_OBSERVATIONS` -- and
+ * `medianIntervalHours` counts gaps, so the name and the check are the same
+ * number.
+ */
 export const MIN_INTERVALS = 3;
+
+/** Distinct event times needed for `MIN_INTERVALS` gaps. */
+export const MIN_OBSERVATIONS = MIN_INTERVALS + 1;
 
 /** Never call a subject stale before this long, whatever its measured pace. */
 export const STALE_FLOOR_DAYS = 7;
@@ -73,13 +102,15 @@ export type CoverageClass =
   | "untracked"
   /** Followed, and nothing has ever arrived. */
   | "none"
+  /** Followed and producing, but nothing is collected for it: a discovery gap. */
+  | "unmapped"
   /** Sources are being tried right now; do not add more until they report. */
   | "trial"
   /** Unusually quiet for itself: look for what it is not telling us. */
   | "stale"
   /** Inside its own envelope, with more than one source contributing. */
   | "strong"
-  /** Inside its own envelope, but on a single source. */
+  /** Inside its own envelope, on exactly one mapped source. */
   | "thin";
 
 export type CoverageSignals = {
@@ -99,7 +130,7 @@ export type CoverageReading = {
   classification: CoverageClass;
   /** Hours since the most recent relevant event, or null if there has never been one. */
   gapHours: number | null;
-  /** Median observed gap in hours, or null below `MIN_INTERVALS` observations. */
+  /** Median observed gap in hours, or null below `MIN_INTERVALS` gaps. */
   baselineHours: number | null;
   /** The threshold this reading was judged against, in hours. */
   staleAfterHours: number;
@@ -115,12 +146,9 @@ export type CoverageReading = {
  * which is the opposite of what this is for.
  */
 export function medianIntervalHours(times: readonly string[]): number | null {
-  const parsed = [...new Set(times)]
-    .map((time) => Date.parse(time))
+  const parsed = [...new Set(times.map((time) => Date.parse(time)))]
     .filter((value) => Number.isFinite(value))
     .sort((a, b) => a - b);
-
-  if (parsed.length < MIN_INTERVALS + 1) return null;
 
   const gaps: number[] = [];
   for (let i = 1; i < parsed.length; i += 1) {
@@ -129,7 +157,7 @@ export function medianIntervalHours(times: readonly string[]): number | null {
     if (previous === undefined || current === undefined) continue;
     gaps.push((current - previous) / 3_600_000);
   }
-  if (gaps.length === 0) return null;
+  if (gaps.length < MIN_INTERVALS) return null;
 
   gaps.sort((a, b) => a - b);
   const middle = Math.floor(gaps.length / 2);
@@ -165,8 +193,9 @@ export function staleAfterHours(baselineHours: number | null): number {
  * Classify one subject's coverage.
  *
  * Order matters and is the same order a person would reason in: is anybody
- * following this, is anything being tried, has anything ever arrived, then is it
- * quiet for itself, and finally is it strong or merely single-sourced.
+ * following this, is anything being tried, has anything ever arrived, is
+ * anything collected for it at all, then is it quiet for itself, and finally is
+ * it strong or merely single-sourced.
  */
 export function classifyCoverage(signals: CoverageSignals): CoverageReading {
   const reasons: string[] = [];
@@ -200,6 +229,13 @@ export function classifyCoverage(signals: CoverageSignals): CoverageReading {
   }
 
   if (baselineHours !== null) reasons.push(`usual gap is about ${Math.round(baselineHours)}h`);
+  if (signals.mappedSources <= 0) {
+    return {
+      ...base,
+      classification: "unmapped",
+      reasons: [...reasons, "events arrive, but no source is collected for it"],
+    };
+  }
   if (gapHours > staleAfter) {
     return {
       ...base,
@@ -222,12 +258,7 @@ export function classifyCoverage(signals: CoverageSignals): CoverageReading {
   return {
     ...base,
     classification: "thin",
-    reasons: [
-      ...reasons,
-      signals.mappedSources === 0
-        ? "inside its own pace, but no source is mapped to it"
-        : "inside its own pace, but only one source",
-    ],
+    reasons: [...reasons, "inside its own pace, but only one source"],
   };
 }
 
@@ -237,9 +268,11 @@ export function classifyCoverage(signals: CoverageSignals): CoverageReading {
  * The scheduling model, stated once so it is the same rule everywhere:
  *
  *   none      immediate  demand exists and nothing has ever arrived
+ *   unmapped  active     it produces, but nothing is collected for it
  *   trial     paused     sources are being tried; wait for them to report
  *   stale     active     look for what the subject is not telling us
- *   thin      backoff    covered by one source: worth a second, not urgent
+ *   thin      backoff    covered by one source: worth a second, not urgent --
+ *                        re-examined once per its own stale window
  *   strong    off        leave it alone
  *   untracked off        nobody is waiting for it
  *
@@ -255,6 +288,7 @@ export function discoveryAppetite(reading: CoverageReading): DiscoveryAppetite {
       return "immediate";
     case "trial":
       return "paused";
+    case "unmapped":
     case "stale":
       return "active";
     case "thin":
@@ -263,6 +297,22 @@ export function discoveryAppetite(reading: CoverageReading): DiscoveryAppetite {
     case "untracked":
       return "off";
   }
+}
+
+/**
+ * How long a subject waits between discovery attempts, by appetite.
+ *
+ * `immediate` and `active` use the stage's own cooldown (`coverage.ts`), which
+ * protects a search budget rather than measuring the subject. `backoff` waits
+ * the subject's *own* stale window -- the gap after which it would be called
+ * quiet for itself -- so a thin daily subject is re-examined weekly and a thin
+ * fortnightly one monthly. No second timer is invented: the subject's pace is
+ * the timer.
+ */
+export function rediscoveryAfterHours(reading: CoverageReading, cooldownHours: number): number {
+  return discoveryAppetite(reading) === "backoff"
+    ? Math.max(cooldownHours, reading.staleAfterHours)
+    : cooldownHours;
 }
 
 /**

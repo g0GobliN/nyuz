@@ -44,6 +44,7 @@
  * beside an English one without either being transliterated into the other.
  */
 
+import { z } from "zod";
 import { mentions, normaliseText, topicTerms } from "./topics";
 
 /** One way of naming the subject. */
@@ -59,6 +60,14 @@ export type MatchTerm = {
    * high-precision alias is represented without loosening anything else.
    */
   kind?: "word-containment" | "exact-phrase";
+  /**
+   * Optional terms only: the index of the `require` group this term is a
+   * candidate *alternative name* for. Promotion adds the term to that group --
+   * see `promoteTerms`. Absent on a single-group spec means group 0; absent on a
+   * multi-group spec means the term is a booster that can never be promoted,
+   * because "which constraint is this a synonym of" has no answer.
+   */
+  aliasOf?: number;
 };
 
 export type MatchSpec = {
@@ -107,38 +116,244 @@ export function deriveSpec(label: string): MatchSpec {
   return deriveSpecFromTerms(topicTerms(label));
 }
 
-/** Empty specs -- `{}`, or a row written before 0100 -- mean "derive". */
-export function isDerived(spec: MatchSpec | null | undefined): boolean {
-  if (spec === null || spec === undefined) return true;
-  if (spec.v !== 1) return true;
-  if (!Array.isArray(spec.require) || spec.require.length === 0) return true;
-  return false;
+/* -------------------------------------------------------------------------- */
+/* What may be stored                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Bounds on an authored spec. Generous for a subject with many names, and small
+ * enough that one topic cannot turn the per-event evaluation into real work.
+ */
+export const SPEC_LIMITS = {
+  groups: 8,
+  termsPerGroup: 16,
+  optional: 24,
+  exclude: 24,
+  termChars: 120,
+} as const;
+
+const termSchema = z
+  .object({
+    text: z.string().max(SPEC_LIMITS.termChars),
+    lang: z.string().max(16).optional(),
+    kind: z.enum(["word-containment", "exact-phrase"]).optional(),
+    aliasOf: z
+      .number()
+      .int()
+      .min(0)
+      .max(SPEC_LIMITS.groups - 1)
+      .optional(),
+  })
+  .strict();
+
+const specSchema = z
+  .object({
+    v: z.literal(1),
+    require: z
+      .array(z.array(termSchema).min(1).max(SPEC_LIMITS.termsPerGroup))
+      .min(1)
+      .max(SPEC_LIMITS.groups),
+    optional: z.array(termSchema).max(SPEC_LIMITS.optional).optional(),
+    exclude: z.array(termSchema).max(SPEC_LIMITS.exclude).optional(),
+    langs: z.array(z.string().max(16)).max(16).optional(),
+  })
+  .strict();
+
+/** `{}`, `null` or absent: the "derive from `terms`" value 0100 defaults to. */
+export function isEmptySpec(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  return typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0;
+}
+
+export type SpecParse = { ok: true; spec: MatchSpec } | { ok: false; reason: string };
+
+/**
+ * A stored value, read as a specification -- or refused.
+ *
+ * Structural only: this is the *read* path, and it must accept every value the
+ * write paths can produce, including a derived spec whose term normalises to
+ * nothing (an unmatchable requirement, which narrows and is therefore safe).
+ * Anything that is not exactly the shape above -- a wrong version, an empty
+ * `require`, a stray key, a term that is not a string -- is refused rather than
+ * guessed at.
+ */
+export function parseMatchSpec(value: unknown): SpecParse {
+  const parsed = specSchema.safeParse(value);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return {
+      ok: false,
+      reason: issue ? `${issue.path.join(".") || "spec"}: ${issue.message}` : "invalid",
+    };
+  }
+  return { ok: true, spec: parsed.data as MatchSpec };
+}
+
+/**
+ * The *write* path's validation: structure, plus the rules only an author can
+ * break.
+ *
+ *   - Every term must normalise to something. An exclude term that normalises to
+ *     nothing never vetoes, which silently broadens; a require term that does
+ *     never matches, which silently empties the interest. Both are authoring
+ *     mistakes, refused here rather than stored.
+ *   - `aliasOf` must name a group that exists.
+ */
+export function validateAuthoredSpec(value: unknown): SpecParse {
+  const parsed = parseMatchSpec(value);
+  if (!parsed.ok) return parsed;
+  const { spec } = parsed;
+
+  const every = [...spec.require.flat(), ...(spec.optional ?? []), ...(spec.exclude ?? [])];
+  const empty = every.find((term) => normaliseText(term.text) === "");
+  if (empty) return { ok: false, reason: `term "${empty.text}" normalises to nothing` };
+
+  const badAlias = (spec.optional ?? []).find(
+    (term) => term.aliasOf !== undefined && term.aliasOf >= spec.require.length,
+  );
+  if (badAlias) {
+    return { ok: false, reason: `optional "${badAlias.text}" is an alias of a missing group` };
+  }
+  return parsed;
+}
+
+/**
+ * The value that selects nothing, for a stored spec that cannot be read.
+ *
+ * `evaluateSpec` refuses an empty `require`, so this matches no event. Failing
+ * closed is the whole point: a malformed row falling back to the derived spec
+ * could be *broader* than what an operator wrote (an exclusion that no longer
+ * applies), and the damage is invisible. An interest that selects nothing is
+ * visible in the operator's diagnostics and costs a reader nothing they asked
+ * not to see.
+ */
+const REFUSED: MatchSpec = Object.freeze({ v: 1, require: [] }) as MatchSpec;
+
+export type TopicSpecSource = {
+  /** The stored spec as a `topics` row spells it. */
+  match_spec?: unknown;
+  /** The same value after the reader projection carried it, where it is `spec`. */
+  spec?: unknown;
+  terms: readonly string[];
+};
+
+/** How a topic's stored value reads. For diagnostics and the console. */
+export function specStatus(topic: TopicSpecSource): "derived" | "explicit" | "malformed" {
+  const stored = topic.spec ?? topic.match_spec;
+  if (isEmptySpec(stored)) return "derived";
+  // JSONB can hold any JSON value, including a string or number. Those are
+  // malformed specifications too; do not pass a primitive into WeakMap below.
+  if (typeof stored !== "object") return "malformed";
+  return parsedStored(stored as object) === null ? "malformed" : "explicit";
+}
+
+/**
+ * Parsed stored specs, by the stored object's identity.
+ *
+ * The reader join evaluates a topic once per (reader, candidate), which for a
+ * popular subject is a thousand readers times a page of four hundred events.
+ * Validating the stored JSON on each of those calls would put a schema parse on
+ * the hottest path in the pipeline; the stored object is the same object for
+ * the whole run (it comes from one `topics` read), so it is parsed once.
+ * A WeakMap, so the cache dies with the run's rows.
+ */
+const PARSED = new WeakMap<object, MatchSpec | null>();
+
+function parsedStored(stored: object): MatchSpec | null {
+  const cached = PARSED.get(stored);
+  if (cached !== undefined) return cached;
+  const parsed = parseMatchSpec(stored);
+  const spec = parsed.ok ? parsed.spec : null;
+  PARSED.set(stored, spec);
+  return spec;
+}
+
+/** Derived specs, by the `terms` array's identity -- the same argument. */
+const DERIVED = new WeakMap<readonly string[], MatchSpec>();
+
+function derivedFor(terms: readonly string[]): MatchSpec {
+  const cached = DERIVED.get(terms);
+  if (cached) return cached;
+  const spec = deriveSpecFromTerms(terms);
+  DERIVED.set(terms, spec);
+  return spec;
 }
 
 /**
  * The spec to evaluate for a topic, from whatever is stored.
+ *
+ *   empty (`{}`, null)   derive from `terms` -- the behaviour before 0100
+ *   a valid spec         itself
+ *   anything else        `REFUSED`: selects nothing, never falls back
  *
  * `terms` is the fallback rather than `label` because it is the value the topic
  * has actually been matching with: a spec derived from the label could differ if
  * `MAX_TERMS` clipped it, and silently changing an existing reader's matches is
  * exactly what this migration must not do.
  */
-export function specForTopic(topic: {
-  /** The stored spec as a `topics` row spells it. */
-  match_spec?: unknown;
-  /** The same value after the reader projection carried it, where it is `spec`. */
-  spec?: unknown;
-  terms: readonly string[];
-}): MatchSpec {
+export function specForTopic(topic: TopicSpecSource): MatchSpec {
   // Two spellings of one value: the database column is `match_spec`, and the
   // reader projection (`ReaderTopic`) shortens it to `spec` because every other
   // field there is short. Both are accepted so a caller holding either shape
   // cannot silently get the derived spec while believing it passed its own.
   const stored = topic.spec ?? topic.match_spec;
-  if (stored && typeof stored === "object" && !isDerived(stored as MatchSpec)) {
-    return stored as MatchSpec;
-  }
-  return deriveSpecFromTerms(topic.terms);
+  if (isEmptySpec(stored)) return derivedFor(topic.terms);
+  if (typeof stored !== "object") return REFUSED;
+  return parsedStored(stored as object) ?? REFUSED;
+}
+
+/**
+ * Whether a topic selects an already-normalised signal.
+ *
+ * The one call every custom-topic path makes -- classification, finalization,
+ * observed coverage, the reader join, the day-one backfill and the significance
+ * baseline -- so the same (event, topic) pair cannot be a match in one stage and
+ * a non-match in the next by construction. What differs between stages is only
+ * the text each can see, never the rule applied to it.
+ */
+export function topicMatches(topic: TopicSpecSource, normalisedSignal: string): boolean {
+  return evaluateSpec(specForTopic(topic), normalisedSignal).matched;
+}
+
+/**
+ * Whether a topic's own exclusions veto this signal, whatever selected it.
+ *
+ * `evaluateSpec` already applies exclusions to a spec match. This is for the
+ * other route into a topic -- a link in `event_topics` written by an earlier
+ * finalization -- which must not be a way around an exclusion the topic carries
+ * now.
+ */
+export function topicVetoes(topic: TopicSpecSource, normalisedSignal: string): boolean {
+  const spec = specForTopic(topic);
+  return (spec.exclude ?? []).some((term) => termMatches(normalisedSignal, term));
+}
+
+/**
+ * Build the custom-topic signal once for every pipeline stage that evaluates
+ * persisted event links. The topic's own label/link is excluded so a stale link
+ * cannot satisfy a spec that has since changed.
+ */
+export function customTopicSignal(
+  input: {
+    title: string;
+    whatHappened: string;
+    tags: readonly string[];
+    topics: readonly { id: string; slug: string; label: string }[];
+    sources: readonly { name: string }[];
+  },
+  topicId: string,
+): string {
+  return normaliseText(
+    [
+      input.title,
+      input.whatHappened,
+      ...input.tags,
+      ...input.topics
+        .filter((topic) => topic.id !== topicId)
+        .flatMap((topic) => [topic.slug, topic.label]),
+      ...input.sources.map((source) => source.name),
+    ].join(" "),
+  );
 }
 
 /** Whether one term is present in an already-normalised signal. */
@@ -242,6 +457,7 @@ export function promotionCandidates(
 ): MatchTerm[] {
   const promotable: MatchTerm[] = [];
   for (const term of spec.optional ?? []) {
+    if (aliasGroupOf(spec, term) === null) continue;
     const key = normaliseText(term.text);
     const found = evidence.get(key);
     if (!found) continue;
@@ -250,18 +466,95 @@ export function promotionCandidates(
   return promotable;
 }
 
-/** A new spec with the given terms moved from `optional` into `require`. */
+/**
+ * The `require` group an optional term would join if promoted, or null.
+ *
+ * Explicit `aliasOf` wins; a single-group spec has only one answer; a
+ * multi-group spec without `aliasOf` has none, and the term stays a booster.
+ */
+export function aliasGroupOf(spec: MatchSpec, term: MatchTerm): number | null {
+  if (term.aliasOf !== undefined) return term.aliasOf < spec.require.length ? term.aliasOf : null;
+  return spec.require.length === 1 ? 0 : null;
+}
+
+/**
+ * A new spec with the given optional terms promoted to alternative names.
+ *
+ * A promoted term joins the `require` group it is an alias of -- an OR inside
+ * that constraint, so it can now admit an event the other names did not
+ * mention. It does not become a new group: an optional term is a guess about a
+ * *synonym*, and appending it as its own group would AND it onto the interest,
+ * silently narrowing every reader of the subject to the coverage that happens to
+ * use the new word. (The previous version of this function did exactly that.)
+ *
+ * Exclusions are untouched and are still evaluated first, so a promoted name is
+ * as subject to the topic's vetoes as the names it joined.
+ */
 export function promoteTerms(spec: MatchSpec, terms: readonly MatchTerm[]): MatchSpec {
   if (terms.length === 0) return spec;
-  const promoted = new Set(terms.map((term) => normaliseText(term.text)));
-  return {
-    ...spec,
-    require: [
-      ...spec.require,
-      ...(spec.optional ?? [])
-        .filter((term) => promoted.has(normaliseText(term.text)))
-        .map((term) => [term]),
-    ],
-    optional: (spec.optional ?? []).filter((term) => !promoted.has(normaliseText(term.text))),
-  };
+  const wanted = new Set(terms.map((term) => normaliseText(term.text)));
+  const require = spec.require.map((group) => [...group]);
+  const optional: MatchTerm[] = [];
+  let changed = false;
+
+  for (const term of spec.optional ?? []) {
+    const group = wanted.has(normaliseText(term.text)) ? aliasGroupOf(spec, term) : null;
+    const target = group === null ? undefined : require[group];
+    if (target === undefined) {
+      optional.push(term);
+      continue;
+    }
+    const { aliasOf: _aliasOf, ...name } = term;
+    if (!target.some((existing) => normaliseText(existing.text) === normaliseText(name.text))) {
+      target.push(name);
+    }
+    changed = true;
+  }
+
+  if (!changed) return spec;
+  return { ...spec, require, optional };
+}
+
+/** One event the topic already selected, as promotion evidence sees it. */
+export type EvidenceObservation = {
+  eventId: string;
+  /** The event's normalised signal (title, summary, concept tags). */
+  signal: string;
+  /** A follower of this topic engaged with the event. */
+  engaged: boolean;
+};
+
+/**
+ * How often each optional term turned up in coverage the spec selected *without*
+ * it.
+ *
+ * An observation counts for a term only when the spec matched on its own -- the
+ * require groups were satisfied and no exclusion hit -- and the term is present.
+ * Optional terms never affect `matched`, so this is by construction evidence
+ * from outside the term's own matches: the circularity a boost-only design would
+ * otherwise have is impossible, not merely unlikely.
+ */
+export function termEvidence(
+  spec: MatchSpec,
+  observations: readonly EvidenceObservation[],
+): Map<string, TermEvidence> {
+  const evidence = new Map<string, TermEvidence>();
+  const counted = new Map<string, Set<string>>();
+
+  for (const observation of observations) {
+    if (!evaluateSpec(spec, observation.signal).matched) continue;
+    for (const term of spec.optional ?? []) {
+      if (!termMatches(observation.signal, term)) continue;
+      const key = normaliseText(term.text);
+      const events = counted.get(key) ?? new Set<string>();
+      events.add(observation.eventId);
+      counted.set(key, events);
+      const previous = evidence.get(key);
+      evidence.set(key, {
+        matchedEvents: events.size,
+        engaged: (previous?.engaged ?? false) || observation.engaged,
+      });
+    }
+  }
+  return evidence;
 }

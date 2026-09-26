@@ -1,11 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  assignTopics,
-  assignTags,
-  assignTopicsByTerms,
-  compareTopics,
-  compareTags,
-} from "./topic-assign";
+import { assignTopics, assignTags, compareTopics, compareTags } from "./topic-assign";
 
 /**
  * The contamination the strong/weak vocabulary exists to stop.
@@ -266,18 +260,6 @@ describe("assignTags", () => {
       "Funding was raised. A security breach occurred. Layoffs happened. A partnership was announced. A product launched. An acquisition closed. Research was published. Controversy emerged.";
     const tags = assignTags(text);
     expect(tags.length).toBeLessThanOrEqual(8);
-  });
-});
-
-describe("assignTopicsByTerms", () => {
-  it("assigns topics using term matching", () => {
-    const topics = assignTopicsByTerms("The ai model was trained on data.");
-    expect(topics).toContain("AI");
-  });
-
-  it("returns empty for unrelated text", () => {
-    const topics = assignTopicsByTerms("The weather is nice today.");
-    expect(topics).toEqual([]);
   });
 });
 

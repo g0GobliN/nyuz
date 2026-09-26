@@ -44,7 +44,7 @@
  */
 
 import { floorFor, thresholdFor } from "@/lib/density";
-import { IMPORTANT_FLOOR } from "./alerts";
+import { IMPORTANT_FLOOR } from "./alert-floor";
 import type { TopicImportance } from "@/lib/supabase/types";
 
 /** One event, scored both ways. The unit this whole module operates on. */

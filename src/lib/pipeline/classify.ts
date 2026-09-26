@@ -29,8 +29,9 @@
  * What it costs
  * ---------------------------------------------------------------------------
  *
- * Nothing. No model, no provider, no ledger row. It is `matchesTerms` over a
- * normalised string, once per event per topic, against a taxonomy of a few dozen
+ * Nothing. No model, no provider, no ledger row. It is `topicMatches` -- the
+ * match-spec evaluator every custom-topic stage shares -- over a normalised
+ * string, once per event per topic, against a taxonomy of a few dozen
  * rows. The result is written once and read by every reader, so this is the
  * cheapest possible place to answer a question that would otherwise be asked
  * `events × readers` times, or worse, asked of a model.
@@ -47,15 +48,16 @@
  * `match.ts` is deliberately left reading the curated table.
  *
  * Over-admitting here costs one analysis; under-admitting costs a reader a story
- * they follow. So the matching is the same as stage 5's — every term of a topic
- * must appear — but the haystack is generous: every article's title and excerpt,
- * not just the event's own title.
+ * they follow. So the rule is the same as stage 5's — the topic's match
+ * specification, through the same evaluator — but the haystack is generous:
+ * every article's title and excerpt, not just the event's own title.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/lib/supabase/types";
-import { matchesTerms, normaliseText } from "@/lib/topics";
+import { normaliseText } from "@/lib/topics";
+import { topicMatches } from "@/lib/match-spec";
 import { assignTopics } from "./topic-assign";
 import { ACTIVE_WORK_HORIZON_HOURS, activeCutoff } from "./freshness";
 
@@ -138,7 +140,16 @@ export type ClassifyReport = {
   outcomes: ClassifyOutcome[];
 };
 
-export type TopicRow = { id: string; slug: string; label: string; terms: string[] };
+export type TopicRow = {
+  id: string;
+  slug: string;
+  label: string;
+  terms: string[];
+  /** `predefined` or `custom`. Absent on rows read before 0049. */
+  kind?: string;
+  /** The stored specification (0100); `{}` means "derive from `terms`". */
+  match_spec?: unknown;
+};
 
 type EventRow = { id: string; title: string; first_seen_at: string };
 
@@ -151,7 +162,9 @@ type EventRow = { id: string; title: string; first_seen_at: string };
  * before they signed up.
  */
 async function loadTopics(db: Db): Promise<TopicRow[]> {
-  const { data, error } = await db.from("topics").select("id, slug, label, terms");
+  const { data, error } = await db
+    .from("topics")
+    .select("id, slug, label, kind, terms, match_spec");
   if (error) throw new Error(`reading topics: ${error.message}`);
   // Rows are NOT filtered on `terms` here. Every predefined topic in the live
   // taxonomy has `terms = []` — terms were added in 0049 for reader-created
@@ -306,18 +319,22 @@ export function topicsFor(
   //     categories: a Griezmann goal is Sports and contains no word "sports",
   //     so matching the label literally finds nothing at all.
   //
-  //   custom — the reader's own terms, all of which must appear, which is the
-  //     rule `match.ts` applies to the same rows.
+  //   custom — the topic's match specification (`match-spec.ts`), evaluated by
+  //     `topicMatches`, the one evaluator every custom-topic stage calls. A
+  //     topic with no stored spec derives it from `terms` (every term must
+  //     appear, as before); a stored spec can name the subject several ways and
+  //     exclude what it must not match.
   const labels = new Set(assignTopics(raw, event.title).map((label) => label.toLowerCase()));
   const signal = normaliseText(raw);
 
   const matched: string[] = [];
   for (const topic of topics) {
     const byKeyword = labels.has(topic.label.toLowerCase());
-    // The length guard is load-bearing: `matchesTerms` uses `every`, which is
-    // vacuously true on an empty list, and every predefined row has one.
-    const byTerms = topic.terms.length > 0 && matchesTerms(signal, topic.terms);
-    if (!byKeyword && !byTerms) continue;
+    // A predefined row has `terms = []` and no spec, which derives an empty
+    // `require` -- and `evaluateSpec` refuses an interest that requires nothing,
+    // so the editorial pool is untouched by this route.
+    const bySpec = topicMatches(topic, signal);
+    if (!byKeyword && !bySpec) continue;
     matched.push(topic.id);
     if (matched.length >= MAX_TOPICS_PER_EVENT) break;
   }
