@@ -133,11 +133,23 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
-            if npm audit --omit=dev --audit-level=high; then
+            if output=$(npm audit --omit=dev --audit-level=high 2>&1); then
+              echo "$output"
               exit 0
+            else
+              code=$?
             fi
-            code=$?
-            # Only retry on 5xx (network/registry issues), not on actual vulnerabilities (exit 1)
+            echo "$output"
+
+            # A failed `if` compound without an `else` has status zero in bash.
+            # Capture npm's status in the `else` so a vulnerability cannot turn
+            # into a green audit after the retry loop. Only retry errors that
+            # look transient; every other audit failure is authoritative.
+            if ! printf '%s\n' "$output" | grep -qiE \
+              '(^|[^0-9])(500|502|503|504)([^0-9]|$)|EAI_AGAIN|ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ECONNABORTED|socket hang up'; then
+              exit "$code"
+            fi
+
             if [ $attempt -eq 3 ]; then
               exit $code
             fi
