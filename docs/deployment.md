@@ -251,9 +251,16 @@ failing mid-run. See [ai-providers.md](ai-providers.md).
 Migrations are **not** applied by the deploy. Run them first, deliberately:
 
 ```bash
+npx supabase init
 npx supabase link --project-ref "$SUPABASE_PROJECT_REF"
+npx supabase migration list --linked
 npx supabase db push
 ```
+
+On an existing checkout with `supabase/config.toml`, do not run `supabase init`
+again. Review the linked migration list before pushing; version identifiers must
+match the remote history, especially where this repository retains historical
+duplicate prefixes.
 
 They are not idempotent — `create type` and `create table` fail on a second run. The
 Supabase SQL editor wraps a paste in a transaction, so a mid-way failure rolls back

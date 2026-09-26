@@ -78,13 +78,15 @@ The deep version of this, with the actual mechanism at each stage, is at
 
 |                 | **Free** | **Personal**     | **Pro**                   |
 | --------------- | -------- | ---------------- | ------------------------- |
-|                 | $0       | **$7**/month     | **$15**/month             |
+|                 | $0       | **$14.99**/month | **$29.99**/month          |
 | Topics          | 3        | 15               | Unlimited                 |
 | Briefings       | Daily    | Daily and weekly | Multiple schedules        |
-| Delivery        | Email    | Email, Telegram  | Email, Telegram, WhatsApp |
+| Delivery        | Email, push | Email, push, Telegram | Email, push, Telegram |
 | History         | 7 days   | 90 days          | 1 year                    |
 | Breaking alerts | —        | Yes              | Yes                       |
-| AI explanations | —        | Yes              | Deeper                    |
+| Long-form story | On request* | On request* | On request* |
+
+*Long-form stories are generated only when the feature flag and spending budget allow them.*
 
 Start free. The free plan is the trial — no card, no countdown.
 
@@ -97,10 +99,9 @@ in a straight line with their user count. nyuz doesn't.
 
 An event is understood **once**, no matter how many people it eventually reaches. The
 hundredth subscriber to care about a story doesn't trigger a hundredth analysis — they're
-matched against an event that already exists. The only per-person model spend is one short
-paragraph.
+matched against an event that already exists. Background collection, clustering, classification, analysis, matching and briefing make no provider calls. Long-form story generation is an explicit reader action and is shared by readers of the same event version.
 
-That's the whole architecture, and it's why the economics work at a $7 price point.
+That's the cost model behind the current launch pricing.
 [The details](docs/architecture.md#why-it-stays-cheap).
 
 ---
@@ -126,17 +127,7 @@ Full technical and product documentation lives in [`docs/`](docs/README.md):
 
 ## Status
 
-nyuz is **in development and not yet accepting customers.** The marketing site, accounts,
-admin console and blog are real and working. Collection, clustering and analysis now run
-against real feeds — 1040 stored articles, 112 of them grouped into 98 events, and 48 of
-those events read once each by a model and scored for importance and novelty — but
-matching and delivery are not built, so the dashboard still shows clearly-labelled sample
-stories.
-
-[`docs/status.md`](docs/status.md) is an honest, itemised account of exactly what works
-today and what doesn't. It's worth reading before forming an opinion about either.
-
----
+nyuz is **in development and not yet accepting customers.** The repository contains implementations for collection, clustering, analysis, reader matching, briefing delivery, alerts, account management and the admin console. Older dated notes contain historical live-state snapshots; this README does not claim that the deployed service is current or accepting readers.
 
 ## Licence
 

@@ -20,24 +20,24 @@ against the live database, not when it compiles.
 | ------------------------- | -------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------- | ----- | ------------------------------------ |
 | Collect                  | `src/lib/pipeline/ingest.ts`, `feed.ts`, `fetch.ts`             | `sources`, `articles`                                            | Cron `*/15 * * * *`                  | Built | Keep                                 |
 | Normalise                | `src/lib/pipeline/canonical.ts`, `ingest.ts`                    | `articles`                                                        | (same run)                            | Built | Keep                                 |
-| Cluster                  | `src/lib/pipeline/shortlist.ts`, `cluster.ts`                   | `events`, `articles.event_id`                                    | Cron `10,40 * * * *`                 | Built | Keep; deterministic-confidence layer (plan2 §25) is additive, not a replacement |
-| Understand (analysis)    | `src/lib/pipeline/analyse.ts`                                   | `events`, `event_topics`, `ai_prompts`                            | Cron `20,50 * * * *`                 | Built | Keep; claim/lock pattern already atomic |
-| Match                    | `src/lib/matching.ts`, `src/lib/pipeline/match.ts`, `relate.ts`  | `user_topics`, `user_exclusions`, `user_source_prefs`, `user_events` | Cron `25,55 * * * *` + day-one backfill | Built | Keep — already AI-free, already the free stage plan2 §48 asks for |
+| Cluster                  | `src/lib/pipeline/shortlist.ts`, `cluster.ts`                   | `events`, `articles.event_id`                                    | Cron `2,17,32,47 * * * *`                 | Built | Keep; deterministic-confidence layer (plan2 §25) is additive, not a replacement |
+| Understand (analysis)    | `src/lib/pipeline/analyse.ts`                                   | `events`, `event_topics`, `ai_prompts`                            | Cron `9,24,39,54 * * * *`                 | Built | Keep; claim/lock pattern already atomic |
+| Match                    | `src/lib/matching.ts`, `src/lib/pipeline/match.ts`, `relate.ts`  | `user_topics`, `user_exclusions`, `user_source_prefs`, `user_events` | Cron `14,29,44,59 * * * *` + day-one backfill | Built | Keep — already AI-free, already the free stage plan2 §48 asks for |
 | Day-one backfill         | `src/lib/pipeline/backfill.ts`                                  | `user_events`                                                    | On onboarding completion              | Built | Keep |
-| Generate + deliver       | `src/lib/pipeline/digest.ts`, `src/lib/server/email/`           | `digests`, `digest_items`, `deliveries`, `event_impacts`          | Cron `* * * * *` (generates every 5th) | Built | Phase 2 removed the per-reader model call — see below |
+| Generate + deliver       | `src/lib/pipeline/digest.ts`, `src/lib/server/email/`           | `digests`, `digest_items`, `deliveries`, `event_impacts`          | Cron `* * * * *` (generates every minute) | Built | Phase 2 removed the per-reader model call — see below |
 | Breaking alerts          | `src/lib/pipeline/alerts.ts`                                    | `digests` (`kind='alert'`), `alert_claims`                        | Match-time                            | Built | Keep |
-| Story Ask                | `src/lib/server/briefing.ts` (`askStory`), `src/lib/ask-scope.ts` | `ai_usage_ledger`                                                | On demand, `claim_ask` RPC            | Built | **This is already plan2 §36's on-demand personal explanation** |
+| Story Ask                | `src/lib/server/briefing.ts` (`askStory`)                        | `ai_usage_ledger`                                                | On demand                             | Dormant | Endpoint returns disabled; all plan allowances are zero |
 | AI provider routing      | `src/lib/ai/deepseek.ts`, admin `ai.tsx`                        | `ai_providers`, `ai_model_routes`, `ai_prompts`                   | Resolved per call, 60s cache          | Built | Keep — already the central router plan2 §65 asks for |
 | Plan entitlements        | `src/lib/plans.ts`                                              | `subscriptions`, `0017_plan_entitlements.sql`                     | Read everywhere plan-gated            | Built | **Already the single canonical table plan2 §58 asks for** |
 | Billing                  | `src/lib/server/stripe/`, `src/lib/server/billing.ts`           | `subscriptions`                                                   | Checkout, same-subscription plan change, portal, webhook | Built; live setup pending | Pricing locked |
 | Admin console            | `src/routes/admin/*`                                            | `0003_admin.sql`                                                  | `/admin`, `adminOnly`/`superadminOnly` | Built | Extend, don't replace (plan2 §23, §77 already say this) |
 | Feature flags            | `src/lib/site-content.ts`, admin `content.tsx`                  | `feature_flags`                                                   | —                                      | Built | Reuse for any V2 flag |
-| Source model             | `src/lib/server/sources.ts`, admin `sources.tsx`                | `sources` (`source_kind` enum)                                   | —                                      | Built, single global table, no per-user copies | Already satisfies plan2 §12's "one crawler, many subscribers" — there just aren't custom sources yet |
-| Translation              | none                                                             | none                                                              | —                                      | Not started | **A better-specified plan already exists** — see below |
+| Source model             | `src/lib/server/sources.ts`, admin `sources.tsx`, `custom-sources.ts` | `sources`, `user_custom_sources`                                 | Feed cron and reader-managed sources  | Built | Shared registry plus plan-limited custom sources |
+| Translation              | `src/lib/pipeline/translate.ts`                                  | `event_translations`                                             | Read cached rows                      | Dormant generation | Missing translations fall back to English |
 | Source-topic graph       | none                                                             | none                                                              | —                                      | Not started | See recommendation below |
 | Source demand / adaptive polling | none                                                      | none                                                              | —                                      | Not started | See recommendation below |
-| Custom user sources      | none                                                             | none                                                              | —                                      | Not started | See recommendation below |
-| Tests / CI                | 18 files, 354 assertions, vitest                                | —                                                                  | `npm run test`, CI on every push       | Built | Keep pattern for any new work |
+| Custom user sources      | `src/lib/server/custom-sources.ts`                                 | `user_custom_sources`                                            | On reader request                     | Built | Shared source registry; plan-limited |
+| Tests / CI                | Vitest and TypeScript checks                                      | —                                                                 | `npm run ci`                           | Present | Full CI passed on Windows 26 September 2026 |
 
 ### The one live gap plan2 correctly identifies — closed in Phase 2
 
@@ -45,8 +45,8 @@ against the live database, not when it compiles.
 person per story, automatically, every digest** — exactly the "automatic user × story
 AI" plan2 §34 wants removed, and the only stage `ai-providers.md` labels as scaling
 with subscribers. **Closed 2026-08-30**: the shared explanation is written once per
-event in `event_impacts` and reused by every reader. Story Ask remains the on-demand
-personal path plan2 §36 asks for. See "Phase 2 — corrected and built" below.
+Story Ask is disabled; long-form story generation is a separate feature-flagged path.
+See the current server handler before relying on older plan2 status text.
 
 ### Where plan2 duplicates work already done better
 
@@ -115,7 +115,7 @@ phases ship.
    an unverified demand number risks silently hiding events a reader would have
    wanted.
 5. **Shared event impacts (plan2 phase 2 / §32–36) still stands on its own merits** —
-   independent of the above, low risk, replacement path (Story Ask) already exists.
+   independent of the above; Story Ask is currently disabled.
    Can be built in parallel, whenever convenient.
 6. **Translation** stays scoped in `localisation-plan.md`, not started, pending a
    product decision on timing.

@@ -1,9 +1,6 @@
 # Project status
 
-Last reviewed: 26 August 2026. **Counts and the V2 rows refreshed 30 August 2026**,
-verified against the live database (`npm run db:status`, `npm run verify:live` — 52
-checks, 0 failures). The narrative below each item is still the 26 August review and
-has not been re-walked claim by claim; only the counts and the V2 entries are current.
+Repository behavior reviewed 26 September 2026. Live database counts and payment/provider configuration below are historical snapshots from August 2026 and were not rechecked during this remediation.
 
 Real growth happened in the gap: the source list and topic vocabulary both expanded
 well past technology into general news. One `subscriptions` row shows
@@ -52,15 +49,15 @@ account that owns the key. A stranger cannot receive mail until
 | Matching (events → readers)                            | **Built** — 157 rows in `user_events`, free                       |
 | **V2: shared event impacts**                           | **Live** — one shared explanation per event, written inside the analysis call at zero extra token cost. The per-reader-per-story model call is gone |
 | **V2: pre-analysis demand gate**                       | **Live** — skipped 6/6 events in a real batch, 0 model calls      |
-| **V2: cached translation**                             | **Live schema, no rows** — six languages, keyed (event, language, content version). Nothing generated: no reader has chosen a non-English language |
+| **V2: cached translation**                             | **Cache/read path exists; generation dormant** — missing translations fall back to English |
 | **V2: custom sources**                                 | **Live** — Free 0 / Personal 5 / Pro 25, enforced in Postgres under an advisory lock |
 | **V2: demand-driven collection, adaptive polling**     | **Live, flags off** — tiers and eligibility computed and visible; behaviour unchanged until enabled |
 | **V2: cluster v2 skip**                                | **Built, off** — no shadow measurements exist yet                 |
 | **V2: cost intelligence**                              | **Live** — `/admin/cost`, counted from rows only                  |
 | Day-one backfill for a new account                     | **Built** — one query; pays only if empty                         |
-| Digest generation and delivery                         | **Built** — email only; quiet days skip honestly                  |
+| Digest generation and delivery                         | **Built** — email, browser push, linked Telegram; quiet days skip honestly |
 | Breaking alerts                                        | **Built** — none Free, 3/week Personal, 10/day Pro; atomic claims |
-| Story Ask                                              | **Built** — 10/day Flash Personal, 15/day Pro; atomic claims      |
+| Story Ask                                              | **Dormant** — endpoint returns disabled; every plan has a zero daily allowance |
 | Plan story limits                                      | **Built** — Deep caps 18/30/50; large briefings chunked           |
 | AI cost ceiling                                        | **Built** — monthly reservation ledger and global token budget    |
 | Staff pipeline page                                    | **Built** — live `getOverview` counts                             |
@@ -210,8 +207,7 @@ switches the paid half off entirely.
 
 ## What is not built
 
-**Telegram and WhatsApp delivery.** Email is the only channel that sends. The other two
-toggles store a preference and say so — they do not pretend a bot is connected.
+**WhatsApp delivery.** WhatsApp is not implemented and is rejected by plan enforcement. Email, browser push, and linked Telegram have delivery paths; live provider configuration still needs an environment-level check.
 
 The stages:
 
@@ -234,23 +230,17 @@ The stages:
    day-one path that runs the same code for a brand-new account was verified 24 August.
 6. ~~**Generate and deliver** — one paragraph per person per story, then send.~~ Built
    25 August 2026. `src/lib/pipeline/digest.ts` schedules on the reader's timezone,
-   writes `digest_items.why_it_matters` (the only per-reader model spend), skips with
-   zero items when nothing matched, and sends email through Resend with `deliveries`
-   retry. A quiet day is emailed as a quiet day, not padded. Cron `* * * * *`,
-   generating on every fifth minute and delivering on all of them, so the tick
+   builds digest items from shared event data without a per-reader model call, skips with zero items when nothing matched, and sends through configured channels with queued retry handling. A quiet day is emailed as a quiet day, not padded. Cron `* * * * *`,
+   generating on every minute and delivering on all of them, so the tick
    itself is not a source of lateness (0077).
    `npm run pipeline -- digest --user ID --now` builds a slot immediately.
 7. ~~**Breaking alerts** — out-of-schedule send for a newly matched event.~~ Built
    25 August 2026. `digests.kind = 'alert'`, no model call (`generation_tokens = 0`),
    email via the same `deliveries` path. `important` uses the Minimal floor (importance
    ≥ 6) and caps at three a week. Day-one backfill sets `skipAlerts`.
-8. ~~**Story Ask** — on-demand `reason` call against one event.~~ Built 25 August 2026.
-   `deep_explain` is on. A caller can only ask about an event in their `user_events`.
-   Fail-closed if the flag is missing. Free has 0 calls. Paid plans have a silent
-   daily ceiling (Personal 24, Pro 48) that is not advertised; off-topic and coding
-   asks are refused before a model call. 8s cooldown.
-   Quota is claimed in Postgres (`claim_ask`) so parallel requests
-   cannot drain the reason tier.
+8. **Story Ask is dormant.** The `askStory` endpoint returns `disabled`, and every plan
+   currently has a zero allowance. Its older claim/quota implementation is not an active
+   user feature.
 
 **The project has now spent money on both of the stages that ever will share it.**
 Clustering costs roughly 610 tokens per article; analysis costs roughly 1,846 tokens per
@@ -265,10 +255,7 @@ incoming event is matched against the nyuz catalogue first — the Stripe accoun
 with another product, so an unmatched price is ignored rather than trusted. It has been
 exercised with automated/test-mode coverage only. **A live payment still must be run before launch.**
 
-**Delivery.** Email briefing delivery exists: `deliveries` rows, Resend transport,
-idempotency keys, and retry of queued failures up to five attempts. Telegram and
-WhatsApp do not. `RESEND_FROM_EMAIL` is still the Resend onboarding address, which
-only delivers to the account that owns the key.
+**Delivery.** Email, browser push and linked Telegram have delivery paths with queued rows, idempotency or provider tags, and retry handling. WhatsApp is unavailable. The configured sending domain and live provider settings were not rechecked for this review.
 
 _Lifecycle_ email still works: welcome, subscription started,
 cancelled, payment failed and briefings-paused all send through Resend. The dormant-reader
@@ -302,7 +289,7 @@ drops CI-ref titles; cluster parks leftovers as failed events.
 is roughly 120 subrequests. **On the free plan this must come down**, and it is the only
 one of the three that must: there are seven stages — ingestion every fifteen
 minutes, clustering at `2,17,32,47`, classification at `8,23,38,53`, analysis at
-`9,24,39,54`, matching at `14,29,44,59`, digest every five minutes, and a daily dormant sweep —
+`9,24,39,54`, matching at `14,29,44,59`, digest generation and delivery every minute, and a daily dormant sweep —
 carried by **three** triggers, because Cloudflare registers three per Worker and
 silently drops the rest. The last five share `STAGES_CRON` and are told apart by
 the minute. Classification (0068) is free — deterministic keyword matching, no
