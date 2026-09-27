@@ -7,6 +7,17 @@
  * file as a route and warns that it exports no `Route`.
  */
 
+/** The Limits tab's one search param: which control a deep link should open. */
+export type SettingSearch = { setting?: string };
+
+/**
+ * Shared by the Limits tab and the old /admin/ai-runtime shim, so a deep link
+ * that survives the redirect is by construction one the tab accepts.
+ */
+export function parseSettingSearch(search: Record<string, unknown>): SettingSearch {
+  return typeof search["setting"] === "string" ? { setting: search["setting"] } : {};
+}
+
 /** USD with a dash for "unknown" — never a bare 0, which reads as a real price. */
 export function usd(value: number | null): string {
   return value === null

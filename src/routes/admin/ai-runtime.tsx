@@ -1,4 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { parseSettingSearch } from "./ai/-shared";
 
 /**
  * The old standalone AI-runtime page.
@@ -11,10 +12,11 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 export const Route = createFileRoute("/admin/ai-runtime")({
   beforeLoad: ({ search }) => {
     // Forward the ?setting= deep link so an old bookmark or status-card link
-    // still opens the exact control it named.
+    // still opens the exact control it named. Parsed by the tab's own
+    // validator, so nothing is forwarded that the tab would not accept.
     throw redirect({
       to: "/admin/ai/limits",
-      search: search as { setting?: string },
+      search: parseSettingSearch(search as Record<string, unknown>),
       replace: true,
     });
   },

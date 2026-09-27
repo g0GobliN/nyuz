@@ -21,6 +21,7 @@ import {
   type AiSettingView,
   type SaveAiRuntimeResult,
 } from "@/lib/server/ai-runtime";
+import { parseSettingSearch } from "./-shared";
 
 /**
  * Limits tab — emergency safety caps and runtime limits.
@@ -38,15 +39,12 @@ import {
  * that makes this confusing.
  */
 
-type SettingSearch = { setting?: string };
-
 export const Route = createFileRoute("/admin/ai/limits")({
   component: RuntimeTab,
   // Deep links from the AI status card land here with the offending control
   // named, so "Increase budget" opens the budget field rather than a page the
   // operator then has to search.
-  validateSearch: (search: Record<string, unknown>): SettingSearch =>
-    typeof search["setting"] === "string" ? { setting: search["setting"] } : {},
+  validateSearch: parseSettingSearch,
 });
 
 type Draft = Record<string, number | boolean | string>;
