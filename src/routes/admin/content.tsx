@@ -171,14 +171,8 @@ function SettingForm<T>({
   blocked?: string | undefined;
   children: ReactNode;
 }) {
-  const save = useConsoleMutation(saveSetting, [
-    ["admin", "settings"],
-    ["site", "content"],
-  ]);
-  const reset = useConsoleMutation(resetSetting, [
-    ["admin", "settings"],
-    ["site", "content"],
-  ]);
+  const save = useConsoleMutation(saveSetting, [["admin", "settings"]]);
+  const reset = useConsoleMutation(resetSetting, [["admin", "settings"]]);
 
   const overridden = row !== undefined;
   const edited = stable(value) !== stable(defaults);
@@ -944,10 +938,7 @@ function Flags({ flags }: { flags: FlagRow[] }) {
  * decision, which makes the log useless for answering "who changed this".
  */
 function FlagRowEditor({ flag }: { flag: FlagRow }) {
-  const save = useConsoleMutation(setFlag, [
-    ["admin", "settings"],
-    ["site", "content"],
-  ]);
+  const save = useConsoleMutation(setFlag, [["admin", "settings"]]);
   const [rollout, setRollout] = useState(flag.rolloutPercent);
 
   const commit = (enabled: boolean, percent: number) =>

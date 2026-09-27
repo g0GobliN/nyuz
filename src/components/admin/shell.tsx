@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
   AlertTriangle,
@@ -533,7 +533,10 @@ export { Loading } from "@/components/loading";
  */
 export function useConsoleMutation<TInput, TOutput>(
   fn: (input: TInput) => Promise<TOutput>,
-  invalidate: string[][],
+  // QueryKey, not string[][]: keys hold numbers too, and a string-only type
+  // pushed callers into String(days), which never matches a query keyed on the
+  // number — the refresh silently did nothing.
+  invalidate: readonly QueryKey[],
 ) {
   const qc = useQueryClient();
   return useMutation<TOutput, Error, TInput>({

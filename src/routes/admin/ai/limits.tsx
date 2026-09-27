@@ -73,7 +73,6 @@ function RuntimeTab() {
     ["admin", "ai-status"],
     ["admin", "ai-spend"],
     ["admin", "cost"],
-    ["admin", "ai-config"],
   ]);
   const reset = useConsoleMutation(resetAiRuntimeSetting, [
     ["admin", "ai-runtime"],

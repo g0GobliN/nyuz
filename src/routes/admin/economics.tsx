@@ -88,11 +88,11 @@ function EconomicsPage() {
     staleTime: 60_000,
   });
   const sync = useConsoleMutation(syncCloudflareBillableUsage, [
-    ["admin", "economics", String(days)],
+    ["admin", "economics", days],
     ["admin", "economics-manual"],
   ]);
   const syncSupabase = useConsoleMutation(syncSupabaseUsage, [
-    ["admin", "economics", String(days)],
+    ["admin", "economics", days],
   ]);
 
   return (
