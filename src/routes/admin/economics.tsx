@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ConsoleHeader,
   ErrorNote,
@@ -27,6 +27,17 @@ import {
   syncCloudflareBillableUsage,
   syncSupabaseUsage,
 } from "@/lib/server/economics";
+import {
+  getUnitEconomics,
+  saveOperatingCosts,
+} from "@/lib/server/cost-intelligence";
+import { Wrench } from "lucide-react";
+import {
+  COST_PROVIDERS,
+  type CostProvider,
+  type PlanEconomics,
+  type UnitEconomics,
+} from "@/lib/unit-economics";
 
 export const Route = createFileRoute("/admin/economics")({ component: EconomicsPage });
 
@@ -40,8 +51,20 @@ function usd(value: number | null): string {
   return value === null ? "Unavailable" : `$${value.toFixed(2)}`;
 }
 
+/**
+ * Page order is the argument the page makes, top to bottom:
+ *
+ * 1. Operating view — revenue, usage, and what the whole business cost.
+ * 2. Unit economics — the per-plan P&L that revenue and cost feed into.
+ * 3. Provider and AI detail — the ledger rows behind those totals.
+ * 4. Reconciliation and manual fallback — how the numbers got here.
+ *
+ * The two overview halves exist so the per-plan P&L sits directly under the
+ * totals it explains instead of below the provider tables that feed it.
+ */
 function EconomicsPage() {
   const [days, setDays] = useState<number>(30);
+  const [unitWindow, setUnitWindow] = useState<number>(30);
   const overview = useQuery({
     queryKey: ["admin", "economics", days],
     queryFn: () => getEconomicsOverview({ data: { days } }),
@@ -55,6 +78,13 @@ function EconomicsPage() {
   const manual = useQuery({
     queryKey: ["admin", "economics-manual"],
     queryFn: () => listEconomicsManualCosts(),
+    staleTime: 60_000,
+  });
+  // The validator names this input `days`; the local state is called
+  // unitWindow because it belongs to the unit-economics panel alone.
+  const unit = useQuery({
+    queryKey: ["admin", "unit-economics", unitWindow],
+    queryFn: () => getUnitEconomics({ data: { days: unitWindow } }),
     staleTime: 60_000,
   });
   const sync = useConsoleMutation(syncCloudflareBillableUsage, [
@@ -91,15 +121,30 @@ function EconomicsPage() {
       <ErrorNote error={manual.error} />
       <ErrorNote error={sync.error} />
       <ErrorNote error={syncSupabase.error} />
+      <ErrorNote error={unit.error} />
       {overview.isLoading ? <Loading label="Reading economics" /> : null}
-      {overview.data ? <Overview data={overview.data} /> : null}
+      {overview.data ? <OverviewTop data={overview.data} /> : null}
+      {unit.isLoading ? <Loading label="Counting unit economics" /> : null}
+      {unit.data ? (
+        <UnitEconomicsPanel
+          data={unit.data}
+          window={unitWindow}
+          setWindow={setUnitWindow}
+        />
+      ) : null}
+      {overview.data ? <OverviewDetail data={overview.data} /> : null}
       {history.data ? <Reconciliation data={history.data} /> : null}
       <ManualCosts rows={manual.data ?? []} />
     </>
   );
 }
 
-function Overview({ data }: { data: Awaited<ReturnType<typeof getEconomicsOverview>> }) {
+/**
+ * Operating view, top half: the headline figures, revenue, and volume. The
+ * cost breakdown lives in the bottom half beside the provider rows that
+ * produce it — one number, one home.
+ */
+function OverviewTop({ data }: { data: Awaited<ReturnType<typeof getEconomicsOverview>> }) {
   return (
     <div className="space-y-5">
       <Panel
@@ -115,22 +160,18 @@ function Overview({ data }: { data: Awaited<ReturnType<typeof getEconomicsOvervi
         </div>
       </Panel>
 
-      <StatGrid>
+      <StatGrid columns={3}>
         <Stat label="Net revenue · JPY" value={jpy(data.revenue.netJpy)} hint={data.revenue.netUsd === 0 ? "Exact zero · Stripe live ledger" : "Stripe live ledger · USD converted at captured rate"} />
         <Stat label="Operating cost · JPY" value={jpy(data.costs.totalOperatingJpy)} hint={data.costs.operatingStatus === "incomplete" ? "Incomplete provider coverage" : "Imported and captured"} />
         <Stat label="Projected month-end · JPY" value={jpy(data.costs.projectedOperatingJpy)} estimate hint="Current-period usage basis" />
-        <Stat label="Fully loaded P/L" value="Unavailable" hint="Shared allocation is not defensible yet" />
       </StatGrid>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <Panel title="Revenue and operating cost" note="Revenue is imported from the live Stripe ledger. Operating cost includes captured infrastructure, manual costs, and AI only when a JPY conversion is available.">
+        <Panel title="Revenue" note="Imported from the live Stripe ledger. Fees and refunds are shown gross of plan-level attribution, which appears in the per-plan P&L below.">
           <dl className="divide-y divide-[var(--hairline)] text-[13px]">
             <Row label="Gross revenue" value={usd(data.revenue.grossUsd)} />
             <Row label="Refunds" value={usd(data.revenue.refundsUsd)} />
             <Row label="Stripe fees" value={usd(data.revenue.stripeFeesUsd)} />
-            <Row label="Fixed/shared infrastructure" value={jpy(data.costs.fixedJpy)} />
-            <Row label="Variable infrastructure" value={jpy(data.costs.variableJpy)} />
-            <Row label="Total operating cost" value={jpy(data.costs.totalOperatingJpy)} note={data.costs.operatingStatus} />
           </dl>
         </Panel>
 
@@ -145,11 +186,28 @@ function Overview({ data }: { data: Awaited<ReturnType<typeof getEconomicsOvervi
           </dl>
         </Panel>
       </div>
+    </div>
+  );
+}
 
-      <Panel title="Cost composition" note="AI is one provider category. Its share is shown explicitly rather than defining the operating model.">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+/**
+ * Operating view, bottom half: everything the totals are made of. Cost
+ * composition now carries the fixed/variable/manual/total breakdown itself,
+ * so the operating cost number appears once at headline strength and once in
+ * the composition that adds up to it — not three times over.
+ */
+function OverviewDetail({ data }: { data: Awaited<ReturnType<typeof getEconomicsOverview>> }) {
+  return (
+    <div className="mt-5 space-y-5">
+      <Panel title="Cost composition" note="Fixed and variable infrastructure, manual fallbacks, and AI by provider category. AI is one input, shown explicitly rather than defining the operating model.">
+        <dl className="mb-4 divide-y divide-[var(--hairline)] text-[13px]">
+          <Row label="Fixed / captured infrastructure" value={jpy(data.costs.fixedJpy)} />
+          <Row label="Variable infrastructure" value={jpy(data.costs.variableJpy)} />
+          <Row label="Manual fallback" value={jpy(data.costs.manualJpy)} />
+          <Row label="Total operating cost" value={jpy(data.costs.totalOperatingJpy)} note={data.costs.operatingStatus} />
+        </dl>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {data.providers.filter((provider) => provider.provider !== "Stripe" && provider.provider !== "AI providers").map((provider) => <section key={provider.provider} className="rounded-xl border border-hairline bg-surface-2 p-3"><div className="text-[12px] font-medium capitalize">{provider.provider}</div><div className="mt-1 text-lg tabular-nums">{jpy(provider.actualJpy)}</div><div className="mt-1 text-[11px] text-muted-foreground">{provider.statuses.join(", ")}</div></section>)}
-          <section className="rounded-xl border border-hairline bg-surface-2 p-3"><div className="text-[12px] font-medium">AI providers</div><div className="mt-1 text-lg tabular-nums">{jpy(data.costs.aiJpy)}</div><div className="mt-1 text-[11px] text-muted-foreground">{data.costs.aiSharePct === null ? "Share unavailable" : `${data.costs.aiSharePct.toFixed(1)}% of operating cost`} · {formatNumber(data.ai.calls)} calls</div></section>
         </div>
       </Panel>
 
@@ -178,7 +236,7 @@ function Overview({ data }: { data: Awaited<ReturnType<typeof getEconomicsOvervi
         </div>
       </Panel>
 
-      <Panel title="Plan economics" note="Each paid plan shows revenue, payment fees, infrastructure, delivery, and AI separately. The contribution remains incomplete until non-AI attribution is available.">
+      <Panel title="Plan attribution" note="Infrastructure and delivery attribution per paid plan. Revenue, fees, and AI per plan are in the per-plan P&L above; this is the part of the picture those cards cannot show yet.">
         <div className="grid gap-4 md:grid-cols-2">
           {(["plura", "omni"] as const).map((plan) => {
             const row = data.users.plans[plan];
@@ -189,12 +247,8 @@ function Overview({ data }: { data: Awaited<ReturnType<typeof getEconomicsOvervi
                   <Pill tone="outline">{formatNumber(data.users.paid[plan])} active</Pill>
                 </div>
                 <dl className="mt-3 divide-y divide-[var(--hairline)] text-[13px]">
-                  <Row label="Revenue" value={usd(row.revenueUsd)} />
-                  <Row label="Stripe fees" value={usd(row.stripeFeesUsd)} />
                   <Row label="Infrastructure usage" value={jpy(row.infrastructureJpy)} />
                   <Row label="Delivery" value={usd(row.deliveryUsd)} />
-                  <Row label="AI" value={usd(row.aiUsd)} />
-                  <Row label="Known direct costs" value={usd(row.stripeFeesUsd + row.aiUsd)} />
                   <Row label="Marginal contribution" value={usd(row.contributionUsd)} note={row.contributionStatus === "incomplete" ? "incomplete attribution" : row.contributionStatus} />
                 </dl>
               </section>
@@ -230,7 +284,7 @@ function Overview({ data }: { data: Awaited<ReturnType<typeof getEconomicsOvervi
         )}
       </Panel>
 
-      <Panel title="AI details" note="AI is an operating category, not the product's accounting center. Change its behavior in Admin → AI runtime; Economics only reports its status and usage.">
+      <Panel title="AI details" note="AI is an operating category, not the product's accounting center. Change its behavior in Admin → AI; Economics only reports its status and usage.">
         <dl className="grid gap-x-6 divide-y divide-[var(--hairline)] text-[13px] sm:grid-cols-2 sm:divide-y-0">
           <Row label="Provider status" value={data.ai.killSwitchOn ? "Blocked" : "Allowed"} />
           <Row label="Calls" value={formatNumber(data.ai.calls)} />
@@ -239,6 +293,7 @@ function Overview({ data }: { data: Awaited<ReturnType<typeof getEconomicsOvervi
           <Row label="Unpriced calls" value={formatNumber(data.costs.unpricedAiCalls)} warn={data.costs.unpricedAiCalls > 0} />
           <Row label="Projected month-end spend" value={usd(data.costs.projectedAiUsd)} note="projected" />
           <Row label="AI cost share" value={data.costs.aiSharePct === null ? "Unavailable" : `${data.costs.aiSharePct.toFixed(1)}%`} />
+          <Row label="AI operating cost" value={jpy(data.costs.aiJpy)} note="window total" />
         </dl>
       </Panel>
 
@@ -316,4 +371,245 @@ function ManualCosts({ rows }: { rows: Awaited<ReturnType<typeof listEconomicsMa
 
 function Row({ label, value, note, warn }: { label: string; value: string; note?: string; warn?: boolean }) {
   return <div className="flex items-baseline justify-between gap-4 py-2.5"><dt className="text-muted-foreground">{label}{note ? <span className="ml-2 text-[11px]">{note}</span> : null}</dt><dd className={warn ? "font-semibold text-signal tabular-nums" : "tabular-nums"}>{value}</dd></div>;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Unit economics (moved from the AI cost page)                           */
+/* ---------------------------------------------------------------------- */
+
+const UNIT_WINDOWS = [7, 30, 90] as const;
+
+const OVERHEAD_LABELS: Record<CostProvider, string> = {
+  cloudflare: "Cloudflare",
+  supabase: "Supabase",
+  resend: "Resend / email",
+  domain: "Domain",
+  other: "Other",
+};
+
+/**
+ * Per-plan unit economics.
+ *
+ * Lived on the AI cost page because shared-AI allocation was its first cost
+ * driver; it is a business P&L, so it belongs beside revenue, fees and the
+ * operating-cost ledger rather than inside the AI hub. Sits between the two
+ * overview halves: the headline totals above it are what its per-plan cards
+ * divide up, and the provider detail below it is what those totals are made
+ * of. The attribution rows still in "Plan attribution" above are the ones
+ * these cards cannot compute — infrastructure and delivery are not in the
+ * billing ledger yet.
+ */
+function UnitEconomicsPanel({
+  data,
+  window,
+  setWindow,
+}: {
+  data: UnitEconomics;
+  window: number;
+  setWindow: (days: number) => void;
+}) {
+  const initial = useMemo(
+    () =>
+      Object.fromEntries(
+        COST_PROVIDERS.map((provider) => {
+          const stored = data.operatingCosts.find((row) => row.provider === provider);
+          return [provider, stored ? (stored.monthly_cents / 100).toFixed(2) : ""];
+        }),
+      ) as Record<CostProvider, string>,
+    [data.operatingCosts],
+  );
+  const [costs, setCosts] = useState<Record<CostProvider, string>>(initial);
+  const [showOverhead, setShowOverhead] = useState(false);
+  const save = useConsoleMutation(saveOperatingCosts, [["admin", "unit-economics"]]);
+
+  useEffect(() => setCosts(initial), [initial]);
+
+  const submit = () => {
+    const cents = Object.fromEntries(
+      COST_PROVIDERS.map((provider) => [provider, Math.round(Number(costs[provider]) * 100)]),
+    ) as Record<CostProvider, number>;
+    if (Object.values(cents).some((value) => !Number.isFinite(value) || value < 0)) return;
+    save.mutate({ data: { costs: cents } });
+  };
+
+  if (data.payingCustomersAllTime === 0) {
+    return (
+      <div className="mb-5">
+        <Panel title="Unit economics">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-[13.5px] text-muted-foreground">No paying customers yet.</p>
+              <p className="text-[12px] text-muted-foreground">
+                Detailed unit economics will appear once revenue exists.
+              </p>
+            </div>
+            <div className="flex items-center gap-4 text-[12px]">
+              <span>
+                Shared AI: <strong>${data.sharedAiUsd.toFixed(2)}</strong>
+              </span>
+              <span>
+                Overhead: <strong>${data.overheadMonthlyUsd.toFixed(2)}</strong>
+              </span>
+              <Button size="sm" variant="outline" onClick={() => setShowOverhead(!showOverhead)}>
+                <Wrench className="mr-1 h-3 w-3" />
+                Configure overhead
+              </Button>
+            </div>
+          </div>
+
+          {showOverhead && (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              {COST_PROVIDERS.map((provider) => (
+                <Field key={provider} label={OVERHEAD_LABELS[provider]}>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-[18px] text-[13px] text-muted-foreground">
+                      $
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={costs[provider]}
+                      onChange={(event) =>
+                        setCosts((current) => ({ ...current, [provider]: event.target.value }))
+                      }
+                      className={`${inputClass} pl-7`}
+                    />
+                  </div>
+                </Field>
+              ))}
+              <div className="flex items-end pb-1">
+                <Button onClick={submit} disabled={save.isPending} size="sm">
+                  {save.isPending ? "Saving…" : "Save"}
+                </Button>
+              </div>
+              {save.isSuccess ? (
+                <span className="text-[12px] text-muted-foreground">Saved</span>
+              ) : null}
+              <ErrorNote error={save.error} />
+            </div>
+          )}
+        </Panel>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-5 space-y-5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="mr-2 text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+          Unit economics
+        </span>
+        {UNIT_WINDOWS.map((w) => (
+          <Chip key={w} active={window === w} onClick={() => setWindow(w)}>
+            {w} days
+          </Chip>
+        ))}
+      </div>
+
+      <Panel title={`Unit economics · last ${data.windowDays} days`}>
+        <StatGrid columns={3}>
+          <Stat label="Paying customers" value={formatNumber(data.payingCustomersAllTime)} />
+          <Stat label="Monthly overhead" value={`$${data.overheadMonthlyUsd.toFixed(2)}`} />
+          <Stat label="Shared AI in window" value={`$${data.sharedAiUsd.toFixed(2)}`} />
+        </StatGrid>
+
+        {!data.complete ? (
+          <div className="mt-4 rounded-xl border border-border bg-surface-2 px-4 py-3">
+            <p className="text-[12.5px] font-semibold">
+              Margin withheld until the ledger is complete
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-[12px] text-muted-foreground">
+              {data.incompleteReasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <PlanCard name="Plura · $14.99" data={data.plans.plura} complete={data.complete} />
+          <PlanCard name="Omni · $29.99" data={data.plans.omni} complete={data.complete} />
+        </div>
+      </Panel>
+
+      <Panel
+        title="Actual monthly overhead"
+        note="Enter the monthly equivalent from each real invoice. These figures feed the overhead allocation in the per-plan cards above."
+      >
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {COST_PROVIDERS.map((provider) => (
+            <Field key={provider} label={OVERHEAD_LABELS[provider]}>
+              <div className="relative">
+                <span className="absolute left-3.5 top-[18px] text-[13px] text-muted-foreground">
+                  $
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  value={costs[provider]}
+                  onChange={(event) =>
+                    setCosts((current) => ({ ...current, [provider]: event.target.value }))
+                  }
+                  className={`${inputClass} pl-7`}
+                />
+              </div>
+            </Field>
+          ))}
+        </div>
+        <div className="mt-4 flex items-center gap-3">
+          <Button onClick={submit} disabled={save.isPending} size="sm">
+            {save.isPending ? "Saving…" : "Save overhead"}
+          </Button>
+          {save.isSuccess ? <span className="text-[12px] text-muted-foreground">Saved</span> : null}
+        </div>
+        <ErrorNote error={save.error} />
+      </Panel>
+    </div>
+  );
+}
+
+/**
+ * One paid plan's P&L for the window.
+ *
+ * "Known direct costs" is fees plus AI — the costs attributable to a specific
+ * customer's payment. Overhead and shared AI allocations are excluded from
+ * that subtotal on purpose: they are divided across the base, not caused by
+ * the plan, and the margin line is withheld entirely until the ledger is
+ * complete so a subtotal never reads as a total.
+ */
+function PlanCard({
+  name,
+  data,
+  complete,
+}: {
+  name: string;
+  data: PlanEconomics;
+  complete: boolean;
+}) {
+  // One row style across the page: the same Row component the operating
+  // panels use, so the per-plan labels stay greppable in one form.
+  return (
+    <section className="rounded-2xl border border-hairline bg-surface-2 p-4">
+      <h3 className="text-[14px] font-semibold">{name}</h3>
+      <dl className="mt-3 divide-y divide-[var(--hairline)] text-[13px]">
+        <Row label="Customers in window" value={formatNumber(data.customers)} />
+        <Row label="Recognized revenue" value={usd(data.recognizedRevenueUsd)} />
+        <Row label="Refunds" value={usd(data.refundsUsd)} />
+        <Row label="Stripe fees" value={usd(data.stripeFeesUsd)} />
+        <Row label="Direct AI" value={usd(data.directAiUsd)} />
+        <Row label="P95 direct AI / customer" value={usd(data.p95DirectAiUsd)} />
+        <Row label="Known direct costs" value={usd(data.stripeFeesUsd + data.directAiUsd)} />
+        <Row label="Shared AI allocation" value={usd(data.sharedAiUsd)} />
+        <Row label="Overhead allocation" value={usd(data.overheadUsd)} />
+        <Row label={complete ? "Total cost" : "Known cost subtotal"} value={usd(data.totalCostUsd)} />
+        <Row label="Cost / customer" value={usd(data.costPerCustomerUsd)} />
+        <Row label={complete ? "Contribution" : "Known contribution subtotal"} value={usd(data.contributionUsd)} />
+        <Row label="Gross margin" value={data.marginPct === null ? "—" : `${data.marginPct.toFixed(1)}%`} />
+      </dl>
+    </section>
+  );
 }

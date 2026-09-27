@@ -126,7 +126,7 @@ export function deriveAiStatus(params: {
       "blocked",
       { kind: "kill_switch" },
       "AI kill switch enabled.",
-      { label: "Manage AI runtime", settingKey: KILL_SWITCH_SETTING_KEY },
+      { label: "Open AI kill switch", settingKey: KILL_SWITCH_SETTING_KEY },
       usedPct,
       params,
     );

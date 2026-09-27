@@ -44,6 +44,10 @@ import { Route as DashboardSettingsRouteImport } from './routes/dashboard/settin
 import { Route as DashboardSourcesRouteImport } from './routes/dashboard/sources'
 import { Route as DashboardTopicsRouteImport } from './routes/dashboard/topics'
 import { Route as LegalDocRouteImport } from './routes/legal/$doc'
+import { Route as AdminAiIndexRouteImport } from './routes/admin/ai/index'
+import { Route as AdminAiLimitsRouteImport } from './routes/admin/ai/limits'
+import { Route as AdminAiProvidersRouteImport } from './routes/admin/ai/providers'
+import { Route as AdminAiSpendRouteImport } from './routes/admin/ai/spend'
 import { Route as AdminStoryIdRouteImport } from './routes/admin/story/$id'
 import { Route as DashboardAlertsIndexRouteImport } from './routes/dashboard/alerts/index'
 import { Route as DashboardAlertsHistoryRouteImport } from './routes/dashboard/alerts/history'
@@ -224,6 +228,26 @@ const LegalDocRoute = LegalDocRouteImport.update({
   path: '/legal/$doc',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminAiIndexRoute = AdminAiIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminAiRoute,
+} as any)
+const AdminAiLimitsRoute = AdminAiLimitsRouteImport.update({
+  id: '/limits',
+  path: '/limits',
+  getParentRoute: () => AdminAiRoute,
+} as any)
+const AdminAiProvidersRoute = AdminAiProvidersRouteImport.update({
+  id: '/providers',
+  path: '/providers',
+  getParentRoute: () => AdminAiRoute,
+} as any)
+const AdminAiSpendRoute = AdminAiSpendRouteImport.update({
+  id: '/spend',
+  path: '/spend',
+  getParentRoute: () => AdminAiRoute,
+} as any)
 const AdminStoryIdRoute = AdminStoryIdRouteImport.update({
   id: '/story/$id',
   path: '/story/$id',
@@ -256,7 +280,7 @@ export interface FileRoutesByFullPath {
   '/pricing': typeof PricingRoute
   '/support': typeof SupportRoute
   '/admin/access': typeof AdminAccessRoute
-  '/admin/ai': typeof AdminAiRoute
+  '/admin/ai': typeof AdminAiRouteWithChildren
   '/admin/ai-runtime': typeof AdminAiRuntimeRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/blog': typeof AdminBlogRoute
@@ -281,9 +305,13 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/blog/': typeof BlogIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/admin/ai/limits': typeof AdminAiLimitsRoute
+  '/admin/ai/providers': typeof AdminAiProvidersRoute
+  '/admin/ai/spend': typeof AdminAiSpendRoute
   '/admin/story/$id': typeof AdminStoryIdRoute
   '/dashboard/alerts/history': typeof DashboardAlertsHistoryRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
+  '/admin/ai/': typeof AdminAiIndexRoute
   '/dashboard/alerts/': typeof DashboardAlertsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -295,7 +323,6 @@ export interface FileRoutesByTo {
   '/pricing': typeof PricingRoute
   '/support': typeof SupportRoute
   '/admin/access': typeof AdminAccessRoute
-  '/admin/ai': typeof AdminAiRoute
   '/admin/ai-runtime': typeof AdminAiRuntimeRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/blog': typeof AdminBlogRoute
@@ -320,9 +347,13 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/blog': typeof BlogIndexRoute
   '/dashboard': typeof DashboardIndexRoute
+  '/admin/ai/limits': typeof AdminAiLimitsRoute
+  '/admin/ai/providers': typeof AdminAiProvidersRoute
+  '/admin/ai/spend': typeof AdminAiSpendRoute
   '/admin/story/$id': typeof AdminStoryIdRoute
   '/dashboard/alerts/history': typeof DashboardAlertsHistoryRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
+  '/admin/ai': typeof AdminAiIndexRoute
   '/dashboard/alerts': typeof DashboardAlertsIndexRoute
 }
 export interface FileRoutesById {
@@ -337,7 +368,7 @@ export interface FileRoutesById {
   '/pricing': typeof PricingRoute
   '/support': typeof SupportRoute
   '/admin/access': typeof AdminAccessRoute
-  '/admin/ai': typeof AdminAiRoute
+  '/admin/ai': typeof AdminAiRouteWithChildren
   '/admin/ai-runtime': typeof AdminAiRuntimeRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/blog': typeof AdminBlogRoute
@@ -362,9 +393,13 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/blog/': typeof BlogIndexRoute
   '/dashboard/': typeof DashboardIndexRoute
+  '/admin/ai/limits': typeof AdminAiLimitsRoute
+  '/admin/ai/providers': typeof AdminAiProvidersRoute
+  '/admin/ai/spend': typeof AdminAiSpendRoute
   '/admin/story/$id': typeof AdminStoryIdRoute
   '/dashboard/alerts/history': typeof DashboardAlertsHistoryRoute
   '/dashboard/story/$id': typeof DashboardStoryIdRoute
+  '/admin/ai/': typeof AdminAiIndexRoute
   '/dashboard/alerts/': typeof DashboardAlertsIndexRoute
 }
 export interface FileRouteTypes {
@@ -405,9 +440,13 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/blog/'
     | '/dashboard/'
+    | '/admin/ai/limits'
+    | '/admin/ai/providers'
+    | '/admin/ai/spend'
     | '/admin/story/$id'
     | '/dashboard/alerts/history'
     | '/dashboard/story/$id'
+    | '/admin/ai/'
     | '/dashboard/alerts/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -419,7 +458,6 @@ export interface FileRouteTypes {
     | '/pricing'
     | '/support'
     | '/admin/access'
-    | '/admin/ai'
     | '/admin/ai-runtime'
     | '/admin/audit'
     | '/admin/blog'
@@ -444,9 +482,13 @@ export interface FileRouteTypes {
     | '/admin'
     | '/blog'
     | '/dashboard'
+    | '/admin/ai/limits'
+    | '/admin/ai/providers'
+    | '/admin/ai/spend'
     | '/admin/story/$id'
     | '/dashboard/alerts/history'
     | '/dashboard/story/$id'
+    | '/admin/ai'
     | '/dashboard/alerts'
   id:
     | '__root__'
@@ -485,9 +527,13 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/blog/'
     | '/dashboard/'
+    | '/admin/ai/limits'
+    | '/admin/ai/providers'
+    | '/admin/ai/spend'
     | '/admin/story/$id'
     | '/dashboard/alerts/history'
     | '/dashboard/story/$id'
+    | '/admin/ai/'
     | '/dashboard/alerts/'
   fileRoutesById: FileRoutesById
 }
@@ -753,6 +799,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LegalDocRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/ai/': {
+      id: '/admin/ai/'
+      path: '/'
+      fullPath: '/admin/ai/'
+      preLoaderRoute: typeof AdminAiIndexRouteImport
+      parentRoute: typeof AdminAiRoute
+    }
+    '/admin/ai/limits': {
+      id: '/admin/ai/limits'
+      path: '/limits'
+      fullPath: '/admin/ai/limits'
+      preLoaderRoute: typeof AdminAiLimitsRouteImport
+      parentRoute: typeof AdminAiRoute
+    }
+    '/admin/ai/providers': {
+      id: '/admin/ai/providers'
+      path: '/providers'
+      fullPath: '/admin/ai/providers'
+      preLoaderRoute: typeof AdminAiProvidersRouteImport
+      parentRoute: typeof AdminAiRoute
+    }
+    '/admin/ai/spend': {
+      id: '/admin/ai/spend'
+      path: '/spend'
+      fullPath: '/admin/ai/spend'
+      preLoaderRoute: typeof AdminAiSpendRouteImport
+      parentRoute: typeof AdminAiRoute
+    }
     '/admin/story/$id': {
       id: '/admin/story/$id'
       path: '/story/$id'
@@ -784,9 +858,26 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AdminAiRouteChildren {
+  AdminAiLimitsRoute: typeof AdminAiLimitsRoute
+  AdminAiProvidersRoute: typeof AdminAiProvidersRoute
+  AdminAiSpendRoute: typeof AdminAiSpendRoute
+  AdminAiIndexRoute: typeof AdminAiIndexRoute
+}
+
+const AdminAiRouteChildren: AdminAiRouteChildren = {
+  AdminAiLimitsRoute: AdminAiLimitsRoute,
+  AdminAiProvidersRoute: AdminAiProvidersRoute,
+  AdminAiSpendRoute: AdminAiSpendRoute,
+  AdminAiIndexRoute: AdminAiIndexRoute,
+}
+
+const AdminAiRouteWithChildren =
+  AdminAiRoute._addFileChildren(AdminAiRouteChildren)
+
 interface AdminRouteChildren {
   AdminAccessRoute: typeof AdminAccessRoute
-  AdminAiRoute: typeof AdminAiRoute
+  AdminAiRoute: typeof AdminAiRouteWithChildren
   AdminAiRuntimeRoute: typeof AdminAiRuntimeRoute
   AdminAuditRoute: typeof AdminAuditRoute
   AdminBlogRoute: typeof AdminBlogRoute
@@ -803,7 +894,7 @@ interface AdminRouteChildren {
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminAccessRoute: AdminAccessRoute,
-  AdminAiRoute: AdminAiRoute,
+  AdminAiRoute: AdminAiRouteWithChildren,
   AdminAiRuntimeRoute: AdminAiRuntimeRoute,
   AdminAuditRoute: AdminAuditRoute,
   AdminBlogRoute: AdminBlogRoute,

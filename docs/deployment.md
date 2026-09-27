@@ -182,7 +182,7 @@ both could disagree indefinitely with nothing reporting it.
 `AI_MONTHLY_TOKEN_BUDGET=20000000` and `AI_MONTHLY_COST_USD=10` remain useful as
 **bootstrap values only** — they are what a deployment runs on before anyone opens the
 console, and they are ignored the moment an admin value is saved. Set them once if you
-want a sane starting point; do not treat them as the place to tune. The AI runtime page
+want a sane starting point; do not treat them as the place to tune. The AI console's Limits tab
 shows, per setting, whether the value in force came from the database, the environment
 or the built-in default, so there is never a question about which one is live.
 
@@ -209,7 +209,7 @@ missing binding, not a production capacity: measured against the current prompts
 card, a Flash clustering call settles at ~849 tokens and a Pro analysis at ~7,448, so $10 of
 spend corresponds to somewhere between 6.1M tokens (all analysis) and 20.8M (all
 clustering). At 500,000 the token ceiling binds within days and the pipeline stops
-mid-month while `/admin/cost` still shows dollars unspent — the failure looks like a
+mid-month while `/admin/ai/spend` still shows dollars unspent — the failure looks like a
 provider outage, not a budget. `5000000` is still under the whole range and would bind
 first as well. 20,000,000 puts the dollar ceiling in front for every plausible mix, and
 leaves the token cap doing the job it is actually good at: catching a loop that generates
@@ -224,7 +224,7 @@ The Stripe endpoint must send `checkout.session.completed`,
 `customer.subscription.created`, `customer.subscription.updated`,
 `customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed`,
 `charge.succeeded`, and `charge.refunded`. The succeeded/refunded events populate the private
-unit-economics ledger; omitting them keeps gross margin deliberately unavailable in `/admin/cost`.
+unit-economics ledger; omitting them keeps gross margin deliberately unavailable in `/admin/economics`.
 
 **`--name` is not optional here.** There is no `wrangler.toml` at the root — the config is
 generated into `.output/server/wrangler.json` at build time, and only `deploy` and `dev`
@@ -330,12 +330,12 @@ Before enabling payments, reconcile the pre-fix pipeline backlog once:
       external `/api/health` monitor returns 200 after cron runs
 - [ ] Supabase Site URL, recovery redirect, OAuth callbacks, SMTP and auth rate/CAPTCHA
       controls configured for `https://nyuz.app`
-- [ ] `/admin/cost` checked after the first 48 hours: the projected month-end figure must sit
+- [ ] `/admin/ai/spend` checked after the first 48 hours: the projected month-end figure must sit
       under the monthly AI budget, or the pipeline will stop partway through the month.
       Reduce active sources or raise the ceiling — do not leave a projection that overruns
 - [ ] Stripe uses live mode; four active recurring USD prices are exactly $14.99/$149.90 and $29.99/$299.90;
       all documented webhook events enabled; webhook endpoint, refund sync and customer portal tested end to end
-- [ ] `/admin/cost` has actual monthly Cloudflare, Supabase, Resend, domain and other costs saved;
+- [ ] `/admin/economics` has actual monthly Cloudflare, Supabase, Resend, domain and other costs saved;
       a live test payment appears with its Stripe fee before relying on the displayed margin
 - [ ] A current database export is stored outside Supabase (Free has no automatic backups)
 - [x] `ENTITY` filled in `src/routes/legal/$doc.tsx` (sole trader, Japan; contact / privacy / security / billing @nyuz.app)

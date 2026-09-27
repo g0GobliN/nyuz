@@ -12,7 +12,6 @@ import {
   Rss,
   ScrollText,
   ShieldCheck,
-  SlidersHorizontal,
   Users,
   Activity,
   X,
@@ -62,11 +61,10 @@ const NAV: NavEntry[] = [
   { to: "/admin/blog", label: "Blog", icon: FileText },
   { to: "/admin/access", label: "Access", icon: DoorClosed },
   // AI remains available, but it is a secondary subsystem: the core pipeline
-  // must be understandable and healthy even when AI is disabled.
-  { to: "/admin/ai", label: "AI providers", icon: Cpu },
-  { to: "/admin/ai-runtime", label: "AI runtime", icon: SlidersHorizontal },
+  // must be understandable and healthy even when AI is disabled. One hub, four
+  // tabs — see src/routes/admin/ai.tsx.
+  { to: "/admin/ai", label: "AI", icon: Cpu },
   { to: "/admin/economics", label: "Economics", icon: Coins },
-  { to: "/admin/cost", label: "AI cost", icon: Coins },
   { to: "/admin/audit", label: "Audit log", icon: ScrollText },
 ];
 
@@ -146,6 +144,41 @@ export function AdminLayout() {
       )
     : 0;
 
+  const statusCardClass =
+    "rounded-2xl border border-hairline bg-surface-2 p-4 transition-colors duration-200 hover:border-border";
+
+  const statusCardBody = (
+    <>
+      <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+        <Activity className="h-3.5 w-3.5" /> AI Status
+      </p>
+      <p className={cn("mt-1 text-[13px] font-semibold capitalize", statusColor)}>
+        {aiStatusLoading ? "…" : statusLabel}
+      </p>
+      {aiStatus ? (
+        <div
+          className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label="Highest active AI limit usage"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(aiLoad)}
+        >
+          <span
+            className={cn(
+              "block h-full rounded-full",
+              aiLoad >= 70 ? "bg-signal" : "bg-foreground",
+            )}
+            style={{ width: `${aiLoad}%` }}
+          />
+        </div>
+      ) : null}
+      {aiStatus && aiStatus.blocker.kind !== "none" ? (
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{aiStatus.blockerLabel}</p>
+      ) : null}
+    </>
+  );
+
   return (
     <div className="min-h-screen min-w-0 overflow-x-clip bg-surface-2">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-hairline bg-surface px-4 py-5 lg:flex">
@@ -163,41 +196,30 @@ export function AdminLayout() {
           ))}
         </nav>
 
-        {/* A link, not a read-out. The status this shows is almost always
-            checked by someone who then wants to change something about it, and
-            the setting that would is one tap away. */}
-        <Link
-          to="/admin/ai-runtime"
-          className="rounded-2xl border border-hairline bg-surface-2 p-4 transition-colors duration-200 hover:border-border"
-        >
-          <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-            <Activity className="h-3.5 w-3.5" /> AI Status
-          </p>
-          <p className={cn("mt-1 text-[13px] font-semibold capitalize", statusColor)}>
-            {aiStatusLoading ? "…" : statusLabel}
-          </p>
-          {aiStatus ? (
-            <div
-              className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
-              role="progressbar"
-              aria-label="Highest active AI limit usage"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(aiLoad)}
-            >
-              <span
-                className={cn(
-                  "block h-full rounded-full",
-                  aiLoad >= 70 ? "bg-signal" : "bg-foreground",
-                )}
-                style={{ width: `${aiLoad}%` }}
-              />
-            </div>
-          ) : null}
-          {aiStatus && aiStatus.blocker.kind !== "none" ? (
-            <p className="mt-0.5 text-[11px] text-muted-foreground">{aiStatus.blockerLabel}</p>
-          ) : null}
-        </Link>
+        {/* A link, not a read-out — and when the status names what is wrong,
+            the card goes there: the exact limit control on the Limits tab
+            when the blocker carries one, the top-up form on Spend when
+            provider credit is the problem, the hub otherwise. */}
+        {aiStatus?.action && aiStatus.action.settingKey ? (
+          <Link
+            to="/admin/ai/limits"
+            search={{ setting: aiStatus.action.settingKey }}
+            className={statusCardClass}
+          >
+            {statusCardBody}
+          </Link>
+        ) : aiStatus &&
+          (aiStatus.credit.status === "low" ||
+            aiStatus.credit.status === "exhausted" ||
+            aiStatus.credit.status === "unrecorded") ? (
+          <Link to="/admin/ai/spend" hash="record-topup" className={statusCardClass}>
+            {statusCardBody}
+          </Link>
+        ) : (
+          <Link to="/admin/ai" className={statusCardClass}>
+            {statusCardBody}
+          </Link>
+        )}
 
         <div className="rounded-2xl border border-hairline bg-surface-2 p-4">
           <p className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
@@ -399,9 +421,22 @@ export function Stat({
   );
 }
 
-export function StatGrid({ children }: { children: ReactNode }) {
+export function StatGrid({
+  children,
+  columns = 4,
+}: {
+  children: ReactNode;
+  // The hairline background shows through any empty cell, so a three-stat row
+  // in the four-column grid reads as a blank fourth tile. Say 3 for those.
+  columns?: 3 | 4;
+}) {
   return (
-    <div className="grid gap-px overflow-hidden rounded-xl border border-hairline bg-hairline sm:grid-cols-2 lg:grid-cols-4">
+    <div
+      className={cn(
+        "grid gap-px overflow-hidden rounded-xl border border-hairline bg-hairline",
+        columns === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2 lg:grid-cols-4",
+      )}
+    >
       {children}
     </div>
   );

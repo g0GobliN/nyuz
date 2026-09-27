@@ -62,7 +62,7 @@ export const DEFAULT_AI_MONTHLY_TOKEN_BUDGET = 500_000;
  * loop; this bounds the invoice, which is the number the operator has to pay.
  *
  * Ten dollars because that is the stated starting budget. Raise it once paying
- * customers cover it — `/admin/cost` shows burn against this figure.
+ * customers cover it — `/admin/ai/spend` shows burn against this figure.
  */
 export const DEFAULT_AI_MONTHLY_COST_USD = 10;
 

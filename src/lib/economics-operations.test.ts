@@ -35,3 +35,33 @@ describe("economics dashboard hierarchy", () => {
     expect(ROUTE).toContain('label="Known direct costs"');
   });
 });
+
+const COST_INTELLIGENCE = readFileSync("src/lib/server/cost-intelligence.ts", "utf8");
+
+describe("unit economics query contract", () => {
+  // History: this page once passed `{ unitWindow }` to a validator that names
+  // its input `days`. Zod strips unknown keys, so `days` went missing and the
+  // request failed at runtime - invisible to types and to the build. These
+  // assertions pin both halves of the contract so a rename cannot repeat it.
+  it("server validates a days input and wires it to getUnitEconomics", () => {
+    expect(COST_INTELLIGENCE).toContain(
+      "const unitEconomicsInput = z.object({ days: z.number().int().min(1).max(365) })",
+    );
+    const fnStart = COST_INTELLIGENCE.indexOf("export const getUnitEconomics");
+    expect(fnStart).toBeGreaterThan(-1);
+    const fnEnd = COST_INTELLIGENCE.indexOf("export const", fnStart + 1);
+    const body = COST_INTELLIGENCE.slice(fnStart, fnEnd === -1 ? undefined : fnEnd);
+    expect(body).toContain("parseInput(unitEconomicsInput");
+  });
+
+  it("route passes days from the same variable its cache key tracks", () => {
+    const call = "getUnitEconomics({ data: { days: unitWindow } })";
+    const first = ROUTE.indexOf(call);
+    expect(first).toBeGreaterThanOrEqual(0);
+    // Exactly one call site on this page, so a second one cannot drift.
+    expect(ROUTE.indexOf(call, first + 1)).toBe(-1);
+    // A different variable here than in the input means switching windows
+    // refetches with the wrong value or serves a stale window.
+    expect(ROUTE).toContain('queryKey: ["admin", "unit-economics", unitWindow]');
+  });
+});
