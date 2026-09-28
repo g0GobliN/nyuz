@@ -6,6 +6,7 @@ import {
   EVENT_ID,
 } from "@/lib/test-support/news-pipeline";
 import { asDb, type FakeDb } from "@/lib/test-support/fake-db";
+import * as readerEvidence from "@/lib/reader-evidence";
 const paid = vi.hoisted(() =>
   vi.fn(() => {
     throw new Error("Unexpected AI");
@@ -34,7 +35,7 @@ vi.mock("@tanstack/react-start", () => ({
     return builder;
   },
 }));
-import { generateStory, loadHomeFeed, loadStory, startFirstBriefing } from "./briefing";
+import { loadHomeFeed, loadStory, startFirstBriefing } from "./briefing";
 import { composeArticle } from "@/lib/editorial";
 import type { Story } from "@/lib/story";
 const run = async (fn: unknown, db: FakeDb, data?: unknown) => {
@@ -54,53 +55,117 @@ describe("reader flows never buy background synthesis", () => {
     expect(db.rows("events")[0]?.["status"]).toBe("complete");
     expect(paid).not.toHaveBeenCalled();
   });
-  it.each([true, false])(
-    "story metadata prefetch=%s returns content without generation",
-    async (prefetch) => {
-      const db = newsPipelineFixture();
-      seedPendingNews(db);
-      await run(startFirstBriefing, db);
-      const story = await run(loadStory, db, { id: EVENT_ID, prefetch });
-      expect(story).toMatchObject({
-        id: EVENT_ID,
-        title: "OpenAI releases new model for developers",
-      });
-      expect(db.rpcCalls.some((c) => c.fn === "claim_shared_story")).toBe(false);
-      expect(paid).not.toHaveBeenCalled();
-    },
-  );
-  it("returns paid prose without requiring a database reload after a save outage", async () => {
+  it("story hydration returns source-backed content without querying stored AI prose", async () => {
     const db = newsPipelineFixture();
     seedPendingNews(db);
     await run(startFirstBriefing, db);
-    db.rpcs["claim_shared_story"] = () => "won";
-    db.rpcs["begin_shared_story_attempt"] = () => true;
-    db.rpcs["stage_shared_story"] = () => {
-      throw new Error("Storage write outage");
-    };
-    const response = {
-      content: JSON.stringify({
-        deck: { text: "A supported introduction.", evidence: [1] },
-        paragraphs: [{ text: "Source-supported details.", evidence: [1] }],
-      }),
-    };
-    paid.mockImplementationOnce((async (options: {
-      beforeProvider: (id: string) => Promise<void>;
-    }) => {
-      await options.beforeProvider("usage");
-      db.hooks.afterSelect = () => {
-        throw new Error("No database reload after paid output");
-      };
-      return response;
-    }) as never);
-    expect(await run(generateStory, db, { id: EVENT_ID, explicitOpen: true })).toMatchObject({
-      status: "generated",
-      story: {
-        id: EVENT_ID,
-        understand: { article: { deck: { text: "A supported introduction." } } },
-      },
+    const loaded = await run(loadStory, db, { id: EVENT_ID });
+    expect(loaded).toMatchObject({
+      id: EVENT_ID,
+      title: "OpenAI releases new model for developers",
     });
-    expect(paid).toHaveBeenCalledTimes(1);
+    expect(loaded).not.toHaveProperty("understand");
+    expect(db.rpcCalls.some((c) => c.fn === "claim_shared_story")).toBe(false);
+    expect(paid).not.toHaveBeenCalled();
+  });
+  it("never returns generated-understanding cache content", async () => {
+    const db = newsPipelineFixture();
+    seedPendingNews(db);
+    await run(startFirstBriefing, db);
+    db.rows("event_understanding").push({
+      event_id: EVENT_ID,
+      payload: {
+        version: 2,
+        coverage: "normal",
+        oneSentence: "The model says a bridge collapsed.",
+        article: { deck: { text: "A generated bridge story.", evidence: [1] }, paragraphs: [] },
+      },
+      status: "ready",
+      updated_at: new Date().toISOString(),
+    });
+    db.rows("events")[0]!["understand"] = {
+      version: 2,
+      coverage: "normal",
+      oneSentence: "The legacy model says a bridge collapsed.",
+    };
+
+    const story = (await run(loadStory, db, { id: EVENT_ID })) as Story;
+    expect(story).not.toHaveProperty("understand");
+    expect(story.what).not.toContain("bridge");
+    expect(paid).not.toHaveBeenCalled();
+  });
+
+  it("hydrates a full briefing without running article-level evidence selection", async () => {
+    const db = newsPipelineFixture();
+    const now = new Date().toISOString();
+    db.rows("digests")[0]!["status"] = "ready";
+    db.rows("digests")[0]!["item_count"] = 25;
+
+    const excerpt = Array.from(
+      { length: 24 },
+      (_, index) =>
+        `OpenAI announced a new service for developers and will expand access to customers in ${2026 + (index % 2)}.`,
+    ).join(" ");
+    for (let index = 0; index < 25; index += 1) {
+      const suffix = String(index + 1).padStart(12, "0");
+      const id = `${String(index + 1).padStart(8, "0")}-1111-4111-8111-${suffix}`;
+      const title = `OpenAI announces developer service ${index + 1}`;
+      db.rows("events").push({
+        id,
+        title,
+        what_happened: `OpenAI announced developer service ${index + 1} for customers.`,
+        importance: 5,
+        novelty: 4,
+        publisher_count: 1,
+        before_state: null,
+        after_state: null,
+        first_seen_at: now,
+        last_updated_at: now,
+        analysed_at: now,
+        understand: null,
+      });
+      db.rows("articles").push({
+        id: `article-${index + 1}`,
+        event_id: id,
+        url: `https://news.example.com/story-${index + 1}`,
+        title,
+        published_at: now,
+        excerpt,
+        sources: { name: "OpenAI News" },
+      });
+      db.rows("event_topics").push({
+        event_id: id,
+        topic_id: "t",
+        topics: { label: "OpenAI" },
+      });
+      db.rows("digest_items").push({
+        digest_id: "d",
+        event_id: id,
+        position: index,
+        why_it_matters: "It affects developers.",
+      });
+    }
+
+    const selector = vi.spyOn(readerEvidence, "selectReaderEvidence");
+    try {
+      const feed = (await run(loadHomeFeed, db)) as { stories: Story[] };
+      expect(feed.stories).toHaveLength(25);
+      expect(feed.stories[0]?.sourceList[0]?.excerpt).toBe(excerpt);
+      expect(selector).not.toHaveBeenCalled();
+
+      db.rows("user_events").push({
+        user_id: READER_ID,
+        event_id: feed.stories[0]!.id,
+        relevance: 1,
+        matched_at: now,
+      });
+      selector.mockClear();
+      const loaded = await run(loadStory, db, { id: feed.stories[0]!.id });
+      expect(loaded).toMatchObject({ id: feed.stories[0]!.id, sourceList: [{ excerpt }] });
+      expect(selector).not.toHaveBeenCalled();
+    } finally {
+      selector.mockRestore();
+    }
   });
 
   it("shows a fresh match instead of a stale skipped-briefing verdict", async () => {
@@ -171,7 +236,7 @@ describe("Read never depends on a live AI call", () => {
     });
     await run(startFirstBriefing, db);
 
-    const story = (await run(loadStory, db, { id: EVENT_ID, prefetch: false })) as Story;
+    const story = (await run(loadStory, db, { id: EVENT_ID })) as Story;
     expect(story).toBeTruthy();
     expect(story.understand?.article).toBeUndefined();
 
@@ -184,25 +249,6 @@ describe("Read never depends on a live AI call", () => {
     expect(article.paragraphs.length).toBeGreaterThan(0);
     expect(words).toBeGreaterThanOrEqual(60);
     expect(paid).not.toHaveBeenCalled();
-  });
-
-  it("still returns a usable story when the AI provider genuinely fails mid-generation", async () => {
-    const db = newsPipelineFixture();
-    seedPendingNews(db);
-    await run(startFirstBriefing, db);
-    db.rpcs["claim_shared_story"] = () => "won";
-    db.rpcs["begin_shared_story_attempt"] = () => true;
-    db.rpcs["fail_shared_story"] = () => true;
-
-    const result = (await run(generateStory, db, {
-      id: EVENT_ID,
-      explicitOpen: true,
-    })) as { status: string; story: Story | null };
-
-    expect(paid).toHaveBeenCalled();
-    expect(result.story).toBeTruthy();
-    const article = composeArticle(result.story!);
-    expect(article.paragraphs.length).toBeGreaterThan(0);
   });
 
   it("attaches prior coverage with a shared central entity and factual summary", async () => {
@@ -224,7 +270,7 @@ describe("Read never depends on a live AI call", () => {
     });
     db.rows("event_topics").push({ event_id: priorId, topic_id: "t", topics: { label: "OpenAI" } });
 
-    const story = (await run(loadStory, db, { id: EVENT_ID, prefetch: false })) as Story;
+    const story = (await run(loadStory, db, { id: EVENT_ID })) as Story;
     expect(story.relatedEvents?.some((r) => r.id === priorId)).toBe(true);
 
     const body = composeArticle(story)
@@ -238,7 +284,7 @@ describe("Read never depends on a live AI call", () => {
     seedPendingNews(db);
     await run(startFirstBriefing, db);
 
-    const story = (await run(loadStory, db, { id: EVENT_ID, prefetch: false })) as Story;
+    const story = (await run(loadStory, db, { id: EVENT_ID })) as Story;
     expect(story.relatedEvents ?? []).toEqual([]);
   });
 });

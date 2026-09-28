@@ -69,21 +69,22 @@ describe("only shared stories and explicit admin tests may invoke providers", ()
     }
     expect(violations).toEqual([]);
   });
-  it("metadata, prefetch, onboarding and dashboard handlers cannot initiate generation", () => {
-    const source = readFileSync("src/lib/server/briefing.ts", "utf8");
-    const generation = source.slice(
-      source.indexOf("export const generateStory"),
-      source.indexOf("async function understandOnDemandEnabled"),
+  it("Read neither invokes generation nor hydrates stored model output", () => {
+    const briefing = readFileSync("src/lib/server/briefing.ts", "utf8");
+    const storyPage = readFileSync("src/routes/dashboard/story/$id.tsx", "utf8");
+    const editorial = readFileSync("src/lib/editorial.ts", "utf8");
+    const hydration = briefing.slice(
+      briefing.indexOf("async function hydrateEvents"),
+      briefing.indexOf("type Coverage"),
     );
-    expect(generation).toContain("signedInOnly");
-    expect(generation).toContain("z.literal(true)");
-    expect(generation).toContain("storyVisible");
-    expect(source.replace(generation, "")).not.toMatch(/await ensureUnderstanding\s*\(/);
-    expect(
-      source.slice(
-        source.indexOf("export const loadStory"),
-        source.indexOf("export const generateStory"),
-      ),
-    ).not.toContain("await ensureUnderstanding");
+
+    expect(briefing).not.toContain("export const generateStory");
+    expect(briefing).not.toContain("@/lib/server/understanding");
+    expect(briefing).not.toMatch(/(?:ensureUnderstanding|readUnderstandingBatch)\s*\(/);
+    expect(hydration).not.toMatch(/\bunderstand\b/i);
+    expect(storyPage).not.toMatch(/generateStory|useMutation|Preparing detailed coverage/);
+    expect(editorial).toContain("delete sourceStory.understand");
+    expect(editorial).not.toContain("judgeReaderArticle");
+    expect(editorial).not.toContain("legacyEventIntelligence");
   });
 });

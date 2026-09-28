@@ -25,9 +25,8 @@ import type { Story } from "@/lib/story";
  * The cost, and how it is bounded
  * ---------------------------------------------------------------------------
  *
- * `loadStory` is a metadata read: it never generates, never spends, and takes
- * the same `prefetch: true` path the story page already takes when it warms the
- * next story in the reading queue. Five per visit, sequentially, only for
+ * `loadStory` is a source read: it never generates or spends. Five per visit,
+ * sequentially, only for
  * stories with no archived copy yet, and abandoned if the reader leaves the
  * page. A reader with forty saved stories pays for five a visit and no more.
  */
@@ -53,7 +52,7 @@ export function useWarmSavedStories(stories: Story[]): void {
 
         if (await hasStory(userId, story.id)) continue;
         try {
-          const full = await loadStory({ data: { id: story.id, prefetch: true } });
+          const full = await loadStory({ data: { id: story.id } });
           if (cancelled || !full) continue;
           await saveStory(userId, full);
         } catch {

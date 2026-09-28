@@ -3,9 +3,7 @@ import { parseInput } from "@/lib/server/validate";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { scoreRelatedEvent } from "@/lib/related-events";
-import { selectReaderEvidence } from "@/lib/reader-evidence";
 import { rankEventTopics } from "@/lib/pipeline/topic-assign";
-import { orderEvidenceSources, remapEvidence } from "@/lib/pipeline/evidence-text";
 import { signedInOnly } from "./guard";
 import { backfill, WINDOW_HOURS } from "@/lib/pipeline/backfill";
 import { nextSlot } from "@/lib/pipeline/schedule";
@@ -19,8 +17,7 @@ import {
   storyVisible,
 } from "./history";
 import { asPercent, clockOf, importanceBand, type Story } from "@/lib/story";
-import { readEventIntelligence, type EvidenceUnit } from "@/lib/understand";
-import { ensureUnderstanding, readUnderstandingBatch } from "@/lib/server/understanding";
+import type { EvidenceUnit } from "@/lib/understand";
 import { aiRateLimit } from "./rate-limit";
 import type {
   Database,
@@ -545,13 +542,8 @@ async function relatedEventsFor(
     }));
 }
 
-/**
- * Attach related-event background only when the deterministic reader will
- * actually use it -- an authored article never renders it, so a story that
- * already has one skips the extra round trip.
- */
+/** Attach grounded prior-event background to the deterministic reader. */
 async function withRelatedEvents(db: Db, story: Story): Promise<Story> {
-  if (story.understand?.article) return story;
   const relatedEvents = await relatedEventsFor(db, story.id, story.publishedAt, story);
   return relatedEvents.length ? { ...story, relatedEvents } : story;
 }
@@ -562,16 +554,6 @@ export const loadStory = createServerFn({ method: "POST" })
     parseInput(
       z.object({
         id: z.string().min(1).max(80),
-        /**
-         * True when this load is speculative — the story page warms the *next*
-         * item in the reading queue on mount. That request must never generate.
-         *
-         * Without this flag, on-demand Understand would cost two generations
-         * per story actually read: one for the story opened and one for the
-         * story after it, which the reader may never reach. The default is the
-         * safe one, so a caller that forgets cannot spend by omission.
-         */
-        prefetch: z.boolean().default(true),
       }),
       input,
     ),
@@ -588,120 +570,10 @@ export const loadStory = createServerFn({ method: "POST" })
     const windowStart = await historyWindowStart(actor.db, actor.id);
     if (!(await storyVisible(actor.db, actor.id, data.id, windowStart))) return null;
 
-    // Metadata reads and prefetch never initiate generation.
-
     const stories = await storiesFromEventIds(actor.db, actor.id, [data.id]);
     const story = stories[0] ?? null;
     return story ? await withRelatedEvents(actor.db, story) : null;
   });
-
-/**
- * Generate the long explanation if, and only if, nobody has yet.
- *
- * Everything expensive is inside `ensureUnderstanding`, including the cache
- * check and the single-flight claim — this wrapper's whole job is the flag and
- * making sure a failure here costs the reader a thinner page rather than the
- * story itself. A story that renders without its long piece is a degraded page;
- * a story that 500s because a model call timed out is a broken one.
- */
-export const generateStory = createServerFn({ method: "POST" })
-  .middleware([signedInOnly])
-  .validator((input: unknown) =>
-    parseInput(z.object({ id: z.string().uuid(), explicitOpen: z.literal(true) }), input),
-  )
-  .handler(
-    async ({
-      context,
-      data,
-    }): Promise<{ status: string; story: Story | null; reason?: string }> => {
-      const { actor } = context;
-      if (
-        !(await storyVisible(
-          actor.db,
-          actor.id,
-          data.id,
-          await historyWindowStart(actor.db, actor.id),
-        ))
-      )
-        return { status: "skipped", story: null };
-      if (!(await understandOnDemandEnabled(actor.db))) return { status: "skipped", story: null };
-      try {
-        const stories = await storiesFromEventIds(actor.db, actor.id, [data.id]);
-        const story = stories[0] ?? null;
-        if (!story) return { status: "skipped", story: null };
-        const event = await actor.db
-          .from("events")
-          .select("id,title,understand")
-          .eq("id", data.id)
-          .maybeSingle();
-        if (event.error || !event.data) return { status: "skipped", story };
-        const coverage: {
-          id: string;
-          title: string;
-          excerpt: string | null;
-          published_at: string | null;
-          source_id: string | null;
-        }[] = [];
-        for (let offset = 0; ; offset += 200) {
-          const page = await actor.db
-            .from("articles")
-            .select("id,title,excerpt,published_at,source_id")
-            .eq("event_id", data.id)
-            .order("id")
-            .range(offset, offset + 199);
-          if (page.error) return { status: "skipped", story };
-          coverage.push(...page.data);
-          if (page.data.length < 200) break;
-        }
-        const result = await ensureUnderstanding(actor.db, event.data, coverage, {
-          userId: actor.id,
-          explicitOpen: true,
-          outlets: await outletNames(actor.db, coverage),
-        });
-        if (story && "understanding" in result && result.understanding) {
-          const ids = result.understanding.analysisMeta?.sourceArticleIds ?? [];
-          const sources = [...story.sourceList].sort((a, b) => {
-            const x = ids.indexOf(a.articleId ?? ""),
-              y = ids.indexOf(b.articleId ?? "");
-            return (x < 0 ? Infinity : x) - (y < 0 ? Infinity : y);
-          });
-          story.sourceList = sources;
-          story.understand = result.understanding;
-        }
-        return {
-          status: result.status,
-          story: await withRelatedEvents(actor.db, story),
-          ...("reason" in result ? { reason: result.reason } : {}),
-        };
-      } catch {
-        return {
-          status: "failed",
-          story: null,
-          reason: "Detailed coverage is temporarily unavailable",
-        };
-      }
-    },
-  );
-
-async function understandOnDemandEnabled(db: Db): Promise<boolean> {
-  const { data } = await db
-    .from("feature_flags")
-    .select("enabled")
-    .eq("key", "understand_on_demand")
-    .maybeSingle();
-  return data?.enabled === true;
-}
-
-/** Source id -> outlet name, for the numbered evidence list in the prompt. */
-async function outletNames(
-  db: Db,
-  articles: { source_id: string | null }[],
-): Promise<Map<string, string>> {
-  const ids = [...new Set(articles.map((a) => a.source_id).filter((id): id is string => !!id))];
-  if (ids.length === 0) return new Map();
-  const { data } = await db.from("sources").select("id, name").in("id", ids);
-  return new Map((data ?? []).map((row) => [row.id, row.name]));
-}
 
 export type AskResult =
   | { ok: true; answer: string }
@@ -1198,7 +1070,6 @@ type EventBits = {
   first_seen_at: string;
   last_updated_at: string;
   analysed_at: string | null;
-  understand: unknown;
 };
 
 async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
@@ -1207,37 +1078,28 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
   const { data: events, error } = await db
     .from("events")
     .select(
-      "id, title, what_happened, importance, novelty, before_state, after_state, first_seen_at, last_updated_at, analysed_at, understand, publisher_count",
+      "id, title, what_happened, importance, novelty, before_state, after_state, first_seen_at, last_updated_at, analysed_at, publisher_count",
     )
     .in("id", eventIds);
   if (error) throw new Error(`reading events: ${error.message}`);
 
   const byId = new Map(((events ?? []) as EventBits[]).map((e) => [e.id, e] as const));
-  const [topics, articles, generated] = await Promise.all([
+  const [topics, articles] = await Promise.all([
     topicsFor(db, eventIds),
     articlesFor(db, eventIds),
-    // Read-only, and never a generation: hydration serves the briefing list as
-    // well as the story page, and a list render must not spend anything (0078).
-    readUnderstandingBatch(db, eventIds),
   ]);
 
   return eventIds.flatMap((id) => {
     const event = byId.get(id);
     if (!event) return [];
-    const allCoverage = articles.get(id) ?? [];
-    // An on-demand row wins over the legacy column, because it is the newer
-    // answer for this event. An event nobody has opened since 0078 has no row
-    // and keeps serving exactly the prose the background pass wrote for it.
-    const intelligence = generated.get(id) ?? event.understand;
-    const original = readEventIntelligence(intelligence, allCoverage.length);
-    const sourceIds = original?.analysisMeta?.sourceArticleIds ?? [];
-    const coverage = orderEvidenceSources(allCoverage, sourceIds);
-    const understand = readEventIntelligence(
-      remapEvidence(intelligence, sourceIds, coverage),
-      coverage.length,
-    );
+    const coverage = articles.get(id) ?? [];
     const publishedAt = event.first_seen_at;
-    const lead = selectReaderEvidence(event.title, coverage).lead?.text ?? "";
+    // Hydration serves feed cards and the story shell; it is not the article
+    // composition pass. Re-running full evidence selection for every card made
+    // a 25-story feed spend CPU ranking all entities in every source excerpt.
+    // The source-based event summary is enough to order topic labels here;
+    // detailed evidence selection belongs to article composition.
+    const lead = event.what_happened ?? "";
     return [
       {
         id: event.id,
@@ -1271,7 +1133,6 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
           at: clockOf(c.publishedAt),
           label: `${c.name} published`,
         })),
-        ...(understand ? { understand } : {}),
       },
     ];
   });

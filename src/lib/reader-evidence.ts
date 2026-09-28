@@ -1726,6 +1726,9 @@ export function rankEntities(title: string, sources: ReaderSource[]): RankedEnti
   ) ?? [])
     add(name);
   for (const s of sources) if (s.name) add(s.name);
+  // Article sentences do not depend on the candidate entity, so split each source
+  // once rather than rescanning a long excerpt for every name in it.
+  const sourceUnits = [...new Set(texts.flatMap(readerSentences))];
   const aliases = new Map<string, string[]>();
   for (const [key, name] of names) {
     const parts = name.split(" ");
@@ -1749,7 +1752,7 @@ export function rankEntities(title: string, sources: ReaderSource[]): RankedEnti
       const supporting = new Set(
         sources.flatMap((s, i) => (inText(texts[i]!) ? [s.name?.toLowerCase() ?? String(i)] : [])),
       ).size;
-      const units = [...new Set(texts.flatMap(readerSentences))].filter(inText);
+      const units = sourceUnits.filter(inText);
       const subjects = units.filter(
         (t) =>
           forms.some((n) =>
@@ -2794,9 +2797,15 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
       let text = quote
         ? `${unit.attribution} said: "${unit.text}"`
         : unit.text.trim().replace(/®$/, "");
+      // "When we started work on that story, X claimed $8 million" is the
+      // publication describing its own writing, and the clause after the comma is
+      // the fact. Naming the outlet is right -- the words are its report -- but
+      // "previously" was not: the thing it reported had happened the same week,
+      // and the source only ever said it wrote about it. The timestamp is
+      // relative to nothing the reader can see, so it comes off.
       const retrospective = text.match(/^When we [^,]+, (.+)$/i);
       if (retrospective?.[1] && source.name)
-        text = `${source.name} previously reported that ${retrospective[1]}`;
+        text = `${source.name} reported that ${retrospective[1]}`;
       text = text.replace(/^In the short interval since then,\s*/i, "");
       text = text.replace(
         /^(?:Unfortunately|Fortunately|Indeed),\s*([a-z])/i,

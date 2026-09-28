@@ -717,7 +717,7 @@ const ATTRIBUTION_OPENING = /^(?:according to|as reported by)\s+([^,;:]{1,80})[,
  * says nothing about them.
  */
 export const REPORTED_CLAUSE_WORDS =
-  "Once|When|While|Because|Although|After|Before|If|Since|Only|Both|But|And|Or|So|Yet|However|Meanwhile";
+  "Once|When|While|Because|Although|After|Before|If|Since|Only|Both|But|And|Or|So|Yet|However|Meanwhile|In";
 
 /**
  * Detects openings like `According to arXiv cs.CR, ...` -- a category presented

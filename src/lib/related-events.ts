@@ -1,4 +1,12 @@
-import { centralTokens, editorialNoise, rankEntities } from "./reader-evidence";
+import {
+  centralTokens,
+  editorialNoise,
+  normalizeSummary,
+  numericKeys,
+  rankEntities,
+  readerSentences,
+  unitTextRejection,
+} from "./reader-evidence";
 import { extractProducts } from "./pipeline/extract";
 
 export type RelatedCandidate = { title: string; summary?: string; publishedAt?: string };
@@ -70,11 +78,29 @@ export function relatedContext(
     editorialNoise(candidate.summary)
   )
     return null;
-  if (
-    !/\b(?:said|announced|raised|released|confirmed|reported|approved|launched|had|was|were)\b/i.test(
-      candidate.summary,
-    )
-  )
-    return null;
-  return `Previously, ${candidate.summary.replace(/^(The|A|An)\b/, (s) => s.toLowerCase())}`;
+  const normalized = normalizeSummary(candidate.summary);
+  if (normalized.reason !== null) return null;
+  const currentTokens = new Set(centralTokens(`${current.title} ${current.summary ?? ""}`));
+  const currentEntityNames = new Set(
+    rankEntities(current.title, [{ excerpt: current.summary ?? "" }])
+      .filter((entity) => entity.role === "PRIMARY")
+      .flatMap((entity) => [entity.name, ...entity.aliases])
+      .map((name) => name.toLowerCase()),
+  );
+  const currentNumbers = numericKeys(`${current.title} ${current.summary ?? ""}`);
+  const relevant = readerSentences(normalized.text).find((sentence) => {
+    if (editorialNoise(sentence) || unitTextRejection(sentence, /["“]/.test(sentence)))
+      return false;
+    const tokens = centralTokens(sentence);
+    if (tokens.length < 4) return false;
+    const namesInSentence = [...currentEntityNames].filter((name) =>
+      sentence.toLowerCase().includes(name),
+    );
+    const tokenOverlap = tokens.filter((token) => currentTokens.has(token)).length;
+    if (tokenOverlap < 2 && namesInSentence.length === 0) return false;
+    const numbers = numericKeys(sentence);
+    return numbers.length === 0 || numbers.some((value) => currentNumbers.includes(value));
+  });
+  if (!relevant) return null;
+  return `Previously, ${relevant.replace(/^(The|A|An)\b/, (s) => s.toLowerCase())}`;
 }

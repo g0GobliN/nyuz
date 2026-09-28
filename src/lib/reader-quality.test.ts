@@ -96,6 +96,36 @@ describe("production deterministic Read quality", () => {
     expect(text).not.toMatch(
       /Amount mentioned|coverage centers on|nyuz has also covered|we've never seen|As we write/,
     );
+    // Both of these were the composer narrating its own writing. The first
+    // rewrote "As we write, it's less than three weeks since we wrote about X"
+    // into "The article describes X", which is a sentence no journalist writes.
+    // The second dated the source's own report as "previously", which is not
+    // what it said and not a time the reader can place.
+    expect(text).not.toMatch(/The article describes|previously reported/);
+  });
+  it("names a person in full once and by surname after that", () => {
+    const s = story(0);
+    const a = composeArticle(s);
+    // The deck is where the reader meets him, so it carries the full name...
+    expect(a.deck.text).toContain("Richard Schut");
+    const body = a.paragraphs.map((p) => p.text).join(" ");
+    // ...and the body is written the way the source wrote it. It rendered
+    // "Richard Schut" four times in 195 words before the introduction moved
+    // from the sentence to the article.
+    expect(body).not.toContain("Richard Schut");
+    expect(body).toContain("Schut was working");
+    expect(body).toContain("Schut said");
+  });
+  it("keeps an organisation's name whole instead of shortening its last word", () => {
+    // The surname rule reads a person's name, so it needs the evidence pass's own
+    // guard: "The Omacom Foundation" is never "Foundation".
+    const text = textOf(story(1));
+    expect(text).toContain("Omacom Foundation");
+    // Every mention of the word is part of the name: a shortened one would be a
+    // bare "Foundation" standing on its own as the subject of a sentence.
+    expect(text.match(/\bFoundation\b/g)?.length).toBe(
+      text.match(/\bOmacom Foundation\b/g)?.length,
+    );
   });
   it("ranks central entities above incidental company mentions", () => {
     const s = story(1);
@@ -172,6 +202,20 @@ describe("production deterministic Read quality", () => {
     expect(score.accepted).toBe(false);
     expect(score.topicOverlap).toBe(5);
     expect(score.recency).toBeGreaterThan(0);
+  });
+  it("keeps only the relevant fact from an otherwise mixed related-story summary", () => {
+    const current = {
+      title: "Acme secures funding for a factory",
+      summary: "Acme began phase two.",
+    };
+    const prior = {
+      title: "Acme announced its factory",
+      summary:
+        "Acme announced plans for the factory in June. Nvidia separately released a graphics card for gaming customers.",
+    };
+    expect(relatedContext(current, prior)).toBe(
+      "Previously, Acme announced plans for the factory in June.",
+    );
   });
   it("accepts a shared central entity and composes a supported historical fact", () => {
     const current = { title: "Acme secures funding for a factory" };
@@ -534,7 +578,7 @@ describe("production deterministic Read quality", () => {
     expect(reverse.facts[0]?.evidence).toEqual([1]);
   });
 
-  it("drops legacy metadata templates and orphan numbers from structured fallback", () => {
+  it("ignores the legacy analysis column instead of rendering its prose", () => {
     const s = story(0);
     s.understand = {
       version: 2,
@@ -562,7 +606,8 @@ describe("production deterministic Read quality", () => {
       overview: [],
     };
     s.what = "A company reported a funding round.";
-    expect(textOf(s)).not.toMatch(/Amount mentioned|coverage centers on|18.5/);
+    expect(textOf(s)).not.toMatch(/Amount mentioned|coverage centers on|18\.5|funding round/);
+    expect(textOf(s)).toContain("Richard Schut and his team discovered");
   });
 });
 

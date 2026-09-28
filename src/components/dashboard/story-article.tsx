@@ -1,10 +1,9 @@
 import { AlertCircle, Bookmark, ExternalLink, ThumbsDown, ThumbsUp } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { composeArticle } from "@/lib/editorial";
 import { articleMinutes } from "@/lib/reader-article";
 import type { Story } from "@/lib/story";
 import { formatStoryTime } from "@/lib/story-time";
-import { sourceCountLabel } from "@/lib/understand";
 import { cn } from "@/lib/utils";
 
 type Vote = "useful" | "not-useful";
@@ -33,7 +32,11 @@ export function StoryArticle({
   saveError?: string | undefined;
   onReachEnd: () => void;
 }) {
-  const article = composeArticle(story);
+  // Composition is deterministic and costs 150-220 ms on the production
+  // fixtures, and this component re-renders on every vote, save and reach-end:
+  // composed once per story rather than once per tap. `story` is the query's own
+  // object, so its identity only changes when the payload does.
+  const article = useMemo(() => composeArticle(story), [story]);
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,11 +54,7 @@ export function StoryArticle({
     return () => observer.disconnect();
   }, [story.id, onReachEnd]);
 
-  const sourceLabel =
-    story.understand?.analysisMeta &&
-    story.understand.analysisMeta.sourceCountAtAnalysis !== story.sources
-      ? sourceCountLabel(story.understand.analysisMeta, story.sources)
-      : `Based on ${sourceCountLabel(story.understand?.analysisMeta, story.sources)}`;
+  const sourceLabel = `Based on ${story.sources} ${story.sources === 1 ? "source" : "sources"}`;
 
   return (
     <article
@@ -173,8 +172,8 @@ export function StoryArticle({
             ))}
           </ol>
           <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground">
-            nyuz is not the source. Source descriptions and generated coverage may contain errors.
-            Open the original reporting before acting on it.
+            nyuz is not the source. Source descriptions may contain errors. Open the original
+            reporting before acting on it.
           </p>
         </div>
 

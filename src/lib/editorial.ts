@@ -1,6 +1,5 @@
 import type { Story } from "@/lib/story";
 import type { ArticleParagraph, ReaderArticle } from "@/lib/reader-article";
-import { legacyEventIntelligence } from "@/lib/understand";
 import {
   alreadyAttributed,
   attributeToOwnSource,
@@ -34,6 +33,7 @@ import {
   MIN_PARAGRAPH_WORDS,
   MIN_SENTENCE_CHARS,
   type DeterministicFactType,
+  type RankedEntity,
   type ReaderFact,
 } from "./reader-evidence";
 import {
@@ -544,9 +544,15 @@ function supplementalEntityFacts(
       });
       if (!entity) continue;
       const surname = entity.name.split(" ").at(-1);
-      const normalizedRaw = raw
-        .replace(/^As we write,\s*/i, "")
-        .replace(/^It's less than three weeks since we wrote about\s+/i, "The article describes ");
+      // The "As we write, ..." frame comes off because the fact behind it is
+      // usually the source's own reporting and survives on its own. The rest of
+      // that construction -- "it's less than three weeks since we wrote about
+      // X" -- is the publication talking about its own schedule, and it used to
+      // be rewritten to "The article describes X". That rewrite published a
+      // sentence a bot would write, so the construction is left to the voice
+      // refusal below instead, which is where the same sentence's "we" already
+      // belongs.
+      const normalizedRaw = raw.replace(/^As we write,\s*/i, "");
       const text = cleanDeterministicSentence(
         surname &&
           !new RegExp(`\\b${entity.name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`, "i").test(
@@ -763,7 +769,6 @@ function statisticClause(text: string): string {
  * numbers rather than the source's own sentences -- so it attributes to the
  * publication and never to a survey it cannot quote.
  */
-const NO_SURVEYS: Map<number, string> = new Map();
 
 /* ------------------------------------------------------------------------- */
 /* Relative time, anchored to the story's own date                            */
@@ -1519,11 +1524,106 @@ function applyFallbackDeck(
   diagnostics.fallback.empty += 1;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
- * Prefer authored prose. Without it, build a deterministic article from the
- * source excerpts and related coverage already attached to the story -- this
- * is what renders when AI never ran, is unavailable, or hasn't finished yet,
- * so Read never depends on a live model call.
+ * Whether the source itself named this person by surname alone.
+ *
+ * The evidence pass resolves a bare surname to the full name -- "Schut and his
+ * team discovered" becomes "Richard Schut and his team discovered" -- so the
+ * test here is the same one: did the source ever write the surname standing
+ * alone? "The Omacom Foundation" is only ever spelled that way, so "Foundation"
+ * was never a name the reader has been introduced to, and an organisation's last
+ * word is not a surname to shorten to.
+ */
+function surnameStandsAlone(sourceText: string, entityName: string): boolean {
+  const parts = entityName.split(" ");
+  const surname = parts.at(-1) ?? "";
+  const given = new Set(parts.slice(0, -1).map((part) => part.toLowerCase()));
+  for (const match of sourceText.matchAll(new RegExp(`\\b${escapeRegExp(surname)}\\b`, "gi"))) {
+    const preceding = sourceText.slice(0, match.index ?? 0);
+    const before = /([\p{L}][\p{L}'-]*)\s*$/u.exec(preceding)?.[1];
+    if (!before || !given.has(before.toLowerCase())) return true;
+  }
+  return false;
+}
+
+/** Ranges of a block that are quoted speech. */
+function quotedRanges(text: string): [number, number][] {
+  const ranges: [number, number][] = [];
+  for (const match of text.matchAll(/"[^"\n]*"|“[^”\n]*”/g))
+    ranges.push([match.index ?? 0, (match.index ?? 0) + match[0].length]);
+  return ranges;
+}
+
+/**
+ * A person named in full once, then by the surname their own source used.
+ *
+ * The evidence pass judges one sentence at a time, and a sentence that says
+ * "Schut and his team discovered" has handed the reader a stranger -- so it
+ * resolves the surname to the full name. Judged a sentence at a time that rule
+ * repeats the full name for the whole story: the production fixture rendered
+ * "Richard Schut" four times in 195 words, which is neither how the source wrote
+ * it nor how a person is named in prose.
+ *
+ * The introduction belongs to the article, not to the sentence, so this runs
+ * where the reading order exists: the first block to name the entity keeps the
+ * full name and every later mention takes the surname -- AP's precedence, and
+ * the wording the source itself used. Nothing inside quotation marks is touched;
+ * a quoted speaker's words are the source's, and rewriting them would invent a
+ * quotation.
+ */
+function shortenIntroducedNames(
+  blocks: { text: string }[],
+  entities: RankedEntity[],
+  sourceText: string,
+): void {
+  const candidates = entities.filter((entity) => {
+    const parts = entity.name.split(" ");
+    if (entity.role === "REPORTING_SOURCE") return false;
+    if (parts.length < 2 || parts.length > 3) return false;
+    const surname = parts.at(-1)!;
+    if (!/^[A-Z][\p{L}'-]*$/u.test(surname)) return false;
+    // One surname, one person: two entities sharing it would merge into one.
+    if (entities.filter((other) => other.name.endsWith(` ${surname}`)).length !== 1) return false;
+    return surnameStandsAlone(sourceText, entity.name);
+  });
+  if (candidates.length === 0) return;
+
+  const introduced = new Set<string>();
+  for (const block of blocks) {
+    for (const entity of candidates) {
+      const surname = entity.name.split(" ").at(-1)!;
+      const namePattern = new RegExp(`\\b${escapeRegExp(entity.name)}\\b`, "g");
+      const spoken = quotedRanges(block.text);
+      const named = [...block.text.matchAll(namePattern)].filter(
+        (match) =>
+          !spoken.some(([start, end]) => (match.index ?? 0) >= start && (match.index ?? 0) < end),
+      );
+      if (named.length === 0) continue;
+      // The first mention in reading order is the one that introduces the name;
+      // when it is in this block, only the mentions after it are shortened.
+      const firstKept = introduced.has(entity.name) ? -1 : (named[0]!.index ?? 0);
+      introduced.add(entity.name);
+      const shortened = named.filter((match) => (match.index ?? 0) > firstKept);
+      if (shortened.length === 0) continue;
+      let text = "";
+      let cursor = 0;
+      for (const match of shortened) {
+        const at = match.index ?? 0;
+        text += block.text.slice(cursor, at) + surname;
+        cursor = at + entity.name.length;
+      }
+      block.text = text + block.text.slice(cursor);
+    }
+  }
+}
+
+/**
+ * Ignore stored model prose and build the Read article from source evidence
+ * and related coverage already attached to the story.
  */
 export function composeArticle(story: Story): ReaderArticle {
   return composeArticleWithDiagnostics(story).article;
@@ -1539,9 +1639,13 @@ export function composeArticleWithDiagnostics(story: Story): {
   article: ReaderArticle;
   diagnostics: CompositionDiagnostics;
 } {
-  const diagnostics = createDiagnostics();
-  if (story.understand?.article) return { article: story.understand.article, diagnostics };
+  // Historical event rows and offline archives may still contain model output.
+  // Read deliberately ignores it and always composes from source evidence.
+  const sourceStory: Story = { ...story };
+  delete sourceStory.understand;
 
+  story = sourceStory;
+  const diagnostics = createDiagnostics();
   if (!story.understand) {
     // Normalize the source list first: this branch also reads excerpts directly
     // for entity context, and that text has to be the same clean text the
@@ -1549,6 +1653,17 @@ export function composeArticleWithDiagnostics(story: Story): {
     const { sources, normalization } = normalizeReaderSources(story.sourceList);
     diagnostics.sourceNormalization = { ...normalization };
     const cleanStory: Story = { ...story, sourceList: sources };
+    // The source's own wording, for the rules that read what the source wrote
+    // rather than what the article says. Not lowercased, unlike the same join in
+    // `supplementalEntityFacts`: a surname standing alone is only recognisable
+    // next to the given name it is not.
+    const sourceText = sources
+      .map((source) =>
+        [source.excerpt ?? "", ...(source.enrichedEvidence ?? []).map((unit) => unit.text)].join(
+          " ",
+        ),
+      )
+      .join(" ");
     const selection = selectReaderEvidence(story.title, sources);
     // Furniture counters come from *this* pass, which is the one that strips
     // headlines and standfirsts, while voice and colour are counted in the
@@ -1691,16 +1806,7 @@ export function composeArticleWithDiagnostics(story: Story): {
           : readerSentences(sources[sourceIndex]?.excerpt ?? "").find((part) =>
               part.toLowerCase().includes(entity.name.toLowerCase()),
             );
-      const text = raw
-        ? cleanDeterministicSentence(
-            raw
-              .replace(/^As we write,\s*/i, "")
-              .replace(
-                /^It's less than three weeks since we wrote about\s+/i,
-                "The article describes ",
-              ),
-          )
-        : "";
+      const text = raw ? cleanDeterministicSentence(raw.replace(/^As we write,\s*/i, "")) : "";
       if (text && validDeterministicSentence(text) && !editorialNoise(text))
         paragraphs.unshift({ text: sentence(text), evidence: [sourceIndex + 1] });
       if (paragraphs.length >= 8) break;
@@ -1730,128 +1836,17 @@ export function composeArticleWithDiagnostics(story: Story): {
     paragraphs.push(...capped, ...related);
     const gated = qualityGate({ deck, paragraphs }, story.title, diagnostics);
     finishDiagnostics(gated, facts, diagnostics);
+    // Last, and deliberately after the counters: renaming is presentation, and
+    // `facts.rendered` is read by matching a fact's own text against the
+    // published blocks. Shortening a name in the prose but not in the fact makes
+    // a published sentence read as missing, and `lost` is the one counter that
+    // has to keep meaning "nobody can explain this" -- it went to 3 of 7 on the
+    // production fixture when this ran before `finishDiagnostics`. Shortening a
+    // name cannot introduce a defect the gate would have refused: it only takes a
+    // given name back out of a mention the source itself wrote as a surname.
+    shortenIntroducedNames([gated.deck, ...gated.paragraphs], selection.entities, sourceText);
 
     return { article: gated, diagnostics };
   }
-
-  const intel =
-    story.understand ??
-    legacyEventIntelligence({
-      what: story.what,
-      sources: story.sourceList,
-      ...(story.relatedEvents ? { relatedEvents: story.relatedEvents } : {}),
-    });
-  const deck = { text: "", evidence: [] as number[] };
-  applyFallbackDeck(deck, story, [story.what, intel.oneSentence], diagnostics);
-  const paragraphs: ArticleParagraph[] = [];
-  const seen: { text: string; evidence: number[] }[] = [
-    { text: deck.text, evidence: deck.evidence },
-  ];
-  const add = (items: { text: string; evidence: number[] }[]) => {
-    const kept: string[] = [];
-    const evidence: number[] = [];
-    const paragraph = { text: "", evidence };
-    for (const item of items) {
-      const text = sentence(attributedFactText(item.text, item.evidence, story, NO_SURVEYS));
-      if (!validDeterministicSentence(text) || editorialNoise(text)) continue;
-      const existing = seen.find((candidate) => repeats(candidate.text, text));
-      if (existing) {
-        existing.evidence = [...new Set([...existing.evidence, ...item.evidence])];
-        continue;
-      }
-      seen.push({ text, evidence: item.evidence });
-      kept.push(text);
-      for (const ref of item.evidence) if (!evidence.includes(ref)) evidence.push(ref);
-    }
-    if (kept.length) {
-      paragraph.text = kept.join(" ");
-      paragraphs.push(paragraph);
-    }
-  };
-  const plain = (text: string) => ({ text, evidence: [] as number[] });
-
-  const deckItems = [plain(intel.oneSentence), ...intel.newDevelopments, ...intel.context];
-  mergeEvidenceIntoDeck(
-    deck,
-    deckItems.filter((item) => repeats(deck.text, item.text)),
-  );
-  add([plain(story.before), plain(story.after), ...intel.newDevelopments]);
-  {
-    add([...intel.context]);
-    add(
-      intel.numbers.flatMap((n) =>
-        selectReaderEvidence(story.title, [{ excerpt: n.label }])
-          .facts.filter((f) => f.text.includes(n.value))
-          .map((f) => ({ text: f.text, evidence: n.evidence })),
-      ),
-    );
-    add(intel.overview.map((o) => ({ text: `${o.name}: ${o.detail}`, evidence: o.evidence })));
-    if (intel.comparison) {
-      const comparison = intel.comparison;
-      add(
-        comparison.rows.map((r) => ({
-          text: `${r.label}: ${comparison.leftLabel}, ${r.left}; ${comparison.rightLabel}, ${r.right}`,
-          evidence: r.evidence,
-        })),
-      );
-    }
-    if (intel.series) {
-      const series = intel.series;
-      add([
-        {
-          text: `${series.caption}: ${series.points.map((p) => `${p.label}, ${p.display}`).join("; ")}`,
-          evidence: series.points.flatMap((p) => p.evidence),
-        },
-      ]);
-    }
-    if (intel.relationships) {
-      const { nodes, edges } = intel.relationships;
-      add(
-        edges
-          .filter((edge) => edge.label)
-          .map((edge) => ({
-            text: `${nodes.find((n) => n.id === edge.from)?.label ?? edge.from} ${edge.label} ${nodes.find((n) => n.id === edge.to)?.label ?? edge.to}`,
-            evidence: edge.evidence,
-          })),
-      );
-    }
-    add(
-      intel.audiences.map((a) => ({
-        text: `For ${a.audience}: ${a.implication}`,
-        evidence: a.evidence,
-      })),
-    );
-    for (const conflict of intel.conflicts) {
-      add(
-        conflict.reports.map((r) => ({
-          text: `${conflict.topic}: ${r.text}`,
-          evidence: r.evidence,
-        })),
-      );
-    }
-    add(
-      intel.perspectives.map((p) => ({ text: `${p.source}: ${p.stance}`, evidence: p.evidence })),
-    );
-    add(intel.unknowns.map(plain));
-    add(intel.timeline.map((t) => ({ text: `${t.when}: ${t.what}`, evidence: t.evidence })));
-    add([
-      ...intel.whatNext,
-      ...intel.watchNext.map((w) => ({
-        text: `${w.label}: ${w.detail}`,
-        evidence: w.evidence,
-      })),
-    ]);
-  }
-  const cleanParagraphs = paragraphs
-    .filter((paragraph) => paragraph.text.split(/\s+/).length >= 3)
-    .reduce<ArticleParagraph[]>((out, paragraph) => {
-      const duplicate = out.find((prior) => similarEnough(prior.text, paragraph.text));
-      if (duplicate)
-        duplicate.evidence = [...new Set([...duplicate.evidence, ...paragraph.evidence])];
-      else out.push(paragraph);
-      return out;
-    }, []);
-  const gated = qualityGate({ deck, paragraphs: cleanParagraphs }, story.title, diagnostics);
-  finishDiagnostics(gated, [], diagnostics);
-  return { article: gated, diagnostics };
+  return { article: { deck: { text: "", evidence: [] }, paragraphs: [] }, diagnostics };
 }
