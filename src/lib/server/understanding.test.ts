@@ -72,7 +72,7 @@ function fixture() {
     if (!r || r["phase"] !== "persisting") return false;
     r["status"] = "ready";
     r["phase"] = "ready";
-    r["prompt_version"] = "story:2";
+    r["prompt_version"] = "story:3";
     r["owner"] = null;
     return true;
   };
@@ -110,6 +110,13 @@ beforeEach(() => {
   });
 });
 describe("reader-initiated global story cache", () => {
+  it("invalidates the cache when the story-writing prompt changes", async () => {
+    const { UNDERSTAND_PROMPT_VERSION } = await import("./understanding");
+    const db = fixture();
+    await open(db);
+    expect(db.rows("event_understanding")[0]?.["prompt_version"]).toBe(UNDERSTAND_PROMPT_VERSION);
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
   it("requests evidence-adaptive article length without imposing a minimum", async () => {
     await open(fixture());
     const options = provider.mock.calls[0]?.[0] as RoutedOptions;
@@ -119,6 +126,53 @@ describe("reader-initiated global story cache", () => {
     expect(options.system).toContain("120–180 words");
     expect(options.system).toContain("targets, not minimum word counts");
     expect(options.system).toContain("never pad");
+    expect(options.system).toContain("Never paste together sentence fragments");
+  });
+  it("rejects malformed prose and does not save it as ready", async () => {
+    const db = fixture();
+    const malformed = {
+      deck: { text: "The council approved a new public library.", evidence: [1] },
+      paragraphs: [
+        {
+          text: "The Register reports that In an internal memo, the company announced a new plan.",
+          evidence: [1],
+        },
+      ],
+    };
+    provider.mockImplementation(async (opts: RoutedOptions) => {
+      await opts.beforeProvider?.("usage");
+      const result = {
+        content: JSON.stringify(malformed),
+        model: "fake",
+        promptTokens: 200,
+        completionTokens: 100,
+        cachedTokens: 0,
+        reasoningTokens: 0,
+        attempt_count: 1,
+      };
+      try {
+        await opts.onResponse?.(result);
+      } catch {
+        /* The paid response must settle even when it is refused. */
+      }
+      return result;
+    });
+    expect((await open(db)).status).toBe("failed");
+    expect(db.rows("event_understanding")[0]?.["status"]).toBe("failed");
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+  it("refuses a cached output that fails the prose checks without buying again", async () => {
+    const db = fixture();
+    const fresh = await open(db);
+    expect(fresh.status).toBe("generated");
+    const row = db.rows("event_understanding")[0];
+    expect(row).toBeDefined();
+    const payload = row?.["payload"] as { article: typeof prose };
+    payload.article.paragraphs[0]!.text =
+      "The Register reports that In an internal memo, the company announced a new plan.";
+    const result = await open(db);
+    expect(result.status).toBe("skipped");
+    expect(provider).toHaveBeenCalledTimes(1);
   });
   it("one generation serves a refresh and 100 later readers", async () => {
     const db = fixture();

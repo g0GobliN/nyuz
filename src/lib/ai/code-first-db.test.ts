@@ -121,7 +121,7 @@ describe("actual PostgreSQL financial and owner invariants", () => {
     expect(await claim()).toBe("persisting");
     expect(await scalar("select finish_shared_story($1,'v1') as v", [event])).toBe(true);
     expect(await claim()).toBe("ready");
-    expect(await scalar("select prompt_version as v from event_understanding")).toBe("story:2");
+    expect(await scalar("select prompt_version as v from event_understanding")).toBe("story:3");
     expect(await scalar("select attempts as v from event_understanding")).toBe(1);
   });
   it("settles observed/cached usage idempotently into typed columns", async () => {

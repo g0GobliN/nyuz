@@ -1,3 +1,18 @@
+import {
+  centralTokens,
+  numericKeys,
+  readerSentences,
+  sourceSeam,
+  unitTextRejection,
+  validDeterministicSentence,
+} from "./reader-evidence";
+import {
+  gluedAttribution,
+  hasSourceMetadata,
+  hasVisibleEntity,
+  malformedAttribution,
+} from "./pipeline/source-text";
+
 export type ArticleParagraph = {
   text: string;
   evidence: number[];
@@ -8,6 +23,19 @@ export type ReaderArticle = {
   deck: { text: string; evidence: number[] };
   paragraphs: ArticleParagraph[];
 };
+
+export type ArticleProseRejection =
+  | "malformed_sentence"
+  | "malformed_attribution"
+  | "headline_fragment"
+  | "source_seam"
+  | "unresolved_context"
+  | "metadata_leak"
+  | "entity_leak"
+  | "editorial_noise"
+  | "unsupported";
+
+export type ArticleProseVerdict = { ok: true } | { ok: false; reason: ArticleProseRejection };
 
 function record(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -44,6 +72,93 @@ export function readReaderArticle(value: unknown, evidenceCount: number): Reader
     deck: { text: deck.text, evidence: deck.evidence },
     paragraphs: paragraphs as ArticleParagraph[],
   };
+}
+
+/**
+ * Reject malformed reader prose without requiring the source excerpts to still
+ * be available. This keeps old authored copies readable when the app has only
+ * retained a headline, while still refusing obvious broken joins at render time.
+ */
+export function validateReaderArticleStructure(article: ReaderArticle): ArticleProseVerdict {
+  for (const block of [article.deck, ...article.paragraphs]) {
+    const sentences = readerSentences(block.text);
+    if (!sentences.length) return { ok: false, reason: "malformed_sentence" };
+    for (const text of sentences) {
+      if (hasSourceMetadata(text)) return { ok: false, reason: "metadata_leak" };
+      if (hasVisibleEntity(text)) return { ok: false, reason: "entity_leak" };
+      if (sourceSeam(text)) return { ok: false, reason: "source_seam" };
+      if (malformedAttribution(text) || gluedAttribution(text))
+        return { ok: false, reason: "malformed_attribution" };
+      const rejection = unitTextRejection(text, /["“]/.test(text));
+      if (rejection !== null) {
+        return {
+          ok: false,
+          reason:
+            rejection === "headline_fragment"
+              ? "headline_fragment"
+              : rejection === "unresolved_context"
+                ? "unresolved_context"
+                : "malformed_sentence",
+        };
+      }
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Check generated prose before it is shown or cached.
+ *
+ * The source comparison is deliberately conservative. It catches malformed
+ * joins, off-topic insertions, and unsupported figures, but does not claim to
+ * prove entailment: factual support still needs semantic verification or review.
+ */
+export function judgeReaderArticle(
+  article: ReaderArticle,
+  title: string,
+  evidence: readonly { title: string; excerpt: string }[],
+): ArticleProseVerdict {
+  const structure = validateReaderArticleStructure(article);
+  if (!structure.ok) return structure;
+  const sourceTokens = new Set(
+    centralTokens(`${title} ${evidence.map((item) => `${item.title} ${item.excerpt}`).join(" ")}`),
+  );
+  for (const block of [article.deck, ...article.paragraphs]) {
+    const refs = block.evidence;
+    if (!refs.length || refs.some((ref) => !evidence[ref - 1]))
+      return { ok: false, reason: "unsupported" };
+    const sentences = readerSentences(block.text);
+    for (const text of sentences) {
+      const tokens = centralTokens(text);
+      const overallOverlap = tokens.filter((token) => sourceTokens.has(token)).length;
+      if (tokens.length >= 4 && overallOverlap < Math.max(2, Math.ceil(tokens.length * 0.18)))
+        return { ok: false, reason: "unsupported" };
+      // Each sentence must overlap a source cited on this block, rather than
+      // borrowing its citation from an unrelated source elsewhere.
+      if (
+        !refs.some((ref) => {
+          const source = evidence[ref - 1];
+          if (!source) return false;
+          const citedTokens = new Set(centralTokens(`${source.title} ${source.excerpt}`));
+          const shared = tokens.filter((token) => citedTokens.has(token)).length;
+          return shared >= (tokens.length <= 2 ? 1 : 2);
+        })
+      )
+        return { ok: false, reason: "unsupported" };
+      const figures = numericKeys(text);
+      if (
+        figures.some(
+          (figure) =>
+            !refs.some((ref) => {
+              const source = evidence[ref - 1];
+              return source && numericKeys(`${source.title} ${source.excerpt}`).includes(figure);
+            }),
+        )
+      )
+        return { ok: false, reason: "unsupported" };
+    }
+  }
+  return { ok: true };
 }
 
 export function articleMinutes(article: ReaderArticle): number {

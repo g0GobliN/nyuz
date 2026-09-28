@@ -31,5 +31,6 @@ export async function codeFirstDb() {
   await db.exec(migration("0078_understand_on_demand.sql"));
   await db.exec(migration("0080_provider_credit_gate.sql"));
   await db.exec(migration("0085_code_first_news.sql"));
+  await db.exec(migration("0104_story_prompt_version.sql"));
   return db;
 }

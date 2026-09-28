@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { articleMinutes, readReaderArticle } from "./reader-article";
+import {
+  articleMinutes,
+  judgeReaderArticle,
+  readReaderArticle,
+  validateReaderArticleStructure,
+  type ReaderArticle,
+} from "./reader-article";
 
 const deck = { text: "The deck.", evidence: [1] };
 
@@ -96,6 +102,112 @@ describe("readReaderArticle", () => {
     };
 
     expect(readReaderArticle(value, 2)).toBeNull();
+  });
+});
+
+describe("judgeReaderArticle", () => {
+  const evidence = [
+    {
+      title: "Council approves public library",
+      excerpt:
+        "The council approved a new public library on Monday. The project includes a reading room and extended opening hours. Funding will come from the existing community development budget, according to the council's announcement.",
+    },
+  ];
+  const article = (deck: string, paragraph: string): ReaderArticle => ({
+    deck: { text: deck, evidence: [1] },
+    paragraphs: [{ text: paragraph, evidence: [1] }],
+  });
+
+  it("accepts structurally valid legacy prose without source excerpts", () => {
+    expect(
+      validateReaderArticleStructure(
+        article(
+          "The council approved a new public library.",
+          "The project includes a reading room and extended opening hours.",
+        ),
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("rejects malformed legacy prose even without source excerpts", () => {
+    expect(
+      validateReaderArticleStructure(
+        article(
+          "The council approved a new public library.",
+          "The Register reports that In an internal memo, the company announced a new plan.",
+        ),
+      ),
+    ).toEqual({ ok: false, reason: "malformed_attribution" });
+  });
+
+  it("accepts readable prose grounded in its cited source", () => {
+    expect(
+      judgeReaderArticle(
+        article(
+          "The council approved a new public library on Monday.",
+          "The project includes a reading room and extended opening hours.",
+        ),
+        "Council approves public library",
+        evidence,
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it.each([
+    [
+      "a glued attribution",
+      "The Register reports that In an internal memo, the company announced a new plan.",
+    ],
+    ["a source-heading seam", "Navy and the British Royal Navy launched the torpedo yesterday."],
+    [
+      "an unresolved fragment",
+      "According to the report, the was also revealed that the inquiry found failures.",
+    ],
+  ])("rejects %s before it can be stored", (_label, paragraphText) => {
+    const result = judgeReaderArticle(
+      article("The council approved a new public library.", paragraphText),
+      "Council approves public library",
+      evidence,
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects an unrelated paragraph even when it cites a valid source number", () => {
+    expect(
+      judgeReaderArticle(
+        article(
+          "The council approved a new public library on Monday.",
+          "Nvidia released a new graphics card for professional gaming customers worldwide.",
+        ),
+        "Council approves public library",
+        evidence,
+      ),
+    ).toEqual({ ok: false, reason: "unsupported" });
+  });
+
+  it("rejects a figure missing from the source", () => {
+    expect(
+      judgeReaderArticle(
+        article(
+          "The council approved a new public library on Monday.",
+          "The project includes a reading room and cost $42 million to build.",
+        ),
+        "Council approves public library",
+        evidence,
+      ),
+    ).toEqual({ ok: false, reason: "unsupported" });
+  });
+
+  it("requires each sentence in a paragraph to cite overlapping evidence", () => {
+    const result = judgeReaderArticle(
+      article(
+        "The council approved a new public library on Monday.",
+        "The project includes a reading room and extended opening hours. Nvidia released a new graphics card for professional gaming customers worldwide.",
+      ),
+      "Council approves public library",
+      evidence,
+    );
+    expect(result).toEqual({ ok: false, reason: "unsupported" });
   });
 });
 

@@ -260,8 +260,12 @@ function stampOf(fingerprint: string): string {
 export async function contentVersion(
   coverageText: string,
   facts?: ExtractedFacts,
+  profileVersion = "",
 ): Promise<string> {
-  const fingerprint = `v${MATERIAL_VERSION_SCHEME}|${materialFingerprint(materialState(coverageText, facts))}`;
+  const fingerprint =
+    profileVersion === ""
+      ? `v${MATERIAL_VERSION_SCHEME}|${materialFingerprint(materialState(coverageText, facts))}`
+      : `v${MATERIAL_VERSION_SCHEME}|${profileVersion}|${materialFingerprint(materialState(coverageText, facts))}`;
   const bytes = new TextEncoder().encode(fingerprint);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]

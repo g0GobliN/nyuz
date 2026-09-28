@@ -21,6 +21,29 @@ describe("magnitudeBucket", () => {
 });
 
 describe("the version ignores what is not a development", () => {
+  it("keeps the legacy hash when no prompt profile is supplied", async () => {
+    const text = coverageTextOf([article("A useful event", "The event developed today.")]);
+    const state = materialState(text);
+    const fingerprint = `v2|${[
+      `m=${state.markers.join(",")}`,
+      `n=${state.magnitudes.join(",")}`,
+      `e=${state.entities.join(",")}`,
+    ].join("|")}`;
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(fingerprint));
+    const expected = [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 12);
+    expect(await contentVersion(text)).toBe(expected);
+  });
+
+  it("changes the cache key when the prompt profile changes", async () => {
+    const text = coverageTextOf([article("A useful event", "The event developed today.")]);
+    expect(await contentVersion(text, undefined, "story:2")).not.toBe(
+      await contentVersion(text, undefined, "story:3"),
+    );
+  });
+
   it("is unchanged when another outlet publishes the same facts", async () => {
     const first = coverageTextOf([
       article("Acme in talks to buy Widget Co", "Acme is in talks to acquire Widget Co."),
