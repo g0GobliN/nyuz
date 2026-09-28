@@ -145,11 +145,21 @@ export async function saveStory(userId: string, story: Story): Promise<void> {
   await withStore("readwrite", (store) => store.put(row));
 }
 
-export async function readStory(userId: string, storyId: string): Promise<Story | null> {
+/**
+ * The saved story, and when it was written.
+ *
+ * The time travels with the payload because a copy read while the network is up
+ * is a *dated* answer — the whole difference between a briefing and a stale one
+ * — and the caption that says so has nowhere else to get the date from.
+ */
+export async function readStory(
+  userId: string,
+  storyId: string,
+): Promise<{ story: Story; savedAt: number } | null> {
   const row = await withStore<ArchiveRow>("readonly", (store) =>
     store.get(archiveRowKey(userId, "story", storyId)),
   );
-  return row ? (row.payload as Story) : null;
+  return row ? { story: row.payload as Story, savedAt: row.savedAt } : null;
 }
 
 export async function hasStory(userId: string, storyId: string): Promise<boolean> {

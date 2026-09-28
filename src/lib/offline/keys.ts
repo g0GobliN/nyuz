@@ -88,6 +88,21 @@ export function storyIdForQuery(queryKey: readonly unknown[]): string | null {
   return typeof id === "string" && id.length > 0 ? id : null;
 }
 
+/**
+ * What a served copy is filed under, or null when the archive cannot answer.
+ *
+ * The same whitelist as the reads, so "the archive answered this" and "this is
+ * a query the archive knows" cannot disagree. The kind is in the string because
+ * a list key and a story id are both plain strings and a collision between them
+ * would caption the wrong screen.
+ */
+export function copyMarkForQuery(queryKey: readonly unknown[]): string | null {
+  const listKey = listKeyForQuery(queryKey);
+  if (listKey) return `list:${listKey}`;
+  const storyId = storyIdForQuery(queryKey);
+  return storyId ? `story:${storyId}` : null;
+}
+
 export function archiveRowKey(userId: string, kind: "list" | "story", id: string): string {
   return `${userId}:${kind}:${id}`;
 }

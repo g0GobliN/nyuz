@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   ARCHIVE_LIMITS,
   archiveRowKey,
+  copyMarkForQuery,
   forOfflineList,
   isFeedPayload,
   listKeyForQuery,
@@ -225,5 +226,28 @@ describe("the caps", () => {
   it("names exactly the rows a prune removes", () => {
     const rows = [row("list", "keep", now), row("list", "drop", now - 30 * 86_400_000)];
     expect(rowKeysToDrop(rows, now)).toEqual([archiveRowKey(USER, "list", "drop")]);
+  });
+});
+
+describe("what a served copy is filed under", () => {
+  it("uses the archive's own keys, so the two cannot disagree", () => {
+    expect(copyMarkForQuery(["briefing", "home"])).toBe("list:home");
+    expect(copyMarkForQuery(["briefing", "saved"])).toBe("list:saved");
+    expect(copyMarkForQuery(["briefing", "today", "latest"])).toBe("list:today:latest");
+    expect(copyMarkForQuery(["briefing", "story", STORY_ID])).toBe(`story:${STORY_ID}`);
+  });
+
+  it("keeps lists and stories apart", () => {
+    // A list key and a story id are both plain strings, and a collision would
+    // caption one screen from another's mark.
+    expect(copyMarkForQuery(["briefing", "today", STORY_ID])).not.toBe(
+      copyMarkForQuery(["briefing", "story", STORY_ID]),
+    );
+  });
+
+  it("has no mark for a query the archive cannot answer", () => {
+    // Marking it would caption a screen the archive never served.
+    expect(copyMarkForQuery(["briefing", "history", ""])).toBeNull();
+    expect(copyMarkForQuery(["sources", "watched"])).toBeNull();
   });
 });

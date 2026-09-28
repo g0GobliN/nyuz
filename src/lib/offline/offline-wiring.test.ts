@@ -112,3 +112,29 @@ describe("nothing survives a change of reader", () => {
     expect(component.indexOf("useEffect(")).toBeGreaterThan(-1);
   });
 });
+
+describe("a served copy says so", () => {
+  /**
+   * The bug these were written for: the fallback returns a saved copy as a
+   * *success*, so from the query's point of view it is indistinguishable from a
+   * live answer. The strip that exists to caption exactly this drew only while
+   * the browser reported no network — so a reader who was online, whose request
+   * failed, saw a stale briefing rendered as today's and read it as the server
+   * having no news. Nothing in a test of the fallback would catch it: the
+   * fallback was right, and the caption was missing.
+   */
+  it("marks what the fallback hands the screen, and clears it on a live answer", () => {
+    const fallback = read("src/lib/offline/fallback.ts");
+    expect(fallback).toContain("markServedCopy(");
+    expect(fallback).toContain("clearServedCopy(");
+    // The date has to come from the row that was served, not from a lookup
+    // about the archive as a whole — those are different times and only one of
+    // them is when the answer on screen was written.
+    expect(fallback).toContain("savedAt");
+  });
+
+  it("draws the strip for a served copy, not only for a dead network", () => {
+    const notice = withoutComments(read("src/components/dashboard/offline-notice.tsx"));
+    expect(notice).toContain("useServedCopySavedAt(");
+  });
+});
