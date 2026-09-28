@@ -22,6 +22,25 @@
  * `parseInput` in `src/lib/server/validate.ts` is the other half: it stops the
  * JSON being produced in the first place. This function is the safety net for
  * anything that still throws one.
+ *
+ * ---------------------------------------------------------------------------
+ * The second bug, and why a platform failure gets its own sentence
+ * ---------------------------------------------------------------------------
+ *
+ * A request the application never answers is not an application error. When a
+ * worker is killed mid-request — over its CPU limit, or simply not running yet
+ * while a new version deploys — the edge answers instead, with its own JSON
+ * error body. That body arrives here as the thrown message, starts with `{`,
+ * and the machinery rule below turned it into the same generic sentence an
+ * empty error gets.
+ *
+ * So a platform failure and a code failure read identically: "The request did
+ * not complete" for both. That makes the reader's own data look like the
+ * suspect, and it leaves nothing anywhere that says which of the two happened.
+ * `fromPlatformJson` names it, narrowly, so that retrying is an obviously good
+ * idea rather than a superstition. Cloudflare also returns a complete HTML
+ * Error 1102 page for a worker that exhausts its limits, so that shape is
+ * recognized separately and just as narrowly.
  */
 
 /**
@@ -41,6 +60,17 @@ function isIssueArray(value: unknown): value is SerialisedIssue[] {
     Array.isArray(value) &&
     value.length > 0 &&
     value.every((v) => typeof v === "object" && v !== null && "message" in v)
+  );
+}
+
+/** True for an error list whose entries are numbered, as a gateway's is. */
+function hasNumberedError(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.some(
+    (issue) =>
+      typeof issue === "object" &&
+      issue !== null &&
+      typeof (issue as { code?: unknown }).code === "number",
   );
 }
 
@@ -115,6 +145,51 @@ function fromZodJson(raw: string): string | null {
 }
 
 /**
+ * The sentence for a failure the platform reported, not the app.
+ *
+ * Deliberately narrow, and that narrowness is the point: a JSON body is only
+ * read as a platform failure when it carries a marker an application payload
+ * has no reason to — the edge's own field names, or its `success: false`
+ * envelope. Anything else still falls through to the caller's fallback rather
+ * than being described as something it is not.
+ */
+function fromPlatformJson(raw: string): string | null {
+  if (!raw.startsWith("{")) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  const body = parsed as Record<string, unknown>;
+
+  const named =
+    body["cloudflare_error"] === true ||
+    typeof body["error_name"] === "string" ||
+    typeof body["error_category"] === "string" ||
+    typeof body["ray_id"] === "string";
+  const envelope = body["success"] === false && hasNumberedError(body["errors"]);
+  if (!named && !envelope) return null;
+
+  // Says only what is true of every one of these: the request was cut off
+  // before the app could answer, so retrying is reasonable and the reader's own
+  // data is not implicated.
+  return "Our server was interrupted before it could answer. Try again in a moment.";
+}
+
+/** The matching sentence for Cloudflare's HTML Worker resource-limit page. */
+function fromPlatformHtml(raw: string): string | null {
+  const cloudflareWorkerLimit =
+    /(?:error\s*1102|worker exceeded resource limits)/i.test(raw) &&
+    /(?:cloudflare|cf-ray|ray id)/i.test(raw);
+  return cloudflareWorkerLimit
+    ? "Our server was interrupted before it could answer. Try again in a moment."
+    : null;
+}
+
+/**
  * The sentence to show a customer for any thrown thing.
  *
  * `fallback` is used when the error carries nothing worth showing — an empty
@@ -133,6 +208,12 @@ export function humanError(
 
   const unwrapped = fromZodJson(trimmed);
   if (unwrapped) return unwrapped;
+
+  const platform = fromPlatformJson(trimmed) ?? fromPlatformHtml(trimmed);
+  if (platform) return platform;
+
+  // Unrecognized HTML is still a response body, not a sentence to show a reader.
+  if (/^(?:<!doctype\s+html|<html\b)/i.test(trimmed)) return fallback;
 
   // A message that is still JSON, or still looks like machinery, is not shown.
   // Better a plain fallback than a stack frame or a Postgres error code in

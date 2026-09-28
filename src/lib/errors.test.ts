@@ -63,6 +63,51 @@ describe("humanError", () => {
     expect(humanError(new Error('{"trace":"deep"}'), "Could not save.")).toBe("Could not save.");
   });
 
+  /**
+   * The second bug: a killed worker is answered by the edge, its JSON body
+   * arrives as the thrown message, and the `{` rule hid it. The reader then
+   * could not tell a platform blip from their own data being wrong.
+   */
+  describe("a failure the platform reported", () => {
+    const modern = JSON.stringify({
+      cloudflare_error: true,
+      error_name: "worker_exceeded_limits",
+      title: "Worker exceeded resource limits",
+      status: 503,
+      ray_id: "a41ec4a4fdbf7d2d-NRT",
+    });
+    const legacy = JSON.stringify({
+      result: null,
+      success: false,
+      errors: [{ code: 1102, message: "Worker exceeded resource limits" }],
+      messages: [],
+    });
+    const html = `<!DOCTYPE html><html><head><title>nyuz | 1102: Worker exceeded resource limits</title></head><body><h1>Error 1102</h1><p>Worker exceeded resource limits</p><p>Ray ID: a41f2670bcd0af54</p><p>Cloudflare</p></body></html>`;
+
+    it("names it instead of falling back", () => {
+      for (const body of [modern, legacy, html]) {
+        const out = humanError(new Error(body), "The request did not complete.");
+        expect(out).not.toBe("The request did not complete.");
+        expect(out).toContain("interrupted");
+      }
+    });
+
+    it("does not describe an ordinary payload as a platform failure", () => {
+      // The narrowness is the point: naming a random object would be a lie in
+      // the one sentence a reader is meant to trust.
+      expect(humanError(new Error('{"success":false}'), "Could not save.")).toBe("Could not save.");
+      expect(humanError(new Error('{"errors":["nope"]}'), "Could not save.")).toBe(
+        "Could not save.",
+      );
+      expect(
+        humanError(
+          new Error("<html><title>Cloudflare outage</title><p>Service unavailable</p></html>"),
+          "Could not save.",
+        ),
+      ).toBe("Could not save.");
+    });
+  });
+
   it("falls back for an empty or non-error throw", () => {
     expect(humanError(new Error(""), "Could not add that feed.")).toBe("Could not add that feed.");
     expect(humanError(undefined, "Could not add that feed.")).toBe("Could not add that feed.");
