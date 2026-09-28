@@ -581,6 +581,16 @@ type EventBrief = {
    * (inclusion.ts) that replaced the per-briefing impact model call.
    */
   sourceCount: number;
+  /**
+   * That outlet's name, when exactly one carried the story.
+   *
+   * `sourceCount` can only say "one"; the inclusion line needs to say *who*,
+   * because a single-source story with nothing else to say is otherwise
+   * described by the reader's own topic labels — the same sentence for every
+   * story in that topic. Null when more than one outlet carried it or the name
+   * is unknown, which is what drops the line rather than repeating it.
+   */
+  outlet: string | null;
 };
 
 async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise<DigestOutcome> {
@@ -698,6 +708,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
         afterState: brief.afterState,
         sourceCount: brief.sourceCount,
         topics: brief.topics,
+        outlet: brief.outlet,
       });
       return [brief.eventId, reason.text] as const;
     }),
@@ -1083,22 +1094,35 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   // outlet's worth of corroboration, and the inclusion line says "independent".
   const { data: coverage, error: coverageError } = await db
     .from("articles")
-    .select("event_id, source_id")
+    .select("event_id, source_id, sources ( name )")
     .in("event_id", ids);
   if (coverageError) throw new Error(`reading coverage: ${coverageError.message}`);
 
   const outlets = new Map<string, Set<string>>();
+  // Names as well as ids, because the count is not the whole question: the
+  // inclusion line has to be able to say who has a single-source story, or it
+  // falls back to the reader's topics and repeats itself. Collected separately
+  // so the count keeps counting ids exactly as it did.
+  const outletNames = new Map<string, Set<string>>();
   for (const row of coverage ?? []) {
     if (!row.event_id) continue;
     const seen = outlets.get(row.event_id) ?? new Set<string>();
     seen.add(row.source_id ?? "unknown");
     outlets.set(row.event_id, seen);
+
+    const name = (row.sources as { name?: string } | null)?.name;
+    if (!name) continue;
+    const named = outletNames.get(row.event_id) ?? new Set<string>();
+    named.add(name);
+    outletNames.set(row.event_id, named);
   }
 
   const byId = new Map((data ?? []).map((e) => [e.id, e] as const));
   return picked.flatMap((row) => {
     const event = byId.get(row.eventId);
     if (!event) return [];
+    // One outlet and one name for it, or nothing to name.
+    const named = outletNames.get(row.eventId);
     return [
       {
         eventId: row.eventId,
@@ -1110,6 +1134,7 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
         novelty: event.novelty,
         topics: topics.get(row.eventId) ?? [],
         sourceCount: event.publisher_count || outlets.get(row.eventId)?.size || 0,
+        outlet: named && named.size === 1 ? ([...named][0] ?? null) : null,
         relevance: row.relevance,
         matchedAt: row.matchedAt,
       },
