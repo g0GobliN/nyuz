@@ -512,3 +512,54 @@ describe("composeArticle", () => {
     });
   });
 });
+
+describe("a preview of something that has already happened", () => {
+  const previewStory = (excerpt: string) =>
+    makeStory({
+      title: "OpenAI DevDay 2026: the biggest news and announcements",
+      publishedAt: "2026-09-30T01:00:00Z",
+      sourceList: [
+        {
+          name: "The Verge",
+          at: "16:00",
+          headline: "OpenAI DevDay 2026",
+          excerpt,
+        },
+      ],
+    });
+
+  it("refuses the sentence that announces a date the reader has lived through", () => {
+    const story = previewStory(
+      "The company is hosting its annual DevDay on September 29th in San Francisco, starting with a live keynote featuring CEO Sam Altman. Tickets sold out within an hour of going on sale.",
+    );
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+    const text = [article.deck.text, ...article.paragraphs.map((part) => part.text)].join(" ");
+
+    expect(text).not.toContain("is hosting its annual DevDay");
+    expect(text).toContain("Tickets sold out");
+    expect(diagnostics.qualityGate.stalePreviewRefusals).toBe(1);
+    expect(diagnostics.sentences.reasons["stale_preview"]).toBe(1);
+  });
+
+  it("keeps the same framing for a date still ahead", () => {
+    const story = previewStory(
+      "The company is hosting its annual DevDay on October 15th in San Francisco, with a live keynote from CEO Sam Altman. Tickets went on sale this morning.",
+    );
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+    const text = [article.deck.text, ...article.paragraphs.map((part) => part.text)].join(" ");
+
+    expect(text).toContain("is hosting its annual DevDay on October 15th");
+    expect(diagnostics.qualityGate.stalePreviewRefusals).toBe(0);
+  });
+
+  it("keeps a past date that is reporting rather than promising", () => {
+    const story = previewStory(
+      "The company met analysts on September 29 and raised its outlook for the quarter. Shares rose four percent in after-hours trading.",
+    );
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+    const text = [article.deck.text, ...article.paragraphs.map((part) => part.text)].join(" ");
+
+    expect(text).toContain("on September 29");
+    expect(diagnostics.qualityGate.stalePreviewRefusals).toBe(0);
+  });
+});

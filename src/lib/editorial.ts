@@ -257,6 +257,13 @@ export type CompositionDiagnostics = {
     /** Facts refused because a "this month" could not be made absolute. */
     relativeTimeRefusals: number;
     /**
+     * Facts refused because they announce, as still ahead of the reader, a date
+     * the reader has already lived through. "The company is hosting its annual
+     * DevDay on September 29th" published on the 30th is not early, it is wrong:
+     * it tells a reader who has already read the coverage that it is coming.
+     */
+    stalePreviewRefusals: number;
+    /**
      * Decks the gate itself refused, by reason. The deck is the one published
      * unit that is not derived from a selected fact, so it is the one that can
      * arrive at the gate without having been judged -- and it used to be indexed
@@ -389,6 +396,7 @@ function createDiagnostics(): CompositionDiagnostics {
       deckReasons: {},
       /** Facts refused because a "this month" could not be made absolute. */
       relativeTimeRefusals: 0,
+      stalePreviewRefusals: 0,
     },
     facts: { selected: 0, rendered: 0, deduplicated: 0, rejected: 0, refused: 0, lost: 0 },
     paragraphs: { assembled: 0, split: 0, rendered: 0, rejected: 0, reasons: {} },
@@ -821,6 +829,99 @@ function anchorRelativeTimes(
       continue;
     }
     kept.push(fact);
+  }
+  return kept;
+}
+
+/* ------------------------------------------------------------------ */
+/* A preview of something that has already happened                     */
+/* ------------------------------------------------------------------ */
+
+/** Month names as calendar numbers, for a date written the way copy writes it. */
+const MONTH_NUMBERS: Record<string, number> = {
+  january: 0,
+  february: 1,
+  march: 2,
+  april: 3,
+  may: 4,
+  june: 5,
+  july: 6,
+  august: 7,
+  september: 8,
+  october: 9,
+  november: 10,
+  december: 11,
+};
+
+/** `September 29`, `September 29th, 2026` — the forms a news source writes. */
+const ABSOLUTE_DATE =
+  /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,\s*(\d{4}))?\b/i;
+
+/**
+ * Framing that presents the event as still ahead of the reader.
+ *
+ * Present continuous and the polite futures — "is hosting", "is set to",
+ * "takes place" — are how a preview is written, and they are the only reason a
+ * past date in a sentence means anything wrong: "The council met on September
+ * 29" is reporting, "The council meets on September 29" published on the 30th
+ * is a promise about a day that has gone.
+ */
+const UPCOMING_FRAMING =
+  /\b(?:has a date|is happening|are happening|is hosting|are hosting|will host|will be hosting|is scheduled for|are scheduled for|is set to|are set to|takes place|take place|will take place|is slated to|kicks off|will kick off|starts on|will start|is due to|coming up)\b/i;
+
+/**
+ * Refuse a sentence that announces, as still ahead of the reader, a date the
+ * reader has already lived through.
+ *
+ * `anchorRelativeTimes` above fixes "earlier this month"; this is its opposite
+ * failure. A source written the day before an event carries the event into the
+ * archive as a promise — on 2026-09-30 the DevDay story still said "The company
+ * is hosting its annual DevDay on September 29th", which a reader who had
+ * watched it happen reads as either stale or wrong. The date is not rewritten:
+ * the composer never paraphrases, so a sentence that cannot be published as it
+ * stands is refused, and the refusal is counted like every other.
+ *
+ * Both halves are required. A date with no upcoming frame is reporting about
+ * the past, and an upcoming frame with no date may be about any day — neither is
+ * a claim this rule can prove false.
+ */
+function refuseStalePreviews(
+  facts: ReaderFact[],
+  publishedAt: string,
+  diagnostics: CompositionDiagnostics,
+): ReaderFact[] {
+  const published = publishedAt ? new Date(publishedAt) : null;
+  if (published === null || Number.isNaN(published.getTime())) return facts;
+  const cutoff = Date.UTC(
+    published.getUTCFullYear(),
+    published.getUTCMonth(),
+    published.getUTCDate(),
+  );
+
+  const kept: ReaderFact[] = [];
+  for (const fact of facts) {
+    const match = ABSOLUTE_DATE.exec(fact.text);
+    if (match === null || !UPCOMING_FRAMING.test(fact.text)) {
+      kept.push(fact);
+      continue;
+    }
+    const month = MONTH_NUMBERS[match[1]!.toLowerCase()];
+    // With no year, the story's own year: a source written this month means
+    // this month, and a reader who met the date in a later year has the
+    // archive's own date to work from.
+    const year = match[3] === undefined ? published.getUTCFullYear() : Number(match[3]);
+    const day = Number(match[2]);
+    if (month === undefined || !Number.isFinite(day) || !Number.isFinite(year)) {
+      kept.push(fact);
+      continue;
+    }
+    const when = Date.UTC(year, month, day);
+    if (when >= cutoff) {
+      kept.push(fact);
+      continue;
+    }
+    diagnostics.qualityGate.stalePreviewRefusals += 1;
+    refuseBlock(fact.text, "stale_preview", diagnostics);
   }
   return kept;
 }
@@ -1701,8 +1802,12 @@ export function composeArticleWithDiagnostics(story: Story): {
     // own words, before anything is selected: the deck, the paragraphs and the
     // entity facts all read this list, so anchoring once here is the only way
     // they can agree about what "this month" meant.
-    const dated = anchorRelativeTimes(
-      [...selection.facts, ...supplementalEntityFacts(cleanStory, selection)],
+    const dated = refuseStalePreviews(
+      anchorRelativeTimes(
+        [...selection.facts, ...supplementalEntityFacts(cleanStory, selection)],
+        story.publishedAt,
+        diagnostics,
+      ),
       story.publishedAt,
       diagnostics,
     );
