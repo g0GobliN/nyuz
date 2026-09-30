@@ -5,7 +5,7 @@ Nyuz is a code-first news product. Shared events power personalized selection an
 ## News processing
 
 1. Ingestion fetches supported RSS/Atom feeds on existing demand-aware schedules. Normalization strips HTML, canonicalizes URLs, deduplicates articles and bounds retained excerpts to 4,000 characters. No article crawler is involved.
-2. Clustering uses the existing indexed shortlist plus conservative complete-headline and publication-time comparisons. Uncertain articles form separate events. Database leases protect article processing.
+2. Clustering uses the existing indexed shortlist plus conservative complete-headline and publication-time comparisons. A second, also-conservative route attaches a *paraphrase* — shared story-identifying words, figures and negation that do not conflict, a 48-hour window, and two different publishers — which is what gives one event coverage from more than one outlet; the same publisher's next take is not a second source. Uncertain articles form separate events. Database leases protect article processing.
 3. Classification produces deterministic topic candidates from article/source text and the taxonomy.
 4. The retained `analyse` stage finalizes events using ordinary code. It selects a representative source headline and short description, promotes topics into `event_topics`, derives importance/novelty, and records `status = complete` and `analysed_at`.
 5. Matching uses topics, custom interests, exclusions, preferred/muted sources and existing reader weights. Ranking retains freshness, importance, novelty and personalization signals.

@@ -17,7 +17,7 @@ Shared plumbing remains in `ai/config.ts` (routing/reservation/settlement), `ai/
 
 ## 2. Deterministic clustering
 
-Indexed shortlisting remains; complete normalized titles are scored rather than only retrieval tokens. Attachment requires near-identical content-word order, compatible numbers/negation, publication proximity within 48 hours, and a single unambiguous event. Otherwise a separate event is created. Research follows the same conservative rule.
+Indexed shortlisting remains; complete normalized titles are scored rather than only retrieval tokens. Attachment requires near-identical content-word order, compatible numbers/negation, publication proximity within 48 hours, and a single unambiguous event. A cross-outlet paraphrase test attaches the same way only when the headlines share enough story-identifying words, agree on every figure and negation, are not round-ups, and come from two different publishers — the check that separates corroboration from one outlet's next take. Otherwise a separate event is created. Research follows the same conservative rule.
 
 Database article ownership and two-minute leases prevent duplicate processing of one article. Expired free claims can be recovered; owner fencing prevents a previous worker committing afterward. Different articles arriving simultaneously may form separate events. Briefing and alert selection suppress near-identical duplicate coverage, including recently selected coverage for the same reader.
 

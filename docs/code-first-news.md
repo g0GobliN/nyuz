@@ -30,7 +30,7 @@ Reservations use the existing conservative input-token bound and maximum output 
 
 ## Deterministic news quality
 
-Clustering searches the existing indexed headline shortlist, then compares complete normalized titles. Near-identical content-word order, matching numbers/negation, a 48-hour publication window, and one unambiguous target are required. Conflicting or ambiguous candidates form separate events. Research uses the same conservative rules; it is not categorically excluded. Database owners and two-minute leases protect individual articles and finalization; stale free work can be reclaimed safely.
+Clustering searches the existing indexed headline shortlist, then compares complete normalized titles. Near-identical content-word order, matching numbers/negation, a 48-hour publication window, and one unambiguous target are required. A second route attaches outlets that describe one event in their own words: three or four shared story-identifying words (stopwords and filler excluded unless both sides capitalise them), figures that do not conflict once spelled-out numbers are folded, matching negation, no round-up headline, a 48-hour window, and — this is what keeps it from claiming corroboration it does not have — two publishers with different homepages. Conflicting or ambiguous candidates form separate events. Research uses the same conservative rules; it is not categorically excluded. Database owners and two-minute leases protect individual articles and finalization; stale free work can be reclaimed safely.
 
 Finalization preserves `complete`, `analysed_at`, and final `event_topics`. It chooses source wording and useful descriptions rather than inventing prose.
 

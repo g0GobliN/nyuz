@@ -300,6 +300,13 @@ export type Candidate = {
   title: string;
   event_id: string | null;
   published_at: string | null;
+  /**
+   * Who published it. Returned because the caller needs to know whether a
+   * candidate is *another outlet's* account of the same event or the same
+   * outlet's next take -- only the former is corroboration, and only the former
+   * `cluster.ts` will attach on a paraphrase.
+   */
+  source_id: string | null;
 };
 
 export type ShortlistOptions = {
@@ -309,7 +316,7 @@ export type ShortlistOptions = {
   size?: number | undefined;
 };
 
-const WINDOW_DAYS = 3;
+const WINDOW_DAYS = 2;
 const SIZE = 10;
 
 /**
@@ -342,7 +349,7 @@ export async function shortlist(
 
   let query = db
     .from("articles")
-    .select("id, title, event_id, published_at")
+    .select("id, title, event_id, published_at, source_id")
     .neq("id", article.id)
     .or(filter);
 
