@@ -31,7 +31,7 @@ import { alertDeliveryAllowed } from "./alert-entitlement";
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { suppressDeliveredDuplicates } from "./duplicates";
+import { suppressDeliveredDuplicates, suppressStoryTwins } from "./duplicates";
 import type { SecretBag } from "@/lib/ai/config";
 import { capFor } from "@/lib/density";
 import { reasonFor } from "./inclusion";
@@ -332,6 +332,13 @@ export type MatchRow = {
  * affect them, which is a worse briefing than one three stories shorter.
  */
 export const DAILY_FRESH_THRESHOLD = 6;
+
+/**
+ * Stories loaded beyond the cap so a dropped twin does not shorten the briefing.
+ * Large enough for the worst observed split (one IPO filing held as five events)
+ * and small enough that the extra reads stay bounded.
+ */
+const TWIN_HEADROOM = 12;
 
 export function selectItems(
   matches: MatchRow[],
@@ -681,13 +688,17 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     // a repeat of the one this reader already received.
     new Map(ranked.map((r) => [r.eventId, r.materialRevision] as const)),
   );
-  const picked = ranked.filter((r) => distinct.has(r.eventId)).slice(0, cap);
+  // Headroom beyond the cap. A story the corpus split across several events is
+  // dropped by `suppressStoryTwins` below, and the next story takes its place —
+  // a briefing that deduplicates itself must not also come out shorter than the
+  // reader asked for.
+  const considered = ranked.filter((r) => distinct.has(r.eventId)).slice(0, cap + TWIN_HEADROOM);
 
   // The digest cache (0061) is deliberately not consulted. Skipping generation on
   // an unchanged event set is a P1 optimization; the table and RPCs stay dormant
   // in the database so it can be switched back on after P0.
 
-  if (picked.length === 0) {
+  if (considered.length === 0) {
     if (options.dryRun !== true) {
       await finish(db, due.digest_id, "skipped", 0, 0);
       await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
@@ -695,7 +706,12 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     return { ...base, decision: "skipped", detail: "nothing matched since the last briefing" };
   }
 
-  const briefs = await loadBriefs(db, picked);
+  const loaded = await loadBriefs(db, considered);
+  // One story per briefing. The corpus can hold the same event as four events
+  // when four outlets phrase it differently and the paraphrase predicate — which
+  // is precise and refuses them — has not joined them; showing the reader four
+  // cards about one IPO filing is worse than showing one.
+  const briefs = suppressStoryTwins(loaded);
 
   // Reader-readiness gate (readiness.ts). Rejects only provably non-news
   // shapes — empty summaries, build numbers, commit messages, bylines,
@@ -714,6 +730,9 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     if (verdict.ready) ready.push(brief);
     else withheld.push({ eventId: brief.eventId, kind: verdict.kind });
   }
+  // The twin drop and the gate both run after the cap, so the cap has the last
+  // word: the reader asked for `cap` stories, never more.
+  if (ready.length > cap) ready.splice(cap);
   const withheldNote =
     withheld.length > 0
       ? `${withheld.length} withheld (${[...new Set(withheld.map((w) => w.kind))].join(", ")})`
@@ -811,7 +830,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // shared explanation yet carries an empty one — `why_it_matters` is
   // `not null default ''`, and the templates already render a story without it.
   const revisionOf = new Map(
-    picked.map((match) => [match.eventId, match.materialRevision] as const),
+    considered.map((match) => [match.eventId, match.materialRevision] as const),
   );
   const rows = ready.map((brief, position) => ({
     digest_id: due.digest_id,
@@ -844,9 +863,12 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // Stamped over every brief the matcher picked, withheld included: the gate
   // only withholds provable non-news, so nothing here is a developing story
   // waiting for corroboration, and stamping keeps it from looping forever.
+  // `loaded`, not `briefs`: a story dropped as a twin shipped under the event
+  // that kept its slot, and stamping it stops it returning tomorrow as a
+  // different-looking duplicate.
   const briefedAt = new Date().toISOString();
   const byRevision = new Map<number, string[]>();
-  for (const brief of briefs) {
+  for (const brief of loaded) {
     const revision = revisionOf.get(brief.eventId) ?? 0;
     const bucket = byRevision.get(revision);
     if (bucket) bucket.push(brief.eventId);

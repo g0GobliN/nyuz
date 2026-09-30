@@ -150,7 +150,7 @@ function figures(words: string[]): Set<string> {
 }
 
 /** Capitalised words, lowercased: a headline's proper nouns. */
-function capitalised(title: string): Set<string> {
+export function capitalised(title: string): Set<string> {
   return new Set(
     (
       cleanText(title)
