@@ -14,7 +14,7 @@
  */
 
 import { capFor } from "../src/lib/density";
-import { suppressDeliveredDuplicates } from "../src/lib/pipeline/duplicates";
+import { suppressDeliveredDuplicates, suppressStoryTwins } from "../src/lib/pipeline/duplicates";
 import { selectItems, type MatchRow } from "../src/lib/pipeline/digest";
 import { reasonFor } from "../src/lib/pipeline/inclusion";
 import { assessReadiness } from "../src/lib/pipeline/readiness";
@@ -36,16 +36,21 @@ type Brief = {
 main(async () => {
   const now = new Date();
 
-  // The reader: whoever received the most recent briefing.
+  // The reader: `--user <id>` when an operator has one in mind, otherwise the
+  // account that received the most recent briefing worth reading.
+  const userFlag = process.argv.indexOf("--user");
+  const flagUser = userFlag === -1 ? undefined : process.argv[userFlag + 1];
   const { data: recent, error: rErr } = await db()
     .from("digests")
-    .select("user_id")
+    .select("user_id,item_count")
     .eq("kind", "briefing")
     .order("scheduled_for", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(50);
   if (rErr) throw new Error(rErr.message);
-  const userId = recent?.user_id;
+  const userId =
+    flagUser === undefined
+      ? ((recent ?? []).find((d) => (d.item_count ?? 0) > 0)?.user_id ?? (recent ?? [])[0]?.user_id)
+      : ((recent ?? []).find((d) => d.user_id.startsWith(flagUser))?.user_id ?? flagUser);
   if (!userId) throw new Error("no briefing reader found");
 
   const [{ data: pref }, { data: sub }] = await Promise.all([
@@ -119,7 +124,9 @@ main(async () => {
     "briefing",
     new Map(ranked.map((r) => [r.eventId, r.materialRevision] as const)),
   );
-  const picked = ranked.filter((r) => distinct.has(r.eventId)).slice(0, cap);
+  // The same headroom generation takes: twins and the gate drop items after the
+  // cap, and the next story takes their place rather than shortening the list.
+  const picked = ranked.filter((r) => distinct.has(r.eventId)).slice(0, cap + 12);
 
   heading(`Next briefing (reader ${userId.slice(0, 8)}, cap ${cap})`);
   say(
@@ -169,7 +176,7 @@ main(async () => {
     (impacts ?? []).map((i) => [i.event_id, (i as { text?: string | null }).text ?? null]),
   );
 
-  const briefs: Brief[] = picked.flatMap((row3) => {
+  const allBriefs: Brief[] = picked.flatMap((row3) => {
     const event = byId.get(row3.eventId);
     if (!event) return [];
     return [
@@ -191,6 +198,30 @@ main(async () => {
     ];
   });
 
+  // One story per briefing, exactly as generation applies it.
+  const briefs = suppressStoryTwins(allBriefs);
+
+  // The three rungs reasonFor can climb, counted so a silent briefing says why.
+  const { data: allImpacts } = await db()
+    .from("event_impacts")
+    .select("event_id,status")
+    .in("event_id", ids);
+  const impactStatuses = new Map<string, string>();
+  for (const row4 of allImpacts ?? [])
+    impactStatuses.set(row4.event_id, (row4 as { status?: string }).status ?? "?");
+  const withAfter = briefs.filter((b) => (b.afterState ?? "").trim() !== "").length;
+  const withImpact = briefs.filter((b) => (b.storedImpact ?? "").trim() !== "").length;
+  say(
+    row(
+      "  ",
+      `rungs: stored impact ${withImpact}/${briefs.length} ` +
+        `(rows: ${[...impactStatuses.values()].filter((s) => s === "complete").length} complete, ` +
+        `${[...impactStatuses.values()].filter((s) => s !== "complete").length} other), ` +
+        `after-state ${withAfter}/${briefs.length}`,
+      110,
+    ),
+  );
+
   // --- the two gates a reader never sees ------------------------------------
   const ready: Brief[] = [];
   const withheld: { brief: Brief; kind: string }[] = [];
@@ -203,6 +234,7 @@ main(async () => {
     if (verdict.ready) ready.push(brief);
     else withheld.push({ brief, kind: verdict.kind });
   }
+  if (ready.length > cap) ready.splice(cap);
 
   heading(`Ships (${ready.length})`);
   let multi = 0;
