@@ -234,6 +234,51 @@ describe("assignTopics: new topics do not read into ambiguous common words", () 
   });
 });
 
+describe("assignTopics: the headline states the subject", () => {
+  it("does not read Travel into a passing body mention of tourists", () => {
+    // 2026-09-30: a PS5 lottery story mentioning "foreign tourists buying up
+    // stocks of RTX 5090s" shipped tagged Travel.
+    const topics = assignTopics(
+      "In the face of strong demand, Sony filters PS5 Pro purchasers in Japan using a lottery. " +
+        "Participants must have logged 60 hours of gaming time on their consoles. " +
+        "Japanese gamers grumble about foreign tourists buying up stocks of RTX 5090s.",
+      "Sony Japan tries an anti-scalper lottery system for PS5 Pro orders",
+    );
+    expect(topics).not.toContain("Travel");
+    expect(topics).toContain("Gaming");
+  });
+
+  it("still reads Travel when the headline names tourists", () => {
+    const topics = assignTopics(
+      "Airlines cancelled flights as the storm approached the coast.",
+      "Tourists stranded as storm grounds flights",
+    );
+    expect(topics).toContain("Travel");
+  });
+
+  it("keeps single-strong-term assignment without a title", () => {
+    expect(assignTopics("Parliament passed the measure on Tuesday.")).toContain("Politics");
+    expect(assignTopics("TSMC opens a new fabrication plant.")).toContain("Chips");
+  });
+
+  it("does not read Music into a concerted effort or Health into a treatment", () => {
+    // 2026-09-30: inflection matched "concerted" for Music and the
+    // software-defined "treatment" for Health.
+    expect(assignTopics("A concerted effort by researchers found the flaw.")).not.toContain(
+      "Music",
+    );
+    expect(
+      assignTopics("Schneider gives datacenter switchgear the software-defined treatment."),
+    ).not.toContain("Health");
+  });
+
+  it("does not read World into world models", () => {
+    expect(
+      assignTopics("AMD bets that worlds matter more than words in AI.", "AMD bets $8.2B"),
+    ).not.toContain("World");
+  });
+});
+
 describe("assignTags", () => {
   it("assigns funding tag", () => {
     const tags = assignTags("The company raised $50 million in a Series B round.");

@@ -77,7 +77,10 @@ type TopicVocabulary = {
 const TOPIC_KEYWORDS: Record<string, TopicVocabulary> = {
   World: {
     strong: ["geopolitics", "geopolitical", "diplomacy", "diplomatic", "treaty", "united nations"],
-    weak: ["world", "global", "international", "foreign", "summit", "alliance", "un"],
+    // No bare "world": world models, "worlds", and photo credits ("World
+    // Discovery/Alamy") all matched it. Genuine World news arrives with a
+    // summit, a treaty or an international institution, which already label.
+    weak: ["global", "international", "foreign", "summit", "alliance", "un"],
   },
   Politics: {
     strong: [
@@ -111,7 +114,9 @@ const TOPIC_KEYWORDS: Record<string, TopicVocabulary> = {
       // and is the strongest evidence available for wire copy that names only
       // clubs and players.
       "sport",
-      "olympics",
+      // "olympic" alone, not the pair: inflection reaches "olympics", and the
+      // pair counted one word as two distinct weak terms -- enough to label on
+      // its own. A headline naming the games still labels via the title rule.
       "olympic",
       "nba",
       "nfl",
@@ -143,18 +148,22 @@ const TOPIC_KEYWORDS: Record<string, TopicVocabulary> = {
     weak: ["game", "league", "player", "coach", "team", "goal", "fixture"],
   },
   Music: {
-    strong: [
-      "music",
-      "musician",
-      "song",
-      "album",
-      "singer",
+    strong: ["music", "musician", "song", "album", "singer", "lyrics", "soundtrack", "spotify"],
+    // "concert" is weak, not strong: inflection reaches "concerted", so a
+    // strong entry labelled any "concerted effort" Music. A headline naming a
+    // concert still labels via the title rule.
+    weak: [
+      "artist",
+      "band",
+      "tour",
+      "genre",
+      "pop",
+      "rock",
+      "hip hop",
+      "jazz",
+      "classical",
       "concert",
-      "lyrics",
-      "soundtrack",
-      "spotify",
     ],
-    weak: ["artist", "band", "tour", "genre", "pop", "rock", "hip hop", "jazz", "classical"],
   },
   Gaming: {
     strong: [
@@ -240,7 +249,10 @@ const TOPIC_KEYWORDS: Record<string, TopicVocabulary> = {
       "nhs",
       "surgery",
     ],
-    weak: ["doctor", "patient", "treatment", "drug", "symptom", "therapy"],
+    // No "treatment": water treatment, waste treatment and the
+    // software-defined treatment all matched it, and medical treatment always
+    // arrives beside a disease, a drug or a doctor, which already label.
+    weak: ["doctor", "patient", "drug", "symptom", "therapy"],
   },
   AI: {
     strong: [
@@ -481,8 +493,6 @@ const TOPIC_KEYWORDS: Record<string, TopicVocabulary> = {
   Travel: {
     strong: [
       "tourism",
-      "tourist",
-      "tourists",
       "travel restrictions",
       "visa-free travel",
       "airline passenger",
@@ -491,8 +501,14 @@ const TOPIC_KEYWORDS: Record<string, TopicVocabulary> = {
       "hotel industry",
     ],
     // Bare "travel" is deliberately absent -- "data packets travel across the
-    // network" is not Travel news.
-    weak: ["visa", "resort", "itinerary", "vacation"],
+    // network" is not Travel news. "tourist" is weak, not strong: on 2026-09-30
+    // a PS5 lottery story mentioning "foreign tourists buying up stocks" shipped
+    // as Travel on that one body word. People being somewhere is not the story
+    // being about the place; `tourism` (the industry) stays strong, and a
+    // headline naming tourists still labels via the title rule. Listed once:
+    // `mentionsWord` inflects, so "tourist" already reaches "tourists" and a
+    // second entry would count one word as two distinct terms.
+    weak: ["tourist", "visa", "resort", "itinerary", "vacation"],
   },
 };
 
@@ -591,6 +607,7 @@ const TAG_KEYWORDS: Record<string, string[]> = {
  */
 export function assignTopics(text: string, title = ""): string[] {
   const normalised = normaliseText(text).toLowerCase();
+  const titleNormalised = normaliseText(title).toLowerCase();
   const scored: { topic: string; strong: number; total: number }[] = [];
 
   for (const topic of TOPIC_POOL) {
@@ -599,9 +616,15 @@ export function assignTopics(text: string, title = ""): string[] {
 
     const strong = countMentions(normalised, vocabulary.strong);
     const weak = countMentions(normalised, vocabulary.weak ?? []);
-    if (strong === 0 && weak < WEAK_TERMS_FOR_EVIDENCE) continue;
+    // A weak term in the headline is the publisher stating the subject, so it
+    // labels on its own: a real travel headline still assigns with no body
+    // mention at all, while a passing body mention alone (the PS5 "tourists"
+    // case) no longer does. Strong terms are unchanged — one anywhere is
+    // still enough.
+    const titleWeak = title ? countMentions(titleNormalised, vocabulary.weak ?? []) : 0;
+    if (strong === 0 && titleWeak === 0 && weak < WEAK_TERMS_FOR_EVIDENCE) continue;
 
-    scored.push({ topic, strong, total: strong + weak });
+    scored.push({ topic, strong, total: strong + weak + titleWeak });
   }
 
   scored.sort((a, b) => b.strong - a.strong || b.total - a.total || a.topic.localeCompare(b.topic));
