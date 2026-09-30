@@ -75,7 +75,13 @@ export function StoryArticle({
                 <span aria-hidden>·</span>
               </>
             ) : null}
-            <span>{formatStoryTime(story.updatedAt ?? story.publishedAt)}</span>
+            {/* `publishedAt`, not `updatedAt`: this is the moment every list
+                that led here already printed, so the header and the card cannot
+                disagree about when the story broke. `updatedAt` is the last
+                evidence attachment or analysis write, which is about nyuz's
+                own processing and reads as publication time when it is
+                unlabeled. */}
+            <span>{formatStoryTime(story.publishedAt)}</span>
             <span aria-hidden>·</span>
             <span>{articleMinutes(article)} min read</span>
           </p>

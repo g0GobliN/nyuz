@@ -12,6 +12,7 @@ import {
   type PipelineEvent,
 } from "@/lib/server/analytics";
 import type { EventStatus } from "@/lib/supabase/types";
+import { sourceCount } from "@/lib/story";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/pipeline")({
@@ -408,7 +409,7 @@ function EventsTab({
               <p className="mt-3 text-[16px] font-medium leading-snug">{e.title}</p>
 
               <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-[12.5px] text-muted-foreground">
-                <span className="tabular-nums">{e.sources} sources clustered</span>
+                <span className="tabular-nums">{sourceCount(e.sources)} clustered</span>
                 <span className="flex flex-wrap gap-1.5">
                   {e.topics.map((t) => (
                     <span key={t} className="rounded-md bg-muted px-2 py-0.5 text-[11px]">

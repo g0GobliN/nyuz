@@ -70,4 +70,16 @@ export function clockOf(iso: string): string {
   if (Number.isNaN(date.getTime())) return "";
   return `${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
 }
+
+/**
+ * "1 source" or "3 sources", so no screen ever prints "Based on 1 sources".
+ *
+ * Every single-source story in the 2026-09-30 briefing rendered that exact
+ * string, twenty-five times over, on the briefing list, the card and History.
+ * One helper because the fix in `story-article.tsx` had not travelled: each
+ * call site re-deciding the plural is how four of them disagreed.
+ */
+export function sourceCount(n: number): string {
+  return `${n} ${n === 1 ? "source" : "sources"}`;
+}
 import type { EventIntelligence, EvidenceUnit } from "@/lib/understand";

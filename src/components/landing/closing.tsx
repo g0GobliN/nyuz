@@ -2,6 +2,7 @@ import { ArrowRight, ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { Eyebrow, LinkButton } from "@/components/kit";
 import { STORIES } from "@/lib/sample-data";
+import { sourceCount } from "@/lib/story";
 
 /** Section 33 — every story keeps its sources reachable. */
 export function SourceTransparency() {
@@ -32,7 +33,7 @@ export function SourceTransparency() {
           onClick={() => setOpen((v) => !v)}
           className="mt-4 inline-flex items-center gap-2 rounded-full border border-hairline px-3.5 py-1.5 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
         >
-          Based on {story.sources} sources
+          Based on {sourceCount(story.sources)}
           <ArrowRight
             className={"h-3.5 w-3.5 transition-transform duration-300 " + (open ? "rotate-90" : "")}
           />

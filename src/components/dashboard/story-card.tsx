@@ -9,7 +9,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { becauseYouFollow } from "@/lib/matching";
-import type { Story } from "@/lib/story";
+import { sourceCount, type Story } from "@/lib/story";
 import type { FeedbackState, Vote } from "@/lib/feedback-store";
 import { formatStoryTime } from "@/lib/story-time";
 import { cn } from "@/lib/utils";
@@ -100,7 +100,7 @@ export function StoryCard({
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-muted-foreground">
         <span>
-          {story.sources} sources <span aria-hidden>→</span> 1 event
+          {sourceCount(story.sources)} <span aria-hidden>→</span> 1 event
         </span>
         <span className="tabular-nums">{formatStoryTime(story.publishedAt)}</span>
         <span className="flex flex-wrap gap-1.5">

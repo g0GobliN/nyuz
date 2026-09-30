@@ -8,6 +8,7 @@ import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/s
 import { Loading } from "@/components/loading";
 import { loadPhase } from "@/lib/load-state";
 import { loadHistory, searchStories, type HistoryDay } from "@/lib/server/briefing";
+import { sourceCount } from "@/lib/story";
 import { useReveal } from "@/lib/use-reveal";
 
 export const Route = createFileRoute("/dashboard/history")({
@@ -113,7 +114,7 @@ function HistoryPage() {
                         </p>
                         <p className="mt-1.5 text-[15px] font-medium leading-snug">{s.title}</p>
                         <p className="mt-2 text-[12.5px] text-muted-foreground">
-                          {s.sources} sources · {s.time}
+                          {sourceCount(s.sources)} · {s.time}
                         </p>
                       </Link>
                     ))}

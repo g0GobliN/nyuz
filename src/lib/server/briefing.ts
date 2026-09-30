@@ -967,12 +967,17 @@ async function loadMatchedStories(
     rows.map((r) => r.event_id),
   );
   const relevance = new Map(rows.map((r) => [r.event_id, r.relevance] as const));
-  const matchedAt = new Map(rows.map((r) => [r.event_id, r.matched_at] as const));
+  // The occurrence clock, not `matched_at`, and not the analysis write time:
+  // every list and the story page have to print the same moment for the same
+  // story. A card that says 01:00 over a story page that says 04:03 looks like
+  // two different stories, and neither of those was when it happened.
+  // `hydrateEvents` already stamps `publishedAt` from `first_seen_at`, which is
+  // what `MatchRow.eventAt` calls the material occurrence clock — this used to
+  // overwrite it with `matched_at`, which diverges from the news by exactly the
+  // amount the pipeline was behind.
   return stories.map((s) => ({
     ...s,
     score: { ...s.score, relevance: asPercent(relevance.get(s.id) ?? 0) },
-    publishedAt: matchedAt.get(s.id) ?? s.publishedAt,
-    time: clockOf(matchedAt.get(s.id) ?? s.publishedAt),
   }));
 }
 

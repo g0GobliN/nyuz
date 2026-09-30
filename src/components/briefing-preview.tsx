@@ -1,5 +1,6 @@
 import { LogoMark } from "@/components/landing/nav";
 import type { Story } from "@/lib/story";
+import { sourceCount } from "@/lib/story";
 import { cn } from "@/lib/utils";
 
 /**
@@ -66,7 +67,7 @@ export function BriefingPreview({
               <span className="text-muted-foreground">{s.why}</span>
             </p>
             <p className="mt-2.5 text-[11.5px] text-muted-foreground">
-              Based on {s.sources} sources
+              Based on {sourceCount(s.sources)}
             </p>
           </li>
         ))}
