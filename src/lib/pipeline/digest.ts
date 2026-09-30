@@ -35,6 +35,7 @@ import { suppressDeliveredDuplicates } from "./duplicates";
 import type { SecretBag } from "@/lib/ai/config";
 import { capFor } from "@/lib/density";
 import { reasonFor } from "./inclusion";
+import { assessReadiness } from "./readiness";
 import { needsTranslation, toLanguageTag, type LanguageTag } from "@/lib/languages";
 import { translateEvents, type TranslatableEvent, type TranslatedText } from "./translate";
 import { mailGrafs } from "@/lib/article-body";
@@ -696,6 +697,40 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
 
   const briefs = await loadBriefs(db, picked);
 
+  // Reader-readiness gate (readiness.ts). Rejects only provably non-news
+  // shapes — empty summaries, build numbers, commit messages, bylines,
+  // newsletter containers, commerce posts — never short real news. Withheld
+  // items are stamped `briefed_at` below alongside the shipped ones so a
+  // machine artifact does not resurface on every cycle, but no `digest_items`
+  // row is written for them and they count toward nothing.
+  const ready: EventBrief[] = [];
+  const withheld: { eventId: string; kind: string }[] = [];
+  for (const brief of briefs) {
+    const verdict = assessReadiness({
+      title: brief.title,
+      whatHappened: brief.whatHappened,
+      sourceCount: brief.sourceCount,
+    });
+    if (verdict.ready) ready.push(brief);
+    else withheld.push({ eventId: brief.eventId, kind: verdict.kind });
+  }
+  const withheldNote =
+    withheld.length > 0
+      ? `${withheld.length} withheld (${[...new Set(withheld.map((w) => w.kind))].join(", ")})`
+      : null;
+
+  if (ready.length === 0 && briefs.length > 0) {
+    if (options.dryRun !== true) {
+      await finish(db, due.digest_id, "skipped", 0, 0);
+      await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
+    }
+    return {
+      ...base,
+      decision: "skipped",
+      detail: withheldNote ? `nothing reader-ready (${withheldNote})` : "nothing readable matched",
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Enrichment is optional. The briefing is not.
   // ---------------------------------------------------------------------------
@@ -725,11 +760,11 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // briefing that now spends nothing should say so with a zero rather than by
   // the field disappearing.
   const tokens = 0;
-  const impacts = await completedImpacts(db, briefs);
+  const impacts = await completedImpacts(db, ready);
 
   const stored = new Map(impacts.map((item) => [item.eventId, item.text] as const));
   const byImpact = new Map(
-    briefs.map((brief) => {
+    ready.map((brief) => {
       const reason = reasonFor({
         storedImpact: stored.get(brief.eventId) ?? null,
         afterState: brief.afterState,
@@ -741,7 +776,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     }),
   );
 
-  const unexplained = briefs.filter((brief) => !stored.get(brief.eventId)).length;
+  const unexplained = ready.filter((brief) => !stored.get(brief.eventId)).length;
   const enrichment =
     unexplained > 0
       ? `${unexplained} story${unexplained === 1 ? "" : "s"} using a derived inclusion line`
@@ -750,10 +785,13 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   if (options.dryRun === true) {
     return {
       ...base,
-      items: briefs.length,
+      items: ready.length,
       tokens,
       decision: "generated",
-      detail: `${briefs.length} stories (dry run)`,
+      detail:
+        withheldNote !== null
+          ? `${ready.length} stories (dry run, ${withheldNote})`
+          : `${ready.length} stories (dry run)`,
     };
   }
 
@@ -775,7 +813,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   const revisionOf = new Map(
     picked.map((match) => [match.eventId, match.materialRevision] as const),
   );
-  const rows = briefs.map((brief, position) => ({
+  const rows = ready.map((brief, position) => ({
     digest_id: due.digest_id,
     event_id: brief.eventId,
     position,
@@ -803,6 +841,9 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // briefing is all revision 0, and a briefing containing a material update is
   // one extra statement. The durable marker and the revision it refers to are
   // always written together.
+  // Stamped over every brief the matcher picked, withheld included: the gate
+  // only withholds provable non-news, so nothing here is a developing story
+  // waiting for corroboration, and stamping keeps it from looping forever.
   const briefedAt = new Date().toISOString();
   const byRevision = new Map<number, string[]>();
   for (const brief of briefs) {
@@ -819,16 +860,19 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
       .in("event_id", eventIds);
   }
 
-  await finish(db, due.digest_id, "ready", briefs.length, tokens, enrichment);
+  await finish(db, due.digest_id, "ready", ready.length, tokens, enrichment);
   await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
 
+  const notes = [enrichment, withheldNote].filter((note): note is string => note !== null);
   return {
     ...base,
-    items: briefs.length,
+    items: ready.length,
     tokens,
     decision: "generated",
     detail:
-      enrichment === null ? `${briefs.length} stories` : `${briefs.length} stories (${enrichment})`,
+      notes.length > 0
+        ? `${ready.length} stories (${notes.join("; ")})`
+        : `${ready.length} stories`,
   };
 }
 
