@@ -38,22 +38,19 @@
  *      already defaults to and every template already renders around.
  *
  * ---------------------------------------------------------------------------
- * Why rung 3 has to name the story
+ * Why rung 3 stays silent on single-source stories
  * ---------------------------------------------------------------------------
  *
- * Rung 3 is only worth printing when it says something about *this* story. The
- * reader's topic labels do not: they are the same for every story that landed
- * in that topic, so a line built from them alone is one sentence repeated under
- * unrelated cards — which is what a briefing of twenty-five stories looked
- * like, and it reads as a bug because it is one. "You follow AI" in front of
- * two different stories is the reader's own selection, not a reason to read
- * either of them.
- *
- * So the count and the topics are the *shape* of rung 3, and the outlet name is
- * what makes it a sentence about the story. With exactly one outlet and a name
- * for it, the line says who has it. With one outlet and no name, there is
- * nothing story-shaped to say and the story is published without a line at all
- * — rung 4 — because an empty line is honest and a repeated one is not.
+ * Rung 3 is only worth printing when it says something about *this* story.
+ * The multi-source count does: "Three publishers reported this" is a fact
+ * about the coverage that varies story to story. The single-source line did
+ * not, even after it named the outlet — on 2026-09-30 all twenty-five lines
+ * read "So far only X has reported this, in ...", differentiated without
+ * being different. The outlet is already on screen (card header, source
+ * count, source rail), so the sentence added repetition, not information.
+ * Single-source stories without a stored impact or after state ship with no
+ * line at all — rung 4 — because an empty line is honest and a repeated one
+ * is not.
  *
  * ---------------------------------------------------------------------------
  * Why it has to be a sentence
@@ -114,9 +111,8 @@ export type InclusionInput = {
   /**
    * The outlet that carried it, when exactly one did and its name is known.
    *
-   * Only the single-source line uses it, and it is the difference between a
-   * reason and a repetition: see the header. Pass null rather than guessing —
-   * a wrong name is worse than no line.
+   * Retained for callers; the ladder no longer prints it (see the header).
+   * Pass null rather than guessing — a wrong name is worse than no line.
    */
   outlet?: string | null;
 };
@@ -143,19 +139,15 @@ export function reasonFor(input: InclusionInput): InclusionReason {
     };
   }
 
-  // One source and nothing else to say. "One outlet reported this" is not a
-  // reason to read something, so the line has to earn its place by naming the
-  // outlet. It used to name the topics instead, which produced the identical
-  // sentence under every single-source story sharing those topics — the one
-  // thing a line about *this* story cannot be.
+  // One source and nothing else to say. Since 2026-09-30 this rung stays
+  // silent: a briefing in which all twenty-five lines read "So far only X has
+  // reported this, in ..." is one sentence repeated under unrelated cards,
+  // which reads as a bug because it is one — naming the outlet differentiated
+  // the lines without differentiating the reasons. The outlet is already on
+  // screen three times over (the card header, the "Based on 1 source" chip,
+  // the source rail), so the sentence adds no fact, only repetition. Rung 4.
   if (input.sourceCount === 1) {
-    const outlet = (input.outlet ?? "").replace(/\s+/gu, " ").trim();
-    if (outlet === "") return { text: "", source: "none" };
-    const has = `So far only ${outlet} has reported this`;
-    return {
-      text: topics.length > 0 ? `${has}, in ${listOf(topics)}.` : `${has}.`,
-      source: "coverage",
-    };
+    return { text: "", source: "none" };
   }
 
   return { text: "", source: "none" };

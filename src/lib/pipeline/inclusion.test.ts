@@ -2,16 +2,16 @@ import { describe, expect, it } from "vitest";
 import { reasonFor } from "@/lib/pipeline/inclusion";
 
 /**
- * The bug these lock down: a briefing of twenty-five stories showed the same
- * "Why you're seeing this" line under unrelated cards —
+ * The bug these lock down: a briefing of twenty-five stories showed a
+ * near-identical "Why you're seeing this" line under unrelated cards —
  *
- *     An early single-source report in AI and Startups.
+ *     So far only X has reported this, in AI and Startups.
  *
- * — because the single-source line was built from the reader's own topic labels
- * and nothing else. Every story that landed in those topics produced the
- * identical sentence, which is a statement about the reader's settings wearing
- * the shape of a statement about the story. It now names the outlet that has
- * the story, and says nothing when it cannot.
+ * — twenty-five times over, once per outlet. Naming the outlet differentiated
+ * the lines without differentiating the reasons, and the outlet is already on
+ * screen (card header, source count, source rail). Single-source stories
+ * without a stored impact or after state now ship with no line at all; the
+ * multi-source count stays, because it varies story to story.
  */
 
 describe("reasonFor", () => {
@@ -44,29 +44,21 @@ describe("reasonFor", () => {
     expect(reason.text).toBe("Three publishers reported this, in AI and Chips.");
   });
 
-  it("names the one outlet that has a single-source story", () => {
-    const reason = reasonFor({ sourceCount: 1, topics: ["AI", "Startups"], outlet: "Sifted" });
-    expect(reason.source).toBe("coverage");
-    expect(reason.text).toBe("So far only Sifted has reported this, in AI and Startups.");
-  });
-
-  it("gives two single-source stories in the same topics different lines", () => {
-    // The regression: same topics, different stories, and the line has to be
-    // about the story — the topics are already on screen as what the reader
-    // follows, so repeating them describes the reader, not the news.
-    const first = reasonFor({ sourceCount: 1, topics: ["AI"], outlet: "The Register" });
-    const second = reasonFor({ sourceCount: 1, topics: ["AI"], outlet: "Tom's Hardware" });
-    expect(first.text).not.toBe(second.text);
-    for (const reason of [first, second]) {
-      expect(reason.text).not.toContain("An early single-source report");
-    }
-  });
-
-  it("drops the line for a single-source story it cannot name", () => {
-    // Rung 4, and deliberately not the topic template: a line that fits every
-    // story is not a reason to read this one.
-    const reason = reasonFor({ sourceCount: 1, topics: ["AI", "Startups"] });
-    expect(reason).toEqual({ text: "", source: "none" });
+  it("stays silent on a single-source story, named outlet or not", () => {
+    // Rung 4. The outlet is on screen already; the sentence would only repeat
+    // it once per card across the whole briefing.
+    expect(reasonFor({ sourceCount: 1, topics: ["AI", "Startups"], outlet: "Sifted" })).toEqual({
+      text: "",
+      source: "none",
+    });
+    expect(reasonFor({ sourceCount: 1, topics: ["AI"], outlet: "The Register" })).toEqual({
+      text: "",
+      source: "none",
+    });
+    expect(reasonFor({ sourceCount: 1, topics: ["AI", "Startups"] })).toEqual({
+      text: "",
+      source: "none",
+    });
   });
 
   it("says nothing when the coverage is unknown", () => {
