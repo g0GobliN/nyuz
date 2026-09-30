@@ -232,7 +232,20 @@ function stageDb(options: { flag?: boolean; history?: SubjectHistoryRow[] } = {}
       },
     ],
     event_topics: [{ event_id: EVENT, topic_id: RUST }],
-    articles: [],
+    // `match` refuses an event with no live article: a story with no coverage
+    // has no sources to open and nothing to compose from, so it cannot reach a
+    // reader. This fixture is about significance rather than clustering, and it
+    // gets the one article that makes its event a story at all.
+    articles: [
+      {
+        id: "99999999-9999-4999-9999-999999999999",
+        event_id: EVENT,
+        source_id: null,
+        title: candidate().title,
+        url: "https://blog.rust-lang.org/2026/09/rc1.html",
+        published_at: new Date(NOW.getTime() - 3_600_000).toISOString(),
+      },
+    ],
     sources: [],
     feature_flags: [
       { key: "subject_significance_enabled", enabled: options.flag ?? false },

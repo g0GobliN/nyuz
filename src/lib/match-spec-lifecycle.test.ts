@@ -491,6 +491,27 @@ describe("classification, finalization and the reader join use one evaluator", (
     // match when the current requirements no longer fit the event signal.
     expect(db.rows("user_events")).toEqual([]);
   });
+
+  it("does not match an event whose articles have all moved away", async () => {
+    // Merging two outlets' coverage of one story empties the loser. Such an
+    // event keeps its stored title and summary so a briefing already sent
+    // still renders, but it has no reporting behind it: the story page would
+    // have no sources to open and nothing to compose from. Left matchable it
+    // reappears beside the event that inherited its articles, so the reader
+    // gets the same story twice.
+    const { db } = await pipeline({ v: 1, require: explicit.require });
+    expect(
+      db
+        .rows("user_events")
+        .map((r) => r["event_id"])
+        .sort(),
+    ).toEqual(["gunners", "women"]);
+
+    db.tables["user_events"] = [];
+    db.tables["articles"] = db.rows("articles").filter((row) => row["event_id"] !== "women");
+    await match(asDb(db), { now: NOW, skipAlerts: true, subjectSignificance: false });
+    expect(db.rows("user_events").map((r) => r["event_id"])).toEqual(["gunners"]);
+  });
 });
 
 describe("no stage keeps a private matching rule", () => {

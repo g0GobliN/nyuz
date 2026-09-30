@@ -1641,6 +1641,18 @@ async function loadCandidates(
 
   const eventTopics = new Map<string, CandidateTopic[]>();
   const eventSources = new Map<string, CandidateSource[]>();
+  /**
+   * Events that still have at least one live article.
+   *
+   * An event whose articles have all moved elsewhere — which is what merging
+   * two outlets' coverage of one story does to the loser — or lost them to
+   * retention has no reporting behind it: its story page would have no sources
+   * to open, no evidence to compose from, and its stored summary would be
+   * describing coverage nyuz no longer holds. It stays in the database with its
+   * analysis so a briefing already sent still renders, but it must not reach a
+   * reader who has not seen it, so it is not a candidate.
+   */
+  const withArticles = new Set<string>();
 
   for (const chunk of chunked(eventIds, IN_CHUNK)) {
     const { data: links, error: linkError } = await db
@@ -1664,6 +1676,10 @@ async function loadCandidates(
     if (articleError) throw new Error(`reading articles: ${articleError.message}`);
 
     for (const article of articles ?? []) {
+      // Counted before the source checks below: an event's articles can all
+      // have unknown sources and it still has reporting behind it. What makes an
+      // event unmatched is having no articles at all.
+      if (article.event_id !== null) withArticles.add(article.event_id);
       if (article.event_id === null || article.source_id === null) continue;
       const source = sources.get(article.source_id);
       if (!source) continue;
@@ -1678,22 +1694,24 @@ async function loadCandidates(
     }
   }
 
-  return events.map((event) => ({
-    eventId: event.id,
-    title: event.title,
-    whatHappened: event.what_happened,
-    importance: event.importance,
-    novelty: event.novelty,
-    firstSeenAt: event.first_seen_at,
-    materialRevision: event.material_revision ?? 0,
-    materialOccurrenceAt: event.material_occurrence_at ?? null,
-    // Empty for every event analysed before 0049. Those stay reachable through
-    // their title and briefing paragraph rather than being re-analysed, which
-    // would cost the corpus twice to populate a matching aid.
-    tags: event.tags,
-    topics: eventTopics.get(event.id) ?? [],
-    sources: eventSources.get(event.id) ?? [],
-  }));
+  return events
+    .filter((event) => withArticles.has(event.id))
+    .map((event) => ({
+      eventId: event.id,
+      title: event.title,
+      whatHappened: event.what_happened,
+      importance: event.importance,
+      novelty: event.novelty,
+      firstSeenAt: event.first_seen_at,
+      materialRevision: event.material_revision ?? 0,
+      materialOccurrenceAt: event.material_occurrence_at ?? null,
+      // Empty for every event analysed before 0049. Those stay reachable through
+      // their title and briefing paragraph rather than being re-analysed, which
+      // would cost the corpus twice to populate a matching aid.
+      tags: event.tags,
+      topics: eventTopics.get(event.id) ?? [],
+      sources: eventSources.get(event.id) ?? [],
+    }));
 }
 
 async function sourceIndex(db: Db): Promise<Map<string, string>> {
