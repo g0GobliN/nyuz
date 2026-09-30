@@ -106,4 +106,62 @@ describe("assessReadiness", () => {
       }),
     ).toEqual({ ready: true });
   });
+
+  it("drops a sale that forgot its price tag", () => {
+    expect(
+      assessReadiness({
+        title: "The best early October Prime Day deals happening now",
+        whatHappened: "Discounts on laptops, headphones and smart home gear are live for October.",
+      }),
+    ).toEqual({ ready: false, kind: "commerce", reason: expect.any(String) });
+  });
+
+  it("drops a title that announces a quotation instead of an event", () => {
+    expect(
+      assessReadiness({
+        title: "Quoting Anthropic Frontier Red Team",
+        whatHappened: "A single sentence lifted from a post by the team's own account.",
+      }),
+    ).toEqual({ ready: false, kind: "quote", reason: expect.any(String) });
+  });
+
+  it.each([
+    ["Introducing Threat Signals: agentic skills for open-source threat intelligence"],
+    ["Enforce positive security with Cloudflare Application Profiles"],
+    ["Adaptive application security for the AI era: how Cloudflare connects controls"],
+    ["We tested our own WAF with frontier AI models. Here's what we found"],
+  ])("drops the vendor promotion %s", (title) => {
+    expect(
+      assessReadiness({
+        title,
+        whatHappened:
+          "The vendor describes its own product in the first person and links to a trial.",
+      }),
+    ).toEqual({ ready: false, kind: "marketing", reason: expect.any(String) });
+  });
+
+  it("keeps a product announcement other outlets also reported", () => {
+    expect(
+      assessReadiness({
+        title: "Introducing Threat Signals: agentic skills for threat intelligence",
+        whatHappened: "The vendor released a new capability, and two outlets covered it.",
+        sourceCount: 3,
+      }),
+    ).toEqual({ ready: true });
+  });
+
+  it("keeps a headline that merely starts with a verb a promo would use", () => {
+    expect(
+      assessReadiness({
+        title: "Scale AI raises $200M as demand for evaluation grows",
+        whatHappened: "The funding round values the company at $5 billion, investors said.",
+      }),
+    ).toEqual({ ready: true });
+    expect(
+      assessReadiness({
+        title: "OpenAI DevDay 2026: The biggest news and announcements",
+        whatHappened: "Explore more than 20 announcements from OpenAI DevDay 2026.",
+      }),
+    ).toEqual({ ready: true });
+  });
 });
