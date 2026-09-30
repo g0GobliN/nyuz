@@ -187,8 +187,19 @@ export const DORMANT_CRON = "0 12 * * *";
  * nothing to do is the exception rather than the rule — the exception being
  * minute 0, which carries the once-a-week dormant nudge at noon and, on every
  * other hour, article enrichment (see `stageForMinute`).
+ *
+ * Enrichment also fires on :04, :16, :26, :41 and :56. It used to run on minute
+ * 0 alone, which meant three articles an hour against an arrival rate of about
+ * thirteen an hour, and — worse — a candidate window of the twelve newest
+ * articles, so anything older than roughly half an hour slid out of the window
+ * without ever being considered. The reader felt that as thin Read pages: on
+ * 2026-09-30 none of the day's 25 briefing stories had an enriched body, and
+ * the biggest of them rendered 54 words. Six slots an hour is 18 articles an
+ * hour, which clears the arrival rate; each invocation keeps its own subrequest
+ * budget, so this buys throughput without touching `ENRICH_LIMIT` or the
+ * arithmetic behind it.
  */
-export const STAGES_CRON = "0,2,6,8,9,14,17,23,24,29,32,38,39,44,47,53,54,59 * * * *";
+export const STAGES_CRON = "0,2,4,6,8,9,14,16,17,23,24,26,29,32,38,39,41,44,47,53,54,56,59 * * * *";
 
 type SharedStage = "cluster" | "classify" | "analyse" | "match" | "dormant" | "enrich" | "discover";
 
@@ -206,15 +217,26 @@ export function stageForMinute(scheduledFor: Date): SharedStage | null {
   if (minute === 8 || minute === 23 || minute === 38 || minute === 53) return "classify";
   if (minute === 9 || minute === 24 || minute === 39 || minute === 54) return "analyse";
   if (minute === 14 || minute === 29 || minute === 44 || minute === 59) return "match";
-  if (minute === 0) {
+  // Enrichment's own slots, six an hour rather than one. See STAGES_CRON for
+  // why: at three articles an hour behind a thirteen-an-hour arrival rate the
+  // queue could never drain, and a story older than the newest-twelve window
+  // was never even a candidate.
+  if (
+    minute === 0 ||
+    minute === 4 ||
+    minute === 16 ||
+    minute === 26 ||
+    minute === 41 ||
+    minute === 56
+  ) {
     // Noon UTC daily, as DORMANT_CRON said.
-    if (scheduledFor.getUTCHours() === 12) return "dormant";
-    // The other 23 minute-zero firings a day were previously idle. Article
-    // enrichment (0090) is its own real network fetch per article, so it gets
-    // its own tick with its own subrequest budget rather than sharing one of
-    // the four-times-an-hour slots above — reusing an already-idle minute
-    // keeps this change to a minute assignment, not a new registered trigger
-    // (there is no fourth one to register; see the module doc comment).
+    if (minute === 0 && scheduledFor.getUTCHours() === 12) return "dormant";
+    // The other minute-zero firings, and the five added slots, are enrichment
+    // (0090): its own real network fetch per article, so it gets its own ticks
+    // with its own subrequest budget rather than sharing one of the
+    // four-times-an-hour slots above — reusing already-idle minutes keeps this
+    // to a minute assignment, not a new registered trigger (there is no fourth
+    // one to register; see the module doc comment).
     return "enrich";
   }
   return null;

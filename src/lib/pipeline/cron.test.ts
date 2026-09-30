@@ -91,6 +91,21 @@ describe("stageForMinute", () => {
     expect(stageForMinute(tuesday(23, 0))).toBe("enrich");
   });
 
+  it("runs article enrichment six times an hour so the queue can drain", () => {
+    // Three articles per invocation against an arrival rate of about thirteen
+    // articles an hour only works if the stage fires more than once an hour;
+    // minute 0 alone could never keep up, and anything outside the newest-twelve
+    // candidate window was never considered at all.
+    const slots = [0, 4, 16, 26, 41, 56];
+    for (const minute of slots) {
+      if (minute === 0) continue; // noon resolves to dormant above
+      expect(stageForMinute(tuesday(9, minute))).toBe("enrich");
+    }
+    expect(
+      slots.every((m) => (STAGES_CRON.split(" ")[0]?.split(",") ?? []).includes(String(m))),
+    ).toBe(true);
+  });
+
   it("runs source discovery hourly, before classification", () => {
     // :06 is its own minute so the stage gets its own subrequest budget rather
     // than sharing one with a stage that has a briefing deadline attached.

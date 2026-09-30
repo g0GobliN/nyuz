@@ -22,7 +22,8 @@ type Db = SupabaseClient<Database>;
  * Worst-case subrequest accounting (Workers free plan: 50/invocation)
  * ---------------------------------------------------------------------------
  *
- * Setup: 3 DB calls (flag check, candidate articles, existing-evidence check)
+ * Setup: 5 DB calls (reader-visible event ids, candidate articles, existing-
+ * evidence check, possible stale-claim reclaim, flag check)
  * -- or just 1 if the flag is off, since the function returns immediately.
  *
  * Per article, worst case (a source never checked before, both robots.txt and
@@ -40,9 +41,13 @@ type Db = SupabaseClient<Database>;
  *
  *   ENRICH_LIMIT * 10 + 3 setup  <=  50
  *
- * With ENRICH_LIMIT = 3: 3*10 + 3 = 33, leaving 17 (34%) of margin under the
+ * With ENRICH_LIMIT = 3: 3*10 + 5 = 35, leaving 15 (30%) of margin under the
  * free-plan ceiling even in this pessimal case. Raising ENRICH_LIMIT requires
  * re-doing this arithmetic, not just editing the constant.
+ *
+ * Throughput comes from the schedule, not this constant: STAGES_CRON fires this
+ * stage six times an hour, so 6 * 3 = 18 articles an hour against an arrival
+ * rate of about 13.
  */
 
 export type EnrichOptions = {
@@ -146,32 +151,122 @@ function emptyReport(now: Date): EnrichReport {
   };
 }
 
+export /**
+ * Events matched to a reader in the last day, most recent first.
+ *
+ * The priority set for enrichment. These are the stories the next briefing and
+ * the home feed draw from, and they are the only ones a reader can reach:
+ * `article_evidence` is read while hydrating a dashboard, briefing, search or
+ * saved view, so an article on an event nobody matched can never surface one.
+ * Null means "no priority" rather than "no candidates" — any failure falls back
+ * to the recency window.
+ */
+async function readerVisibleEventIds(db: Db, now: Date): Promise<string[] | null> {
+  try {
+    const since = new Date(now.getTime() - 24 * 60 * 60_000).toISOString();
+    const { data, error } = await db
+      .from("user_events")
+      .select("event_id")
+      .gte("matched_at", since)
+      .order("matched_at", { ascending: false })
+      .limit(120);
+    if (error || !data || data.length === 0) return null;
+    const ids = [...new Set(data.map((row) => row.event_id))].filter(Boolean);
+    return ids.length > 0 ? ids : null;
+  } catch {
+    // Priority is an improvement, never a requirement: any failure here falls
+    // back to the recency window below rather than costing the stage a run.
+    return null;
+  }
+}
+
 export async function enrich(db: Db, options: EnrichOptions = {}): Promise<EnrichReport> {
   const now = options.now ?? new Date();
   if (!options.articleId && !(await enrichmentEnabled(db))) return emptyReport(now);
 
   const limit = options.limit ?? ENRICH_LIMIT;
-  let query = db
-    .from("articles")
-    .select(
-      "id, title, url, sources ( id, name, homepage, enrichment_allowed, enrichment_failure_count )",
-    )
-    .not("event_id", "is", null)
-    .not("url", "is", null)
-    .order("published_at", { ascending: false });
-  query = options.articleId
-    ? query.eq("id", options.articleId)
-    : query.gte("published_at", activeCutoff(now).toISOString()).limit(limit * 4);
-  const { data: candidates, error } = await query;
-  if (error) throw new Error(`reading enrichment candidates: ${error.message}`);
+  const base = () => {
+    const q = db
+      .from("articles")
+      .select(
+        "id, title, url, sources ( id, name, homepage, enrichment_allowed, enrichment_failure_count )",
+      )
+      .not("event_id", "is", null)
+      .not("url", "is", null)
+      .order("published_at", { ascending: false });
+    return options.articleId ? q.eq("id", options.articleId) : q;
+  };
 
-  const rows = (candidates ?? []) as unknown as Candidate[];
+  // ---------------------------------------------------------------------------
+  // Which articles are candidates, and in what order
+  // ---------------------------------------------------------------------------
+  // A reader-visible story is the only one worth a network fetch: `article_evidence`
+  // is read for exactly the events hydrating a dashboard, briefing, search or
+  // saved view, so an article nobody was ever matched to can never surface one.
+  // The recency window on its own pointed the stage at the corpus rather than at
+  // the news, and its newest-twelve reach meant a story older than about half an
+  // hour was never a candidate at all -- which is how none of the 25 stories in
+  // the 2026-09-30 briefing had an enriched body.
+  let rows: Candidate[] = [];
+  const priorityIds = options.articleId ? null : await readerVisibleEventIds(db, now);
+  if (priorityIds) {
+    try {
+      const { data, error } = await base()
+        .in("event_id", priorityIds)
+        .limit(limit * 4);
+      if (!error && data) rows = data as unknown as Candidate[];
+    } catch {
+      rows = [];
+    }
+  }
+  if (rows.length < limit && !options.articleId) {
+    const { data, error } = await base()
+      .gte("published_at", activeCutoff(now).toISOString())
+      .limit(limit * 4);
+    if (error) throw new Error(`reading enrichment candidates: ${error.message}`);
+    const seen = new Set(rows.map((r) => r.id));
+    for (const row of (data ?? []) as unknown as Candidate[]) {
+      if (!seen.has(row.id)) rows.push(row);
+    }
+  }
+  if (rows.length === 0 && options.articleId) {
+    const { data, error } = await base();
+    if (error) throw new Error(`reading enrichment candidates: ${error.message}`);
+    rows = (data ?? []) as unknown as Candidate[];
+  }
+
   const ids = rows.map((a) => a.id);
   const existing = ids.length
-    ? await db.from("article_evidence").select("article_id").in("article_id", ids)
-    : { data: [] as { article_id: string }[], error: null };
+    ? await db.from("article_evidence").select("article_id, status").in("article_id", ids)
+    : { data: [] as { article_id: string; status: string }[], error: null };
   if (existing.error) throw new Error(`reading article_evidence: ${existing.error.message}`);
-  const done = new Set((existing.data ?? []).map((r) => r.article_id));
+  // A `pending` row is a claim some earlier run died holding. There is no
+  // timestamp on a claim — `extracted_at` is written when the work *finishes*
+  // — so age cannot be measured, and it does not have to be: this stage fires
+  // on its own cron minutes and walks its batch sequentially, so a pending row
+  // seen at the start of a run is not from this run. Production held 93 of them
+  // (oldest 2026-09-17), each permanently un-enrichable because any row counts
+  // as done.
+  const done = new Set<string>();
+  const abandoned: string[] = [];
+  for (const row of existing.data ?? []) {
+    if (row.status === "pending") abandoned.push(row.article_id);
+    else done.add(row.article_id);
+  }
+  // Reclaim before claiming. Best effort: if this fails the claim below simply
+  // reports `already_claimed`, which is the behaviour we have today, so a
+  // database that refuses the delete cannot cost the stage its whole run.
+  if (abandoned.length > 0) {
+    try {
+      await db
+        .from("article_evidence")
+        .delete()
+        .in("article_id", abandoned)
+        .eq("status", "pending");
+    } catch {
+      // left for a later run
+    }
+  }
 
   const notDone = rows.filter((a) => !done.has(a.id));
   const backedOff: Candidate[] = [];

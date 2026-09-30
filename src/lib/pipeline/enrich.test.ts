@@ -37,6 +37,7 @@ function fixture(opts: { flagEnabled?: boolean } = {}) {
     feature_flags: [{ key: "article_enrichment_enabled", enabled: opts.flagEnabled ?? true }],
     articles: [],
     article_evidence: [],
+    user_events: [],
   });
 }
 
@@ -366,5 +367,68 @@ describe("enrich", () => {
 
     expect(report.reasons["success"]).toBe(1);
     expect(report.reasons["robots_blocked"]).toBe(1);
+  });
+
+  it("enriches a reader-visible story ahead of a newer article nobody matched", async () => {
+    // The whole point of the stage: `article_evidence` is only read while
+    // hydrating a view a reader can reach, so a fetch spent on an article on no
+    // reader's matched event is a fetch that cannot deepen anything. Recency
+    // alone pointed at the corpus, and on 2026-09-30 none of the day's 25
+    // briefing stories had an enriched body.
+    const db = fixture();
+    db.rows("articles").push(
+      {
+        ...article("aMatched", "https://matched.example.com/story", source("s1", true)),
+        event_id: "eMatched",
+        // Two days old: it would lose a recency contest outright.
+        published_at: new Date(Date.now() - 48 * 3600e3).toISOString(),
+      },
+      {
+        ...article("aFresh", "https://fresh.example.com/story", source("s1", true)),
+        event_id: "eUnmatched",
+        published_at: new Date().toISOString(),
+      },
+    );
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eMatched",
+      matched_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    const done = db.rows("article_evidence").find((r) => r["status"] === "enriched");
+    expect(done?.["article_id"]).toBe("aMatched");
+  });
+
+  it("reclaims a claim an earlier run died holding", async () => {
+    // Production held 93 `pending` rows, the oldest from 2026-09-17, each one a
+    // run that crashed between the claim and the finish. Any row counted as
+    // done, so those articles could never be enriched by any later run.
+    const db = fixture();
+    db.rows("articles").push(article("a1", "https://example.com/story", source("s1", true)));
+    db.rows("article_evidence").push({
+      article_id: "a1",
+      status: "pending",
+      attempts: 0,
+      evidence: [],
+      extracted_at: null,
+      source_word_count: 0,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db));
+
+    expect(report.enriched).toBe(1);
+    const row = db.rows("article_evidence").find((r) => r["article_id"] === "a1");
+    expect(row?.["status"]).toBe("enriched");
   });
 });
