@@ -82,15 +82,16 @@ const MIN_INTERVAL_MINUTES = 30;
  * arrive at stage 3 as a clustering candidate — which is the one place in this
  * pipeline that costs money per article.
  *
- * A month is the window because it is comfortably longer than the 72 hours stage
- * 6 needs for a day-one backfill, and long enough that late coverage of a
- * three-week-old story still finds its event to attach to. It is not longer
- * because nobody's morning briefing is improved by a post from 2019.
+ * The window is now two days. nyuz is now a recent-news product: it keeps and
+ * clusters only the last 48 hours from each feed, and the reader-facing daily
+ * policy uses the same horizon. A month-long window is still available through the
+ * `maxAgeDays` option for backfills and operator replays, but the scheduled run
+ * does not carry it.
  *
  * Items with no date at all are kept: a feed that omits `pubDate` is common, and
  * refusing those would silently drop whole sources.
  */
-const MAX_AGE_DAYS = 30;
+const MAX_AGE_DAYS = 2;
 
 /** Feeds fetched at once. Same reasoning as `check:feeds`: fast, and not a burst. */
 const CONCURRENCY = 8;

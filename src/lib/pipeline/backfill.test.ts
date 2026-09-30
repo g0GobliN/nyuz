@@ -176,7 +176,7 @@ describe("the day-one budget", () => {
     expect(ON_DEMAND_LIMIT).toBeLessThan(6);
   });
 
-  it("looks back three days, as the plan decided", () => {
-    expect(WINDOW_HOURS).toBe(72);
+  it("looks back two days, as the plan decided", () => {
+    expect(WINDOW_HOURS).toBe(48);
   });
 });

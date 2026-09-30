@@ -102,6 +102,113 @@ describe("selectItems", () => {
   it("would rather send a short briefing than one the model tells you to skip", () => {
     expect(selectItems([match("a", 0), match("b", 0)], new Map(), 18, NOW)).toEqual([]);
   });
+
+  it("does not open the 72h backstop when the day already has enough fresh items", () => {
+    // Six fresh items is the thin-day threshold. With that many already present,
+    // the daily briefing should not reach back to 60h for a significant story.
+    const picked = selectItems(
+      [
+        match("fresh-1", 3, { ageHours: 2 }),
+        match("fresh-2", 3, { ageHours: 4 }),
+        match("fresh-3", 3, { ageHours: 8 }),
+        match("fresh-4", 3, { ageHours: 12 }),
+        match("fresh-5", 3, { ageHours: 18 }),
+        match("fresh-6", 3, { ageHours: 24 }),
+        match("old-sig", 6, { ageHours: 60, importance: 9 }),
+      ],
+      new Map(),
+      20,
+      NOW,
+    );
+    expect(picked.map((p) => p.eventId)).not.toContain("old-sig");
+  });
+
+  it("does not open the 72h backstop when the day already has exactly the threshold of fresh items", () => {
+    // At the threshold the day is not thin. The backstop should stay closed even
+    // for a significant 60h story.
+    const picked = selectItems(
+      [
+        match("fresh-1", 3, { ageHours: 2 }),
+        match("fresh-2", 3, { ageHours: 4 }),
+        match("fresh-3", 3, { ageHours: 8 }),
+        match("fresh-4", 3, { ageHours: 12 }),
+        match("fresh-5", 3, { ageHours: 18 }),
+        match("fresh-6", 3, { ageHours: 24 }),
+        match("old-sig", 9, { ageHours: 60, importance: 10 }),
+      ],
+      new Map(),
+      20,
+      NOW,
+    );
+    expect(picked.map((p) => p.eventId)).not.toContain("old-sig");
+  });
+
+  it("does open the 72h backstop when the day is thin and the story is significant", () => {
+    // Only two fresh items. The daily briefing still should not reach back for an
+    // ordinary 60h story, but it may reach back for a significant one.
+    const picked = selectItems(
+      [
+        match("fresh-1", 3, { ageHours: 2 }),
+        match("fresh-2", 3, { ageHours: 4 }),
+        match("old-ordinary", 7, { ageHours: 60, importance: 5 }),
+        match("old-sig", 6, { ageHours: 60, importance: 9 }),
+      ],
+      new Map(),
+      20,
+      NOW,
+    );
+    expect(picked.map((p) => p.eventId)).toContain("old-sig");
+    expect(picked.map((p) => p.eventId)).not.toContain("old-ordinary");
+  });
+
+  it("never opens the 72h backstop for a story past the daily ceiling", () => {
+    const picked = selectItems(
+      [match("fresh-1", 3, { ageHours: 2 }), match("old-sig", 9, { ageHours: 73, importance: 10 })],
+      new Map(),
+      20,
+      NOW,
+    );
+    expect(picked.map((p) => p.eventId)).not.toContain("old-sig");
+  });
+
+  it("keeps the 72h backstop gated for weekly briefings too, by ceiling not by thin day", () => {
+    // Weekly briefings use the full cadence horizon, so a 60h story is ordinary
+    // allowed material for them. The point here is only that the daily thin-day
+    // rule is not applied to weekly frequency.
+    const picked = selectItems(
+      [
+        match("fresh-1", 3, { ageHours: 2 }),
+        match("old-ordinary", 7, { ageHours: 60, importance: 5 }),
+      ],
+      new Map(),
+      20,
+      NOW,
+      "weekly",
+    );
+    expect(picked.map((p) => p.eventId)).toContain("old-ordinary");
+  });
+
+  it("counts primary-band items as the fresh count for the thin-day gate", () => {
+    // A 24h item is still primary. A 25h item is the first allowed-band item.
+    // With six primary items plus one allowed item, the backstop should stay
+    // closed for a significant 60h story.
+    const picked = selectItems(
+      [
+        match("p1", 3, { ageHours: 2 }),
+        match("p2", 3, { ageHours: 4 }),
+        match("p3", 3, { ageHours: 8 }),
+        match("p4", 3, { ageHours: 12 }),
+        match("p5", 3, { ageHours: 18 }),
+        match("p6", 3, { ageHours: 24 }),
+        match("allowed", 3, { ageHours: 25 }),
+        match("old-sig", 9, { ageHours: 60, importance: 10 }),
+      ],
+      new Map(),
+      20,
+      NOW,
+    );
+    expect(picked.map((p) => p.eventId)).not.toContain("old-sig");
+  });
 });
 
 describe("queuedChannels", () => {

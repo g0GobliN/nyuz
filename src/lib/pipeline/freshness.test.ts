@@ -44,7 +44,7 @@ function item(
 }
 
 describe("the bands", () => {
-  it("gives a daily briefing 24h primary, 48h allowed, 72h exceptional", () => {
+  it("gives a daily briefing 24h primary, 48h allowed, 72h ceiling", () => {
     expect(bandFor(item(1, 2), NOW, DAILY_POLICY)).toBe("primary");
     expect(bandFor(item(1, 24), NOW, DAILY_POLICY)).toBe("primary");
     expect(bandFor(item(1, 36), NOW, DAILY_POLICY)).toBe("allowed");
@@ -77,27 +77,45 @@ describe("the bands", () => {
 });
 
 describe("a quiet day produces a short briefing, not a padded one", () => {
-  it("refuses an ordinary story from two and a half days ago", () => {
-    // The rule in one assertion. 60 hours is inside the daily ceiling, so a
-    // pure decay would rank it low and still send it when there was room.
+  it("refuses an ordinary story in the 48-72h backstop band", () => {
+    // The band exists, but for the daily cadence it is a quiet-day backstop, not
+    // a normal third band. An ordinary story at 60 hours is therefore refused when
+    // the thin-day gate is on.
     const ordinary = item(3, 60, { importance: 5 });
     expect(bandFor(ordinary, NOW, DAILY_POLICY)).toBe("exceptional");
-    expect(isEligible(ordinary, NOW, DAILY_POLICY)).toBe(false);
+    expect(isEligible(ordinary, NOW, DAILY_POLICY, true, 6)).toBe(false);
   });
 
-  it("lets a genuinely significant story from the same moment through", () => {
+  it("still admits a significant story into the backstop band on a thin day", () => {
+    // The backstop is for exactly this: a quiet day with room to spare, and a
+    // story that is still worth knowing even though it is past the fresh window.
     const major = item(3, 60, { importance: SIGNIFICANT_IMPORTANCE });
-    expect(isEligible(major, NOW, DAILY_POLICY)).toBe(true);
-    expect(isPriority(major, NOW, DAILY_POLICY)).toBe(true);
+    expect(isEligible(major, NOW, DAILY_POLICY, true, 6)).toBe(true);
+  });
+
+  it("refuses a significant story past the daily ceiling entirely", () => {
+    // Significance does not extend the daily window. A major story at 73 hours is
+    // out, even when the day is thin.
+    const major = item(3, 73, { importance: SIGNIFICANT_IMPORTANCE });
+    expect(isEligible(major, NOW, DAILY_POLICY, true, 6)).toBe(false);
+    expect(isPriority(major, NOW, DAILY_POLICY)).toBe(false);
   });
 
   it("returns fourteen rather than stuffing thirty with stale material", () => {
-    // Fourteen items worth sending, and a hundred ordinary ones from the
-    // exceptional band that a cap-filling ranker would have reached for.
+    // Fourteen items worth sending, and a hundred ordinary ones just past the
+    // daily ceiling that a cap-filling ranker would have reached for. The
+    // backstop is significance- and thin-day-gated, so this is not a real
+    // competition with stale material.
     const worthSending = Array.from({ length: 14 }, (_, i) => item(2 + i / 100, 3));
     const stale = Array.from({ length: 100 }, () => item(9, 60, { importance: 5 }));
 
-    const { priority, backfill } = rankIntoLanes([...worthSending, ...stale], NOW, DAILY_POLICY);
+    const { priority, backfill } = rankIntoLanes(
+      [...worthSending, ...stale],
+      NOW,
+      DAILY_POLICY,
+      true,
+      6,
+    );
     expect(priority).toHaveLength(14);
     expect(backfill).toHaveLength(0);
     expect([...priority, ...backfill].slice(0, 30)).toHaveLength(14);
@@ -183,13 +201,13 @@ describe("recencyMultiplier", () => {
   });
 
   it("decays monotonically from the band to the ceiling", () => {
-    const at30 = recencyMultiplier(30, DAILY_POLICY);
+    const at25 = recencyMultiplier(25, DAILY_POLICY);
+    const at36 = recencyMultiplier(36, DAILY_POLICY);
     const at48 = recencyMultiplier(48, DAILY_POLICY);
-    const at72 = recencyMultiplier(72, DAILY_POLICY);
-    expect(at30).toBeLessThan(1);
-    expect(at48).toBeLessThan(at30);
-    expect(at72).toBeLessThan(at48);
-    expect(at72).toBeGreaterThan(0);
+    expect(at25).toBeLessThan(1);
+    expect(at36).toBeLessThan(at25);
+    expect(at48).toBeLessThan(at36);
+    expect(at48).toBeGreaterThan(0);
   });
 
   it("survives a policy whose ceiling sits inside its own primary band", () => {
@@ -249,7 +267,7 @@ describe("queue lanes", () => {
 });
 
 describe("active work horizon", () => {
-  it.each([1, 48, 71])("keeps %dh-old work active", (hours) => {
+  it.each([1, 24, 48])("keeps %dh-old work active", (hours) => {
     expect(activeCutoff(NOW).getTime()).toBeLessThanOrEqual(new Date(hoursAgo(hours)).getTime());
   });
 

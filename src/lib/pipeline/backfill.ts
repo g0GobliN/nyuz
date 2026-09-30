@@ -9,7 +9,7 @@ import { loadReaders, match, type Reader } from "./match";
 
 type Db = SupabaseClient<Database>;
 
-export const WINDOW_HOURS = 72;
+export const WINDOW_HOURS = 48;
 
 export const ON_DEMAND_LIMIT = 3;
 

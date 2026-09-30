@@ -56,7 +56,13 @@ import type {
   PlanTier,
 } from "@/lib/supabase/types";
 import { hourInZone, nextSlot } from "./schedule";
-import { policyFor, rankIntoLanes } from "./freshness";
+import {
+  bandFor,
+  policyFor,
+  rankDailyBriefing,
+  rankIntoLanes,
+  rankableFromMatch,
+} from "./freshness";
 
 type Db = SupabaseClient<Database>;
 
@@ -304,6 +310,12 @@ export type MatchRow = {
  * the bands make "today first" structural rather than merely preferred — see
  * that module for why a decay alone is a preference and not a guarantee.
  *
+ * For the daily cadence, the 72h band is a quiet-day backstop, not a normal
+ * third band. It opens only when the fresh material available for this briefing
+ * has not already filled it, and only for significant stories. That is what makes
+ * 72h "today was thin, and this is still worth knowing" rather than "this is
+ * still current".
+ *
  * The bands also mean this can return fewer items than the cap allows, and that
  * is the intended outcome rather than a shortfall to be corrected. On a quiet
  * day a fourteen-story briefing is the honest one; reaching back past two days
@@ -318,6 +330,8 @@ export type MatchRow = {
  * it produces a paragraph in which the model tells the reader the story does not
  * affect them, which is a worse briefing than one three stories shorter.
  */
+export const DAILY_FRESH_THRESHOLD = 6;
+
 export function selectItems(
   matches: MatchRow[],
   already: ReadonlyMap<string, number>,
@@ -340,7 +354,20 @@ export function selectItems(
     const deliveredBefore = already.has(row.eventId) || delivered > 0;
     return !deliveredBefore || delivered < row.materialRevision;
   });
-  const { priority, backfill } = rankIntoLanes(eligible, now, policy);
+
+  // For the daily cadence, the 72h backstop is gated on how much fresh material
+  // the briefing already has. "Fresh" here means primary-band material: today's
+  // news, not yesterday's, not the quiet-day backstop.
+  const dailyFreshCount =
+    frequency === "daily"
+      ? eligible.filter((row) => bandFor(rankableFromMatch(row), now, policy) === "primary").length
+      : 0;
+
+  const { priority, backfill } =
+    frequency === "daily"
+      ? rankDailyBriefing(eligible, now, DAILY_FRESH_THRESHOLD, dailyFreshCount)
+      : rankIntoLanes(eligible, now, policy);
+
   // `cap` is a ceiling, never a target. If the two lanes together come to
   // fourteen, the briefing is fourteen stories long — there is deliberately no
   // path here that reaches further back to reach thirty.

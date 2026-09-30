@@ -345,7 +345,7 @@ export function WorkedExample() {
 const MECHANICS_FAQ: { q: string; a: string }[] = [
   {
     q: "What happens on a day when nothing important occurs?",
-    a: "You get a shorter briefing, or none at all. A quiet day is a real outcome and is recorded as one — the system has a status for a skipped briefing with zero items. Padding it out with whatever ranked highest that day would defeat the point of a threshold.",
+    a: "You get a shorter briefing, or none at all. A quiet day is a real outcome and is recorded as one — the system has a status for a skipped briefing with zero items. On a genuinely thin day it may reach back a little further for a significant story, but it does not pad the briefing with whatever ranked highest that day.",
   },
   {
     q: "What if the reporting disagrees with itself?",
@@ -373,7 +373,7 @@ const MECHANICS_FAQ: { q: string; a: string }[] = [
   },
   {
     q: "What happens to a story nobody follows?",
-    a: "Its event data can still be collected and organized. No long article is generated until a reader opens it, and only when there is useful evidence and available capacity. Briefings still respect freshness limits.",
+    a: "Its event data can still be collected and organized. No long article is generated until a reader opens it, and only when there is useful evidence and available capacity. Briefings still respect freshness limits, and the daily briefing does not reach back for old material just because a day was quiet.",
   },
   {
     q: "Can I add a source you don't already watch?",

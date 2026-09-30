@@ -90,8 +90,16 @@ export const FLASH_POLICY: FreshnessPolicy = {
  *
  * 24h primary because a reader on an 07:30 send has to be told about something
  * that broke at 20:00 yesterday. 48h allowed because a two-day-old story a
- * reader has not seen is still news to them. 72h for significance only, because
- * past two days an ordinary item is no longer why anyone opens a news product.
+ * reader has not seen is still news to them.
+ *
+ * The normal ceiling is 48h. Past that, material is not "current" any more — it
+ * is old enough that showing it would mean padding a thin day rather than serving
+ * fresh news.
+ *
+ * The 72h backstop exists for exactly that case: a quiet day, with few enough
+ * fresh items to leave real room, may reach back to 72h — and only for
+ * significant stories. That is a different promise from freshness: not "this is
+ * happening now", but "today was thin, and this is still worth knowing".
  */
 export const DAILY_POLICY: FreshnessPolicy = {
   primaryHours: 24,
@@ -125,7 +133,9 @@ export const MAX_WEEKLY_AGE_HOURS = WEEKLY_POLICY.maxHours;
 
 /**
  * Active work horizon for the current-news pipeline. This deliberately reuses
- * the daily policy's hard ceiling instead of introducing a second 72h constant.
+ * the daily policy's hard ceiling so the live pipeline and the reader face the
+ * same news window.
+ *
  * Records older than this remain historical data, but normal workers must not
  * select them as current work.
  */
@@ -192,6 +202,62 @@ export function policyFor(frequency: "daily" | "weekly"): FreshnessPolicy {
   return frequency === "weekly" ? WEEKLY_POLICY : DAILY_POLICY;
 }
 
+/**
+ * The briefing score for a daily briefing that only reaches back to 72h when
+ * the day is thin.
+ *
+ * This is the everyday call for the daily cadence: fresh first, recent material
+ * only in the room fresh material left, and a 72h backstop that is both
+ * significance-gated and thin-day-gated.
+ *
+ * Pass the fresh count so the backstop can actually stay closed on a non-thin
+ * day. Without it, the thin-day rule is only a thin-day name, not a thin-day
+ * gate.
+ */
+export function dailyBriefingScore(
+  item: RankableItem,
+  now: Date,
+  thinThreshold = 6,
+  freshCount = 0,
+): number {
+  return briefingScore(item, now, DAILY_POLICY, true, thinThreshold);
+}
+
+/**
+ * Lane ranking for a daily briefing that only reaches back to 72h when the day
+ * is thin.
+ *
+ * Pass the fresh count so the backstop can actually stay closed on a non-thin
+ * day. Without it, the thin-day rule is only a thin-day name, not a thin-day
+ * gate.
+ */
+export function rankDailyBriefing<T extends RankableItem>(
+  items: readonly T[],
+  now: Date,
+  thinThreshold = 6,
+  freshCount = 0,
+): LaneSplit<T> {
+  return rankIntoLanes(items, now, DAILY_POLICY, true, thinThreshold, freshCount);
+}
+
+/**
+ * A RankableItem built from a digest MatchRow for the daily freshness pipeline.
+ * The daily briefing cares about the canonical event clock, not the match clock.
+ */
+export function rankableFromMatch(row: {
+  relevance: number;
+  importance: number;
+  novelty: number;
+  eventAt: string | null;
+}): RankableItem {
+  return {
+    relevance: row.relevance,
+    importance: row.importance,
+    novelty: row.novelty,
+    eventAt: row.eventAt,
+  };
+}
+
 /** Hours between two instants, floored at zero so a clock skew cannot boost. */
 export function ageHours(at: string | null, now: Date): number {
   if (at === null) return Number.POSITIVE_INFINITY;
@@ -235,14 +301,40 @@ export function bandFor(item: RankableItem, now: Date, policy: FreshnessPolicy):
  * The exceptional band is the only place significance is consulted, and it is
  * the rule that keeps a quiet day short instead of padded: an ordinary story
  * from two and a half days ago is refused even when the density cap has room
- * for thirty more. There is no "we needed something" branch here on purpose —
- * the moment one exists, every quiet day finds one.
+ * for thirty more.
+ *
+ * The exceptional band is still not automatic. For the daily cadence it only
+ * opens when the day is thin, because otherwise 72h would stop being a
+ * quiet-day backstop and become a normal third band. Thinness is a fresh-item
+ * count: if the briefing already has enough fresh material, the backstop stays
+ * closed.
  */
-export function isEligible(item: RankableItem, now: Date, policy: FreshnessPolicy): boolean {
+export function isEligible(
+  item: RankableItem,
+  now: Date,
+  policy: FreshnessPolicy,
+  /**
+   * For the daily cadence: the exceptional band is available only when the fresh
+   * material available for this briefing has not already filled it. Weekly
+   * briefings ignore this, because for them the whole lookback is the briefing.
+   */
+  exceptionalOnlyWhenThin = false,
+  /**
+   * How few fresh items justify reaching back. Passed in so the caller decides
+   * what "thin" means instead of hiding it here.
+   */
+  thinThreshold = 6,
+  /**
+   * How many fresh items are already available for this briefing. Only used when
+   * `exceptionalOnlyWhenThin` is on.
+   */
+  freshCount = 0,
+): boolean {
   const band = bandFor(item, now, policy);
   if (band === "expired") return false;
-  if (band === "exceptional") return item.importance >= SIGNIFICANT_IMPORTANCE;
-  return true;
+  if (band !== "exceptional") return true;
+  if (!exceptionalOnlyWhenThin) return item.importance >= SIGNIFICANT_IMPORTANCE;
+  return item.importance >= SIGNIFICANT_IMPORTANCE && freshCount < thinThreshold;
 }
 
 /**
@@ -255,12 +347,19 @@ export function isEligible(item: RankableItem, now: Date, policy: FreshnessPolic
  * does not want an important election above their race, and `importance` is
  * exactly the number that would do that if it were weighted freely.
  */
-export function briefingScore(item: RankableItem, now: Date, policy: FreshnessPolicy): number {
+export function briefingScore(
+  item: RankableItem,
+  now: Date,
+  policy: FreshnessPolicy,
+  exceptionalOnlyWhenThin = false,
+  thinThreshold = 6,
+): number {
   // An ineligible item does not score low, it does not score. Returning a finite
   // number here would let a caller that ranks without `rankIntoLanes` quietly
   // re-admit exactly the stale material the bands exist to refuse, which is the
   // class of bug this whole module is a response to.
-  if (!isEligible(item, now, policy)) return Number.NEGATIVE_INFINITY;
+  if (!isEligible(item, now, policy, exceptionalOnlyWhenThin, thinThreshold))
+    return Number.NEGATIVE_INFINITY;
 
   const decayed = item.relevance * recencyMultiplier(ageHours(item.eventAt, now), policy);
   const significance = IMPORTANCE_WEIGHT * (item.importance / 10);
@@ -275,10 +374,16 @@ export function briefingScore(item: RankableItem, now: Date, policy: FreshnessPo
  * returns Infinity for one, so it lands in `expired` and never reaches a lane at
  * all. That is the safe reading: a story we cannot date is a story we cannot
  * promise is current.
+ *
+ * Significance may promote a recent story into the priority lane, but it may not
+ * extend the daily window. A major story that is already past the ceiling is
+ * still refused, so the priority lane is bounded by the same horizon as every
+ * other lane.
  */
 export function isPriority(item: RankableItem, now: Date, policy: FreshnessPolicy): boolean {
   if (bandFor(item, now, policy) === "primary") return true;
-  return item.importance >= SIGNIFICANT_IMPORTANCE && Number.isFinite(ageHours(item.eventAt, now));
+  if (bandFor(item, now, policy) === "expired") return false;
+  return item.importance >= SIGNIFICANT_IMPORTANCE;
 }
 
 export type LaneSplit<T> = { priority: T[]; backfill: T[] };
@@ -289,19 +394,28 @@ export type LaneSplit<T> = { priority: T[]; backfill: T[] };
  * Ineligible items are gone before either lane sees them, so a caller that
  * concatenates `priority` then `backfill` and slices to a cap gets the whole
  * policy: today first, recent material only in the room today left, nothing
- * older unless it is genuinely significant, and a short list when that is all
- * there honestly is.
+ * older unless the day is thin and the story is significant, and a short list
+ * when that is all there honestly is.
+ *
+ * The `exceptionalOnlyWhenThin` flag is what makes 72h a quiet-day backstop
+ * instead of a normal third band for the daily cadence. When that flag is on,
+ * the caller must also pass the fresh count, because the backstop is not a
+ * calendar band — it is a "not enough fresh material yet" band.
  */
 export function rankIntoLanes<T extends RankableItem>(
   items: readonly T[],
   now: Date,
   policy: FreshnessPolicy,
+  exceptionalOnlyWhenThin = false,
+  thinThreshold = 6,
+  freshCount = 0,
 ): LaneSplit<T> {
   const priority: T[] = [];
   const backfill: T[] = [];
 
   for (const item of items) {
-    if (!isEligible(item, now, policy)) continue;
+    if (!isEligible(item, now, policy, exceptionalOnlyWhenThin, thinThreshold, freshCount))
+      continue;
     (isPriority(item, now, policy) ? priority : backfill).push(item);
   }
 
@@ -324,11 +438,10 @@ export function rankIntoLanes<T extends RankableItem>(
 /**
  * The window the analysis queue treats as live news.
  *
- * Wider than `FRESH_WINDOW_HOURS` because this is the queue that feeds the
- * briefing rather than the briefing itself: an event has to be clustered, then
- * analysed, then matched before a digest can pick it, and each of those waits
- * for its own cron. 48 hours leaves room for that pipeline latency without
- * letting the queue wander into material no briefing would accept anyway.
+ * This is the same horizon the daily briefing uses, because the queue that feeds
+ * the briefing should not keep working material the briefing will not show. There
+ * is still a separate backlog lane for older work, so narrowing this does not strand
+ * history — it only stops live workers from treating old rows as current.
  */
 export const LIVE_QUEUE_HOURS = ACTIVE_WORK_HORIZON_HOURS;
 
