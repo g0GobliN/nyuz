@@ -890,7 +890,18 @@ function attributedFactText(
   if (opener)
     return `${opener.opener}, ${source} reports that ${withoutDiscourseMarker(opener.rest)}`;
   const clause = withoutDiscourseMarker(text);
-  return `${source} reports that ${reportedClause(clause) ?? clause}`;
+  // `reportedClause` answers null when it cannot lowercase the opening -- a
+  // name, a participle ("Founded in early 2024, ..."), a fronted adverbial it
+  // does not recognise ("As part of the deal, ..."), or a plain subject ("The
+  // acquisition ..."). The code here used to append the clause anyway, which
+  // is how production published `The Register reports that Founded in early
+  // 2024` and `reports that The acquisition is also a hedge`: a capital after
+  // `that`, which is not English. Guessing which capital begins a name is the
+  // guess `reportedClause` exists to refuse, so the attribution goes behind the
+  // fact instead -- grammatical either way, and a claim keeps its claimant.
+  const reported = reportedClause(clause);
+  if (reported !== null) return `${source} reports that ${reported}`;
+  return attributeToOwnSource(clause, source).text;
 }
 
 export type DeterministicQualityReport = {

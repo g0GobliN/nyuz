@@ -162,6 +162,42 @@ describe("composeArticle", () => {
     expect(text).toContain("reading room");
   });
 
+  it("never glues a leading capital or a fronted adverbial after `reports that`", () => {
+    // Production, 2026-09-30, AMD/World Labs: five of seven paragraphs opened
+    // with the outlet's name, and three of those could not follow `that` at all
+    // -- a participle ("Founded in early 2024, ..."), a fronted adverbial
+    // ("As part of the deal, ...") and a plain subject ("The acquisition ...").
+    // The citation carries provenance for a sentence that cannot take a
+    // leading attribution, so nothing is lost by not inventing one.
+    const story = makeStory({
+      title: "AMD bets that worlds matter more than words in AI",
+      what: "AMD agreed to acquire World Labs in a deal valued at $8.2 billion.",
+      sourceList: [
+        {
+          name: "The Register",
+          at: "07:01",
+          headline: "AMD bets",
+          excerpt:
+            "AMD dove deeper into AI model development with an agreement to acquire Fei-Fei Li's World Labs. " +
+            "The House of Zen claims the all-stock deal is expected to close by year's end pending approval. " +
+            "Founded in early 2024, San Francisco-based World Labs has focused its efforts on developing spatial-intelligence models. " +
+            "As part of the deal, World Labs will continue its work on advanced AI models while Li joins AMD as chief scientist. " +
+            "The acquisition is also a hedge that LLMs, which have fueled the AI bubble up to this point, might be a dead end.",
+        },
+      ],
+    });
+
+    const body = bodyOf(story);
+    expect(body).not.toMatch(/reports that [A-Z]/);
+    expect(body).not.toContain("reports that Founded");
+    expect(body).not.toContain("reports that As part");
+    expect(body).not.toContain("reports that The acquisition");
+    // The claim the wrap cannot carry still keeps its provenance, moved behind
+    // the fact rather than dropped with the invented clause.
+    expect(body).toMatch(/according to The Register\.$/m);
+    expect(body).toContain("spatial-intelligence models");
+  });
+
   it("falls back to deterministic source prose when a cached article has no support", () => {
     const story = makeStory({
       title: "Council approves public library",
