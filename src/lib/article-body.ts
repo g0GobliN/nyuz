@@ -11,7 +11,12 @@
  */
 
 import { decodeEntities } from "./pipeline/source-text";
-import { admissibleReaderSentence, nearDuplicate, readerSentences } from "./reader-evidence";
+import {
+  admissibleReaderSentence,
+  nearDuplicate,
+  readerSentences,
+  storyPosition,
+} from "./reader-evidence";
 
 export function toGrafs(text: string): string[] {
   const raw = text.trim();
@@ -57,28 +62,68 @@ export function clipGraf(text: string, max = 560): string {
  */
 const STORY_GRAFS = 10;
 
+/**
+ * Whether two sentences belong in one paragraph.
+ *
+ * `toGrafs` paired by array position -- one and two, then three and four -- which
+ * is how a paragraph came to hold an evaluation of agent risk next to a
+ * statement about what the agent costs to run. Two unrelated topics welded
+ * together is one of the clearest assembly signals a reader can see, and it was
+ * being produced by a loop counter rather than by anything about the sentences.
+ *
+ * The rule is a refusal, not a plan. Sentences sit together unless one of them
+ * is a reaction and the other is not: an evaluation needs its own paragraph to
+ * read as a reaction, and a commercial detail has no business sharing one. No
+ * attempt is made to understand what either sentence means.
+ */
+function pairsWell(left: string, right: string): boolean {
+  const a = storyPosition(left);
+  const b = storyPosition(right);
+  if (a === b) return true;
+  return a !== "impact" && b !== "impact";
+}
+
+/** The event summary, admitted and grouped by role rather than by position. */
+function whatParagraphs(what: string): string[] {
+  const admitted = readerSentences(what).filter(admissibleReaderSentence);
+  const grafs: string[] = [];
+  let current: string[] = [];
+  for (const part of admitted) {
+    const previous = current.at(-1);
+    if (previous !== undefined && !pairsWell(previous, part)) {
+      grafs.push(current.join(" "));
+      current = [];
+    }
+    current.push(part);
+  }
+  if (current.length > 0) grafs.push(current.join(" "));
+  return grafs;
+}
+
 export function storyGrafs(input: {
   what: string;
   before: string;
   after: string;
   excerpts: string[];
 }): string[] {
-  const grafs = [...toGrafs(input.what)];
+  // `what` is gated too, and that used to look unsafe: it can be a translated
+  // string, where an English furniture pattern would be meaningless. It is not
+  // unsafe, it is merely ineffective -- a pattern that cannot match a Japanese
+  // sentence cannot produce a false positive in one either. Leaving this field
+  // ungated was the hole that let "Analysts say the risk is ..." reach an inbox
+  // while every Read-page counter read zero, which is the exact incoherence the
+  // shared gate exists to remove.
+  const grafs = whatParagraphs(input.what);
   if (input.before.trim()) grafs.push(clipGraf(input.before));
   if (input.after.trim()) grafs.push(clipGraf(input.after));
 
   for (const excerpt of input.excerpts) {
-    // The excerpts are the only publisher-written text that reaches this file,
-    // so they are the only place the reader-quality gate applies. `what`,
-    // `before` and `after` are nyuz's own stored copy and may have been
-    // translated, where an English furniture pattern would mean nothing.
-    //
     // Appending the excerpt whole is what let the email print "Subscribe to The
-    // Verge for more" and "Contact the editorial team at news@..." to an inbox
-    // while every Read-page quality counter read zero: the two surfaces had two
-    // different definitions of a sentence. The email keeps its own shape -- its
-    // own length, its own truncation, its own first four paragraphs -- and no
-    // longer its own idea of what may be published.
+    // Verge for more" and "Contact the editorial team at news@..." while every
+    // Read-page quality counter read zero: the two surfaces had two different
+    // definitions of a sentence. The email keeps its own shape -- its own
+    // length, its own truncation, its own first four paragraphs -- and no longer
+    // its own idea of what may be published.
     const admitted = readerSentences(excerpt).filter(admissibleReaderSentence);
     if (admitted.length === 0) continue;
     const graf = clipGraf(admitted.join(" "));
