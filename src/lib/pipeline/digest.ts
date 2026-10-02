@@ -12,7 +12,8 @@ import { alertDeliveryAllowed } from "./alert-entitlement";
  * person per story; it now assembles `digest_items.why_it_matters` from
  * `event_impacts` — the shared explanation written once per event during
  * analysis — and deterministic facts already stored on the event. Missing
- * impact rows fall back to the event's after-state or a factual coverage line.
+ * impact rows fall back to the event's after-state, a factual coverage line,
+ * a figure or subject rung, and only then to the reader's follow graph.
  * Briefing assembly never calls a model.
  *
  * A quiet day is a real outcome: `status = 'skipped'`, zero items, and a short
@@ -690,6 +691,12 @@ type EventBrief = {
    * is unknown, which is what drops the line rather than repeating it.
    */
   outlet: string | null;
+  /**
+   * `events.tags` — the concrete kind of thing that happened (0049). Feeds the
+   * inclusion ladder's subject rung; empty for events analysed before 0049,
+   * which then fall through to the follow rung as they always did.
+   */
+  tags: string[];
 };
 
 async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise<DigestOutcome> {
@@ -855,6 +862,24 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   const impacts = await completedImpacts(db, ready);
 
   const stored = new Map(impacts.map((item) => [item.eventId, item.text] as const));
+  // The reader's own follow labels, for the final rung: when nothing about the
+  // *story* explains its presence, the honest line is about the *reader*. Fetched
+  // once per digest; an empty set on failure just leaves those stories silent.
+  const { data: followRows } = await db
+    .from("user_topics")
+    .select("topics ( label )")
+    .eq("user_id", due.user_id)
+    .eq("muted", false);
+  const followed = new Set(
+    (followRows ?? [])
+      .map((row) => (row.topics as { label?: string } | null)?.label)
+      .filter((label): label is string => Boolean(label))
+      .map((label) => label.toLowerCase()),
+  );
+  // The whole ladder from one call: story-specific rungs first (figure,
+  // subject), the follow line only as the final rung — see inclusion.ts. The
+  // follow set fetched above rides along so a card with a story-specific line
+  // never falls back to repeating "You follow X." underneath it.
   const byImpact = new Map(
     ready.map((brief) => {
       const reason = reasonFor({
@@ -863,6 +888,10 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
         sourceCount: brief.sourceCount,
         topics: brief.topics,
         outlet: brief.outlet,
+        title: brief.title,
+        whatHappened: brief.whatHappened,
+        tags: brief.tags,
+        followed,
       });
       return [brief.eventId, reason.text] as const;
     }),
@@ -1283,7 +1312,7 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   const { data, error } = await db
     .from("events")
     .select(
-      "id, title, what_happened, before_state, after_state, importance, novelty, publisher_count",
+      "id, title, what_happened, before_state, after_state, importance, novelty, publisher_count, tags",
     )
     .in("id", ids);
   if (error) throw new Error(`reading events: ${error.message}`);
@@ -1346,6 +1375,7 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
         topics: topics.get(row.eventId) ?? [],
         sourceCount: event.publisher_count || outlets.get(row.eventId)?.size || 0,
         outlet: named && named.size === 1 ? ([...named][0] ?? null) : null,
+        tags: event.tags ?? [],
         relevance: row.relevance,
         matchedAt: row.matchedAt,
       },

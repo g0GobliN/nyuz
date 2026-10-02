@@ -28,6 +28,7 @@ type Brief = {
   sourceCount: number;
   topics: string[];
   outlet: string | null;
+  tags: string[];
   eventAt: string | null;
   storedImpact: string | null;
   relevance: number;
@@ -147,7 +148,9 @@ main(async () => {
     await Promise.all([
       db()
         .from("events")
-        .select("id, title, what_happened, after_state, importance, publisher_count, first_seen_at")
+        .select(
+          "id, title, what_happened, after_state, importance, publisher_count, first_seen_at, tags",
+        )
         .in("id", ids),
       db().from("event_topics").select("event_id, topics ( label )").in("event_id", ids),
       db().from("articles").select("event_id, source_id, sources ( name )").in("event_id", ids),
@@ -166,11 +169,17 @@ main(async () => {
     topicsOf.set(link.event_id, [...(topicsOf.get(link.event_id) ?? []), label]);
   }
   const outletsOf = new Map<string, Set<string>>();
+  const outletNamesOf = new Map<string, Set<string>>();
   for (const art of coverage ?? []) {
     if (!art.event_id) continue;
     const seen = outletsOf.get(art.event_id) ?? new Set<string>();
     seen.add(art.source_id ?? "unknown");
     outletsOf.set(art.event_id, seen);
+    const name = (art.sources as { name?: string } | null)?.name;
+    if (!name) continue;
+    const named = outletNamesOf.get(art.event_id) ?? new Set<string>();
+    named.add(name);
+    outletNamesOf.set(art.event_id, named);
   }
   const impactOf = new Map(
     (impacts ?? []).map((i) => [i.event_id, (i as { text?: string | null }).text ?? null]),
@@ -179,6 +188,7 @@ main(async () => {
   const allBriefs: Brief[] = picked.flatMap((row3) => {
     const event = byId.get(row3.eventId);
     if (!event) return [];
+    const named = outletNamesOf.get(row3.eventId);
     return [
       {
         eventId: row3.eventId,
@@ -190,7 +200,8 @@ main(async () => {
           outletsOf.get(row3.eventId)?.size ||
           0,
         topics: topicsOf.get(row3.eventId) ?? [],
-        outlet: null,
+        outlet: named && named.size === 1 ? ([...named][0] ?? null) : null,
+        tags: (event as { tags?: string[] }).tags ?? [],
         eventAt: (event as { first_seen_at?: string }).first_seen_at ?? null,
         storedImpact: impactOf.get(row3.eventId) ?? null,
         relevance: row3.relevance,
@@ -237,8 +248,23 @@ main(async () => {
   if (ready.length > cap) ready.splice(cap);
 
   heading(`Ships (${ready.length})`);
+  // The same follow set generation feeds to the ladder: the final rung, and
+  // the tie the subject rung claims — never the first thing a card says.
+  const { data: followRows } = await db()
+    .from("user_topics")
+    .select("topics ( label )")
+    .eq("user_id", userId)
+    .eq("muted", false);
+  const followed = new Set(
+    (followRows ?? [])
+      .map((r) => (r.topics as { label?: string } | null)?.label)
+      .filter((label): label is string => Boolean(label))
+      .map((label) => label.toLowerCase()),
+  );
   let multi = 0;
   let withLine = 0;
+  const rungs = new Map<string, number>();
+  const lines: string[] = [];
   for (const brief of ready) {
     const why = reasonFor({
       storedImpact: brief.storedImpact,
@@ -246,17 +272,26 @@ main(async () => {
       sourceCount: brief.sourceCount,
       topics: brief.topics,
       outlet: brief.outlet,
+      title: brief.title,
+      whatHappened: brief.whatHappened,
+      tags: brief.tags,
+      followed,
     });
+    const text = why.text;
+    rungs.set(why.source, (rungs.get(why.source) ?? 0) + 1);
+    if (text !== "") lines.push(text);
     if (brief.sourceCount > 1) multi += 1;
-    if (why.text !== "") withLine += 1;
+    if (text !== "") withLine += 1;
     const src = `${brief.sourceCount} src`;
     const time = brief.eventAt === null ? "??" : brief.eventAt.slice(11, 16);
     say(row(" ", `${src} ${time}  ${brief.title.slice(0, 72)}`, 110));
-    say(row(" ", `        ${why.source === "none" ? "(no why-line)" : why.text}`, 110));
+    say(row(" ", `        ${text === "" ? "(no why-line)" : text}`, 110));
   }
   say();
   say(row("  ", `multi-source ${multi}/${ready.length}`, 110));
   say(row("  ", `with a why-line ${withLine}/${ready.length}`, 110));
+  say(row("  ", `distinct why-lines ${new Set(lines).size}/${withLine}`, 110));
+  say(row("  ", `rungs: ${[...rungs.entries()].map(([k, v]) => `${k} ${v}`).join(", ")}`, 110));
 
   if (withheld.length > 0) {
     heading(`Withheld by the readiness gate (${withheld.length})`);
