@@ -1235,6 +1235,61 @@ describe("a caption pasted onto a sentence with no punctuation is cut back apart
   });
 });
 
+describe("`It's` is a contraction, never a possessive", () => {
+  /**
+   * The Epic story, 2026-10-03. The source said "It's rare for a company to pause
+   * development to fix security bugs"; the gate published "Epic's rare for a
+   * company to pause development", which asserts Epic is rare and drops the
+   * source's actual claim. Flock and Clef were corrupted the same way.
+   */
+  it.each([
+    [
+      "Epic",
+      "Epic pauses development to fix security bugs",
+      "Epic says it does not have access to customers' medical data.",
+      "It's rare for a company to pause development to fix security bugs.",
+    ],
+    [
+      "Flock",
+      "Flock drones deployed as first responders",
+      "Flock initially gained this capability when it purchased drone firm Aerodome.",
+      "It's also not the only company advertising similar services.",
+    ],
+    [
+      "Clef",
+      "Cloudflare tries to outplay Jev with open-weight Clef models",
+      "Clef is still fast, and scores choices in parallel after that pass.",
+      "It’s not clear what Jev’s underlying architecture is, as TypeSafe kept it secret.",
+    ],
+  ])(
+    "leaves %s's contraction alone rather than rewriting it as a possessive",
+    (name: string, title: string, first: string, second: string) => {
+      const { facts } = selectReaderEvidence(title, [
+        { name: "The Register", excerpt: `${first} ${second}` },
+      ]);
+      for (const fact of facts) {
+        expect(fact.text).not.toContain(`${name}’s rare`);
+        expect(fact.text).not.toContain(`${name}’s also not`);
+        expect(fact.text).not.toContain(`${name}’s not clear`);
+        expect(fact.text).not.toContain(`${name}'s rare`);
+        expect(fact.text).not.toContain(`${name}'s also not`);
+        expect(fact.text).not.toContain(`${name}'s not clear`);
+      }
+    },
+  );
+
+  it("still substitutes the possessive, which is what the antecedent is for", () => {
+    const { facts } = selectReaderEvidence("Acme reports record revenue", [
+      {
+        name: "Reuters",
+        excerpt:
+          "Acme said the delay cost it the quarter. Its revenue still rose to $18.5 million, the company reported to regulators.",
+      },
+    ]);
+    expect(facts.some((fact) => fact.text.startsWith("Acme's revenue still rose"))).toBe(true);
+  });
+});
+
 describe("a unit that opens inside a name is refused against its source's own text", () => {
   // TechCrunch stored "... co-led by Wellington and T. Rowe Price." as two units,
   // cut at the initial's full stop; the tail passed every local test it faced.

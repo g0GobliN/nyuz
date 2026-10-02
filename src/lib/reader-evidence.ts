@@ -3494,7 +3494,13 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
         /([A-Z][a-z]+(?: [A-Z][a-z]+){1,3}) [–—] better known as ([A-Z]{2,6}) [–—] (the .+)$/,
       );
       if (identity) text = `${identity[1]}, better known as ${identity[2]}, is ${identity[3]}`;
-      if (antecedent) text = text.replace(/^Its\b/, `${antecedent}'s`).replace(/^It\b/, antecedent);
+      // `It's` is "it is", and substituting into it asserts something the source
+      // never said: the Epic story's "It's rare for a company to pause
+      // development" was published as "Epic's rare for a company to pause
+      // development". `recoverContext` has carried this guard since the same
+      // failure reached a reader through its own path; this one did not.
+      if (antecedent)
+        text = text.replace(/^Its\b/, `${antecedent}'s`).replace(/^It(?!['’]s)\b/, antecedent);
       if (unresolvableContext(text)) {
         // `Both`, `the latter`, a fronted clause whose main clause is a pronoun:
         // the subject is outside the sentence and nothing mechanical can supply
