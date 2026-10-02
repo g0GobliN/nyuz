@@ -1,5 +1,6 @@
 import { readReaderArticle, type ReaderArticle } from "@/lib/reader-article";
 import {
+  captionSeamSplit,
   centralTokens,
   editorialNoise,
   normalizeSummary,
@@ -695,11 +696,36 @@ const DECIMAL_POINT_PLACEHOLDER = "\uE000";
 
 export function sentences(text: string): string[] {
   const protectedText = text.replace(/(\d)\.(\d)/g, `$1${DECIMAL_POINT_PLACEHOLDER}$2`);
-  return (protectedText.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [protectedText])
-    .map((sentence) =>
-      sentence.replace(new RegExp(DECIMAL_POINT_PLACEHOLDER, "g"), ".").replace(/\s+/g, " ").trim(),
-    )
-    .filter((sentence) => sentence.length > 0);
+  // A caption pasted onto a sentence with no punctuation between them has no
+  // boundary for the regex below to find, so the seam is cut first, while it is
+  // still detectable (`captionSeamSplit`).
+  const cut: string[] = [];
+  for (const part of captionSeamSplit(protectedText)) {
+    for (const piece of part.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [part]) cut.push(piece);
+  }
+  const merged: string[] = [];
+  for (const piece of cut) {
+    const sentence = piece
+      .replace(new RegExp(DECIMAL_POINT_PLACEHOLDER, "g"), ".")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!sentence) continue;
+    const previous = merged.at(-1);
+    // A sentence does not end at a single-capital initial: "... Wellington and
+    // T." + "Rowe Price, large institutional investors ..." is one name cut in
+    // half at the initial's full stop. The reader's own splitter refuses to cut
+    // there (see `readerSentences`), and so does storage -- otherwise the
+    // fragments are stored as two units, the head unusable and the tail an
+    // orphan no gate can tie back to it. "U." + "S. Courts" is a dotted
+    // abbreviation the regex cut open, and rejoins without its space back.
+    if (previous && /(?:^|\s)[A-Z]\.$/.test(previous)) {
+      const joiner = /^[A-Z]\.(?:\s|$)/.test(sentence) ? "" : " ";
+      merged[merged.length - 1] = `${previous}${joiner}${sentence}`;
+    } else {
+      merged.push(sentence);
+    }
+  }
+  return merged;
 }
 
 function wordCount(text: string): number {

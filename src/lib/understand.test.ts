@@ -10,6 +10,7 @@ import {
   legacyEventIntelligence,
   deriveChange,
   sourceCountLabel,
+  sentences,
   type EventIntelligence,
   novelSentences,
   collapseTimeline,
@@ -1450,5 +1451,34 @@ describe("thin evidence stays text-only", () => {
     expect(parsed?.comparison).toBeNull();
     expect(parsed?.series).toBeNull();
     expect(parsed?.overview).toEqual([]);
+  });
+});
+
+describe("storage does not cut a name at its initial, and does cut a pasted caption", () => {
+  it("keeps one name whole across its initial", () => {
+    expect(
+      sentences(
+        "The transaction was co-led by Wellington and T. Rowe Price, large institutional investors that back private companies.",
+      ),
+    ).toEqual([
+      "The transaction was co-led by Wellington and T. Rowe Price, large institutional investors that back private companies.",
+    ]);
+    // An abbreviation cut open at its own period rejoins without a space --
+    // "U." + "S." is "U.S.", never "U. S." -- and the boundary after it is the
+    // one the reader's splitter draws. Decimals are protected.
+    expect(
+      sentences("The ruling affected the U.S. Courts next. The model scores 92.5 on MMLU."),
+    ).toEqual(["The ruling affected the U.S.", "Courts next.", "The model scores 92.5 on MMLU."]);
+  });
+
+  it("cuts a caption pasted onto a sentence with no punctuation", () => {
+    expect(
+      sentences(
+        "Research has found some Chinese children prefer talking to AI over people A survey of 8,563 primary and secondary students in China in 2025 found one in five children said they only wanted to speak with AI.",
+      ),
+    ).toEqual([
+      "Research has found some Chinese children prefer talking to AI over people",
+      "A survey of 8,563 primary and secondary students in China in 2025 found one in five children said they only wanted to speak with AI.",
+    ]);
   });
 });
