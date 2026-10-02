@@ -6,6 +6,8 @@ This specification supersedes the older AI pipeline/cost plans. Migration `0085_
 
 Ingestion, normalization, classification, clustering, the retained `analyse` stage, topic assignment, importance, novelty, matching, ranking, onboarding/backfill, briefing, alerts, delivery, metadata requests, dashboard, prefetch and maintenance make **zero provider calls**. They do not require a working provider or available AI budget.
 
+Two metered exceptions exist, both writing shared rows that belong to the event, never a reader: the explicit story open (`understand_generation`), and — since migration `0105` — the scheduled impact writer (`src/lib/pipeline/impacts.ts`), which fills `event_impacts` one why-it-matters sentence per event at :10/:25/:40/:55 so the briefing's inclusion ladder does not collapse to its last rung. It is **opt-in** via the `impact_writer_enabled` feature flag (default off — the pipeline makes zero AI calls unless an operator turns it on), background, batch-bounded (`IMPACT_LIMIT`), kill-switch aware, and charged to the same reservation path, monthly/daily caps and provider-credit gate as everything else; a refusal costs the sentence, never the story or the slot.
+
 Only an authenticated, authorized explicit story open can initiate shared synthesis. The separate POST endpoint validates the event and reader access; GET metadata/prefetch only reads stored data. Explicit administrator connection tests remain metered exceptions, under the same financial ceilings.
 
 The long article belongs to `(event_id, content_version)`, never a reader. Cached reading uses no initiation allowance, reservation, or provider call.

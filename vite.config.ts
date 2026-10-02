@@ -52,12 +52,13 @@ export default defineConfig({
           //
           // Three, because Cloudflare registers three Cron Triggers per Worker
           // and silently drops the rest. cron.test.ts holds this list to the
-          // stages that read it.
+          // stages that read it. :10/:25/:40/:55 are the impact writer, the
+          // shared why-it-matters stage one minute behind finalization.
           triggers: {
             crons: [
               "*/15 * * * *",
               "* * * * *",
-              "0,2,4,6,8,9,14,16,17,23,24,26,29,32,38,39,41,44,47,53,54,56,59 * * * *",
+              "0,2,4,6,8,9,10,14,16,17,23,24,25,26,29,32,38,39,40,41,44,47,53,54,55,56,59 * * * *",
             ],
           },
         },

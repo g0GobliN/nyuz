@@ -18,6 +18,13 @@ describe("only shared stories and explicit admin tests may invoke providers", ()
       "src/lib/ai/deepseek.ts",
       "src/lib/server/understanding.ts",
       "src/lib/server/ai-config.ts",
+      // The shared impact writer (0105): one why-it-matters sentence per event,
+      // stored in `event_impacts` and reused by every reader briefed on the
+      // event. Same category as the shared story above — the line belongs to
+      // `(event_id)`, never a reader — and gated the same way: opt-in feature
+      // flag (default off), reservation path, kill switch, monthly and daily
+      // caps, cron-bounded batch.
+      "src/lib/pipeline/impacts.ts",
     ]);
     const violations: string[] = [];
     for (const file of [...files("src"), ...files("scripts")].map((path) =>

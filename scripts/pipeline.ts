@@ -16,6 +16,8 @@
  *   npm run pipeline -- analyse --dry-run     analyse and print, write nothing
  *   npm run pipeline -- analyse --event ID    one event, for checking a known case
  *   npm run pipeline -- analyse --retry-failed  include events a run failed on
+ *   npm run pipeline -- impact                 write shared why-it-matters lines (spends)
+ *   npm run pipeline -- impact --limit 2       two events per run
  *   npm run pipeline -- match                 match every reader against every analysed event
  *   npm run pipeline -- match --dry-run       decide and print, write nothing
  *   npm run pipeline -- match --user ID       one reader, for checking a known case
@@ -66,6 +68,7 @@ import { digest, type DigestReport } from "@/lib/pipeline/digest";
 import { dormant, type DormantReport } from "@/lib/pipeline/dormant";
 import { enrich, type EnrichReport } from "@/lib/pipeline/enrich";
 import { ingest, type IngestReport, type SourceOutcome } from "@/lib/pipeline/ingest";
+import { writeImpacts, type ImpactReport } from "@/lib/pipeline/impacts";
 import { match, type MatchReport, type MissReason } from "@/lib/pipeline/match";
 import { expireStaleWork, type StaleWorkReport } from "@/lib/pipeline/stale-work";
 import { db, fail, heading, main, row, say } from "./lib/db.ts";
@@ -75,6 +78,7 @@ const STAGES = [
   "cluster",
   "classify",
   "analyse",
+  "impact",
   "match",
   "backfill",
   "digest",
@@ -122,6 +126,7 @@ main(async () => {
     if (stage === "cluster") await runCluster(args);
     if (stage === "classify") await runClassify(args);
     if (stage === "analyse") await runAnalyse(args);
+    if (stage === "impact") await runImpact(args);
     if (stage === "match") await runMatch(args);
     if (stage === "backfill") await runBackfill(args);
     if (stage === "digest") await runDigest(args);
@@ -368,6 +373,43 @@ function printAnalysis(report: AnalysisReport, dryRun: boolean): void {
     row("tokens per event", report.modelCalls === 0 ? 0 : Math.round(tokens / report.modelCalls)),
   );
   say(row("seconds", Math.round(seconds)));
+}
+
+/**
+ * The shared why-it-matters writer.
+ *
+ * Available by name and never in DEFAULT_STAGES: it spends model tokens, one
+ * sentence per event. The rate is bounded by the stage's own limit and by the
+ * monthly budget every other AI call site reserves against.
+ */
+async function runImpact(args: string[]): Promise<void> {
+  const limit = numberFlag(args, "--limit");
+
+  heading("Impact (shared why-it-matters writer)");
+  const report = await writeImpacts(db(), {
+    ...(limit === null ? {} : { limit }),
+  });
+
+  printImpact(report);
+}
+
+function printImpact(report: ImpactReport): void {
+  for (const outcome of report.outcomes) {
+    say(`${outcome.decision.padEnd(8)} ${outcome.title.slice(0, 64)}`);
+    say(`             ${outcome.detail}`);
+  }
+
+  const seconds = (Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000;
+  heading("Summary");
+  say(row("considered", report.considered));
+  say(row("written", report.written));
+  say(row("no line (ladder serves)", report.noLine));
+  say(row("held elsewhere", report.claimed));
+  say(row("failed", report.failed));
+  say(row("model calls", report.modelCalls));
+  say(row("prompt tokens", report.promptTokens));
+  say(row("completion tokens", report.completionTokens));
+  say(row("seconds", seconds.toFixed(1)));
 }
 
 async function runMatch(args: string[]): Promise<void> {

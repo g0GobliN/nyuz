@@ -38,8 +38,13 @@ beforeEach(async () => {
 });
 describe("actual PostgreSQL financial and owner invariants", () => {
   it("rejects background features even with otherwise valid budget", async () => {
-    for (const feature of ["cluster", "analyse", "enrich", "impact", "ask", "translate", "unknown"])
+    for (const feature of ["cluster", "analyse", "enrich", "ask", "translate", "unknown"])
       expect(await reserve(1, feature)).toBeNull();
+  });
+  it("admits only the shared impact writer since 0105, under the same ceilings", async () => {
+    expect(await reserve(300000, "impact")).toBeTruthy();
+    // The 0085 daily ceiling still applies to it: $0.50 total, $0.30 used here.
+    expect(await reserve(200001, "impact")).toBeNull();
   });
   it("holds a hard daily ceiling including concurrent reservations", async () => {
     const results = await Promise.all([reserve(300000), reserve(300000)]);

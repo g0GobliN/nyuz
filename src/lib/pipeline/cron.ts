@@ -59,6 +59,7 @@ import { describeDormant, dormant, type DormantReport } from "./dormant";
 import { ingest, type IngestReport } from "./ingest";
 import { describeMatch, match, type MatchReport } from "./match";
 import { describeEnrich, enrich, type EnrichReport } from "./enrich";
+import { describeImpacts, writeImpacts, type ImpactReport } from "./impacts";
 
 /**
  * Feeds read per scheduled invocation.
@@ -127,6 +128,19 @@ export const CLASSIFY_CRON = "8,23,38,53 * * * *";
  * no model call, no token, and re-running it writes nothing the second time.
  */
 export const MATCH_CRON = "14,29,44,59 * * * *";
+
+/**
+ * The shared why-it-matters writer, one minute after finalization.
+ *
+ * `event_impacts` is the briefing's first explanation rung (0028): one sentence
+ * per event, written once and reused by every reader — never per-reader, never
+ * on the briefing clock. The stage slots into the minutes finalization leaves
+ * free (:10/:25/:40/:55, one minute after ANALYSE_CRON) so an event is analysed
+ * before it is explained, and each firing has its own subrequest budget against
+ * the shared trigger's limit.
+ */
+export const IMPACT_MINUTES = [10, 25, 40, 55];
+export const IMPACT_CRON = "10,25,40,55 * * * *";
 
 /**
  * Digest generation and delivery, after matching.
@@ -199,9 +213,11 @@ export const DORMANT_CRON = "0 12 * * *";
  * budget, so this buys throughput without touching `ENRICH_LIMIT` or the
  * arithmetic behind it.
  */
-export const STAGES_CRON = "0,2,4,6,8,9,14,16,17,23,24,26,29,32,38,39,41,44,47,53,54,56,59 * * * *";
+export const STAGES_CRON =
+  "0,2,4,6,8,9,10,14,16,17,23,24,25,26,29,32,38,39,40,41,44,47,53,54,55,56,59 * * * *";
 
-type SharedStage = "cluster" | "classify" | "analyse" | "match" | "dormant" | "enrich" | "discover";
+type SharedStage =
+  "cluster" | "classify" | "analyse" | "impact" | "match" | "dormant" | "enrich" | "discover";
 
 /**
  * Which stage a `STAGES_CRON` invocation is for, or null when the answer is
@@ -216,6 +232,7 @@ export function stageForMinute(scheduledFor: Date): SharedStage | null {
   if (minute === 2 || minute === 17 || minute === 32 || minute === 47) return "cluster";
   if (minute === 8 || minute === 23 || minute === 38 || minute === 53) return "classify";
   if (minute === 9 || minute === 24 || minute === 39 || minute === 54) return "analyse";
+  if (minute === 10 || minute === 25 || minute === 40 || minute === 55) return "impact";
   if (minute === 14 || minute === 29 || minute === 44 || minute === 59) return "match";
   // Enrichment's own slots, six an hour rather than one. See STAGES_CRON for
   // why: at three articles an hour behind a thirteen-an-hour arrival rate the
@@ -247,6 +264,7 @@ export type ScheduledResult =
   | { stage: "cluster"; report: ClusterReport }
   | { stage: "classify"; report: ClassifyReport }
   | { stage: "analyse"; report: AnalysisReport }
+  | { stage: "impact"; report: ImpactReport }
   | { stage: "match"; report: MatchReport }
   | { stage: "digest"; report: DigestReport }
   | { stage: "delivery"; report: DeliveryReport }
@@ -298,6 +316,18 @@ async function runAnalyse(env: Env): Promise<ScheduledResult> {
     ...(env ? { secrets: env as Record<string, string | undefined> } : {}),
   });
   return { stage: "analyse", report };
+}
+
+/**
+ * The impact writer takes its provider key from the same env bag cluster and
+ * analyse do, for the same reason: on Cloudflare there is no `process.env` for
+ * the AI router to fall back to.
+ */
+async function runImpact(env: Env): Promise<ScheduledResult> {
+  const report = await writeImpacts(createAdminClient(env), {
+    ...(env ? { secrets: env as Record<string, string | undefined> } : {}),
+  });
+  return { stage: "impact", report };
 }
 
 async function runMatch(env: Env): Promise<ScheduledResult> {
@@ -451,6 +481,7 @@ async function runShared(stage: SharedStage, env: Env): Promise<ScheduledResult>
   if (stage === "cluster") return runCluster(env);
   if (stage === "classify") return runClassify(env);
   if (stage === "analyse") return runAnalyse(env);
+  if (stage === "impact") return runImpact(env);
   if (stage === "match") return runMatch(env);
   if (stage === "enrich") return runEnrich(env);
   if (stage === "discover") return runDiscover(env);
@@ -493,6 +524,7 @@ export async function runScheduled(
     );
   }
   if (cron === CLASSIFY_CRON) return recordScheduled(env, cron, () => runClassify(env));
+  if (cron === IMPACT_CRON) return recordScheduled(env, cron, () => runImpact(env));
   if (cron === MATCH_CRON) return recordScheduled(env, cron, () => runMatch(env));
   if (cron === DORMANT_CRON) return recordScheduled(env, cron, () => runDormant(env));
 
@@ -531,6 +563,7 @@ export function describe(result: ScheduledResult): string {
   }
 
   if (result.stage === "classify") return describeClassify(result.report);
+  if (result.stage === "impact") return describeImpacts(result.report);
   if (result.stage === "match") return describeMatch(result.report);
   if (result.stage === "digest") return describeDigest(result.report);
   if (result.stage === "delivery") {
