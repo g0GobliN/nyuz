@@ -670,6 +670,24 @@ export function sourceMarkupRemains(text: string): boolean {
  * composition the empty-story gate already made.
  */
 /**
+ * Markup a publisher truncated before sending it, leaving no tag name behind.
+ *
+ * NPR shipped "intelligence personnel.'/>NAZA is an acronym", where the tag name
+ * is simply absent from the feed -- there is no opening angle bracket anywhere
+ * in the text, so there is no tag to strip and nothing to infer about what it
+ * said. What the residue does carry is a boundary, and the source's own full
+ * stop and the stray closing quote sit on either side of it.
+ *
+ * Measured rather than assumed. Replacing only the residue with a space leaves
+ * the splitter with "personnel.' NAZA", which is one sentence, because the
+ * apostrophe stands between the full stop and the space. Removing the quote with
+ * it gives two sentences that read correctly on their own -- which is why the
+ * quote comes off too: it has no function in either reading, and leaving it
+ * publishes a sentence that is not English.
+ */
+const ORPHANED_TAG_BOUNDARY = /['’]\s*\/>/g;
+
+/**
  * The dash and quote characters a source spells with punctuation runs.
  *
  * A paper typesets an em dash as three hyphens, an en dash as two, and a quote
@@ -708,18 +726,26 @@ function normalizeLatexPunctuation(text: string): { text: string; rewritten: num
 }
 
 export function normalizeSourceMarkup(text: string): { text: string; unwrapped: number } {
-  if (!/[$`\\-]/.test(text)) return { text, unwrapped: 0 };
+  // `/` is in the guard for the orphaned boundary: a unit can carry one with no
+  // dollar, backtick, backslash or hyphen anywhere in it.
+  if (!/[$`\\/-]/.test(text)) return { text, unwrapped: 0 };
   let unwrapped = 0;
   const out = text.replace(SAFE_WRAPPED_PROSE, (_match, _command: string, payload: string) => {
     unwrapped += 1;
     return payload;
   });
   const math = unwrapInlineMath(out);
+  let orphaned = 0;
+  const joined = math.text.replace(ORPHANED_TAG_BOUNDARY, () => {
+    orphaned += 1;
+    return " ";
+  });
+  unwrapped += orphaned;
   // The same escape class, on the bare text as well as inside a math span. The
   // first pass only reached `$98\%$`, and two abstracts that wrote `1.8\%` with
   // no dollar signs at all kept showing the reader a backslash.
   let bareEscapes = 0;
-  const bare = math.text.replace(PRESENTATIONAL_ESCAPE, (_match, literal: string) => {
+  const bare = joined.replace(PRESENTATIONAL_ESCAPE, (_match, literal: string) => {
     bareEscapes += 1;
     return literal;
   });

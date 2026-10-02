@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { readerSentences } from "../reader-evidence";
 import {
   hasSourceMetadata,
   isRepositorySourceName,
@@ -445,6 +446,37 @@ describe("source markup", () => {
     ["Plain prose with no markup at all, and no escape either."],
   ])("leaves a command and a doubled backslash alone: %s", (input) => {
     expect(normalizeSourceMarkup(input).text).toBe(input);
+  });
+
+  it("cuts an orphaned tag boundary back out of the sentence it glued", () => {
+    // NPR shipped "personnel.'/>NAZA is an acronym". There is no opening angle
+    // bracket anywhere in the feed, so there is no tag name to strip -- only a
+    // boundary, with the source's own full stop and a stray closing quote on
+    // either side of it. Replacing the residue with a space alone leaves
+    // "personnel.' NAZA", which is still one sentence.
+    const { text, unwrapped } = normalizeSourceMarkup(
+      "Abraham conducted interviews with Israeli soldiers and intelligence personnel.'/>NAZA is an acronym for nezek agavi.",
+    );
+    expect(text).toBe(
+      "Abraham conducted interviews with Israeli soldiers and intelligence personnel. NAZA is an acronym for nezek agavi.",
+    );
+    expect(unwrapped).toBe(1);
+    expect(readerSentences(text)).toStrictEqual([
+      "Abraham conducted interviews with Israeli soldiers and intelligence personnel.",
+      "NAZA is an acronym for nezek agavi.",
+    ]);
+  });
+
+  it("leaves a solidus and a bracket that are prose alone", () => {
+    for (const input of [
+      "The ratio is 3/4 and the comparison is a > b.",
+      "She wrote the marker down as a/b/>/, which the parser rejects.",
+    ]) {
+      const { text } = normalizeSourceMarkup(input);
+      // The second has no quote in front of the solidus, so the boundary rule
+      // must not fire on it and invent a sentence break.
+      expect(text).toBe(input);
+    }
   });
 
   it.each([
