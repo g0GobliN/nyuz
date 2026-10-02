@@ -328,11 +328,45 @@ describe("source markup", () => {
 
   it.each([
     "For a grid of $2^{128}$ protocol keys the bound holds.",
-    "The result is a $95\\%$ lower confidence bound on the error rate.",
     "On a regular $(3,6)$ LDPC-coded link one key per codeword suffices.",
   ])("still finds mathematics after normalization: %s", (text) => {
     expect(normalizeSourceMarkup(text).text).toBe(text);
     expect(sourceMarkupRemains(text)).toBe(true);
+  });
+
+  it("renders an inline formula as the token it stands for", () => {
+    // A briefing does not typeset. `$k$` is `k`, and `$98\%$` is `98%` -- the
+    // value the authors reported, without the source's serialization in it.
+    const { text, unwrapped } = normalizeSourceMarkup(
+      "For a constellation whose $k$ tones share a phase, the bound is $98\\%$ and the rate is $1/5$.",
+    );
+    expect(text).toBe(
+      "For a constellation whose k tones share a phase, the bound is 98% and the rate is 1/5.",
+    );
+    expect(unwrapped).toBe(3);
+    expect(sourceMarkupRemains(text)).toBe(false);
+  });
+
+  it("unwraps a multi-word formula without losing the authors' phrase", () => {
+    const { text } = normalizeSourceMarkup(
+      "The extension preserves the values of $G$ in the $Parity Magic Square Game$ exactly.",
+    );
+    expect(text).toBe(
+      "The extension preserves the values of G in the Parity Magic Square Game exactly.",
+    );
+    expect(sourceMarkupRemains(text)).toBe(false);
+  });
+
+  it("finds the formula that is not first", () => {
+    // Seven blocks of arithmetic reached a reader because the check read only
+    // the opening `$...$` pair. An abstract that opens with a bare number hid a
+    // `%` behind it.
+    const text = "Under E91 noise the win rate is $0.135$ against $98\\%$ for the baseline.";
+    expect(normalizeSourceMarkup(text).text).toBe(
+      "Under E91 noise the win rate is 0.135 against 98% for the baseline.",
+    );
+    expect(sourceMarkupRemains(normalizeSourceMarkup(text).text)).toBe(false);
+    expect(sourceMarkupRemains(`The value is $0.135$ but $x^{2}$ decides it.`)).toBe(true);
   });
 
   it("does not mistake a price for mathematics", () => {
@@ -340,6 +374,14 @@ describe("source markup", () => {
     // real news sentences because a television range reads as one enormous
     // inline formula. A dollar run with no mathematical signal is money.
     const text = "Samsung's M-series TVs range from $300 to $2,300 depending on the size.";
+    expect(normalizeSourceMarkup(text).text).toBe(text);
+    expect(sourceMarkupRemains(text)).toBe(false);
+  });
+
+  it.each([
+    "Samsung's M-series TVs range from $300 for a 43-inch model to $2,300 for a 100-inch one.",
+    "Mandiant, which sold to Google for $5.4 billion in 2022, has raised $6.7 billion since.",
+  ])("leaves a real amount alone: %s", (text) => {
     expect(normalizeSourceMarkup(text).text).toBe(text);
     expect(sourceMarkupRemains(text)).toBe(false);
   });

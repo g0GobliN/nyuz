@@ -563,12 +563,11 @@ const SAFE_WRAPPED_PROSE = /\\(textbf|textit|emph|textnormal|textbfit)\{([^{}$^\
 /**
  * Mathematical markup whose syntax carries meaning.
  *
- * `$2^{128}$`, `$95\%$`, `$(3,6)$`: no deterministic rewrite preserves the
- * expression, and an ASCII transliteration is a change of content wearing a
- * cleanup costume. A unit carrying one of these is refused rather than
- * published, which is the same trade every other refusal in this module makes
- * -- a shorter article beats an article that shows the reader its source's
- * serialization syntax.
+ * `$2^{128}$`, `$(3,6)$`: no deterministic rewrite preserves the expression, and
+ * an ASCII transliteration is a change of content wearing a cleanup costume. A
+ * unit carrying one of these is refused rather than published, which is the same
+ * trade every other refusal in this module makes -- a shorter article beats an
+ * article that shows the reader its source's serialization syntax.
  *
  * A dollar-delimited run counts as mathematics only when its content carries a
  * mathematical signal. A bare `$` pair does not: "range from $300 for a
@@ -579,10 +578,69 @@ const MATH_SIGNAL = /[\\^_=+(){}]|\\frac|\\cdot/;
 const MATH_PAIR = /\$[^$\n]{1,200}\$/;
 const MATH_DELIMITED = /\\\(|\\\)|\\\[|\\\]/;
 
+/**
+ * Money is a dollar sign before a number, twice.
+ *
+ * `$300 for a 43-inch model to $2,300` opens on a digit and closes on a digit;
+ * `$k$` and `$Parity Magic Square Game$` do neither. One test, no vocabulary,
+ * and it settles every measured span: the prices stay prices and the symbols
+ * become the words they were standing in for.
+ */
+function isCurrencySpan(span: string, next: string | undefined): boolean {
+  return /\d/.test(span.charAt(1)) && /\d/.test(next ?? "");
+}
+
+/**
+ * A backslash that only quotes punctuation, which the briefing can drop: `\%`
+ * is a percent sign, not a command.
+ */
+const PRESENTATIONAL_ESCAPE = /\\([%&$#_{}])/g;
+
+/**
+ * What survives removing presentational escapes is the expression itself.
+ *
+ * `$98\%$` reduces to `98%` and is the number the authors reported. `$2^{128}$`
+ * reduces to itself, and flattening it would read as the year 2128 -- so the
+ * line is drawn after the escapes, not before them.
+ */
+const MATH_STRUCTURE = /[\^_{}=()+\\]/;
+
+/**
+ * An inline formula, rendered as the token it stands for.
+ *
+ * A briefing does not typeset. `$k$` is `k`, `$1/K$` is `1/K`, `$98\%$` is
+ * `98%` -- the same value, without the source's serialization showing through.
+ * A span with structure is left alone for `hasSemanticMath` to refuse.
+ */
+function unwrapInlineMath(text: string): { text: string; unwrapped: number } {
+  let unwrapped = 0;
+  const out = text.replace(
+    /\$([^$\n]{1,200})\$/g,
+    (span: string, body: string, offset: number, whole: string) => {
+      if (isCurrencySpan(span, whole[offset + span.length])) return span;
+      const payload = body.replace(PRESENTATIONAL_ESCAPE, "$1");
+      if (MATH_STRUCTURE.test(payload)) return span;
+      unwrapped += 1;
+      return payload.trim();
+    },
+  );
+  return { text: out, unwrapped };
+}
+
 function hasSemanticMath(text: string): boolean {
   if (MATH_DELIMITED.test(text)) return true;
   if (/\\[a-zA-Z]+/.test(text)) return true;
-  return MATH_PAIR.test(text) && MATH_SIGNAL.test(MATH_PAIR.exec(text)?.[0] ?? "");
+  // Every pair, not the first: an E91 abstract opened with `$0.135$` and hid
+  // `$98\%$` behind it, which is how seven blocks of arithmetic reached a
+  // reader while the check that was meant to stop them reported clean.
+  for (const match of text.matchAll(/\$[^$\n]{1,200}\$/g)) {
+    const span = match[0];
+    if (span === undefined) continue;
+    const next = text[match.index + span.length];
+    if (isCurrencySpan(span, next)) continue;
+    if (MATH_SIGNAL.test(span)) return true;
+  }
+  return false;
 }
 
 /**
@@ -607,13 +665,14 @@ export function sourceMarkupRemains(text: string): boolean {
  * composition the empty-story gate already made.
  */
 export function normalizeSourceMarkup(text: string): { text: string; unwrapped: number } {
-  if (!text.includes("\\")) return { text, unwrapped: 0 };
+  if (!text.includes("\\") && !text.includes("$")) return { text, unwrapped: 0 };
   let unwrapped = 0;
   const out = text.replace(SAFE_WRAPPED_PROSE, (_match, _command: string, payload: string) => {
     unwrapped += 1;
     return payload;
   });
-  return { text: out, unwrapped };
+  const math = unwrapInlineMath(out);
+  return { text: math.text, unwrapped: unwrapped + math.unwrapped };
 }
 
 /**
