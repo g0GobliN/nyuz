@@ -139,12 +139,10 @@ for (const event of events) {
     rows.push({ story: event.title, signals: found, block, provenance });
   }
 }
-if (printAll) {
-  bySignal.all = blocks;
-}
-
 console.log(`published blocks: ${blocks}`);
-console.log(`candidates: ${rows.length}`);
+console.log(
+  `candidates: ${rows.length}${printAll ? " (--all: every published block printed)" : ""}`,
+);
 for (const [signal, count] of Object.entries(bySignal).sort((a, b) => b[1] - a[1]))
   console.log(`  ${signal}: ${count}`);
 const stories = new Set(rows.map((row) => row.story));
