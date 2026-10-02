@@ -2506,9 +2506,15 @@ export function unitTextRejection(
   if (unbalancedQuotes(text)) return "unbalanced_quote";
   // A quotation that opens a unit and names nobody is not attributable: the
   // reader cannot tell who said it, and nyuz did not say it.
+  //
+  // Its prose sibling is the next rule: a claim is as uncheckable when it rests
+  // on an unnamed "analysts" as when it rests on an unopened quote, and the
+  // composer already counts a collective noun as an attribution, so the sentence
+  // would otherwise be published believing it carried provenance.
   if (/^["“]/.test(text) && !/\b(?:said|says|told|according to)\b/.test(text))
     return "unassigned_quote";
   if (!quote && !hasPredicate(text)) return "no_predicate";
+  if (unverifiableAttribution(text)) return "unverifiable_attribution";
   return null;
 }
 
@@ -2821,6 +2827,64 @@ export function deterministicFactType(text: string, quote = false): Deterministi
   return "fact";
 }
 
+/**
+ * Where a sentence sits in the story, for ordering only.
+ *
+ * Every gate in this file asks "may this be published". None of them asks "where
+ * does it belong", which is why a briefing could pass all of them and still read
+ * as assembled: the deck said what happened, the next line gave the reader
+ * subscription terms, a stranger's opinion came third, and the sentence
+ * explaining what the product actually DOES did not arrive until fourth. Nothing
+ * was wrong with any single sentence; the defect existed only in the order.
+ *
+ * This is a classifier, not a planner. It answers one question -- is this
+ * sentence about what the thing does, who can get it, how people reacted, or a
+ * commercial detail -- and the composer sorts by the answer. There is no attempt
+ * to understand the narrative, and none is needed: the progression a reader
+ * wants is the same in most stories.
+ *
+ * `capability` leads deliberately. The deck already carries the event, so a body
+ * that opens by restating it would waste the reader's first line; what the body
+ * owes them next is what the thing does.
+ */
+export type StoryPosition = "capability" | "availability" | "impact" | "detail" | "commercial";
+
+/** Lower sorts earlier. One array so the order is visible in one place. */
+const STORY_POSITION_RANK: Record<StoryPosition, number> = {
+  capability: 0,
+  availability: 1,
+  impact: 2,
+  detail: 3,
+  commercial: 4,
+};
+
+const CAPABILITY =
+  /\b(?:can|could|is able to|are able to|allows?|enables?|lets?\s|features?|capable of|works? by|handles?|completes?|performs?)\b/i;
+const AVAILABILITY =
+  /\b(?:available to|available for|available from|will be available|be available|only for|restricted to|limited to|subscribers?|customers only|free tier|rolling out|generally available|public beta|early access|waitlist)\b/i;
+const COMMERCIAL =
+  /\b(?:pricing|price|prices|costs?|costing|fee|fees|charge[ds]?|charging|billing|subscription|subscriptions|per month|\$\d|revenue|paid plan|upgrade)\b/i;
+const IMPACT =
+  /\b(?:warns?|warned|risks?|risk is|concerns?|criticism|critics?|reaction|reactions|opposition|backlash|analysts?|experts?|observers?|regulators?|criticised|criticized|questioned)\b/i;
+
+export function storyPosition(text: string): StoryPosition {
+  // Commercial is checked before availability because "available to paying
+  // subscribers" is both, and it reads as a commercial term to a reader. The
+  // reader's question about it is when they can get it, but the sentence is
+  // about the deal, and treating it as the deal keeps it away from the front
+  // where it used to outrank the explanation of the product itself.
+  if (COMMERCIAL.test(text)) return "commercial";
+  if (AVAILABILITY.test(text)) return "availability";
+  if (IMPACT.test(text)) return "impact";
+  if (CAPABILITY.test(text)) return "capability";
+  return "detail";
+}
+
+/** The rank the composer sorts a paragraph by: its earliest position wins. */
+export function storyPositionRank(text: string): number {
+  return STORY_POSITION_RANK[storyPosition(text)];
+}
+
 export function sourceNameForEvidence(
   evidence: number[],
   sources: ReaderSource[],
@@ -3106,10 +3170,67 @@ export type EvidenceRejectionReason =
   | "trailing_ellipsis"
   | "unbalanced_quote"
   | "unassigned_quote"
+  /** A claim attributed to an authority that names nobody. */
+  | "unverifiable_attribution"
   /** A pronoun with no antecedent the sentence itself supplies. */
   | "unresolved_context"
   /** A narrator whose subject cannot be restored without guessing. */
   | "narrator_ambiguous";
+
+/**
+ * Authority with nobody behind it.
+ *
+ * "Analysts say the risk is ..." hands the reader the shape of a sourced claim
+ * and none of its content: no name, nothing to check, and no source the sentence
+ * can be attributed to. The composer already counts a collective noun as an
+ * attribution -- `CLAIMANT` below lists `analysts`, `researchers`, `officials` --
+ * so without this the sentence is published believing it carries provenance,
+ * and `unassigned_quote`'s sibling problem goes unnamed.
+ *
+ * Refused rather than rewritten. Naming a source the source did not give is
+ * invention, and the product does not promise to preserve every fact; a briefing
+ * that drops one unverifiable sentence is more useful than one that launders an
+ * opinion into a finding. This is the same trade `SOURCE_COLOUR` already makes
+ * for a real fact inside a joke.
+ *
+ * The test is the SUBJECT, not the verb. An earlier version listed the reporting
+ * verbs that could follow -- say, warn, argue -- and was immediately wrong twice:
+ * "Commentators welcomed the decision" and "Observers have called the pricing
+ * aggressive" both slipped through, and the list would have needed a third entry
+ * for the next one. A bare collective noun in subject position is the signal, and
+ * it does not care what it then does.
+ *
+ * Plurals only, and the identifying qualifier is what saves a real attribution:
+ * "Analysts at Forrester said ..." and "three analysts at Goldman Sachs said"
+ * keep theirs, and so does "The company said", which was never in scope. The
+ * qualifier may be a preposition or a participle, because "Analysts covering the
+ * sector expect revenue ..." is the long-form fixture's own sentence and naming
+ * who is looking at what is what makes it a different claim from a shrug.
+ * "Analyst coverage of the launch was thin" is a noun phrase rather than a claim,
+ * which the plural-only form is what keeps it out.
+ *
+ * "People familiar with the matter said ..." is deliberately NOT in this set,
+ * against the obvious argument that it names nobody either. It names a category
+ * of knower -- people with direct knowledge -- which is a sourcing convention
+ * rather than an appeal to unnamed authority, and the cost of refusing it is
+ * measurable rather than theoretical: it took the long-form Nvidia fixture from
+ * 408 words to 388 and cost the story its "rich" coverage classification. A
+ * rule that silently demotes a real story is worse than the one defect it
+ * removes, so the bare collectives are refused and this one is not.
+ */
+const VAGUE_ATTRIBUTION =
+  /^(?:the\s+)?(?:analysts|experts|observers|critics|commentators|pundits|watchers|insiders)\b(?!\s+(?:at|of|from|with|who|in|across|and\b|covering|tracking|following|studying|reviewing|examining|polling|surveying|watching|quoted|interviewed))/i;
+
+/**
+ * Whether a sentence claims something on the authority of nobody in particular.
+ *
+ * Exported because the email asks the same question the Read page asks, and
+ * because a rule this specific deserves a name rather than living inside one
+ * long refusal chain.
+ */
+export function unverifiableAttribution(text: string): boolean {
+  return VAGUE_ATTRIBUTION.test(text.trim());
+}
 
 export type ReaderDedupe = {
   nearDuplicateMerges: number;
@@ -3409,6 +3530,7 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
     trailing_ellipsis: 0,
     unbalanced_quote: 0,
     unassigned_quote: 0,
+    unverifiable_attribution: 0,
     unresolved_context: 0,
     narrator_ambiguous: 0,
   };

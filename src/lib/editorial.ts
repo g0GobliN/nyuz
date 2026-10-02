@@ -4,6 +4,7 @@ import {
   alreadyAttributed,
   attributeToOwnSource,
   centralTokens,
+  storyPositionRank,
   cleanDeterministicSentence,
   contextDependent,
   deterministicFactType,
@@ -1293,6 +1294,23 @@ function qualityGate(
   };
 }
 
+/**
+ * Where a group of facts belongs in the reader's progression.
+ *
+ * The earliest position any of its sentences occupies, so a paragraph built
+ * around "Atlas can navigate pages" leads even when it also carries a passing
+ * commercial aside. The deck already carries the event, so `capability` leads
+ * rather than another statement of what happened -- see `storyPosition` for why
+ * that ordering is the one a reader wants.
+ *
+ * Stable: `Array.prototype.sort` is stable in every engine this runs on, so two
+ * groups of equal rank keep the relevance order they arrived in, which is the
+ * tie-break that existed before this and the one that should still decide.
+ */
+function groupRank(group: ReaderFact[]): number {
+  return Math.min(...group.map((fact) => storyPositionRank(fact.text)));
+}
+
 function deterministicParagraphs(
   facts: ReaderFact[],
   story: Story,
@@ -1364,6 +1382,7 @@ function deterministicParagraphs(
   }
   return groups
     .filter((group): group is ReaderFact[] => !!group?.length)
+    .sort((a, b) => groupRank(a) - groupRank(b))
     .map((group) => {
       const parts = group
         .map((fact) => factSentence(fact, story, diagnostics, surveys))

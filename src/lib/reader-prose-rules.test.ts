@@ -21,6 +21,8 @@ import {
   resolveNarrator,
   selectReaderEvidence,
   sourceSeam,
+  storyPosition,
+  storyPositionRank,
   stripEditorialVoice,
   stripFrontedFrame,
   stripHeadingLabel,
@@ -1210,5 +1212,146 @@ describe("a unit that opens inside a name is refused against its source's own te
         "Rowe Price was founded in 1937.",
       ),
     ).toBeNull();
+  });
+});
+
+describe("a claim resting on nobody in particular is refused", () => {
+  // "Analysts say the risk is ..." is the shape of a sourced claim with none of
+  // the content: no name, nothing to check, and no source the sentence can be
+  // attributed to. The composer already counts a collective noun as an
+  // attribution, so without this the sentence is published believing it carries
+  // provenance -- and it is the sentence a reader most often reads as a machine
+  // assembling rather than a newsroom reporting.
+  for (const vague of [
+    "Analysts say the risk is that a background agent acts on its own spending limit.",
+    "Experts warn that the rollout will be harder than it looks.",
+    "Observers have called the pricing aggressive.",
+    "Critics argue the change arrives too late to matter.",
+    "Commentators welcomed the decision on the whole.",
+    "Pundits expect the shares to move sharply.",
+  ])
+    expect(unitTextRejection(vague, false), vague).toBe("unverifiable_attribution");
+
+  it("keeps an attribution that identifies who is speaking", () => {
+    for (const identified of [
+      "Analysts at Forrester said the market will consolidate around two vendors.",
+      "Researchers at Stanford said the trial did not hold up.",
+      "Three analysts at Goldman Sachs said the valuation is defensible.",
+      "OpenAI said Atlas will be available to paying subscribers from February 2026.",
+      "The FTC said the merger would be approved without conditions.",
+      "People familiar with the matter said talks began earlier this year.",
+      "Analysts covering the sector expect revenue of about $2.4 billion next year.",
+    ])
+      expect(unitTextRejection(identified, false), identified).not.toBe("unverifiable_attribution");
+  });
+
+  it("leaves a sentence that merely mentions the word alone", () => {
+    // The rule is about who is speaking, not about a vocabulary. An article can
+    // discuss analysts as a subject and still be attributable.
+    for (const fine of [
+      "The report surveys how analysts at three banks valued the company.",
+      "Analyst coverage of the launch was thin, with only two houses publishing notes.",
+    ])
+      expect(unitTextRejection(fine, false), fine).not.toBe("unverifiable_attribution");
+  });
+});
+
+describe("the body opens with what the thing does, not what it costs", () => {
+  // Every gate in the pipeline asks "may this be published". None of them asked
+  // "where does this belong", which is how a briefing could pass all of them and
+  // still read as assembled: the deck said what happened, the next line gave the
+  // reader subscription terms, and the sentence explaining what the product
+  // actually does did not arrive until fourth. Nothing was individually broken.
+  it("ranks a capability before availability, reaction and commercial detail", () => {
+    const capability = "The company said Atlas can navigate pages and complete purchases.";
+    const availability = "OpenAI said Atlas will be available to paying subscribers.";
+    const impact = "Analysts say the risk is that a background agent acts on its own.";
+    const commercial = "The company declined to say how much the agent costs to run.";
+
+    expect(storyPosition(capability)).toBe("capability");
+    expect(storyPosition(availability)).toBe("availability");
+    expect(storyPosition(impact)).toBe("impact");
+    expect(storyPosition(commercial)).toBe("commercial");
+
+    expect(storyPositionRank(capability)).toBeLessThan(storyPositionRank(availability));
+    expect(storyPositionRank(availability)).toBeLessThan(storyPositionRank(impact));
+    expect(storyPositionRank(impact)).toBeLessThan(storyPositionRank(commercial));
+  });
+});
+
+describe("the composed article opens with what the thing does", () => {
+  // The unit classifier on its own proves nothing about what the reader sees.
+  // This is the end-to-end version: the same story that used to render as
+  // "what happened, then billing terms, then a stranger's opinion, then what it
+  // does, then a cost non-answer" must now open with the capability and carry no
+  // unattributed evaluation at all.
+  const story = {
+    id: "order",
+    org: "Kabel Wire",
+    title: "OpenAI launches Atlas, a browser agent that runs tasks in the background",
+    what: "OpenAI on Tuesday launched Atlas, a browser agent that completes tasks in the background.",
+    why: "",
+    importance: "High",
+    score: { relevance: 8, importance: 9, novelty: 7 },
+    sources: 4,
+    topics: ["tech"],
+    time: "10:00",
+    publishedAt: "2026-01-01T00:00:00Z",
+    sourceList: [
+      {
+        name: "Kabel Wire",
+        at: "10:00",
+        headline: "OpenAI launches Atlas",
+        excerpt:
+          "OpenAI on Tuesday launched Atlas, a browser agent that completes tasks in the background. The company said Atlas can navigate pages, fill forms and complete purchases within a set spending limit.",
+      },
+      {
+        name: "The Verge",
+        at: "10:30",
+        headline: "Atlas is for subscribers first",
+        excerpt:
+          "OpenAI said Atlas will be available to paying subscribers from February 2026, and that it will not train on the pages it visits.",
+      },
+      {
+        name: "Reuters",
+        at: "11:00",
+        headline: "Atlas launch priced for subscribers",
+        excerpt:
+          "Analysts say the risk is that a background agent acting on a spending limit is a different thing from a chatbot that only suggests.",
+      },
+      {
+        name: "Wired",
+        at: "11:30",
+        headline: "What Atlas costs to run",
+        excerpt: "The company declined to say how much the agent costs to run.",
+      },
+    ],
+    before: "",
+    after: "",
+    timeline: [],
+  } as unknown as Parameters<typeof composeArticleWithDiagnostics>[0];
+
+  const published = (): string => {
+    const { article } = composeArticleWithDiagnostics(story);
+    return [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+  };
+
+  it("leads the body with the capability, not the commercial terms", () => {
+    const body = composeArticleWithDiagnostics(story).article.paragraphs[0]?.text ?? "";
+    expect(body).toMatch(/can navigate pages/);
+  });
+
+  it("carries no claim attributed to nobody in particular", () => {
+    expect(published()).not.toMatch(/^(?:Analysts|Experts|Observers|Critics)\b/);
+    expect(published()).not.toContain("Analysts say the risk");
+  });
+
+  it("keeps the reporting it did refuse to refuse", () => {
+    // A rule that empties the article is not a fix, it is a different bug. The
+    // capability, the availability and the cost line are all real and all stay.
+    const text = published();
+    expect(text).toContain("can navigate pages");
+    expect(text).toContain("available to paying subscribers");
+    expect(text).toContain("declined to say how much the agent costs to run");
   });
 });
