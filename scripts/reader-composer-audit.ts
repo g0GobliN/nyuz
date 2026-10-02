@@ -217,6 +217,8 @@ main(async () => {
   };
   /** Which words were lowercased, and how often, when the source never does. */
   const caseWords = new Map<string, number>();
+  /** The facts behind `facts lost`, in full, with the story they came from. */
+  const lostFacts: string[] = [];
   const changed: Changed[] = [];
   const tally = (counter: Record<string, number>, key: string) => {
     counter[key] = (counter[key] ?? 0) + 1;
@@ -260,6 +262,7 @@ main(async () => {
     totals.selectedFacts += diagnostics.facts.selected;
     totals.renderedFacts += diagnostics.facts.rendered;
     totals.lostFacts += diagnostics.facts.lost;
+    for (const text of diagnostics.facts.lostFacts) lostFacts.push(`${event.title} · ${text}`);
     totals.rejectedFacts += diagnostics.facts.rejected;
     totals.refusedFacts += diagnostics.facts.refused;
     totals.restatements += diagnostics.dedupe.restatements;
@@ -390,6 +393,13 @@ main(async () => {
   for (const [reason, count] of Object.entries(refusedByReason).sort((a, b) => b[1] - a[1])) {
     say(row(REASON_LABEL[reason] ?? reason, count));
   }
+  // The other half of that table: `facts lost` counts what no rule refused by
+  // name -- a block-level refusal charges the sentence, not the fact behind it
+  // -- so the number is only a bug report if these can be read. Nothing here is
+  // "expected": each one is a fact the reader did not get.
+  heading("Facts lost, with no rule refusing them by name");
+  say(row("listed", lostFacts.length));
+  for (const text of lostFacts) say(`  ${clip(text, 240)}`);
   heading("How the published blocks acquired their attribution");
   for (const [shape, count] of Object.entries(attributionShapes).sort((a, b) => b[1] - a[1])) {
     say(row(shape, count));

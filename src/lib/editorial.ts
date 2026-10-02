@@ -299,6 +299,19 @@ export type CompositionDiagnostics = {
     refused: number;
     /** Selected facts not rendered and not refused. Anything above zero is a bug. */
     lost: number;
+    /**
+     * The facts behind `lost`, in full, so the number can be read.
+     *
+     * `lost` is the one counter that means "nobody can explain this missing",
+     * and a number nobody can read is not a bug report. Each entry was selected
+     * and did not reach the prose, and no rule refused *it* by name -- which is
+     * what a block-level refusal looks like from here: `short_block`,
+     * `thin_evidence_cap` and `article_limit` charge the sentence, so the fact
+     * behind it is only explicable when a reviewer can read it. Written in full
+     * rather than sampled, because the class is rare and the list is already
+     * bounded by the facts the story itself supplied.
+     */
+    lostFacts: string[];
   };
   paragraphs: {
     /** Blocks handed to the gate. */
@@ -400,7 +413,15 @@ function createDiagnostics(): CompositionDiagnostics {
       relativeTimeRefusals: 0,
       stalePreviewRefusals: 0,
     },
-    facts: { selected: 0, rendered: 0, deduplicated: 0, rejected: 0, refused: 0, lost: 0 },
+    facts: {
+      selected: 0,
+      rendered: 0,
+      deduplicated: 0,
+      rejected: 0,
+      refused: 0,
+      lost: 0,
+      lostFacts: [],
+    },
     paragraphs: { assembled: 0, split: 0, rendered: 0, rejected: 0, reasons: {} },
     sentences: { considered: 0, rendered: 0, merged: 0, refused: 0, reasons: {} },
     ordering: "relevance",
@@ -1316,6 +1337,8 @@ function deterministicParagraphs(
   story: Story,
   diagnostics: CompositionDiagnostics,
   surveys: Map<number, string>,
+  /** Keys of the facts a rule refused by name, for `finishDiagnostics`. */
+  refusedFacts: Set<string>,
 ): ArticleParagraph[] {
   const groups: ReaderFact[][] = [];
   for (const fact of facts) {
@@ -1337,6 +1360,7 @@ function deterministicParagraphs(
     ) {
       diagnostics.qualityGate.unresolvedContextWarnings += 1;
       diagnostics.facts.refused += 1;
+      refusedFacts.add(sentenceKey(fact.text));
       refuseBlock(fact.text, "unresolved_context", diagnostics);
       continue;
     }
@@ -1385,7 +1409,7 @@ function deterministicParagraphs(
     .sort((a, b) => groupRank(a) - groupRank(b))
     .map((group) => {
       const parts = group
-        .map((fact) => factSentence(fact, story, diagnostics, surveys))
+        .map((fact) => factSentence(fact, story, diagnostics, surveys, refusedFacts))
         .filter((text): text is string => text !== null);
       return { text: parts.join(" "), evidence: citationRefs(group) };
     })
@@ -1409,12 +1433,15 @@ function factSentence(
   story: Story,
   diagnostics: CompositionDiagnostics,
   surveys: Map<number, string>,
+  /** Keys of the facts a rule refused by name, for `finishDiagnostics`. */
+  refusedFacts: Set<string>,
 ): string | null {
   const attributed = sentence(attributedFactText(fact.text, fact.evidence, story, surveys));
   const text = validDeterministicSentence(attributed) ? attributed : sentence(fact.text);
   if (validDeterministicSentence(text)) return text;
   diagnostics.sentences.refused += 1;
   diagnostics.facts.refused += 1;
+  refusedFacts.add(sentenceKey(fact.text));
   tally(diagnostics.sentences.reasons, "invalid_sentence");
   return null;
 }
@@ -1441,11 +1468,13 @@ function narrativeParagraphs(
   /** Source position of the sentence already published as the deck. */
   deckOrder: number,
   surveys: Map<number, string>,
+  /** Keys of the facts a rule refused by name, for `finishDiagnostics`. */
+  refusedFacts: Set<string>,
 ): ArticleParagraph[] {
   const paragraphs: ArticleParagraph[] = [];
   let previousOrder = deckOrder;
   for (const fact of facts) {
-    const text = factSentence(fact, story, diagnostics, surveys);
+    const text = factSentence(fact, story, diagnostics, surveys, refusedFacts);
     if (text === null) continue;
     // Here, unlike the ranked path, adjacency can actually be checked: the fact
     // the author wrote immediately before this one is the one just published, so
@@ -1461,6 +1490,7 @@ function narrativeParagraphs(
     ) {
       diagnostics.qualityGate.unresolvedContextWarnings += 1;
       diagnostics.facts.refused += 1;
+      refusedFacts.add(sentenceKey(fact.text));
       refuseBlock(text, "unresolved_context", diagnostics);
       continue;
     }
@@ -1496,22 +1526,35 @@ function attributionShape(block: string): string {
  * `facts.lost` is the invariant worth watching: a fact that was selected, valid
  * and not a duplicate should appear in the published prose. Anything above zero
  * means it was dropped between selection and rendering, and the gate's reason
- * maps say which unit refused it.
+ * maps say which unit refused it. The loop walks the facts themselves rather
+ * than subtracting the refusal counter, so a fact a rule refused and a later
+ * path published anyway is counted where it ended up -- published -- instead of
+ * being charged to `lost` and quietly inflating the number that has to mean
+ * "nobody can explain this".
  */
 function finishDiagnostics(
   article: ReaderArticle,
   facts: ReaderFact[],
   diagnostics: CompositionDiagnostics,
+  /** Keys of the facts a rule refused by name, from the composition pass. */
+  refusedFacts: Set<string>,
 ): void {
   const blocks = [article.deck.text, ...article.paragraphs.map((paragraph) => paragraph.text)];
-  diagnostics.facts.rendered = facts.filter((fact) => carries(blocks, fact.text)).length;
-  // A refused fact is explained, so it is not lost: `lost` has to keep meaning
-  // "selected, valid, and published nowhere", or the number stops being a bug
-  // report and starts being a style preference.
-  diagnostics.facts.lost = Math.max(
-    0,
-    diagnostics.facts.selected - diagnostics.facts.rendered - diagnostics.facts.refused,
-  );
+  const lost: string[] = [];
+  let rendered = 0;
+  for (const fact of facts) {
+    if (carries(blocks, fact.text)) {
+      rendered += 1;
+      continue;
+    }
+    // A refused fact is explained, so it is not lost: `lost` has to keep meaning
+    // "selected, valid, and published nowhere", or the number stops being a bug
+    // report and starts being a style preference.
+    if (!refusedFacts.has(sentenceKey(fact.text))) lost.push(fact.text);
+  }
+  diagnostics.facts.rendered = rendered;
+  diagnostics.facts.lost = lost.length;
+  diagnostics.facts.lostFacts = lost;
   for (const block of blocks) {
     if (block === "") continue;
     tally(diagnostics.attribution, attributionShape(block));
@@ -1969,10 +2012,21 @@ export function composeArticleWithDiagnostics(story: Story): {
           ...priorityFacts,
           ...facts.filter((fact) => fact !== lead && !priorityFacts.includes(fact)),
         ];
+    // Refusals charged to a *fact* by name, so `finishDiagnostics` can tell a
+    // fact a rule refused from a fact nobody can account for. A block-level
+    // refusal cannot add a key here -- see `lostFacts`.
+    const refusedFacts = new Set<string>();
     const paragraphs = oneDocument
-      ? narrativeParagraphs(remaining, story, diagnostics, lead?.sourceOrder ?? -1, surveys)
+      ? narrativeParagraphs(
+          remaining,
+          story,
+          diagnostics,
+          lead?.sourceOrder ?? -1,
+          surveys,
+          refusedFacts,
+        )
       : [
-          ...deterministicParagraphs(remaining, story, diagnostics, surveys),
+          ...deterministicParagraphs(remaining, story, diagnostics, surveys, refusedFacts),
           ...priorityFacts
             .filter((fact) => !remaining.slice(0, 8).includes(fact))
             .slice(0, 3)
@@ -2032,7 +2086,7 @@ export function composeArticleWithDiagnostics(story: Story): {
     // it. Removing a repeated attribution can only shorten a sentence, never
     // break one, so a block that passed stays publishable.
     capAttributionRepetition([gated.deck, ...gated.paragraphs]);
-    finishDiagnostics(gated, facts, diagnostics);
+    finishDiagnostics(gated, facts, diagnostics, refusedFacts);
     // Last, and deliberately after the counters: renaming is presentation, and
     // `facts.rendered` is read by matching a fact's own text against the
     // published blocks. Shortening a name in the prose but not in the fact makes

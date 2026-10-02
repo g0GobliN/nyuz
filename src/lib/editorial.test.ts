@@ -501,6 +501,43 @@ describe("composeArticle", () => {
       expect(diagnostics.facts.lost).toBe(0);
     });
 
+    it("names the facts behind `lost`, because the number has to be readable", () => {
+      // `lost` means "selected, and no rule refused it by *name*". A block-level
+      // refusal charges the sentence, not the fact behind it, so those facts land
+      // here -- and a number nobody can read is not a bug report. The refused
+      // fact is excluded by name, which is what keeps the two classes apart.
+      // Two sources, so the composer ranks rather than reading one document
+      // forwards: a lone short fact is then a block under the paragraph floor,
+      // which is the refusal that charges a sentence and loses a fact.
+      const story = makeStory({
+        title: "Oracle's Wisconsin build slips",
+        understand: undefined as never,
+        what: "",
+        sources: 2,
+        sourceList: [
+          {
+            name: "The Register",
+            at: "10:00",
+            excerpt:
+              "Oracle says the development remains on schedule. Regulators must still approve the grid connection before construction can start.",
+          },
+          {
+            name: "Reuters",
+            at: "11:00",
+            excerpt: "Implementation is delayed. They also delayed the substation work.",
+          },
+        ],
+      });
+      const { diagnostics } = composeArticleWithDiagnostics(story);
+      expect(diagnostics.facts.lostFacts).toEqual(["Implementation is delayed."]);
+      expect(diagnostics.facts.lost).toBe(diagnostics.facts.lostFacts.length);
+      expect(diagnostics.sentences.reasons["short_block"]).toBe(1);
+      // The context-dependent fact was refused by name, so it is explained and
+      // not listed: `lost` keeps meaning "nothing refused it".
+      expect(diagnostics.facts.refused).toBe(1);
+      expect(diagnostics.facts.lostFacts).not.toContain("They also delayed the substation work.");
+    });
+
     it("validates a paragraph as a paragraph", () => {
       expect(validDeterministicParagraph(SENTENCES.join(" "))).toBe(true);
       // The same sentence twice is a composition error, not a paragraph.
