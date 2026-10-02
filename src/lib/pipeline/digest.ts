@@ -31,7 +31,12 @@ import { alertDeliveryAllowed } from "./alert-entitlement";
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { suppressDeliveredDuplicates, suppressStoryTwins } from "./duplicates";
+import {
+  suppressDeliveredDuplicates,
+  suppressDeliveredTwins,
+  suppressStoryTwins,
+} from "./duplicates";
+import { capitalised } from "./news-signals";
 import type { SecretBag } from "@/lib/ai/config";
 import { capFor } from "@/lib/density";
 import { reasonFor } from "./inclusion";
@@ -283,6 +288,12 @@ export type MatchRow = {
    * across digest purging, unlike the delivery history read below.
    */
   deliveredRevision: number;
+  /**
+   * The event's headline, for the per-subject diversity cap. Empty when the
+   * event row could not be read — a card with no title has no entities to
+   * count and is never suppressed by the cap.
+   */
+  matchedTitle?: string;
 };
 
 /**
@@ -334,6 +345,15 @@ export type MatchRow = {
 export const DAILY_FRESH_THRESHOLD = 6;
 
 /**
+ * Importance at which a story escapes the per-subject diversity ceiling.
+ *
+ * Eight is the same bar the 72h backstop uses (`SIGNIFICANT_IMPORTANCE`): big
+ * news is big news whoever it is about, and both gates use one definition of
+ * "big" so the briefing's exceptions have one story.
+ */
+const DIVERSITY_ESCAPE = 8;
+
+/**
  * Stories loaded beyond the cap so a dropped twin does not shorten the briefing.
  * Large enough for the worst observed split (one IPO filing held as five events)
  * and small enough that the extra reads stay bounded.
@@ -376,10 +396,54 @@ export function selectItems(
       ? rankDailyBriefing(eligible, now, DAILY_FRESH_THRESHOLD, dailyFreshCount)
       : rankIntoLanes(eligible, now, policy);
 
-  // `cap` is a ceiling, never a target. If the two lanes together come to
-  // fourteen, the briefing is fourteen stories long — there is deliberately no
-  // path here that reaches further back to reach thirty.
-  return [...priority, ...backfill].slice(0, Math.max(0, cap));
+  // Topical diversity: one subject must not own a third of the briefing.
+  // On 2026-10-01 thirteen of twenty-five cards were AI-industry stories, five
+  // of them OpenAI alone — correct per-item, monotonous as a briefing. The cap
+  // works on shared proper nouns, which is what "the same subject" means here:
+  // it counts matches against the reader's interest, not against a topic label.
+  const ordered = [...priority, ...backfill];
+  return capEntitiesPerSubject(ordered, cap, (item) => item.matchedTitle ?? "");
+}
+
+/**
+ * How many stories one proper noun may claim in a single briefing.
+ *
+ * A third of the cap, at least two — a cap of 25 allows 8 stories per entity,
+ * a cap of 5 allows 2. "Shares a proper noun" is the test because entity
+ * names are what a reader experiences as "another one about them": two cards
+ * about different OpenAI products read as a themed digest, and the reader did
+ * not ask for a themed digest.
+ */
+export function perSubjectLimit(cap: number): number {
+  return Math.max(2, Math.ceil(cap / 3));
+}
+
+/**
+ * Enforce the per-subject ceiling over a ranked list.
+ *
+ * Ranked order is preserved and the best stories keep their places; an item
+ * that would push an entity past the ceiling is skipped and the next story
+ * takes the slot. An item at least as important as `DIVERSITY_ESCAPE` is never
+ * skipped: the diversity preference must not be able to bury a nine — a big
+ * story about a followed company is exactly what the reader is here for, and
+ * the ceiling is a preference about the *mix*, not a veto about any one story.
+ */
+export function capEntitiesPerSubject<
+  T extends { eventAt: string | null; importance: number; matchedTitle?: string },
+>(ordered: readonly T[], cap: number, titleOf: (item: T) => string): T[] {
+  const limit = perSubjectLimit(cap);
+  const counts = new Map<string, number>();
+  const out: T[] = [];
+  for (const item of ordered) {
+    if (out.length >= Math.max(0, cap)) break;
+    const entities = [...capitalised(titleOf(item))];
+    const dominant = entities.filter((e) => (counts.get(e) ?? 0) >= limit);
+    // Escapes the cap only when it is genuinely big news; see the docstring.
+    if (dominant.length > 0 && item.importance < DIVERSITY_ESCAPE) continue;
+    for (const entity of entities) counts.set(entity, (counts.get(entity) ?? 0) + 1);
+    out.push(item);
+  }
+  return out;
 }
 
 export async function digest(db: Db, options: DigestOptions = {}): Promise<DigestReport> {
@@ -711,7 +775,16 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // when four outlets phrase it differently and the paraphrase predicate — which
   // is precise and refuses them — has not joined them; showing the reader four
   // cards about one IPO filing is worse than showing one.
-  const briefs = suppressStoryTwins(loaded);
+  //
+  // The second pass is the cross-day twin check: `suppressDeliveredDuplicates`
+  // knows the events this reader was sent, but a *different* event carrying the
+  // same story — the corpus split one event into two, the reader received one —
+  // passes it and reads as a repeat. The twins test against the delivered
+  // titles is what stops yesterday's telling suppressing today's fresh event and
+  // then reappearing under a new headline. Headroom still applies: the cap has
+  // the last word below, so a dropped twin is replaced, never missed.
+  const deliveredTwins = await deliveredTwinTitles(db, due.user_id);
+  const briefs = suppressDeliveredTwins(suppressStoryTwins(loaded), deliveredTwins);
 
   // Reader-readiness gate (readiness.ts). Rejects only provably non-news
   // shapes — empty summaries, build numbers, commit messages, bylines,
@@ -970,6 +1043,46 @@ async function loadImpacts(db: Db, eventIds: string[]): Promise<Map<string, Impa
   return new Map((data ?? []).map((row) => [row.event_id, row]));
 }
 
+/**
+ * What this reader was already sent, for the twin test.
+ *
+ * Reads the same 48h delivery window `suppressDeliveredDuplicates` uses, via
+ * `digest_items` joined to their events' titles and summaries. Kept narrow on
+ * purpose — titles plus summaries for one reader's recent items — and a failed
+ * read returns nothing rather than raising: the twin pass is a polish layer,
+ * and an outage must cost one repeated story, never the briefing.
+ */
+async function deliveredTwinTitles(
+  db: Db,
+  userId: string,
+): Promise<{ title: string; whatHappened: string | null }[]> {
+  try {
+    const since = new Date(Date.now() - 48 * 3_600_000).toISOString();
+    const { data, error } = await db
+      .from("digests")
+      .select("digest_id")
+      .eq("user_id", userId)
+      .eq("kind", "briefing")
+      .gte("generated_at", since);
+    if (error) return [];
+    const digestIds = (data ?? []).map((row) => row.digest_id);
+    if (digestIds.length === 0) return [];
+    const { data: items, error: itemsError } = await db
+      .from("digest_items")
+      .select("events ( title, what_happened )")
+      .in("digest_id", digestIds);
+    if (itemsError) return [];
+    return (items ?? []).flatMap((row) => {
+      const event = row.events as { title?: string; what_happened?: string | null } | null;
+      return event?.title
+        ? [{ title: event.title, whatHappened: event.what_happened ?? null }]
+        : [];
+    });
+  } catch {
+    return [];
+  }
+}
+
 async function claimDigest(db: Db, due: DueRow, options: DigestOptions): Promise<"held" | string> {
   if (options.dryRun === true) return "held";
 
@@ -1090,10 +1203,13 @@ async function loadPref(db: Db, userId: string): Promise<PrefRow | null> {
  * and it should not be counted, ranked or reported as one.
  */
 async function loadMatches(db: Db, userId: string): Promise<MatchRow[]> {
+  // `events ( title )` rides along for the diversity cap: "one subject may not
+  // own a third of the briefing" is a question about headline entities, and
+  // without the title in hand it could not be asked at selection time.
   const { data, error } = await db
     .from("user_events")
     .select(
-      "event_id, relevance, matched_at, delivered_revision, events ( first_seen_at, material_occurrence_at, material_revision, importance, novelty )",
+      "event_id, relevance, matched_at, delivered_revision, events ( title, first_seen_at, material_occurrence_at, material_revision, importance, novelty )",
     )
     .eq("user_id", userId)
     .is("briefed_at", null)
@@ -1102,6 +1218,7 @@ async function loadMatches(db: Db, userId: string): Promise<MatchRow[]> {
   if (error) throw new Error(`reading user_events: ${error.message}`);
   return (data ?? []).map((row) => {
     const event = row.events as {
+      title?: string;
       first_seen_at?: string;
       material_occurrence_at?: string | null;
       material_revision?: number;
@@ -1120,6 +1237,7 @@ async function loadMatches(db: Db, userId: string): Promise<MatchRow[]> {
       novelty: event?.novelty ?? 0,
       materialRevision: event?.material_revision ?? 0,
       deliveredRevision: row.delivered_revision ?? 0,
+      matchedTitle: event?.title ?? "",
     };
   });
 }

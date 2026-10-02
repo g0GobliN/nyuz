@@ -3,7 +3,9 @@ import { capFor } from "@/lib/density";
 import { FakeDb, asDb } from "@/lib/test-support/fake-db";
 import {
   alertWasOpened,
+  capEntitiesPerSubject,
   nextAttemptAt,
+  perSubjectLimit,
   queuedChannels,
   selectItems,
   type MatchRow,
@@ -29,6 +31,7 @@ function match(
     novelty?: number;
     materialRevision?: number;
     deliveredRevision?: number;
+    title?: string;
   } = {},
 ): MatchRow {
   const age = opts.ageHours ?? 2;
@@ -41,8 +44,69 @@ function match(
     novelty: opts.novelty ?? 5,
     materialRevision: opts.materialRevision ?? 0,
     deliveredRevision: opts.deliveredRevision ?? 0,
+    ...(opts.title === undefined ? {} : { matchedTitle: opts.title }),
   };
 }
+
+describe("per-subject diversity cap", () => {
+  const titleOf = (m: { matchedTitle?: string }) => m.matchedTitle ?? "";
+
+  it("allows a third of the cap per entity, at least two", () => {
+    expect(perSubjectLimit(25)).toBe(9);
+    expect(perSubjectLimit(5)).toBe(2);
+    expect(perSubjectLimit(2)).toBe(2);
+  });
+
+  it("skips a story that would push an entity past the ceiling", () => {
+    // Modeled on the 2026-10-01 briefing: five OpenAI cards in one digest.
+    // Cap 6 → limit 2; the third OpenAI story yields its slot to the next
+    // story, and the briefing's mix is no longer one company's feed.
+    const ranked = [
+      match("o1", 9, { title: "OpenAI launches Dots avatar agents" }),
+      match("x1", 8, { title: "AMD acquires World Labs AI startup" }),
+      match("o2", 7, { title: "OpenAI tries disarming AI angst with agents" }),
+      match("x2", 6, { title: "Reddit is killing RSS feeds and API access" }),
+      match("o3", 5, { title: "OpenAI apologizes after agents breach systems" }),
+    ];
+    const picked = capEntitiesPerSubject(ranked, 6, titleOf);
+    expect(picked.map((p) => p.eventId)).toEqual(["o1", "x1", "o2", "x2"]);
+  });
+
+  it("never lets the cap bury a significant story", () => {
+    // Importance ≥ 8 escapes: big news is big news whoever it is about.
+    const ranked = [
+      match("o1", 9, { title: "OpenAI launches Dots" }),
+      match("o2", 8, { title: "OpenAI hit by record outage", importance: 9 }),
+      match("o3", 7, { title: "OpenAI apologizes again" }),
+    ];
+    const picked = capEntitiesPerSubject(ranked, 6, titleOf);
+    expect(picked.map((p) => p.eventId)).toEqual(["o1", "o2"]);
+  });
+
+  it("treats a titleless event as belonging to no subject", () => {
+    const ranked = [
+      match("o1", 9, { title: "OpenAI launches Dots" }),
+      match("o2", 8, { title: "OpenAI expands in Japan" }),
+      match("o3", 7, { title: "OpenAI raises at new valuation" }),
+      match("u1", 6),
+    ];
+    const picked = capEntitiesPerSubject(ranked, 5, titleOf);
+    expect(picked.map((p) => p.eventId)).toEqual(["o1", "o2", "u1"]);
+  });
+
+  it("selectItems applies the cap end to end", () => {
+    const ranked = [
+      match("o1", 9, { title: "OpenAI launches Dots avatar agents" }),
+      match("x1", 8, { title: "AMD acquires World Labs AI startup" }),
+      match("o2", 7, { title: "OpenAI tries disarming AI angst" }),
+      match("x2", 6, { title: "Reddit kills RSS feeds" }),
+      match("o3", 5, { title: "OpenAI apologizes for agents" }),
+    ];
+    const picked = selectItems(ranked, new Map(), 6, NOW);
+    expect(picked.map((p) => p.eventId)).not.toContain("o3");
+    expect(picked).toHaveLength(4);
+  });
+});
 
 describe("selectItems", () => {
   it("uses the agreed per-plan density caps", () => {

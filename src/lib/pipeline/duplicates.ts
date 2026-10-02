@@ -136,7 +136,27 @@ const MARKER_GROUPS: readonly { key: string; words: readonly string[]; generic?:
     words: ["breach", "breached", "hacked", "ransomware", "leak", "leaked"],
     generic: true,
   },
-  { key: "disruption", words: ["banned", "outage", "recall", "strike"], generic: true },
+  {
+    key: "disruption",
+    words: ["banned", "outage", "recall", "strike"],
+    generic: true,
+  },
+  {
+    key: "policy",
+    words: [
+      "executive order",
+      "accord",
+      "agreement",
+      "pledge",
+      "regulation",
+      "regulations",
+      "rules",
+      "policy",
+      "summit",
+      "signed",
+      "signs",
+    ],
+  },
 ];
 
 /** Crude, comparison-only stemming: enough that `arrest` meets `arrested`. */
@@ -196,37 +216,82 @@ export type TwinBrief = { title: string; whatHappened: string | null };
  * Ranked order is preserved and the first telling of a story is the one kept,
  * because the list is ordered by what the reader should read first.
  */
-export function suppressStoryTwins<T extends TwinBrief>(briefs: readonly T[]): T[] {
-  const shape = briefs.map((brief) => {
-    const summary = brief.whatHappened ?? "";
-    return {
-      title: contentWords(brief.title),
-      entities: capitalised(brief.title),
-      markers: markersOf(brief.title, summary),
-    };
-  });
-  const generic = new Set(
-    MARKER_GROUPS.filter((group) => group.generic === true).map((group) => group.key),
-  );
+/** The twin shape of one brief: the three signals a pair is compared on. */
+type Shape = { words: Set<string>; entities: Set<string>; markers: Set<string> };
 
+/**
+ * Whether two briefs tell one story, by exactly the conditions
+ * `suppressStoryTwins` documents. Extracted so the delivered-history pass and
+ * the in-batch pass cannot drift apart: a pair that is twins inside one briefing
+ * must be twins across two days too, or the reader who got the first telling
+ * yesterday receives the second today anyway.
+ *
+ * The word overlap reads titles *and* summaries. Titles alone left the 2026-10-01
+ * policy triple half-collapsed: "Three takeaways from Trump's 'Super Intelligence'
+ * summit" shares one title word with "Trump administration gets Big Tech to sign
+ * … AI regulations" but the summaries share six. The marker + entity requirements
+ * are what keep the wider net precise — two unrelated stories still need to share
+ * the kind of event and the actor, not just filler.
+ */
+function areTwins(a: Shape, b: Shape): boolean {
+  const overlap = sharedCount(a.words, b.words);
+  if (overlap < 2) return false;
+  if (sharedCount(a.entities, b.entities) === 0) return false;
+  for (const marker of a.markers) {
+    if (!b.markers.has(marker)) continue;
+    if (!GENERIC_MARKERS.has(marker) || overlap >= 3) return true;
+  }
+  return false;
+}
+
+const GENERIC_MARKERS = new Set(
+  MARKER_GROUPS.filter((group) => group.generic === true).map((group) => group.key),
+);
+
+const shapeOf = (brief: TwinBrief): Shape => {
+  const summary = brief.whatHappened ?? "";
+  return {
+    words: new Set([...contentWords(brief.title), ...contentWords(summary)]),
+    entities: capitalised(brief.title),
+    markers: markersOf(brief.title, summary),
+  };
+};
+
+export function suppressStoryTwins<T extends TwinBrief>(briefs: readonly T[]): T[] {
+  const shape = briefs.map(shapeOf);
   const kept: T[] = [];
   const keptAt: number[] = [];
   for (let i = 0; i < briefs.length; i += 1) {
     const current = shape[i]!;
-    const twin = keptAt.some((j) => {
-      const prior = shape[j]!;
-      const overlap = sharedCount(current.title, prior.title);
-      if (overlap < 2) return false;
-      if (sharedCount(current.entities, prior.entities) === 0) return false;
-      for (const marker of current.markers) {
-        if (!prior.markers.has(marker)) continue;
-        if (!generic.has(marker) || overlap >= 3) return true;
-      }
-      return false;
-    });
-    if (twin) continue;
+    if (keptAt.some((j) => areTwins(current, shape[j]!))) continue;
     kept.push(briefs[i]!);
     keptAt.push(i);
   }
   return kept;
+}
+
+/**
+ * Which already-delivered stories make these briefs repeats.
+ *
+ * `suppressDeliveredDuplicates` catches the same event and near-identical
+ * headlines; what it cannot see is yesterday's *different* event about the same
+ * story — the corpus split one story across events and the reader already
+ * received one of them. This is the same twin test run against the titles the
+ * reader has already been sent, so a second telling of a delivered story waits
+ * for the next briefing even though it is a fresh event row.
+ *
+ * Returns the surviving subset of `briefs`, ranked order preserved.
+ */
+export function suppressDeliveredTwins<T extends TwinBrief & { eventId: string }>(
+  briefs: readonly T[],
+  delivered: readonly { title: string; whatHappened?: string | null }[],
+): T[] {
+  if (delivered.length === 0) return [...briefs];
+  const seen = delivered.map((row) =>
+    shapeOf({ title: row.title, whatHappened: row.whatHappened ?? "" }),
+  );
+  return briefs.filter((brief) => {
+    const shape = shapeOf(brief);
+    return !seen.some((prior) => areTwins(shape, prior));
+  });
 }

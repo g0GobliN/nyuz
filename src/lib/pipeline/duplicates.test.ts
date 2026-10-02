@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { FakeDb, asDb } from "@/lib/test-support/fake-db";
-import { suppressDeliveredDuplicates, suppressStoryTwins } from "./duplicates";
+import {
+  suppressDeliveredDuplicates,
+  suppressDeliveredTwins,
+  suppressStoryTwins,
+} from "./duplicates";
 const now = new Date("2026-09-16T12:00:00Z");
 const title = "Central bank raises interest rate to 4 percent";
 describe.each(["briefing", "alert"] as const)("conservative %s duplicate suppression", (kind) => {
@@ -148,5 +152,85 @@ describe("one story per briefing", () => {
       IPO_FAMILY[0]!,
     ]);
     expect(kept).toHaveLength(2);
+  });
+
+  it("collapses one policy story told three ways", () => {
+    // Real headlines from the 2026-10-01 briefing, where the same White House
+    // announcement shipped as three cards at positions 5, 11 and 16. No pair
+    // shared enough bare title overlap for the old predicate; the policy
+    // marker group is what catches the pair that names the action, and the
+    // triple word overlap catches the summit pair.
+    const kept = suppressStoryTwins([
+      brief(
+        "Trump administration gets Big Tech to sign weak, non-binding, AI regulations",
+        "To address that matter, on Tuesday, Trump signed an executive order requiring federal government agencies to use the term “Super Intelligence” in official correspondence.",
+      ),
+      brief(
+        "Three takeaways from Trump's 'Super Intelligence' summit",
+        "The meeting at the White House came as some tech bosses and experts have called for tighter rules around AI.",
+      ),
+      brief(
+        "Trump says top tech firms have signed accord to 'self-police' AI development",
+        "President Trump on Tuesday said that he and a large group of leaders of artificial intelligence companies had signed a voluntary accord.",
+      ),
+    ]);
+    expect(kept).toHaveLength(1);
+  });
+
+  it("does not let the policy marker fuse unrelated stories about the same actor", () => {
+    // Two genuine policy events on one day, sharing the actor and the marker.
+    // Two content words in common (trump, ai) and nothing else — the third
+    // shared word is what keeps the marker honest.
+    const kept = suppressStoryTwins([
+      brief(
+        "Trump orders US government to call AI ‘Super Intelligence’",
+        "The executive order also directs agencies to prefer the term in public communications.",
+      ),
+      brief(
+        "Trump launches America.gov with AI chatbots at its core",
+        "The new portal answers citizen questions with model-generated text.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("suppresses a reworded story the reader was already sent", () => {
+    // The ShinyHunters arrest shipped on 2026-10-01 and was set to ship again
+    // on 10-02 as a different event with a reworded headline.
+    // `suppressDeliveredDuplicates` correctly passes both (different events);
+    // only the twin test against the delivered titles catches the repeat.
+    const kept = suppressDeliveredTwins(
+      [
+        {
+          eventId: "fresh",
+          title: "Dutch Police Arrest ‘Reformed’ Hacker in Shiny Hunters Investigation",
+          whatHappened: "Officers detained the suspect in a nationwide fraud probe.",
+        },
+        {
+          eventId: "other",
+          title: "Ex-soldier's telecom hacking spree earns him 70 months",
+          whatHappened: "The sentence follows ayears-long investigation into SIM swaps.",
+        },
+      ],
+      [
+        {
+          title: "Dutch police arrest 'security pro' in ShinyHunters probe",
+          whatHappened:
+            "Dutch police have arrested a 24-year-old man on suspicion of involvement with the prolific ShinyHunters cybercrime group.",
+        },
+      ],
+    );
+    expect(kept.map((b) => b.eventId)).toEqual(["other"]);
+  });
+
+  it("leaves fresh stories alone when delivery history is empty", () => {
+    const briefs = [
+      {
+        eventId: "a",
+        title: "AMD acquires World Labs AI startup",
+        whatHappened: "The deal closes by the end of the year.",
+      },
+    ];
+    expect(suppressDeliveredTwins(briefs, [])).toEqual(briefs);
   });
 });
