@@ -1732,7 +1732,18 @@ export const RELATIVE_TIME =
 /** One pass, so a sentence with several phrases is rebuilt in one go. */
 const RELATIVE_TIME_ALL =
   /\b(this|last|next)\s+(week|month|year)\b|\b(today|yesterday|tomorrow)\b/gi;
-const RELATIVE_WEEK = /\b(?:this|last|next)\s+week\b/i;
+/**
+ * A week phrase, unless a possessive clitic makes it a noun.
+ *
+ * A week has no name, which is why these phrases are refused rather than
+ * rewritten -- but `this week's video` is not a date at all: the clitic owns the
+ * noun after it, the same distinction the replacement pass below already draws
+ * for `today's AI` and `last year's models`. Read the other way, the test
+ * refused the sentence and `stripUnanchorableTime` then took the head off the
+ * noun, publishing `’s Stratechery video is on Frontier Overhangs.` on the
+ * 2026-10-03 briefing.
+ */
+const RELATIVE_WEEK = /\b(?:this|last|next)\s+week\b(?!['’]s)/i;
 /**
  * A determiner in front of the phrase makes it a noun, not an adverbial.
  *
@@ -1862,17 +1873,21 @@ export function normalizeRelativeTime(
 export function stripUnanchorableTime(text: string): string | null {
   if (!DETERMINED_RELATIVE.test(text) && !RELATIVE_WEEK.test(text)) return null;
   const out = text
+    // `(?!['’]s)` on every alternative, and the same reason as `RELATIVE_WEEK`:
+    // the head of a possessive noun is not a date. Removing it does not leave a
+    // sentence without a time reference, it leaves `’s video` -- so the phrase
+    // stays, and nothing else strippable refuses the fact instead.
     .replace(
-      /\b(?:in|on|at|during|since|after|before|by|through|throughout|within|around|from|until|for|over)\s+(?:this|last|next)\s+week\b/gi,
+      /\b(?:in|on|at|during|since|after|before|by|through|throughout|within|around|from|until|for|over)\s+(?:this|last|next)\s+week\b(?!['’]s)/gi,
       "",
     )
-    .replace(/\b(?:this|last|next)\s+week\b/gi, "")
+    .replace(/\b(?:this|last|next)\s+week\b(?!['’]s)/gi, "")
     .replace(
-      /\b(?:in|on|at|during|since|after|before|by|through|throughout|within|around|from|until|for|over)\s+(?:the|a|an|its|their|our|his|her|every|each)\s+(?:last|next|this)\s+(?:month|year)\b/gi,
+      /\b(?:in|on|at|during|since|after|before|by|through|throughout|within|around|from|until|for|over)\s+(?:the|a|an|its|their|our|his|her|every|each)\s+(?:last|next|this)\s+(?:month|year)\b(?!['’]s)/gi,
       "",
     )
     .replace(
-      /\b(?:the|a|an|its|their|our|his|her|every|each)\s+(?:last|next|this)\s+(?:month|year)\b/gi,
+      /\b(?:the|a|an|its|their|our|his|her|every|each)\s+(?:last|next|this)\s+(?:month|year)\b(?!['’]s)/gi,
       "",
     )
     .replace(/\s+([,;:.!?])/g, "$1")

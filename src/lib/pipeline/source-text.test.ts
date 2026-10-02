@@ -66,6 +66,26 @@ describe("normalizeSourceText", () => {
     expect(normalizeSourceText({ name: "The Register" }, text).text).toBe(text);
   });
 
+  it("closes a possessive clitic a removed tag left apart from its word", () => {
+    // `<code>ScreenScaffold</code>'s` reaches the pipeline as
+    // `ScreenScaffold 's`, and was published that way on the 2026-10-03 corpus:
+    // a word and its clitic separated by a gap read as a typo, however good the
+    // sentence around them is.
+    expect(
+      normalizeSourceText(
+        { name: "Android Developers" },
+        "The skill caught mistakes, such as forgetting to forward ScreenScaffold 's contentPadding into the list.",
+      ).text,
+    ).toBe(
+      "The skill caught mistakes, such as forgetting to forward ScreenScaffold's contentPadding into the list.",
+    );
+    // A word a tag split in half is not rejoined: there is no way to know where
+    // the seam was, so the text is left as the source wrote it.
+    expect(normalizeSourceText({ name: "The Register" }, "It me dia med the signal.").text).toBe(
+      "It me dia med the signal.",
+    );
+  });
+
   it("returns metadata-only text as empty and flags it", () => {
     for (const text of [
       "Subjects: Cryptography and Security (cs.CR) Published: 2026-09-20",

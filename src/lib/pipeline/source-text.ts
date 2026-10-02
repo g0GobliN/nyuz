@@ -848,14 +848,27 @@ function looksLikeProse(value: string): boolean {
  * `&#x20;` inside a description field looks like) -- one pass leaves the literal
  * characters on the page. A third level is left to `hasVisibleEntity` at the
  * gate, because at that point we are no longer looking at an escaping artefact.
+ *
+ * One repair rides along, because it is the same boundary: a possessive clitic
+ * that a removed tag left standing apart from its word is closed up. See the
+ * comment on the rule itself.
  */
 function collapse(text: string): string {
-  return decodeEntities(decodeEntities(text))
-    .replace(/\uFEFF|\u200B|\u200C|\u200D|\u2060/g, "")
-    .replace(/[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]+/g, " ")
-    .replace(/\s*\n\s*/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  return (
+    decodeEntities(decodeEntities(text))
+      .replace(/\uFEFF|\u200B|\u200C|\u200D|\u2060/g, "")
+      .replace(/[ \t\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]+/g, " ")
+      .replace(/\s*\n\s*/g, " ")
+      // A tag removed from the middle of a word leaves a gap where it stood:
+      // `<code>ScreenScaffold</code>'s` reached the page as
+      // `ScreenScaffold 's contentPadding`. A clitic belongs to the word in
+      // front of it, so the gap is closed -- and it is the clitic only, because
+      // a word a tag split in half (`me</em>dia`) cannot be rejoined without
+      // guessing where the seam was.
+      .replace(/([\p{L}\p{N}])\s+(['’])(s|re|ve|ll|d|m|t)\b/giu, "$1$2$3")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+  );
 }
 
 /**

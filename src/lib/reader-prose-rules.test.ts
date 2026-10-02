@@ -626,6 +626,28 @@ describe("a time phrase that cannot be made absolute is dropped, not the sentenc
     expect(stripUnanchorableTime("Sales rose this month.")).toBeNull();
   });
 
+  it("keeps a possessive, which names a thing rather than a date", () => {
+    // The clitic owns the noun after it, so there is no date in the phrase to
+    // drop -- and removing the head anyway produced
+    // `’s Stratechery video is on Frontier Overhangs.` in the 2026-10-03 corpus
+    // audit. The sentence keeps its phrase, exactly as `today's AI` and `last
+    // year's models` always have.
+    expect(
+      stripUnanchorableTime("This week's Stratechery video is on Frontier Overhangs."),
+    ).toBeNull();
+    expect(
+      normalizeRelativeTime(
+        "This week's Stratechery video is on Frontier Overhangs.",
+        new Date("2026-10-03"),
+      ),
+    ).toEqual({ text: "This week's Stratechery video is on Frontier Overhangs.", changed: false });
+    // A real week reference in the same sentence is still removed: the rule
+    // reads each phrase, not each sentence.
+    expect(
+      stripUnanchorableTime("This week's episode is out, as the company said this week."),
+    ).toBe("This week's episode is out, as the company said.");
+  });
+
   it("does not leave the phrase's punctuation where the phrase was", () => {
     // The corpus case, after the narrator rule made it publishable again:
     // "Last week, the author reported" lost "Last week" and kept its comma, and
