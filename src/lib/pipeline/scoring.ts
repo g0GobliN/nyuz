@@ -331,11 +331,18 @@ export function scoreEventV2(
   }
   importance += categoryImportance;
 
+  // Money only signals importance at the scale where it changes behaviour:
+  // nine figures and up. The 2026-10-01 briefing ranked a graduate-fellowship
+  // announcement at #2 on the strength of its "$60,000 per student" — a real
+  // figure, extracted correctly, and meaningless as a measure of consequence.
+  // Below nine figures, money is context (a salary, an award, a price) unless
+  // the text also names a deal; "acquisition/funding" categories above carry
+  // that part.
   const sum = largestSum(facts.money);
-  const moneyImportance = sum === null ? 0 : sum >= 1e9 ? 3 : sum >= 1e7 ? 2 : sum >= 1e6 ? 1 : 0;
-  if (moneyImportance > 0) {
+  const moneyImportance = sum === null ? 0 : sum >= 1e9 ? 3 : sum >= 1e8 ? 2 : sum >= 1e7 ? 1 : 0;
+  if (sum !== null && moneyImportance > 0) {
     importance += moneyImportance;
-    reasons.push("large sum");
+    reasons.push(sum >= 1e9 ? "very large sum" : "large sum");
   }
 
   const casualties = largestCasualtyCount(fullText);
