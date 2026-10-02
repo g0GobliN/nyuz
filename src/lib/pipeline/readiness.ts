@@ -77,7 +77,32 @@ const QUOTE_TITLE = /^(?:quoting|quote:)\b/i;
  * connects…", "Here's what we found").
  */
 const MARKETING_TITLE =
-  /^(?:introducing|announcing|meet|getting started|how to|why we|what we(?:'|’)ve|we (?:tested|built|rewrote|migrated|learned|ran)|learn how|discover|explore|enforce|secure|protect|accelerate|boost|simplify|unlock|supercharge|streamline|scale|deploy|transform|build|drive)\b/i;
+  /^(?:introducing|announcing|meet|getting started|how to|why we|what we(?:'|’)ve|we (?:tested|built|rewrote|migrated|learned|ran)|learn how|discover|explore|enforce|secure|protect|accelerate|boost|simplify|unlock|supercharge|streamline|scale|deploy|transform|build|drive|cut|save|reduce|identify)\b/i;
+
+/**
+ * Community-recognition filler: the vendor celebrating its own users.
+ * "Celebrating Our Newest AWS Heroes" shipped in the 2026-10-02 preview — an
+ * award post about customers, not an event in the world. The shape is the
+ * celebratory verb plus a first-person possessive, which no third-party
+ * news headline about the company would carry.
+ */
+const CELEBRATION_TITLE =
+  /\b(?:celebrating|congratulations|honoring)\b.*\b(?:our|the newest|this year's)\b/i;
+
+/**
+ * A benefit pitch: the vendor telling you what its product will do for *your*
+ * bill, workflow or spend. "Cut your AI spend with AI Gateway's Auto Router"
+ * (Cloudflare blog, 2026-10-02) is an advert with a feature name in it — a
+ * second person pronoun or possessive aimed at the reader is the tell no
+ * third-party report of the product carries.
+ */
+const BENEFIT_TITLE = /\b(?:your)\s+(?:AI\s+)?(?:spend|costs?|workflow|bills?|data|apps?|team)\b/i;
+
+/**
+ * A themed week/campaign banner: "AI Chip Design Week", "Partner Day".
+ * A recurring marketing container, not something that happened.
+ */
+const CAMPAIGN_TITLE = /\b(?:week|day|month|summit series)\b\s*$/i;
 
 const MARKETING_TRAILER = /(?:\bhere(?:'|’)s what we found\b|\bfor the [a-z-]+ era\b|:\s+how\s)/i;
 
@@ -154,12 +179,38 @@ export function assessReadiness(input: {
 
   // Corroboration vetoes both: a promotion or a first-party post that other
   // outlets reported is news about the company, not the company's own copy.
+  // The NEWS_VERB exemption above covers "Cut 200 jobs" — real news whose verb
+  // happens to be a marketing verb too. It must not cover a verb aimed at the
+  // reader's own situation: "Cut your AI spend with …" (Cloudflare blog,
+  // 2026-10-02) is an advert whose first word is a news verb by coincidence.
+  // The benefit-shape check therefore runs on the raw title regardless of the
+  // verb exemption, and only for single-source first-party posts.
+  if (BENEFIT_TITLE.test(title) && (input.sourceCount ?? 1) < 2) {
+    return { ready: false, kind: "marketing", reason: "title pitches a benefit to the reader" };
+  }
   if ((input.sourceCount ?? 1) < 2 && !NEWS_VERB.test(title)) {
     if (MARKETING_TITLE.test(title)) {
       return { ready: false, kind: "marketing", reason: "title is an imperative promotion" };
     }
     if (MARKETING_TRAILER.test(title)) {
       return { ready: false, kind: "marketing", reason: "title is a vendor how-to" };
+    }
+    if (CELEBRATION_TITLE.test(title)) {
+      return {
+        ready: false,
+        kind: "marketing",
+        reason: "title celebrates the vendor's own community",
+      };
+    }
+    if (
+      CAMPAIGN_TITLE.test(title) &&
+      /\b(?:design|partner|innovation|developer|customer)\s/i.test(title)
+    ) {
+      return {
+        ready: false,
+        kind: "marketing",
+        reason: "title is a themed campaign banner",
+      };
     }
   }
 

@@ -9,6 +9,27 @@ import { assessReadiness } from "./readiness";
  * for invisible misses.
  */
 describe("assessReadiness", () => {
+  it("refuses a vendor benefit pitch from a company blog", () => {
+    // Cloudflare blog, 2026-10-02. A feature advert aimed at the reader's own
+    // spend; the "your X" possessive is what no third-party report carries.
+    const verdict = assessReadiness({
+      title: "Cut your AI spend with AI Gateway's Auto Router",
+      whatHappened:
+        "The router picks the cheapest model that can serve each request automatically.",
+      sourceCount: 1,
+    });
+    expect(verdict.ready).toBe(false);
+    if (!verdict.ready) expect(verdict.kind).toBe("marketing");
+  });
+
+  it("still allows third-party reporting that mentions a reader benefit", () => {
+    const verdict = assessReadiness({
+      title: "Cloudflare says Auto Router cuts AI costs for enterprise customers",
+      whatHappened: "Early adopters reported double-digit reductions in inference spend.",
+      sourceCount: 1,
+    });
+    expect(verdict.ready).toBe(true);
+  });
   it("drops the empty Google Research item", () => {
     expect(
       assessReadiness({
