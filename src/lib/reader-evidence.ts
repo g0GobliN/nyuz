@@ -1718,6 +1718,16 @@ const RELATIVE_WEEK = /\b(?:this|last|next)\s+week\b/i;
  */
 const DETERMINED_RELATIVE =
   /\b(?:the|a|an|its|their|our|his|her|every|each)\s+(?:last|next|this)\s+(?:month|year)\b/i;
+/**
+ * A possessive clitic, which makes the phrase a noun rather than a date.
+ *
+ * `today's` is the genitive of a common noun, and `this year's` is the same
+ * shape: expanding either splits the noun phrase from its head and hands the
+ * reader `on 2 October 2026's AI`, which reads as somebody's ownership. The
+ * clitic is the whole test -- `today` alone anchors, `today's` does not -- so
+ * no list of words can fall through it.
+ */
+const POSSESSIVE_CLITIC = /^['’]s/;
 /** Whether a preposition (and at most its article) already leads into the phrase. */
 const PREPOSED =
   /\b(?:in|on|at|during|since|until|by|from|of|for|with|to|against|than|versus|vs|over|past|through|throughout|into|within|before|after|around|about|early|late|mid)\s+(?:(?:the|a|an|its|their|our|his|her)\s+)?$/i;
@@ -1791,11 +1801,22 @@ export function normalizeRelativeTime(
       // the end of it, and trimming would leave "quarter of" with nothing for the
       // separator to match -- which produced "the first quarter of in 2027".
       const before = whole.slice(Math.max(0, offset - 24), offset);
-      const shift = span === "last" ? -1 : span === "next" ? 1 : 0;
+      // A possessive is a noun the phrase belongs to, not a date the phrase
+      // stands for. The reader keeps `today's AI`, which is grammatical, rather
+      // than being handed `2 October 2026's AI`, which is not.
+      if (POSSESSIVE_CLITIC.test(whole.slice(offset + match.length))) return match;
+      // The pattern is case-insensitive, so `day` carries the source's own
+      // capitalisation: a sentence-initial "Yesterday" is not the string
+      // "yesterday". Compared raw, it fell through both shifts and anchored to
+      // the story's own date -- the day the reader is least likely to notice
+      // being wrong, because every other date on the page agrees with it.
+      const spanWord = span?.toLowerCase();
+      const dayWord = day?.toLowerCase();
+      const shift = spanWord === "last" ? -1 : spanWord === "next" ? 1 : 0;
       if (unit === "month") return monthPhrase(shift, at, before);
       if (unit === "year") return yearPhrase(shift, at, before);
-      if (day === undefined) return match;
-      return dayPhrase(day === "yesterday" ? -1 : day === "tomorrow" ? 1 : 0, at, before);
+      if (dayWord === undefined) return match;
+      return dayPhrase(dayWord === "yesterday" ? -1 : dayWord === "tomorrow" ? 1 : 0, at, before);
     },
   );
   return { text: out, changed: out !== text };

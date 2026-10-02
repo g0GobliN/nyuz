@@ -219,6 +219,44 @@ describe("a relative date is anchored to the story's own date", () => {
     );
   });
 
+  it.each([
+    [
+      "Here's why today's AI doesn't really reason.",
+      "Here's why today's AI doesn't really reason.",
+    ],
+    ["These are powers that today’s AI lacks.", "These are powers that today’s AI lacks."],
+    ["Tomorrow's release slips again.", "Tomorrow's release slips again."],
+    ["Yesterday's announcement was the last one.", "Yesterday's announcement was the last one."],
+    ["This year's revenue fell by half.", "This year's revenue fell by half."],
+    ["Last month's figure was revised.", "Last month's figure was revised."],
+  ])(
+    "leaves a possessive alone rather than splitting the noun from its head: %s",
+    (input, expected) => {
+      // `on 2 October 2026's AI` is what anchoring produced, and it reads as
+      // somebody's ownership. The reader keeps a grammatical sentence instead.
+      expect(normalizeRelativeTime(input, at)).toEqual({ text: expected, changed: false });
+    },
+  );
+
+  it("still anchors the bare phrase beside a possessive one", () => {
+    expect(
+      normalizeRelativeTime("Yesterday it closed; today's AI still misses it.", at)?.text,
+    ).toBe("on 17 September 2026 it closed; today's AI still misses it.");
+  });
+
+  it.each([
+    ["Yesterday the plant closed.", "on 17 September 2026 the plant closed."],
+    ["Tomorrow the plant closes.", "on 19 September 2026 the plant closes."],
+    ["Yesterday, the plant closed.", "on 17 September 2026, the plant closed."],
+    ["TODAY the plant reopens.", "on 18 September 2026 the plant reopens."],
+  ])("reads a capitalised day word the same as a lower-case one: %s", (input, expected) => {
+    // The pattern is case-insensitive and hands the callback the source's own
+    // capitalisation. Compared raw, a sentence-initial "Yesterday" matched
+    // neither shift and published the story's own date -- one day late, next
+    // to dates the reader has no reason to doubt.
+    expect(normalizeRelativeTime(input, at)?.text).toBe(expected);
+  });
+
   it("refuses what cannot be made absolute", () => {
     // A week has no name, and "the last month" is a window rather than a
     // calendar month: both are refused, which is counted upstream.
