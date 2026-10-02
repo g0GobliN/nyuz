@@ -664,15 +664,54 @@ export function sourceMarkupRemains(text: string): boolean {
  * the briefability floor then decides whether the story still ships -- the same
  * composition the empty-story gate already made.
  */
+/**
+ * The dash and quote characters a source spells with punctuation runs.
+ *
+ * A paper typesets an em dash as three hyphens, an en dash as two, and a quote
+ * as a doubled backtick and a doubled apostrophe. None of that is English, and
+ * a reader who sees `Mermin--Peres` or a stray backtick before a quoted word
+ * concludes the text was assembled by something rather than written by someone.
+ *
+ * The runs are resolved longest-first and each is anchored on the character
+ * that makes it unambiguous: an en dash needs a hyphen on both sides of it, and
+ * a closing quote needs a word before it, so `rock 'n' roll` keeps its
+ * apostrophes.
+ */
+const LATEX_QUOTES = /(?<!`)\x60\x60|(?<=[^\s([{])''/g;
+
+function normalizeLatexPunctuation(text: string): { text: string; rewritten: number } {
+  // Two passes rather than one pattern: once the three-hyphen em dash is gone,
+  // what is left between hyphens is unambiguous, so the en dash does not have
+  // to be told apart from the first two of three.
+  let em = 0;
+  let en = 0;
+  const dashed = text
+    .replace(/---/g, () => {
+      em += 1;
+      return "\u2014";
+    })
+    .replace(/(^|[^-])--(?!-)/g, (_match, lead: string) => {
+      en += 1;
+      return `${lead}\u2013`;
+    });
+  let quotes = 0;
+  const quoted = dashed.replace(LATEX_QUOTES, (match) => {
+    quotes += 1;
+    return match === "\x60\x60" ? "\u201C" : "\u201D";
+  });
+  return { text: quoted, rewritten: em + en + quotes };
+}
+
 export function normalizeSourceMarkup(text: string): { text: string; unwrapped: number } {
-  if (!text.includes("\\") && !text.includes("$")) return { text, unwrapped: 0 };
+  if (!/[$`\\-]/.test(text)) return { text, unwrapped: 0 };
   let unwrapped = 0;
   const out = text.replace(SAFE_WRAPPED_PROSE, (_match, _command: string, payload: string) => {
     unwrapped += 1;
     return payload;
   });
   const math = unwrapInlineMath(out);
-  return { text: math.text, unwrapped: unwrapped + math.unwrapped };
+  const punctuation = normalizeLatexPunctuation(math.text);
+  return { text: punctuation.text, unwrapped: unwrapped + math.unwrapped + punctuation.rewritten };
 }
 
 /**

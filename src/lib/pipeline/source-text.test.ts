@@ -386,6 +386,46 @@ describe("source markup", () => {
     expect(sourceMarkupRemains(text)).toBe(false);
   });
 
+  it.each([
+    [
+      "Support shifts by only 0--2.5%, and corrupted rationales shift it by 10--22%.",
+      "Support shifts by only 0–2.5%, and corrupted rationales shift it by 10–22%.",
+    ],
+    [
+      "Applied to the Mermin--Peres Magic Square Game, it yields a new pseudo-telepathy game.",
+      "Applied to the Mermin–Peres Magic Square Game, it yields a new pseudo-telepathy game.",
+    ],
+    [
+      "The noise level follows an Ornstein--Uhlenbeck process and the budget closes the round.",
+      "The noise level follows an Ornstein–Uhlenbeck process and the budget closes the round.",
+    ],
+    [
+      "The study closes with a claim of value---and the value is not money.",
+      "The study closes with a claim of value—and the value is not money.",
+    ],
+    [
+      "Siemens ended -- and closed -- access to the OpenRadioss project.",
+      "Siemens ended – and closed – access to the OpenRadioss project.",
+    ],
+    [
+      "A trailing note exposes a ``price'' of algorithmic anarchy.",
+      "A trailing note exposes a “price” of algorithmic anarchy.",
+    ],
+  ])("spells a source's dash and quote runs the way English does: %s", (input, expected) => {
+    const { text } = normalizeSourceMarkup(input);
+    expect(text).toBe(expected);
+    expect(sourceMarkupRemains(text)).toBe(false);
+  });
+
+  it.each([
+    "He called the price 'fair' for a farmer.",
+    "rock 'n' roll sells records.",
+    "The regulator approved the merger on Tuesday after a lengthy review.",
+    "The reading sat at 0.135 and the noise floor at 0.348.",
+  ])("leaves punctuation that is already prose alone: %s", (input) => {
+    expect(normalizeSourceMarkup(input).text).toBe(input);
+  });
+
   it("leaves ordinary prose and unescaped text alone", () => {
     for (const text of [
       "The regulator approved the merger on Tuesday after a lengthy review.",
