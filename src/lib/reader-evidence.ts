@@ -473,6 +473,16 @@ const PUBLISHER_FURNITURE = new RegExp(
     // its own truncation ellipsis. The outlet name is the variable tail, so the
     // phrase is the whole rule and no list of mastheads can go stale.
     String.raw`\bread (?:the )?full (?:story|article|version|write-?up) (?:at|from|on)\b`,
+    // The outlet's own deck, which is the article describing itself rather than
+    // the event: NPR's "We examine the evidence -- and whether the city can keep
+    // its high-tech dragnet without sacrificing civil liberties" reached a
+    // reader as `The authors examine the evidence` once the narrator clause
+    // began matching a sentence-initial `We`. Both voices, because the
+    // enrichment boundary reads the source's own words and the composer reads
+    // the rewritten one. A paper that opens "we examine X" is the cost --
+    // measured at 0 sentences in the 2026-10-03 frozen corpus, and the reason
+    // the list is these three deck verbs rather than a first-person rule.
+    String.raw`\b(?:we|the authors?)\s+(?:examine|explain|break\s+down)\b`,
     String.raw`\bSubscribe (?:now|today|to this|for)\b`,
     String.raw`\bSign up (?:now|today|for your|to)\b`,
     String.raw`\bRegister (?:now|today|free)\b`,
@@ -1011,11 +1021,18 @@ function renameNarratorPronouns(segment: string, plural: boolean): string {
  * this AI experiment") because there is no verb in the sentence to keep.
  */
 function restoreNarratorActor(text: string, person: "author" | "authors"): string | null {
-  const clause = /(^|,\s*)(I|we)\b/.exec(text);
+  // Case-insensitive, and that is the whole reason the corpus lost its papers'
+  // claims. "we propose X" was resolved; "We propose X" -- the shape every arXiv
+  // abstract opens with -- did not match, fell through to the last branch, and
+  // was counted as an ambiguous narrator and dropped. 41 of 137 drops in one
+  // 200-event window come back by this flag alone, all of them the paper saying
+  // what it did.
+  const clause = /(^|,\s*)(I|we)\b/i.exec(text);
   if (!clause || clause.index === undefined) return null;
   // The narrator's own number decides the label: a paper that writes "I" is one
   // author, and "the authors propose" about a single author is a different claim.
-  const plural = clause[2] === "we" || person === "authors";
+  // Read lowercase, because the match is: "We" is as plural as "we".
+  const plural = (clause[2] ?? "").toLowerCase() === "we" || person === "authors";
   const lead = clause[1] ?? "";
   const words = text
     .slice(clause.index + clause[0].length)

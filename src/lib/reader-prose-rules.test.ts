@@ -117,6 +117,37 @@ describe("publisher furniture never becomes an article sentence", () => {
     }
   });
 
+  it("refuses the outlet's own deck, in either voice", () => {
+    // The sentence only reached a reader once the narrator clause began matching
+    // a sentence-initial `We`: the NPR deck became `The authors examine the
+    // evidence`, which is the article describing itself. Measured on the frozen
+    // 200-event corpus: with the case fix alone this is the one fact that
+    // appears, and with this rule the published page is identical to before the
+    // fix, so the rule buys nothing and costs the reader nothing.
+    const deck =
+      "examine the evidence — and whether the city can keep its high-tech dragnet " +
+      "without sacrificing civil liberties.";
+    for (const text of [`We ${deck}`, `The authors ${deck}`]) {
+      expect(publisherFurniture(text), text).toBe(true);
+      expect(unitTextRejection(text, false), text).toBe("editorial_noise");
+    }
+  });
+
+  it("leaves a paper's own claim alone when it uses the same verbs", () => {
+    // The boundary of the deck rule, pinned so it is a decision rather than a
+    // surprise: the phrase list is the three deck verbs and not a first-person
+    // rule, so a research claim keeps its attribution. Where a paper really does
+    // open "we examine X", the cost is that the unit is refused as furniture;
+    // the frozen corpus measured zero of those.
+    for (const text of [
+      "We propose ElectrolyteFM, a unified multi-property prediction model.",
+      "The authors propose ElectrolyteFM, a unified multi-property prediction model.",
+      "We show that uniformity creates hard limits for evolutionary search.",
+    ]) {
+      expect(publisherFurniture(text), text).toBe(false);
+    }
+  });
+
   it("keeps ordinary reporting that merely mentions a publisher word", () => {
     for (const text of [
       "The purchase price represents a significant premium over what analysts estimated.",
@@ -842,6 +873,25 @@ describe("a first-person sentence is classified, not deleted", () => {
     );
     expect(text).toContain("the authors propose MolDesignBench");
     expect(text).not.toMatch(/\bwe propose\b/);
+  });
+
+  it("resolves the sentence-initial We, which is how every paper opens", () => {
+    // The clause regex was case-sensitive, so `we propose X` resolved and
+    // `We propose X` did not: the shape every arXiv abstract opens with fell
+    // through to the ambiguous branch and was dropped. Measured on the frozen
+    // 200-event corpus, the fix flips exactly one sentence, so this is a
+    // correctness test rather than a volume one.
+    expect(resolveNarrator("We propose ElectrolyteFM.", "authors")).toEqual({
+      kind: "claim",
+      text: "The authors propose ElectrolyteFM.",
+    });
+    // A news desk writes "we" too, and the capital does not make it singular.
+    expect(resolveNarrator("We use the same detector.", "author")?.text).toBe(
+      "The authors use the same detector.",
+    );
+    // The guards that shape the class are untouched by the case: an opinion is
+    // still not a claim, in either case.
+    expect(resolveNarrator("We think this is fantastic.", "author")?.kind).not.toBe("claim");
   });
 
   it("leaves commentary to the voice refusal", () => {
