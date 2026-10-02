@@ -1028,15 +1028,23 @@ async function loadMatchedStories(
 
 async function storiesFromEventIds(db: Db, userId: string, eventIds: string[]): Promise<Story[]> {
   if (eventIds.length === 0) return [];
-  const [stories, why, personalization] = await Promise.all([
+  const [stories, why, personalization, relevance] = await Promise.all([
     hydrateEvents(db, eventIds),
     whyFor(db, userId, eventIds),
     personalizationFor(db, userId, eventIds),
+    matchRelevanceFor(db, userId, eventIds),
   ]);
   const lines = await whyLinesFor(db, userId, stories, why);
   return stories.map((s) => {
-    const forThisStory = personalization.get(s.id);
-    const line = (lines.get(s.id) ?? "").trim();
+    // `hydrateEvents` has no reader, so it leaves relevance equal to importance.
+    // This path does, and the story page's own score panel was therefore showing
+    // the event's importance twice -- 0% on a story the reader had been matched
+    // to and could open. The real match relevance, where there is one, wins.
+    const matched = relevance.get(s.id);
+    const scored =
+      matched === undefined ? s : { ...s, score: { ...s.score, relevance: asPercent(matched) } };
+    const forThisStory = personalization.get(scored.id);
+    const line = (lines.get(scored.id) ?? "").trim();
     // Same rule as `storiesFromDigest`: the follow explanation and the why-line
     // must not be the same sentence twice. Newer digests store the follow line
     // itself, so the computed personalization is then redundant.
@@ -1046,14 +1054,31 @@ async function storiesFromEventIds(db: Db, userId: string, eventIds: string[]): 
         line.replace(/[^a-z]/gi, "").toLowerCase();
     if (line) {
       return {
-        ...s,
+        ...scored,
         why: line,
         ...(forThisStory && !same ? { personalization: forThisStory } : {}),
       };
     }
-    if (forThisStory) return { ...s, why: forThisStory.explanation };
-    return { ...s, why: "" };
+    if (forThisStory) return { ...scored, why: forThisStory.explanation };
+    return { ...scored, why: "" };
   });
+}
+
+/**
+ * The reader's own match relevance per event, 0-10, or absent when the reader
+ * never matched it (a story opened from Saved, or one that predates matching).
+ */
+async function matchRelevanceFor(
+  db: Db,
+  userId: string,
+  eventIds: string[],
+): Promise<Map<string, number>> {
+  const { data } = await db
+    .from("user_events")
+    .select("event_id, relevance")
+    .eq("user_id", userId)
+    .in("event_id", eventIds);
+  return new Map((data ?? []).map((row) => [row.event_id, row.relevance] as const));
 }
 
 async function whyFor(db: Db, userId: string, eventIds: string[]): Promise<Map<string, string>> {
