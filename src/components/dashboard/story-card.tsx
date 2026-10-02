@@ -92,16 +92,32 @@ export function StoryCard({
             Why you're seeing this
           </p>
           <p className="mt-2 text-[13.5px] leading-relaxed">
-            {because ? <span>{because} </span> : null}
-            {story.why}
+            {/*
+              One sentence, not two. `because` is the client-side fallback for
+              feeds that carry no stored why-line; `story.why` is the server's.
+              Since the server began storing the follow line at generation time
+              the two are usually the same sentence, and printing both rendered
+              "You follow AI and OpenAI. You follow AI and OpenAI." — the same
+              claim in two join styles. The client fallback fires only when the
+              server had nothing to say.
+            */}
+            {story.why.trim() ? story.why : because}
           </p>
         </div>
       ) : null}
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-muted-foreground">
-        <span>
-          {sourceCount(story.sources)} <span aria-hidden>→</span> 1 event
-        </span>
+        {/*
+          Corroboration is a claim; one outlet is the absence of one. On the
+          2026-10-01 briefing every card read "1 source → 1 event", a fact with
+          no variation, so the chip prints only when the count says something.
+          The timestamp keeps the line company when it does not.
+        */}
+        {story.sources > 1 ? (
+          <span>
+            {sourceCount(story.sources)} <span aria-hidden>→</span> 1 event
+          </span>
+        ) : null}
         <span className="tabular-nums">{formatStoryTime(story.publishedAt)}</span>
         <span className="flex flex-wrap gap-1.5">
           {story.topics.map((t) => (

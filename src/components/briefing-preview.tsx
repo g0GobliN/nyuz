@@ -62,13 +62,33 @@ export function BriefingPreview({
             {!compact && (
               <p className="mt-2 text-[13.5px] leading-relaxed text-muted-foreground">{s.what}</p>
             )}
-            <p className="mt-3 text-[13px] leading-relaxed">
-              <span className="font-medium">Why you're seeing this · </span>
-              <span className="text-muted-foreground">{s.why}</span>
-            </p>
-            <p className="mt-2.5 text-[11.5px] text-muted-foreground">
-              Based on {sourceCount(s.sources)}
-            </p>
+            {/*
+              The why-line renders only when there is one. A story with no stored
+              impact, no after-state and no personalization used to print the
+              heading, the separator and then nothing — which reads as a bug
+              because the layout is one. The heading is the container; the
+              sentence is the content; no content, no container.
+            */}
+            {(s.why ?? "").trim().length > 0 || s.personalization ? (
+              <p className="mt-3 text-[13px] leading-relaxed">
+                <span className="font-medium">Why you're seeing this · </span>
+                <span className="text-muted-foreground">
+                  {s.why ?? s.personalization?.explanation}
+                </span>
+              </p>
+            ) : null}
+            {/*
+              "Based on N sources" is a corroboration claim, and one outlet is
+              the absence of one. A single-source story states its outlet in the
+              card header already; printing "Based on 1 source" under every card
+              turned a fact into filler. It returns the moment a second outlet
+              picks the story up.
+            */}
+            {s.sources > 1 ? (
+              <p className="mt-2.5 text-[11.5px] text-muted-foreground">
+                Based on {sourceCount(s.sources)}
+              </p>
+            ) : null}
           </li>
         ))}
       </ol>
