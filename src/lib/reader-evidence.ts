@@ -487,6 +487,62 @@ export function publisherFurniture(text: string): boolean {
 }
 
 /**
+ * A solicitation: the publication handing the reader its own address.
+ *
+ * Structural rather than another phrase to memorise, because a newsroom's
+ * contact details are furniture in any wording and the address is the part that
+ * gives it away. A briefing never needs to give the reader an inbox, and the
+ * fact pipeline already refuses these lines as malformed sentences -- so without
+ * this, "Contact" and "Send" enter the entity set from a unit the reader will
+ * never see, which is the same scoping defect as "Subscribe" arriving from a
+ * paywall prompt.
+ */
+const PUBLISHER_SOLICITATION =
+  /\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b|\b(?:news\s?tips?|contact (?:the |our )?(?:editorial )?(?:team|desk|newsroom)|reach (?:us|our) (?:newsroom|editor))\b/i;
+
+/**
+ * The publication talking about itself rather than about the news: a paywall
+ * prompt, a newsletter sign-off, a byline boast, a credit line, a vendor block,
+ * a newsroom address.
+ *
+ * Deliberately narrower than `editorialNoise`, which also refuses commentary and
+ * first-person voice. Screening entity extraction with that predicate took
+ * "Richard Schut" out of the entity set -- his sentence carries "tales of woe",
+ * which is commentary, and the PWNED fixture is written entirely in it -- and
+ * broke surname introduction in production. An entity corpus has to refuse the
+ * publisher's furniture, not the publisher's opinion: refusing opinion loses real
+ * names, and a missing name is a worse defect than a stray one.
+ */
+export function publisherSelfReference(text: string): boolean {
+  return NOISE.test(text) || PUBLISHER_FURNITURE.test(text) || PUBLISHER_SOLICITATION.test(text);
+}
+
+/**
+ * Whether one sentence is prose the reader may be shown.
+ *
+ * The single definition both reader surfaces ask. The Read page reaches it
+ * through `selectReaderEvidence`; the email asks it directly, because an email
+ * that assembles its own paragraphs out of raw excerpts otherwise carries its
+ * own, weaker idea of what a sentence is -- which is how "Subscribe to The
+ * Verge for more", "Principal author Jane Doe has written more than 400
+ * articles" and "Contact the editorial team at news@..." reached an inbox while
+ * every Read-page counter read zero, and why the same story said "paying
+ * subscribers" three times across three paragraphs.
+ *
+ * Narrower than the entity screen on purpose, and the difference matters. An
+ * entity corpus only needs the publisher's furniture gone, because a name can
+ * legitimately live in a sentence that is not itself publishable -- the PWNED
+ * fixture's "Richard Schut" arrives in a commentary line. A surface that
+ * publishes the sentence has to meet the publishable bar instead.
+ *
+ * `context` is omitted on purpose: it can only add refusals, and this must never
+ * drop a sentence the pipeline would keep.
+ */
+export function admissibleReaderSentence(text: string): boolean {
+  return !publisherSelfReference(text) && unitTextRejection(text, false) === null;
+}
+
+/**
  * The source's own subheading, glued to the sentence under it.
  *
  * A research blog writes "Advance warning: The pipeline detected ...", and the
@@ -506,9 +562,30 @@ const HEADING_LABEL = /^[A-Z][\w'’-]*(?:\s+[A-Za-z][\w'’-]*){0,3}:\s+(?=[A-Z
 const REPORTING_LABEL_TAIL =
   /\b(?:said|says|reports?|reported|announced|added|notes?|noted|claimed|argued|wrote|stated|explained|confirmed|warned|told)\b\s*:?\s*$/i;
 
+/**
+ * A label that reads like a subheading but is a credit or a metadata field.
+ *
+ * `HEADING_LABEL` reads "Image credit: Reuters The company declined ..." as a
+ * subheading called "Image credit" followed by an article, strips the label, and
+ * hands the credit's payload to the reader as the sentence opener -- which is
+ * how "Reuters The company declined to say how much the agent costs to run."
+ * reached a published paragraph with every quality-gate counter at zero. The
+ * unit is not a heading and what follows the colon is not an article: it is a
+ * photo credit welded to a real sentence, and the seam between the two is not one
+ * this rule is allowed to guess.
+ *
+ * Left whole on purpose. `publisherFurniture` then refuses the unit, which is
+ * the honest outcome -- the reader gets nothing rather than a bare outlet name
+ * with no verb -- and it is counted as furniture instead of as the invalid
+ * sentence the truncation also makes it.
+ */
+const CREDIT_LABEL =
+  /^(?:image|photo|photograph|illustration|graphic|video|audio|credit|photocredit|imagecredit)\b/i;
+
 export function stripHeadingLabel(text: string): string {
   const match = HEADING_LABEL.exec(text);
   if (!match) return text;
+  if (CREDIT_LABEL.test(match[0])) return text;
   if (REPORTING_LABEL_TAIL.test(match[0])) return text;
   const rest = text.slice(match[0].length);
   return rest.length >= MIN_SENTENCE_CHARS ? rest : text;
@@ -1943,9 +2020,44 @@ export type RankedEntity = {
   sourceCount: number;
 };
 
+/**
+ * The text entity extraction is allowed to read.
+ *
+ * `rankEntities` used to concatenate the raw excerpt, so its capitalised-run
+ * harvest picked names out of publisher furniture that the fact pipeline had
+ * already refused on the same words: "Image", "Principal", "Contact", "Send",
+ * "Subscribe", "Verge", and the two-word "Reuters The" that reached a published
+ * paragraph as a bare label. Those names are not cosmetic. `shortenIntroducedNames`
+ * rewrites names in published prose, so a furniture-derived entity is a
+ * furniture-derived edit, and nothing validated the list -- which is why the
+ * gates read zero while the reader saw a byline with no verb.
+ *
+ * Screened per sentence rather than filtered out of the entity list afterwards,
+ * because an output filter is a vocabulary of symptoms: today's furniture is
+ * `Subscribe`, tomorrow's is `Follow` or `Correction` or `Paid partnership`.
+ *
+ * The screen is deliberately NOT `unitTextRejection` and deliberately NOT
+ * `editorialNoise`. The first answers "may this be published as a fact", a
+ * stricter question than an entity corpus needs to ask; the second also refuses
+ * commentary and first-person voice, which cost the fixture's "Richard Schut"
+ * his name and broke surname introduction in production. What this needs is the
+ * narrow question -- is this the publisher writing about itself -- so that is
+ * what `publisherSelfReference` asks, and `validDeterministicSentence` rides
+ * along only to drop fragments that carry no prose at all. Alias resolution
+ * keeps all the surrounding context it needs.
+ */
+function admissibleEntityText(text: string): string {
+  return readerSentences(text)
+    .filter((sentence) => !publisherSelfReference(sentence) && validDeterministicSentence(sentence))
+    .join(" ");
+}
+
 export function rankEntities(title: string, sources: ReaderSource[]): RankedEntity[] {
   const texts = sources.map((s) =>
-    [s.excerpt ?? "", ...(s.enrichedEvidence ?? []).map((u) => u.text)].join(" "),
+    [s.excerpt, ...(s.enrichedEvidence ?? []).map((u) => u.text)]
+      .filter((value): value is string => value !== undefined)
+      .map(admissibleEntityText)
+      .join(" "),
   );
   const all = [title, ...texts].join(" ");
   const names = new Map<string, string>();

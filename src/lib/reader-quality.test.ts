@@ -733,3 +733,89 @@ describe("fallback deck safety", () => {
     expect(diagnostics.fallback.empty).toBe(0);
   });
 });
+
+describe("entity extraction reads admitted evidence, not raw source", () => {
+  // Both failures below are the same defect seen from two ends. `rankEntities`
+  // used to concatenate the raw excerpt, so its capitalised-run harvest reached
+  // into publisher furniture that the fact pipeline had already refused on the
+  // same words. The names it invented were not cosmetic: `shortenIntroducedNames`
+  // rewrites names in published prose, and the entity-context pass inserts
+  // sentences naming them, so a furniture-derived entity becomes a
+  // furniture-derived edit. Nothing validated the list, which is why every
+  // quality-gate counter read zero while the reader saw a byline with no verb.
+  const FURNITURE_EXCERPT = [
+    "OpenAI said Atlas will be available to paying subscribers from February 2026, and that it will not train on the pages it visits.",
+    "Subscribe to The Verge for more.",
+    "Principal author Jane Doe has written more than 400 articles for Reuters.",
+    "Contact the editorial team at news@example.com.",
+    "Send us your news tips at tips@example.com.",
+    "Image credit: Reuters The company declined to say how much the agent costs to run.",
+  ].join(" ");
+
+  // The outlet is named "Kabel Wire" rather than a real masthead on purpose:
+  // `rankEntities` adds `source.name` to the entity set itself, so a fixture
+  // outlet called "The Verge" would make `Verge` a legitimate entity and the
+  // assertion below would prove nothing about the furniture.
+  const names = (): string[] =>
+    rankEntities("OpenAI launches Atlas, a browser agent that runs tasks in the background", [
+      { name: "Kabel Wire", excerpt: FURNITURE_EXCERPT },
+    ]).map((entity) => entity.name);
+
+  it("takes no entity from a sentence the reader pipeline refuses", () => {
+    // Every one of these is spelled by the furniture above and by nothing the
+    // reader would ever see. `Image` came from "Image credit", `Principal` from
+    // "Principal author", `Contact` from "Contact the editorial team", `Send`
+    // from "Send us your news tips", `Subscribe` from "Subscribe to The Verge
+    // for more", and `Reuters The` from the credit label welded to the sentence
+    // under it. All six sentences are refused by `unitTextRejection` on the same
+    // words, which is what makes this a scoping failure rather than a vocabulary
+    // gap.
+    for (const furniture of ["Image", "Principal", "Contact", "Send", "Subscribe", "Reuters The"])
+      expect(names(), furniture).not.toContain(furniture);
+  });
+
+  it("never builds one entity out of a credit label and the article after it", () => {
+    // "Reuters The" is the exact string that reached a published paragraph as a
+    // bare label, and it is the one no output filter would have been written
+    // for: it is neither a publisher name nor a word anyone would list.
+    expect(names()).not.toContain("Reuters The");
+    for (const entity of names()) expect(entity).not.toMatch(/\bThe$/);
+  });
+
+  it("still names the outlet the story came from", () => {
+    // Scoping must not become amnesia: the reporting source is added from
+    // `source.name` and has to survive, because the composer needs it to tell a
+    // report from a claim.
+    expect(names()).toContain("Kabel Wire");
+  });
+
+  it("keeps the entities the admitted sentence really does carry", () => {
+    // The negative assertions above would also pass if the extractor simply
+    // stopped working, so the same fixture has to still yield the names its one
+    // publishable sentence introduces.
+    expect(names()).toContain("OpenAI");
+    expect(names()).toContain("Atlas");
+  });
+
+  it("refuses a photo credit welded to a real sentence instead of stripping the label", () => {
+    // `stripHeadingLabel` read "Image credit:" as a subheading, removed it, and
+    // published the credit's payload as the sentence opener. The unit is not a
+    // heading: left whole, `publisherFurniture` refuses it and the refusal is
+    // counted as furniture rather than as the invalid sentence it also is.
+    const { facts, rejectionReasons } = selectReaderEvidence(
+      "OpenAI launches Atlas, a browser agent that runs tasks in the background",
+      [
+        {
+          name: "The Verge",
+          excerpt:
+            "OpenAI launched Atlas on Tuesday. Image credit: Reuters The company declined to say how much the agent costs to run.",
+        },
+      ],
+    );
+    const published = facts.map((fact) => fact.text).join(" ");
+
+    expect(published).not.toMatch(/\bReuters\s+The\b/);
+    expect(published).not.toMatch(/\bImage credit\b/i);
+    expect(rejectionReasons.editorial_noise).toBeGreaterThan(0);
+  });
+});
