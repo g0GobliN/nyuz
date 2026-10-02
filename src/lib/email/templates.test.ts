@@ -251,3 +251,38 @@ describe("billing copy", () => {
     expect(email.text).toContain("Uno");
   });
 });
+
+describe("a story the quality gate empties still reaches the reader", () => {
+  // The email now refuses the same sentences the Read page refuses, so a story
+  // whose excerpts are entirely publisher furniture can arrive with no prose at
+  // all. That must not turn into a silently shorter briefing: a daily briefing
+  // that quietly drops a story is worse for the reader than one that carries a
+  // thin entry, and the reader cannot tell the difference between "nothing to
+  // say" and "we lost it". So the entry is still rendered -- title, why, and the
+  // link that opens the full story on the site.
+  const email = briefingEmail({
+    name: "Sam",
+    baseUrl: BASE,
+    scheduledFor: new Date("2026-08-25T07:30:00Z"),
+    unsubscribeUrl: `${BASE}/dashboard/delivery`,
+    items: [
+      {
+        title: "A vendor published a pricing page and nothing else",
+        why: "It changes what the vendor charges enterprise buyers.",
+        href: `${BASE}/dashboard/story/empty`,
+        grafs: [],
+      },
+    ],
+  });
+
+  const text = email.text ?? "";
+
+  it("keeps the story in the briefing", () => {
+    expect(text).toContain("A vendor published a pricing page and nothing else");
+  });
+
+  it("gives the reader the why and a way through to the site", () => {
+    expect(text).toContain("It changes what the vendor charges enterprise buyers.");
+    expect(text).toContain(`${BASE}/dashboard/story/empty`);
+  });
+});

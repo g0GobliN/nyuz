@@ -11,6 +11,7 @@
  */
 
 import { decodeEntities } from "./pipeline/source-text";
+import { admissibleReaderSentence, nearDuplicate, readerSentences } from "./reader-evidence";
 
 export function toGrafs(text: string): string[] {
   const raw = text.trim();
@@ -67,7 +68,20 @@ export function storyGrafs(input: {
   if (input.after.trim()) grafs.push(clipGraf(input.after));
 
   for (const excerpt of input.excerpts) {
-    const graf = clipGraf(excerpt);
+    // The excerpts are the only publisher-written text that reaches this file,
+    // so they are the only place the reader-quality gate applies. `what`,
+    // `before` and `after` are nyuz's own stored copy and may have been
+    // translated, where an English furniture pattern would mean nothing.
+    //
+    // Appending the excerpt whole is what let the email print "Subscribe to The
+    // Verge for more" and "Contact the editorial team at news@..." to an inbox
+    // while every Read-page quality counter read zero: the two surfaces had two
+    // different definitions of a sentence. The email keeps its own shape -- its
+    // own length, its own truncation, its own first four paragraphs -- and no
+    // longer its own idea of what may be published.
+    const admitted = readerSentences(excerpt).filter(admissibleReaderSentence);
+    if (admitted.length === 0) continue;
+    const graf = clipGraf(admitted.join(" "));
     if (graf.length < 40) continue;
     if (grafs.some((g) => nearDuplicate(g, graf))) continue;
     grafs.push(graf);
@@ -107,10 +121,4 @@ function stripMarkup(text: string): string {
   return decodeEntities(text.replace(/<[^>]+>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function nearDuplicate(a: string, b: string): boolean {
-  const left = a.slice(0, 80).toLowerCase();
-  const right = b.slice(0, 80).toLowerCase();
-  return left === right || a.includes(b.slice(0, 60)) || b.includes(a.slice(0, 60));
 }
