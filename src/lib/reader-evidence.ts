@@ -629,6 +629,25 @@ const PRONOUN_SUBJECT_OPENING =
   /^(?:this|that|these|those|those\b|it|they|he|she|them|him|her|its|their|theirs|both|such|others|neither|the former|the latter|the result|the move|the change|the figure|most of them|some of them|many of them|all of them|each of them|using the same|use the same)\b/i;
 
 /**
+ * A demonstrative that heads a possessive noun is a determiner, not a pronoun.
+ *
+ * `This week's Stratechery video is on Frontier Overhangs.` has its subject in
+ * the sentence -- the video -- and `this week` needs no antecedent: it is a
+ * deictic, read against the story's own date, which is the same reading the
+ * relative-time rules keep for `today's AI` and `this year's budget`. Before
+ * this test the sentence was refused as a context-dependent opening, because
+ * `PRONOUN_SUBJECT_OPENING` reads the first word only.
+ *
+ * The clitic is the mark, which is why it is the test rather than a list of
+ * nouns that may follow `this`: the shape is *structural*, and it is the one
+ * the subject logic can observe without guessing at grammar. A demonstrative
+ * without one is untouched -- `This was announced on Tuesday.` and `These
+ * results show the trend.` still belong to the class whose referent is a
+ * sentence the reader may not have read.
+ */
+const POSSESSIVE_DETERMINER_OPENING = /^(?:this|that|these|those)\s+\S*['’]s?(?=\s|[.,;:!?)]|$)/i;
+
+/**
  * The subset a mechanical rewrite can actually repair: an opening pronoun that
  * stands for the subject of the sentence before it.
  *
@@ -713,7 +732,7 @@ export function normalizeEvidenceText(text: string): string {
 export function contextDependent(text: string): boolean {
   const trimmed = text.trim();
   return (
-    PRONOUN_SUBJECT_OPENING.test(trimmed) ||
+    (PRONOUN_SUBJECT_OPENING.test(trimmed) && !POSSESSIVE_DETERMINER_OPENING.test(trimmed)) ||
     frontedClauseNeedsContext(trimmed) ||
     /\bthe figure\b/i.test(trimmed)
   );

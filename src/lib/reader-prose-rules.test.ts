@@ -10,6 +10,7 @@ import {
   alreadyAttributed,
   captionSeamSplit,
   cleanDeterministicSentence,
+  contextDependent,
   editorialNoise,
   hasPredicate,
   headingUnit,
@@ -670,6 +671,62 @@ describe("a time phrase that cannot be made absolute is dropped, not the sentenc
     expect(text).not.toMatch(/this week/i);
     expect(text).toContain("no government is ready");
     expect(text).toContain("publish a strategy");
+  });
+});
+
+describe("a demonstrative that heads a possessive is a determiner, not a pronoun", () => {
+  it("does not ask for a subject the sentence already has", () => {
+    // `This week's video is on ...` has its subject in the sentence, and the
+    // clitic is the structural mark. Read as a bare pronoun the sentence was
+    // refused as context-dependent, which is how the corpus lost a grammatical
+    // fact rather than publishing it.
+    expect(contextDependent("This week's Stratechery video is on Frontier Overhangs.")).toBe(false);
+    expect(contextDependent("These companies' filings show the same pattern.")).toBe(false);
+    expect(contextDependent("That regulator's decision was expected this week.")).toBe(false);
+  });
+
+  it("still refuses the demonstrative that stands for a sentence the reader may not have", () => {
+    // No clitic, no subject: the class the rule exists for, in the singular,
+    // the plural and the past tense.
+    expect(contextDependent("This was announced on Tuesday.")).toBe(true);
+    expect(contextDependent("These results show the trend.")).toBe(true);
+    expect(contextDependent("Those were also delayed.")).toBe(true);
+    expect(contextDependent("This is the second time the regulator has intervened.")).toBe(true);
+  });
+
+  it("publishes the fact instead of refusing it for a missing subject", () => {
+    // The shape the corpus produced, on the path that refused it: two sources,
+    // so the composer ranks rather than reading one document forwards, and the
+    // fact's own evidence is the second source -- it belongs in the body.
+    const story: Story = {
+      ...oneSource(
+        "Regulators must still approve the grid connection before construction can start. The commission withdrew its finding that the application was complete. A refiling in September restarted the process.",
+      ),
+      sources: 2,
+      sourceList: [
+        {
+          name: "The Register",
+          at: "",
+          headline: "A story",
+          excerpt:
+            "Regulators must still approve the grid connection before construction can start. The commission withdrew its finding that the application was complete. A refiling in September restarted the process.",
+        },
+        {
+          name: "Stratechery",
+          at: "",
+          headline: "A story",
+          excerpt: "This week's Stratechery video is on Frontier Overhangs.",
+        },
+      ],
+    };
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+    expect(diagnostics.ordering).toBe("relevance");
+    expect(diagnostics.facts.refused).toBe(0);
+    expect(
+      article.paragraphs.some((paragraph) =>
+        paragraph.text.includes("This week's Stratechery video is on Frontier Overhangs."),
+      ),
+    ).toBe(true);
   });
 });
 
