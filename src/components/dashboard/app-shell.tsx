@@ -113,7 +113,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           surface is the app's: ink here, glass there, because this bar sits under
           an ink top bar in both themes. */}
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-app-chrome text-app-chrome-foreground">
-        <div className="gutter-x-xs flex touch-pan-x items-stretch overflow-x-auto overscroll-x-contain pb-[calc(env(safe-area-inset-bottom)+0.375rem)] scrollbar-hide">
+        {/* The inset replaces the strip's own bottom padding rather than adding
+            to it: padding + inset stacked the destinations half a rem further
+            off the bottom edge than the home indicator needs, which on an
+            installed phone read as the bar floating. A browser tab (inset 0)
+            keeps the 0.375rem it always had. */}
+        <div className="gutter-x-xs flex touch-pan-x items-stretch overflow-x-auto overscroll-x-contain pb-[max(0.375rem,env(safe-area-inset-bottom)_-_0.375rem)] scrollbar-hide">
           {MOBILE.map((item) => (
             <StripItem key={item.to} item={item} />
           ))}

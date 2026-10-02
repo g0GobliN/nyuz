@@ -259,7 +259,10 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
         className="glass fixed inset-x-0 bottom-0 z-40 border-t border-hairline will-change-transform lg:hidden"
         style={{ transform: "translateZ(0)" }}
       >
-        <div className="gutter-x-xs flex touch-pan-x items-stretch overflow-x-auto overscroll-x-contain pb-[calc(env(safe-area-inset-bottom)+0.375rem)] scrollbar-hide">
+        {/* Same rule as the app shell: the inset replaces the strip's own
+            bottom padding rather than stacking on it, so an installed phone
+            does not carry both. A browser tab (inset 0) keeps the 0.375rem. */}
+        <div className="gutter-x-xs flex touch-pan-x items-stretch overflow-x-auto overscroll-x-contain pb-[max(0.375rem,env(safe-area-inset-bottom)_-_0.375rem)] scrollbar-hide">
           {MOBILE.map((m) => (
             <MobileItem key={m.to} {...m} />
           ))}
