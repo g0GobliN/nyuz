@@ -453,6 +453,10 @@ const PUBLISHER_FURNITURE = new RegExp(
     // Conference and subscription promotion (TechCrunch, Tom's Hardware).
     String.raw`\bGet \d+% off\b`,
     String.raw`\bThe Disrupt experience\b`,
+    // The same event, named rather than described: a speaker announcement is
+    // a grammatical sentence about a real person, so only the event tells it
+    // apart from the reporting that looks like it.
+    String.raw`\bTechCrunch Disrupt\b`,
     String.raw`\bCover more ground by making connections\b`,
     String.raw`\bdiscovering what['’]s next in the startup ecosystem\b`,
     String.raw`\bGo deeper with\b`,
@@ -465,6 +469,10 @@ const PUBLISHER_FURNITURE = new RegExp(
     String.raw`\bchipmaking lithography tools\b`,
     String.raw`\bchipmaking tool roadmaps?\b`,
     // Generic calls to action.
+    // The publication pointing the reader at itself, which a feed appends after
+    // its own truncation ellipsis. The outlet name is the variable tail, so the
+    // phrase is the whole rule and no list of mastheads can go stale.
+    String.raw`\bread (?:the )?full (?:story|article|version|write-?up) (?:at|from|on)\b`,
     String.raw`\bSubscribe (?:now|today|to this|for)\b`,
     String.raw`\bSign up (?:now|today|for your|to)\b`,
     String.raw`\bRegister (?:now|today|free)\b`,

@@ -84,12 +84,36 @@ describe("publisher furniture never becomes an article sentence", () => {
       "Get 50% off a second pass The Disrupt experience is meant to be shared.",
       "Cover more ground by making connections, building momentum, and discovering what's next in the startup ecosystem.",
       "Go deeper with TH Premium: Chipmaking.",
+      "Clay Co-founder and CEO Kareem Amin joins the AI Stage to discuss the rise of GTM engineer at TechCrunch Disrupt 2026.",
       "Stop calling it safe. Stop pretending it's human.",
       "He can be followed via Twitter, LinkedIn, or contacted via MichaelLarabel.",
     ]) {
       expect(publisherFurniture(text), text).toBe(true);
       expect(unitTextRejection(text, false), text).toBe("editorial_noise");
       expect(editorialNoise(text), text).toBe(true);
+    }
+  });
+
+  it("refuses the publication pointing the reader at itself", () => {
+    // The feed appends this after its own truncation ellipsis, so the reader was
+    // told to go and buy the article. The outlet is the variable tail, so the
+    // phrase is the rule and no list of mastheads can go stale.
+    for (const text of [
+      "The Keurig Alta is now available for preorder for $499.99 with shipping. Read the full story at The Verge.",
+      "Paramount must release a minimum number of titles. Read the full story at The Verge.",
+      "Revenue rose 20%. Read the full article at Reuters.",
+    ]) {
+      expect(publisherFurniture(text), text).toBe(true);
+      expect(unitTextRejection(text, false), text).toBe("editorial_noise");
+    }
+  });
+
+  it("keeps reporting that happens to describe reading", () => {
+    for (const text of [
+      "The full story at the hearing lasted nine hours.",
+      "She read the article aloud to the committee before answering.",
+    ]) {
+      expect(publisherFurniture(text), text).toBe(false);
     }
   });
 
