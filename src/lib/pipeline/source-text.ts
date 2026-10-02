@@ -592,9 +592,14 @@ function isCurrencySpan(span: string, next: string | undefined): boolean {
 
 /**
  * A backslash that only quotes punctuation, which the briefing can drop: `\%`
- * is a percent sign, not a command.
+ * is a percent sign, not a command. The set is closed -- a backslash before a
+ * letter is a real command and is left for the refusal path to judge.
+ *
+ * The lookbehind is what keeps `\\` intact. Two backslashes are LaTeX's own
+ * line break, and a rule without it would rewrite the second one and turn a
+ * pair into a single stray backslash.
  */
-const PRESENTATIONAL_ESCAPE = /\\([%&$#_{}])/g;
+const PRESENTATIONAL_ESCAPE = /(?<!\\)\\([%&$#_{}])/g;
 
 /**
  * What survives removing presentational escapes is the expression itself.
@@ -710,7 +715,16 @@ export function normalizeSourceMarkup(text: string): { text: string; unwrapped: 
     return payload;
   });
   const math = unwrapInlineMath(out);
-  const punctuation = normalizeLatexPunctuation(math.text);
+  // The same escape class, on the bare text as well as inside a math span. The
+  // first pass only reached `$98\%$`, and two abstracts that wrote `1.8\%` with
+  // no dollar signs at all kept showing the reader a backslash.
+  let bareEscapes = 0;
+  const bare = math.text.replace(PRESENTATIONAL_ESCAPE, (_match, literal: string) => {
+    bareEscapes += 1;
+    return literal;
+  });
+  unwrapped += bareEscapes;
+  const punctuation = normalizeLatexPunctuation(bare);
   return { text: punctuation.text, unwrapped: unwrapped + math.unwrapped + punctuation.rewritten };
 }
 

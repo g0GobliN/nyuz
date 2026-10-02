@@ -418,6 +418,36 @@ describe("source markup", () => {
   });
 
   it.each([
+    [
+      "The deadline miss ratio was 1.8\\% across the suite.",
+      "The deadline miss ratio was 1.8% across the suite.",
+    ],
+    [
+      "It reached 61.04\\% coverage on the public track.",
+      "It reached 61.04% coverage on the public track.",
+    ],
+    [
+      "R&D accounts for 40\\% of the total, and 3\\_4 of the rows agree.",
+      "R&D accounts for 40% of the total, and 3_4 of the rows agree.",
+    ],
+  ])(
+    "strips a bare escape, which the first pass only reached inside a formula: %s",
+    (input, expected) => {
+      // `$98\%$` was fixed and `1.8\%` was not, because the escape class was only
+      // applied to a math span. Two abstracts published a backslash to the reader.
+      expect(normalizeSourceMarkup(input).text).toBe(expected);
+    },
+  );
+
+  it.each([
+    ["The authors write \\alpha and \\frac{a}{b} in the same paragraph."],
+    ["A double backslash \\\\ is LaTeX's own line break and is not one of ours."],
+    ["Plain prose with no markup at all, and no escape either."],
+  ])("leaves a command and a doubled backslash alone: %s", (input) => {
+    expect(normalizeSourceMarkup(input).text).toBe(input);
+  });
+
+  it.each([
     "He called the price 'fair' for a farmer.",
     "rock 'n' roll sells records.",
     "The regulator approved the merger on Tuesday after a lengthy review.",
