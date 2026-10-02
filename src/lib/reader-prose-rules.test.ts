@@ -27,6 +27,7 @@ import {
   stripEditorialVoice,
   stripFrontedFrame,
   stripHeadingLabel,
+  stripSourceFurniture,
   stripUnanchorableTime,
   unitTextRejection,
   validDeterministicSentence,
@@ -671,6 +672,98 @@ describe("a time phrase that cannot be made absolute is dropped, not the sentenc
     expect(text).not.toMatch(/this week/i);
     expect(text).toContain("no government is ready");
     expect(text).toContain("publish a strategy");
+  });
+});
+
+describe("a feed's footer belongs to the feed", () => {
+  it("cuts the whole footer, not the fragment the splitter made of it", () => {
+    // The footer's own copy of the headline contains a full stop, so the sentence
+    // splitter cut the footer into three pieces and published the first as the
+    // story's *deck* on the frozen corpus: "The post AI is changing developer
+    // work." The cut belongs at the source boundary, before the splitter runs.
+    const excerpt =
+      "AI is changing how developers work and apply their skills. Put these ideas in practice > . The post AI is changing developer work. Here are three skills to strengthen. appeared first on The GitHub Blog.";
+    const { text, strippedFooter } = stripSourceFurniture(
+      excerpt,
+      "AI is changing developer work. Here are three skills to strengthen.",
+    );
+    expect(strippedFooter).toBe(true);
+    expect(text).toBe(
+      "AI is changing how developers work and apply their skills. Put these ideas in practice > .",
+    );
+    // A sentence *about* a post is not a footer: the cut is bounded and anchored
+    // to the end of the text.
+    const prose =
+      "The post appeared first on the company's own blog, the report says, and it was removed within the hour.";
+    expect(stripSourceFurniture(prose, undefined)).toEqual({
+      text: prose,
+      strippedHeadline: false,
+      strippedFooter: false,
+    });
+  });
+
+  it("leaves the prose that follows a mid-text footer phrase alone", () => {
+    // `appeared first on` is not confined to the end of a feed item, and the cut
+    // is anchored to the phrase's *start*, so a tail bound loose enough to cover
+    // a long outlet name also covers the sentences after it. This excerpt is the
+    // production shape: two furniture sentences and one fact, with the phrase in
+    // the middle. Under the old bound the fact was deleted before it was ever a
+    // unit, and the story published with nothing in it.
+    const excerpt =
+      "Subscribe to our newsletter and save 50%. The post on the new plant appeared first on TechCrunch. The factory will employ 400 workers when production starts in October.";
+    expect(stripSourceFurniture(excerpt, undefined)).toEqual({
+      text: excerpt,
+      strippedHeadline: false,
+      strippedFooter: false,
+    });
+    // And the same excerpt with the footer genuinely last is still cut, so the
+    // bound is what changed and not the rule's intent.
+    const trailing =
+      "The factory will employ 400 workers. The post appeared first on The GitHub Blog.";
+    expect(stripSourceFurniture(trailing, undefined)).toEqual({
+      text: "The factory will employ 400 workers.",
+      strippedHeadline: false,
+      strippedFooter: true,
+    });
+  });
+
+  it("refuses the fragments a footer leaves behind when it arrives already cut", () => {
+    // The unit-level closed set, for a feed whose footer is split before any
+    // source-level rule can see it.
+    expect(editorialNoise("Appeared first on The GitHub Blog.")).toBe(true);
+    expect(editorialNoise("Apply now to host a Side Event → Founder Summit brings founders.")).toBe(
+      true,
+    );
+    expect(editorialNoise("Put these ideas in practice >.")).toBe(true);
+    // Decoys: the same vocabulary in text that is reporting.
+    expect(editorialNoise("The post was advertised on Monday.")).toBe(false);
+    expect(editorialNoise("Applications close tonight at midnight PT.")).toBe(false);
+  });
+
+  it("closes a doubled full stop and leaves an ellipsis and a range alone", () => {
+    expect(cleanDeterministicSentence("Tip #1: Learn to direct AI, not just use it..")).toBe(
+      "Tip #1: Learn to direct AI, not just use it.",
+    );
+    expect(cleanDeterministicSentence("Wait... what happened next?")).toBe(
+      "Wait... what happened next?",
+    );
+    expect(cleanDeterministicSentence("The range is 1..5 in the new notation.")).toBe(
+      "The range is 1..5 in the new notation.",
+    );
+  });
+
+  it("publishes the item, not the wrapper, when the footer is in the feed", () => {
+    const excerpt = [
+      "AI is changing how developers work and apply their skills.",
+      "Writing code is still essential, but developers increasingly need to know how to direct AI.",
+      "Put these ideas in practice > .",
+      "The post AI is changing developer work. Here are three skills to strengthen. appeared first on The GitHub Blog.",
+    ].join(" ");
+    const text = composedText(excerpt, "GitHub");
+    expect(text).toContain("AI is changing how developers work and apply their skills.");
+    expect(text).not.toContain("appeared first on");
+    expect(text).not.toContain("Put these ideas in practice");
+    expect(text).not.toContain("The post AI is changing developer work.");
   });
 });
 

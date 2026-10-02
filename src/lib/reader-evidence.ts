@@ -401,7 +401,7 @@ export function sourceSeam(text: string): string | null {
   return headingSeam(text) ?? creditInventory(text)?.run ?? null;
 }
 const NOISE =
-  /\b(?:welcome back|weekly column|this week['’]s (?:column|newsletter)|as regular readers know|subscribe to|sign up for|click here|read more|continue reading|cookie policy|all rights reserved|follow us on|share this article|related articles|the coverage centers on|amount mentioned|percentage mentioned|entity mentioned|source count|evidence suggests|nyuz has also covered)\b|\bthe post\b.*\bappeared first on\b|^(?:advertisement|image credit|photo credit|hopefully\b|the takeaway\b)/i;
+  /\b(?:welcome back|weekly column|this week['’]s (?:column|newsletter)|as regular readers know|subscribe to|sign up for|click here|read more|continue reading|cookie policy|all rights reserved|follow us on|share this article|related articles|the coverage centers on|amount mentioned|percentage mentioned|entity mentioned|source count|evidence suggests|nyuz has also covered)\b|\bthe post\b.*\bappeared first on\b|^(?:advertisement|image credit|photo credit|hopefully\b|the takeaway\b|appeared first on\b|(?:apply|register|sign up)\s+(?:now|today|here)\b|put (?:these|those) ideas in practice\b)/i;
 
 /**
  * Publisher furniture and promotion, which is not news.
@@ -2365,6 +2365,11 @@ export function cleanDeterministicSentence(value: string): string {
   // A space before punctuation is what pasting two extracted fragments leaves
   // behind: "According to RNLI , the rescued ...", "the pricing page .".
   text = text.replace(/\s+([,;:.!?])/g, "$1");
+  // A doubled full stop is the same class of artefact one character further in:
+  // "Tip #1: Learn to direct AI, not just use it.." shipped that way on the
+  // frozen corpus. Only a doubled one is closed, and only at the end of a token,
+  // so an ellipsis keeps its three dots and "1..5" keeps its range.
+  text = text.replace(/(?<!\.)\.\.(?=\s|$)/g, ".");
   text = text.replace(/\b(\w+)(?:\s+\1){1,}\b/gi, "$1");
   text = text.replace(EDITORIAL_SLANG, (match) =>
     /bit barn/i.test(match)
@@ -3094,19 +3099,59 @@ export function headingUnit(text: string): boolean {
 }
 
 /**
+ * A feed's own footer around the item it just delivered.
+ *
+ * `The post AI is changing developer work. Here are three skills to strengthen.
+ * appeared first on The GitHub Blog.` reached a reader four ways on the frozen
+ * corpus: as the deck, as the tail of two paragraphs, and split into a fragment
+ * ("Appeared first on The GitHub Blog.") when the item's own headline -- which
+ * contains a full stop -- made `readerSentences` cut the footer into three
+ * sentences. No unit-level test can see any of that, because the footer is not
+ * a unit: it is the feed's wrapper around the item, which is this function's
+ * boundary, and it is cut here before the splitter ever runs.
+ *
+ * Anchored to the end of the text and bounded on both sides, so prose that
+ * merely mentions a post is left alone; a text that is only the footer comes
+ * back empty, which the caller rejects rather than repairs.
+ *
+ * The tail is bounded by the shape of a footer rather than by a character count
+ * that happens to be large. It used to be `[\s\S]{0,120}?[.!?]?\s*$`, which is
+ * not a bound at all -- it consumes up to 120 characters of whatever follows the
+ * phrase, and `appeared first on` is not confined to the end of a feed item. In
+ * `understand.test.ts` the phrase sits in the *middle* of an excerpt, and the
+ * 120 characters after it took the only real fact in it with them: the factory
+ * sentence never became a unit, so the story published with no facts at all.
+ *
+ * A footer's tail is the outlet's own name and nothing else, so it is one short
+ * run of characters with no sentence terminator inside it, ending the text. Any
+ * second full stop means prose follows the attribution, and prose after the
+ * phrase is never furniture.
+ */
+const POST_FOOTER = /\bthe post\b[\s\S]{0,300}?\bappeared first on\b[^.!?]{1,60}[.!?]?\s*$/i;
+
+/**
  * Drop the furniture a source wrapped around its own text, before it is read.
  *
- * One shape: the item's headline repeated at the front of the description. That
- * is "what the provider shipped" rather than "what happened", which is the
- * boundary this module already owns, and the returned flag lets the caller count
- * the rewrite it made.
+ * Two shapes: the item's headline repeated at the front of the description, and
+ * the feed's footer at the end. Both are "what the provider shipped" rather than
+ * "what happened", which is the boundary this module already owns, and the
+ * returned flags let the caller count the rewrite it made.
  */
 export function stripSourceFurniture(
   text: string,
   headline: string | undefined,
-): { text: string; strippedHeadline: boolean } {
-  const withoutHeadline = stripHeadlinePrefix(text, headline);
-  return { text: withoutHeadline.text, strippedHeadline: withoutHeadline.stripped };
+): { text: string; strippedHeadline: boolean; strippedFooter: boolean } {
+  // The footer first: it sits at the end, and cutting it cannot move the front
+  // of the text that the headline strip then reads.
+  const footer = POST_FOOTER.exec(text);
+  const body = footer && footer.index > 0 ? text.slice(0, footer.index).trimEnd() : text;
+  const strippedFooter = body !== text;
+  const withoutHeadline = stripHeadlinePrefix(body, headline);
+  return {
+    text: withoutHeadline.text,
+    strippedHeadline: withoutHeadline.stripped,
+    strippedFooter,
+  };
 }
 
 /**
@@ -3452,6 +3497,9 @@ function normalizeReaderSource(
     // repeated at the front of the description.
     const furniture = stripSourceFurniture(marked.text, source.headline);
     if (furniture.strippedHeadline) stats.strippedHeadlines += 1;
+    // Counted with the other clean-ups rather than in a counter of its own: the
+    // audit's `cleanedEvidence` already means "this text needed the boundary".
+    if (furniture.strippedFooter) stats.cleanedEvidence += 1;
     if (
       normalization.metadataOnly ||
       furniture.text === "" ||
