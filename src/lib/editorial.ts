@@ -1568,6 +1568,10 @@ function validDeckSentence(text: string): boolean {
   if (validDeterministicSentence(text)) return true;
   const trimmed = text.trim();
   if (trimmed.length < MIN_SENTENCE_CHARS || trimmed.length > MAX_SENTENCE_CHARS) return false;
+  // Terse is allowed; a domain tail is not. "Org automated benchmarking
+  // software." is the second half of a site's own about line, and a deck made of
+  // it is worse than no deck at all.
+  if (/^(?:Org|Com|Gov|Edu|Info|Biz|Xyz)\s+[a-z]/.test(trimmed)) return false;
   const words = trimmed.match(/[\p{L}\p{N}]+/gu) ?? [];
   return words.length >= 2 && hasPredicate(trimmed);
 }
@@ -1740,6 +1744,51 @@ function shortenIntroducedNames(
       block.text = text + block.text.slice(cursor);
     }
   }
+}
+
+/**
+ * How many times one outlet may be credited inside one article.
+ *
+ * `attributedFactText` gives a claim, estimate or projection its claimant, which
+ * is right the first time and wrong on the sixth: a single-source vendor post
+ * where nearly every sentence was typed a claim published "according to
+ * Cloudflare" eleven times ("Identify AI model overuse with User Insights",
+ * 2026-10-02), and a Microsoft Research read repeated "according to Microsoft
+ * Research" seven. The outlet is already named in the sidebar and every block
+ * carries its citation, so past the second mention the attribution is furniture.
+ * The count is per-name across the whole article, in reading order.
+ */
+const ATTRIBUTION_CAP = 3;
+
+export function capAttributionRepetition(blocks: { text: string }[]): number {
+  const counts = new Map<string, number>();
+  let removed = 0;
+  for (const block of blocks) {
+    const parts = readerSentences(block.text);
+    if (parts.length === 0) continue;
+    const kept = parts.map((part) => {
+      const trailing = /,\s*(?:according to|per)\s+([^,.;:!?]{1,60})\.\s*$/.exec(part);
+      const prefix =
+        /^([A-Z][\p{L}'’.-]*(?:\s+[\p{L}'’.-]+){0,4})\s+reports? that\s+(\S[\s\S]*)$/u.exec(part);
+      const framed = /^According to\s+([^,]{1,60}),\s+(\S[\s\S]*)$/.exec(part);
+      const name = trailing?.[1] ?? prefix?.[1] ?? framed?.[1];
+      if (!name) return part;
+      const key = name.trim().toLowerCase();
+      const seen = (counts.get(key) ?? 0) + 1;
+      counts.set(key, seen);
+      if (seen <= ATTRIBUTION_CAP) return part;
+      removed += 1;
+      const restore = (value: string) => {
+        const trimmed = value.trim().replace(/[.!?]+$/, "");
+        return trimmed === "" ? trimmed : `${trimmed[0]!.toUpperCase()}${trimmed.slice(1)}.`;
+      };
+      if (trailing) return `${part.slice(0, trailing.index).trimEnd()}.`;
+      if (prefix) return restore(prefix[2] ?? "");
+      return restore(framed?.[2] ?? "");
+    });
+    block.text = kept.join(" ");
+  }
+  return removed;
 }
 
 /**
@@ -1960,6 +2009,10 @@ export function composeArticleWithDiagnostics(story: Story): {
     paragraphs.length = 0;
     paragraphs.push(...capped, ...related);
     const gated = qualityGate({ deck, paragraphs }, story.title, diagnostics);
+    // After the gate, because the gate reads each block as the composer wrote
+    // it. Removing a repeated attribution can only shorten a sentence, never
+    // break one, so a block that passed stays publishable.
+    capAttributionRepetition([gated.deck, ...gated.paragraphs]);
     finishDiagnostics(gated, facts, diagnostics);
     // Last, and deliberately after the counters: renaming is presentation, and
     // `facts.rendered` is read by matching a fact's own text against the

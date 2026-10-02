@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { composeArticleWithDiagnostics, isShareStatistic, judgeFallbackDeck } from "./editorial";
+import {
+  capAttributionRepetition,
+  composeArticleWithDiagnostics,
+  isShareStatistic,
+  judgeFallbackDeck,
+} from "./editorial";
 import { htmlToText } from "./pipeline/feed";
 import {
   alreadyAttributed,
+  captionSeamSplit,
   cleanDeterministicSentence,
   editorialNoise,
   hasPredicate,
@@ -10,12 +16,17 @@ import {
   isOwnSource,
   normalizeRelativeTime,
   normalizeReportFraming,
+  publisherFurniture,
+  readerSentences,
   resolveNarrator,
+  selectReaderEvidence,
   sourceSeam,
   stripEditorialVoice,
   stripFrontedFrame,
+  stripHeadingLabel,
   stripUnanchorableTime,
   unitTextRejection,
+  validDeterministicSentence,
 } from "./reader-evidence";
 import type { Story } from "./story";
 
@@ -36,6 +47,120 @@ import type { Story } from "./story";
  * smallest thing that fixes one of those, and the decoys are the sentences that
  * must survive it untouched.
  */
+
+describe("one outlet does not close every sentence", () => {
+  it("caps repeated attribution at three mentions and keeps the fact", () => {
+    const blocks = [
+      {
+        text:
+          "Teams see usage, according to Cloudflare. Spending rose, according to Cloudflare. " +
+          "Models are overkill, according to Cloudflare. Costs fell, according to Cloudflare.",
+      },
+    ];
+    const removed = capAttributionRepetition(blocks);
+    expect(removed).toBe(1);
+    expect((blocks[0]!.text.match(/according to Cloudflare/g) ?? []).length).toBe(3);
+    expect(blocks[0]!.text).toContain("Costs fell.");
+    expect(blocks[0]!.text).not.toContain("Costs fell, according to");
+  });
+});
+
+/**
+ * The 2026-10-02 briefing's own failures. Every string below reached a reader
+ * on that briefing; each rule is the smallest thing that refuses it, and each
+ * decoy is a real sentence that must survive.
+ */
+describe("publisher furniture never becomes an article sentence", () => {
+  it("refuses a masthead bio, an arXiv solicitation and a vendor ad unit", () => {
+    for (const text of [
+      "Michael Larabel is the principal author of Phoronix.",
+      "Michael has written more than 20,000 articles covering the state of Linux hardware support.",
+      "Com and founded the site in 2004 with a focus on enriching the Linux hardware experience.",
+      "Have an idea for a project that will add value for arXiv's community?",
+      "ArXiv is committed to these values and only works with partners that adhere to them.",
+      "Attackers are using AI to accelerate reconnaissance, compromise identities and escalate access.",
+      "Get 50% off a second pass The Disrupt experience is meant to be shared.",
+      "Cover more ground by making connections, building momentum, and discovering what's next in the startup ecosystem.",
+      "Go deeper with TH Premium: Chipmaking.",
+      "Stop calling it safe. Stop pretending it's human.",
+      "He can be followed via Twitter, LinkedIn, or contacted via MichaelLarabel.",
+    ]) {
+      expect(publisherFurniture(text), text).toBe(true);
+      expect(unitTextRejection(text, false), text).toBe("editorial_noise");
+      expect(editorialNoise(text), text).toBe(true);
+    }
+  });
+
+  it("keeps ordinary reporting that merely mentions a publisher word", () => {
+    for (const text of [
+      "The purchase price represents a significant premium over what analysts estimated.",
+      "Regulators will review the subscription terms before the deal closes.",
+      "The company said the report is available to existing customers.",
+      "A researcher at NYU said the game has a massive amount of hidden information.",
+    ]) {
+      expect(publisherFurniture(text), text).toBe(false);
+      expect(unitTextRejection(text, false), text).toBeNull();
+    }
+  });
+});
+
+describe("a cut-off extraction seam is not a sentence", () => {
+  it("refuses a trailing initial, an unclosed bracket and a tight splice", () => {
+    expect(
+      validDeterministicSentence(
+        "The $300 million employee tender was co-led by Wellington and T.",
+      ),
+    ).toBe(false);
+    expect(
+      validDeterministicSentence(
+        'Py") that is designed to establish a reverse shell to "45.141.21[.',
+      ),
+    ).toBe(false);
+    expect(
+      validDeterministicSentence(
+        "However, When Reddit said that there's no replacement for the use of RSS feeds that were being used.",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a name whole across its initial and splits a caption pasted onto a sentence", () => {
+    expect(
+      readerSentences(
+        "The tender was co-led by Wellington and T. Rowe Price, large institutional investors.",
+      ),
+    ).toEqual([
+      "The tender was co-led by Wellington and T. Rowe Price, large institutional investors.",
+    ]);
+    expect(
+      readerSentences(
+        "On 30 September 2026 the group asked the court for an injunction.Stop calling it safe.",
+      ),
+    ).toEqual([
+      "On 30 September 2026 the group asked the court for an injunction.",
+      "Stop calling it safe.",
+    ]);
+  });
+});
+
+describe("a subheading glued to its prose is stripped, not published", () => {
+  it("removes the label and keeps the sentence under it", () => {
+    expect(
+      stripHeadingLabel("Advance warning: The pipeline detected nearly 80% of major events."),
+    ).toBe("The pipeline detected nearly 80% of major events.");
+    expect(
+      stripHeadingLabel("End-to-end forecasting: A machine learning pipeline uses solar wind."),
+    ).toBe("A machine learning pipeline uses solar wind.");
+  });
+
+  it("leaves a speaker and a lowercase clause alone", () => {
+    expect(stripHeadingLabel("He said: The company will grow this year.")).toBe(
+      "He said: The company will grow this year.",
+    );
+    expect(stripHeadingLabel("Pay Per Use: when AI uses your work you should get paid.")).toBe(
+      "Pay Per Use: when AI uses your work you should get paid.",
+    );
+  });
+});
 
 describe("a fronted frame is commentary, not the fact", () => {
   it("keeps the fact and drops the frame around it", () => {
@@ -971,5 +1096,119 @@ describe("a share of respondents is a statistic", () => {
     // A count of named people is not a finding about a population.
     expect(isShareStatistic("Only three customers complained.")).toBe(false);
     expect(isShareStatistic("The company deployed four agents.")).toBe(false);
+  });
+});
+
+describe("a caption pasted onto a sentence with no punctuation is cut back apart", () => {
+  // The 2026-10-02 briefing's China read, stored with its image caption and a
+  // subhead glued to the prose they illustrate -- no period, no comma, nothing
+  // for a splitter to find.
+  const surveyJoin =
+    "Research has found some Chinese children prefer talking to AI over people A survey of 8,563 primary and secondary students in China in 2025, which has been widely quoted in Chinese state media, found that one in five children said they only wanted to speak with AI and not real people.";
+  const quoteJoin =
+    "China is trying to tackle its low birth rate \"It's plausible that when they're drafting it, the government might have in mind China's looming population crisis,\" says Qian.";
+
+  it("splits a survey caption off the sentence it was pasted onto", () => {
+    expect(captionSeamSplit(surveyJoin)).toEqual([
+      "Research has found some Chinese children prefer talking to AI over people",
+      "A survey of 8,563 primary and secondary students in China in 2025, which has been widely quoted in Chinese state media, found that one in five children said they only wanted to speak with AI and not real people.",
+    ]);
+    expect(readerSentences(surveyJoin)).toHaveLength(2);
+  });
+
+  it("splits a subhead off the quotation pasted under it", () => {
+    const parts = readerSentences(quoteJoin);
+    expect(parts).toHaveLength(2);
+    expect(parts[0]).toBe("China is trying to tackle its low birth rate");
+    expect(parts[1]).toMatch(/^"It's plausible/);
+  });
+
+  it("keeps speech, epithets, titles and lowercase prose whole", () => {
+    // A quote handed to its verb: the verb is the speaker.
+    expect(
+      captionSeamSplit(
+        'The audit found "It is plausible that when they are drafting it, the government might have in mind a looming crisis," says Qian.',
+      ),
+    ).toHaveLength(1);
+    // An epithet is not reported speech, whatever follows it.
+    expect(
+      captionSeamSplit('The company called the report "deeply flawed," says the CEO.'),
+    ).toHaveLength(1);
+    // A quote after a preposition is a title, not speech.
+    expect(
+      captionSeamSplit(
+        'The minister described the plan as "the biggest reform in the agency\'s history," says the ministry.',
+      ),
+    ).toHaveLength(1);
+    // Lowercase prose, and a capitalised title that is no caption opener.
+    expect(
+      captionSeamSplit("Gartner found in a survey of 1,000 adults that spending rose."),
+    ).toHaveLength(1);
+    expect(
+      captionSeamSplit("Ministers pointed to The Report of the Commission into banking conduct."),
+    ).toHaveLength(1);
+    // Nothing is cut inside a quotation.
+    expect(
+      captionSeamSplit('She said "the plan A survey of voters backed was never real."'),
+    ).toHaveLength(1);
+  });
+
+  it("publishes both halves of a pasted caption as facts", () => {
+    const { facts } = selectReaderEvidence("China restricts AI companions", [
+      {
+        excerpt: "Beijing has cracked down on AI chatbots that can replicate human relationships.",
+        enrichedEvidence: [{ kind: "fact", text: surveyJoin }],
+      },
+    ]);
+    expect(
+      facts.some((fact) => fact.text.startsWith("Research has found some Chinese children")),
+    ).toBe(true);
+    expect(
+      facts.some((fact) =>
+        fact.text.startsWith("A survey of 8,563 primary and secondary students"),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("a unit that opens inside a name is refused against its source's own text", () => {
+  // TechCrunch stored "... co-led by Wellington and T. Rowe Price." as two units,
+  // cut at the initial's full stop; the tail passed every local test it faced.
+  const tender = "The $300 million employee tender was co-led by Wellington and T. Rowe Price.";
+  const orphan =
+    "Rowe Price, large institutional investors that back private companies with the intention of retaining the stock after the company goes public.";
+
+  it("refuses the tail when the head lives in another unit", () => {
+    expect(unitTextRejection(orphan, false, `Reuters reported the news. ${tender}`)).toBe(
+      "invalid_sentence",
+    );
+  });
+
+  it("keeps a sentence that opens with a whole name, or without the source to compare", () => {
+    expect(unitTextRejection(orphan, false)).toBeNull();
+    expect(
+      unitTextRejection(
+        "T. Rowe Price, large institutional investors, backed the tender.",
+        false,
+        tender,
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps a bare surname opening a sentence", () => {
+    expect(
+      unitTextRejection(
+        "Smith expects earnings to rise this year.",
+        false,
+        "The analysis came from J. Smith expects rates to fall.",
+      ),
+    ).toBeNull();
+    expect(
+      unitTextRejection(
+        "Rowe Price, large institutional investors, backed the tender.",
+        false,
+        "Rowe Price was founded in 1937.",
+      ),
+    ).toBeNull();
   });
 });

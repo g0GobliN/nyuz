@@ -253,9 +253,16 @@ const CLOCK_TIME = /\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)\b/i;
 
 /** Words a sentence can open on without naming anybody. */
 const CLAUSE_OPENER = new Set(
-  "the a an this that these those it they he she we you i both some many most all each every no not there here another such one two three other others".split(
-    " ",
-  ),
+  (
+    "the a an this that these those it they he she we you i both some many most all each every " +
+    "no not there here another such one two three other others " +
+    // Prepositions and subordinators that open a new clause. A capitalised one
+    // after a verbless head with no punctuation is a heading or an image caption
+    // glued to its paragraph: "...with social media firms in China For adults, it
+    // is not a hard ban" arrived that way on the 2026-10-02 briefing.
+    "for with in on as to at from by into about over under during after before when while " +
+    "because if since although though"
+  ).split(" "),
 );
 
 /** Every verb form, not only the finite ones, for the seam test below. */
@@ -393,6 +400,119 @@ export function sourceSeam(text: string): string | null {
 }
 const NOISE =
   /\b(?:welcome back|weekly column|this week['’]s (?:column|newsletter)|as regular readers know|subscribe to|sign up for|click here|read more|continue reading|cookie policy|all rights reserved|follow us on|share this article|related articles|the coverage centers on|amount mentioned|percentage mentioned|entity mentioned|source count|evidence suggests|nyuz has also covered)\b|\bthe post\b.*\bappeared first on\b|^(?:advertisement|image credit|photo credit|hopefully\b|the takeaway\b)/i;
+
+/**
+ * Publisher furniture and promotion, which is not news.
+ *
+ * A fetched article page is not only its article: `<p>` markup also wraps a
+ * masthead bio, a repository's own fundraising line, a vendor's house ad, the
+ * newsletter's call to action, and a paywalled series' sales blurb. `html-text`
+ * strips `footer`/`aside`/`nav`, but these units sit inside the article column
+ * on the live pages this reads, so they arrive as prose and pass every grammar
+ * test -- they are sentences. The 2026-10-02 briefing read them back to a reader
+ * on 8 of its 25 stories: Phoronix's author bio became an OpenMandriva and a
+ * Qualcomm read (one of them *entirely* biology, with no article left), arXiv's
+ * "Have an idea for a project" solicitation appeared mid-abstract, The Hacker
+ * News' ad unit for a security vendor closed a Citrix story, and TechCrunch's
+ * Disrupt promo split a sentence in half.
+ *
+ * A closed set of phrases, each of which is only ever the publication talking
+ * about itself or selling something. It *rejects* the sentence rather than
+ * repairing it -- a masthead bio has no fact in it to keep -- and it is applied
+ * at the same boundary as `NOISE` so the enrichment pass and the composer agree
+ * about what a source's sentence is.
+ */
+const PUBLISHER_FURNITURE = new RegExp(
+  [
+    // Masthead and author bio (Phoronix, and the shape generally).
+    String.raw`\bprincipal author\b`,
+    String.raw`\bhas written more than [\d,]+ articles\b`,
+    String.raw`\bPhoronix Test Suite\b`,
+    String.raw`\bAll trademarks used are properties\b`,
+    String.raw`\bfounded the site in \d{4}\b`,
+    String.raw`\b(?:is|are) also the lead developer\b`,
+    // The masthead's contact block, which follows the bio on the same page.
+    String.raw`\b(?:he|she|the author) can be (?:followed|contacted|reached)\b`,
+    String.raw`\bcontacted via\b`,
+    String.raw`\bcan be reached at\b`,
+    String.raw`\bsend (?:news )?tips? (?:to|at)\b`,
+    String.raw`\bfor news tips\b`,
+    // A repository's own solicitation and values page (arXiv).
+    String.raw`\bHave an idea for a project\b`,
+    String.raw`\bcommitted to these values\b`,
+    String.raw`\bonly works with partners that adhere\b`,
+    String.raw`\badd value for arXiv['’]s? community\b`,
+    // A vendor ad unit embedded in the article column (The Hacker News).
+    String.raw`\bruntime identity controls?\b`,
+    String.raw`\bAI agents are already operating inside enterprises\b`,
+    String.raw`\bsecurity teams still lack the visibility\b`,
+    String.raw`\bcompromise identities and escalate access\b`,
+    String.raw`\bfight back with\b`,
+    // Conference and subscription promotion (TechCrunch, Tom's Hardware).
+    String.raw`\bGet \d+% off\b`,
+    String.raw`\bThe Disrupt experience\b`,
+    String.raw`\bCover more ground by making connections\b`,
+    String.raw`\bdiscovering what['’]s next in the startup ecosystem\b`,
+    String.raw`\bGo deeper with\b`,
+    String.raw`\bTH Premium\b`,
+    String.raw`\bTom['’]s Hardware Premium\b`,
+    String.raw`\bat [A-Z][\w'’.]*(?:\s+[A-Z][\w'’.]*){0,3} Premium\b`,
+    // The teaser bullets of that paywalled series, which arrive as standalone
+    // noun phrases once the heading above them is stripped.
+    String.raw`\bfoundry roadmaps? for\b`,
+    String.raw`\bchipmaking lithography tools\b`,
+    String.raw`\bchipmaking tool roadmaps?\b`,
+    // Generic calls to action.
+    String.raw`\bSubscribe (?:now|today|to this|for)\b`,
+    String.raw`\bSign up (?:now|today|for your|to)\b`,
+    String.raw`\bRegister (?:now|today|free)\b`,
+    String.raw`\bDownload (?:the|our|your) (?:free )?(?:guide|report|ebook|whitepaper)\b`,
+    String.raw`\bsponsored (?:content|post|by)\b`,
+    String.raw`\baffiliate (?:links?|commission)\b`,
+    String.raw`\blearn more at\b`,
+    String.raw`\bLet['’]s show how it works\b`,
+    // Campaign copy, which arrives inside a news post as a caption or a slogan.
+    String.raw`\bStop (?:calling|pretending|selling) it\b`,
+  ].join("|"),
+  "i",
+);
+
+/**
+ * Whether a candidate sentence is the publication talking about itself or
+ * selling something, rather than reporting. Exported so the enrichment pass and
+ * the composer both read one rule.
+ */
+export function publisherFurniture(text: string): boolean {
+  return PUBLISHER_FURNITURE.test(text);
+}
+
+/**
+ * The source's own subheading, glued to the sentence under it.
+ *
+ * A research blog writes "Advance warning: The pipeline detected ...", and the
+ * extractor concatenates the heading and the paragraph into one unit. The result
+ * passes every grammar test -- the label is a noun phrase, the sentence after it
+ * is complete -- and reaches the reader as a colon-led fragment: the 2026-10-02
+ * Microsoft Research read carried "End-to-end forecasting:", "Physics and
+ * place:" and "Advance warning:" as sentence openers, and a vendor blog turned
+ * "Define what counts as a paid use" into a subhead.
+ *
+ * The label is removed rather than the sentence refused, because the sentence
+ * under it is the article. Bounded to four words, to a capitalised opener and a
+ * capitalised continuation, and to labels that do not end on a reporting verb --
+ * "He said: ..." keeps its speaker.
+ */
+const HEADING_LABEL = /^[A-Z][\w'’-]*(?:\s+[A-Za-z][\w'’-]*){0,3}:\s+(?=[A-Z“"])/;
+const REPORTING_LABEL_TAIL =
+  /\b(?:said|says|reports?|reported|announced|added|notes?|noted|claimed|argued|wrote|stated|explained|confirmed|warned|told)\b\s*:?\s*$/i;
+
+export function stripHeadingLabel(text: string): string {
+  const match = HEADING_LABEL.exec(text);
+  if (!match) return text;
+  if (REPORTING_LABEL_TAIL.test(match[0])) return text;
+  const rest = text.slice(match[0].length);
+  return rest.length >= MIN_SENTENCE_CHARS ? rest : text;
+}
 const VOICE =
   /\b(?:we|we['’](?:ve|re|ll|d)|our|ours|you|your|as I remember|i|i['’](?:ve|m|ll|d)|me|my|mine|myself)\b/i;
 const COMMENTARY =
@@ -548,7 +668,11 @@ export function publisherVoice(text: string): boolean {
 
 export function editorialNoise(text: string): boolean {
   return (
-    NOISE.test(text) || publisherVoice(text) || COMMENTARY.test(text) || SOURCE_COLOUR.test(text)
+    NOISE.test(text) ||
+    publisherVoice(text) ||
+    COMMENTARY.test(text) ||
+    SOURCE_COLOUR.test(text) ||
+    PUBLISHER_FURNITURE.test(text)
   );
 }
 
@@ -1650,30 +1774,147 @@ const COMMON_ENTITY_WORDS = new Set(
   ),
 );
 
+/**
+ * A caption pasted onto a sentence, with no punctuation where the paste happened.
+ *
+ * An article page's image captions and subheads are not always separate elements
+ * in the fetched markup; when they are not, they arrive joined to the paragraph
+ * they illustrate. `headingSeam` catches the heading-after-heading form, whose
+ * head is verbless -- but a caption can also follow a *complete* sentence:
+ *
+ *   "Research has found some Chinese children prefer talking to AI over people
+ *    A survey of 8,563 primary and secondary students in China in 2025, ..."
+ *
+ * arrived that way on the 2026-10-02 briefing, and so did a subhead glued to the
+ * quotation under it: "China is trying to tackle its low birth rate "It's
+ * plausible that ...",". Both seams are made of nothing -- no period, no comma.
+ * Prose never holds a capitalised "A survey of" after a lowercase word, so the
+ * seam can be cut back apart, and both halves read on their own -- which is why
+ * this splits instead of refusing, where `headingSeam` refuses.
+ *
+ * The quotation form is bounded hard, because `He said "..."` is ordinary prose:
+ * the word before the opening mark must not be a speech verb or a preposition (a
+ * quote after "as" or "of" is an epithet or a title, not reported speech), the
+ * run before it must hold no comma, the quotation must be long enough to be
+ * reported speech rather than an epithet, and an attribution must follow the
+ * closing mark.
+ */
+const CAPTION_SEAM =
+  /\s(?=(?:A|The|New|Its|Their)\s+(?:survey|polling|poll|study|census|review|analysis|investigation)\s+(?:of|into|on|by|across|among|conducted|carried|released|published|covering)\b)/g;
+
+/**
+ * Words the run before a quotation may not end on for the run to be a paste
+ * seam: speech verbs hand the quote its speaker in place, and a preposition or
+ * relative pronoun makes the quote the object of the sentence it is in.
+ */
+const SPEECH_TAIL = new Set(
+  (
+    "said says told asked wrote added noted explained argued stated replied claims claimed " +
+    "according per called described labelled labeled dubbed branded termed quoted " +
+    "as like of for with by to in on at than into about from that which who whom"
+  ).split(" "),
+);
+
+/** A quotation shorter than this is an epithet ("deeply flawed"), not speech. */
+const QUOTE_SEAM_MIN_CHARS = 40;
+
+function quoteSeamAt(text: string): number[] {
+  const positions: number[] = [];
+  for (let index = 2; index < text.length; index += 1) {
+    const mark = text[index];
+    if (mark !== '"' && mark !== "“") continue;
+    // A lowercase word, one space, no punctuation: "... its low birth rate "It's
+    // plausible ...". Punctuation before the quote is a clause boundary, and a
+    // capital before it is a name, not a seam.
+    if (text[index - 1] !== " " || !/[a-z]/.test(text[index - 2] ?? "")) continue;
+    const before = text.slice(0, index - 1);
+    if (unbalancedQuotes(before)) continue;
+    const words = before.split(/\s+/).filter(Boolean);
+    // "He said " ... " stays one sentence: the quote is the verb's object, and
+    // the verb is its speaker.
+    if (words.length < 4 || SPEECH_TAIL.has((words.at(-1) ?? "").toLowerCase())) continue;
+    // A comma in the run before the quote is a clause boundary: the quote is
+    // part of the sentence it sits in, however long it is.
+    if (before.includes(",")) continue;
+    const closing = text.indexOf(mark === '"' ? '"' : "”", index + 1);
+    if (closing < 0 || closing - index - 1 < QUOTE_SEAM_MIN_CHARS) continue;
+    if (!/^\s*,?\s*(?:says|said|per)\s+[A-Z]/.test(text.slice(closing + 1))) continue;
+    positions.push(index);
+  }
+  return positions;
+}
+
+/**
+ * The text cut at every caption paste seam, as the sentences it was made of.
+ *
+ * Returns one part when there is no seam, so callers can map over it either way.
+ * A seam inside a quotation is the quote's own text, never a paste, so a seam
+ * with an unbalanced quotation to its left is skipped.
+ */
+export function captionSeamSplit(text: string): string[] {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) return [];
+  const seams: { left: number; next: number }[] = [];
+  for (const match of clean.matchAll(CAPTION_SEAM)) {
+    const space = match.index ?? -1;
+    if (space > 0) seams.push({ left: space, next: space + 1 });
+  }
+  for (const quote of quoteSeamAt(clean)) seams.push({ left: quote, next: quote });
+  seams.sort((a, b) => a.left - b.left);
+  const parts: string[] = [];
+  let start = 0;
+  for (const seam of seams) {
+    if (seam.left <= start) continue;
+    if (unbalancedQuotes(clean.slice(0, seam.left))) continue;
+    parts.push(clean.slice(start, seam.left).trim());
+    start = seam.next;
+  }
+  parts.push(clean.slice(start).trim());
+  return parts.filter(Boolean);
+}
+
 /** Do not split a quotation away from its speaker or split decimals and versions. */
 export function readerSentences(text: string): string[] {
-  const clean = text.replace(/\s+/g, " ").trim();
   const out: string[] = [];
-  let quote = "";
-  let start = 0;
-  for (let i = 0; i < clean.length; i++) {
-    const c = clean[i];
-    if (c === '"') quote = quote === '"' ? "" : quote || '"';
-    if (c === "“") quote = "”";
-    if (c === "”") quote = "";
-    const end =
-      /[.!?]/.test(c ?? "") || ((c === '"' || c === "”") && /[.!?]/.test(clean[i - 1] ?? ""));
-    if (
-      !quote &&
-      end &&
-      clean[i + 1] === " " &&
-      !/^(?:said|says|he|she|they|according|told)\b/.test(clean.slice(i + 2))
-    ) {
-      out.push(clean.slice(start, i + 1).trim());
-      start = i + 2;
+  // A caption pasted onto a sentence leaves no punctuation between them, so the
+  // scanner below has no boundary to find. The seam is cut first, while it is
+  // still detectable, and each half is then read as the sentence it is.
+  for (const clean of captionSeamSplit(text)) {
+    let quote = "";
+    let start = 0;
+    for (let i = 0; i < clean.length; i++) {
+      const c = clean[i];
+      if (c === '"') quote = quote === '"' ? "" : quote || '"';
+      if (c === "“") quote = "”";
+      if (c === "”") quote = "";
+      const end =
+        /[.!?]/.test(c ?? "") || ((c === '"' || c === "”") && /[.!?]/.test(clean[i - 1] ?? ""));
+      if (
+        !quote &&
+        end &&
+        // A boundary is a full stop before a space, or before a capital letter with
+        // no space at all -- what pasting a caption onto a sentence leaves behind:
+        // "... for a temporary injunction.Stop calling it safe." The tight form
+        // needs a lowercase letter before the stop, so "U.S.Army" and "3.5" are
+        // not boundaries.
+        (clean[i + 1] === " " ||
+          (/[A-Z]/.test(clean[i + 1] ?? "") && /[a-z]/.test(clean[i - 1] ?? ""))) &&
+        // A sentence does not end at a single-capital initial: "... by Wellington
+        // and T. Rowe Price, large institutional investors..." was split into a
+        // fragment ending "T." and a second starting "Rowe Price", which the
+        // composer then published as two. Only a name's initial looks like this, so
+        // the split is held back and the sentence stays whole.
+        !/(?:^|\s)[A-Z]$/.test(clean.slice(Math.max(0, i - 2), i)) &&
+        !/^(?:said|says|he|she|they|according|told)\b/.test(
+          clean.slice(clean[i + 1] === " " ? i + 2 : i + 1),
+        )
+      ) {
+        out.push(clean.slice(start, i + 1).trim());
+        start = clean[i + 1] === " " ? i + 2 : i + 1;
+      }
     }
+    if (start < clean.length) out.push(clean.slice(start).trim());
   }
-  if (start < clean.length) out.push(clean.slice(start).trim());
   return out.filter(Boolean);
 }
 
@@ -1834,6 +2075,8 @@ export type ReaderFact = {
   sourceOrder: number;
   previousText?: string;
   nextText?: string;
+  /** The fact's own source's whole text, for the mid-name fragment test. */
+  sourceContext?: string;
   /**
    * Set when this unit was dropped because its narrator's subject could not be
    * restored without guessing (`resolveNarrator`). The unit is still counted, and
@@ -1853,7 +2096,36 @@ export type DeterministicFactType =
   | "comparison"
   | "future_action";
 
+/**
+ * A sentence beginning on the tail of a domain name.
+ *
+ * A feed description that quoted a site's own about page arrives as
+ * "Phoronix.org automated benchmarking software." -- split at the full stop, so
+ * the second half opens on "Org". The words after it are grammatical, which is
+ * why nothing else refuses it, and the result reads as nonsense under a
+ * headline. Only true Web TLDs are listed, and only where they are a common
+ * English word is excluded (`Co`, `Net`), so "Net income rose 5%" survives.
+ */
+const TRUNCATED_DOMAIN_OPENING = /^(?:Org|Com|Gov|Edu|Info|Biz|Xyz)\s+[a-z]/;
+
 const DANGLING_OPENING = /^(?:and|but|or|so|yet|then|also),?\s+/i;
+/**
+ * A connector left attached to the capitalised sentence that followed it: two
+ * sentences the splitter never separated, published as one. "However, When
+ * Reddit said that there's no replacement ..." (TechCrunch, 2026-10-02) is the
+ * shape -- grammatical on neither side of the comma, and no other rule reads it
+ * as anything but a long sentence. The capital is required, so "However, the
+ * company said" keeps its ordinary use.
+ */
+const SPLICE_OPENING =
+  /^(?:and|but|or|so|yet|then|also|however|instead|meanwhile|moreover|furthermore|still|thus|therefore|plus),?\s+(?=[A-Z])/;
+/**
+ * A comma followed by a capitalised subordinator, which is never a real clause
+ * boundary: "..., When X", "..., While Y". The same splice as above, where the
+ * second sentence happens to open on a subordinator rather than a connector.
+ */
+const COMMA_SUBORDINATOR =
+  /,\s+(?:When|While|Because|Although|Though|If|Since|After|Before|Once|As|Unless|Until|Whether)\s/;
 const BROKEN_ATTRIBUTION =
   /^(?:according to|as reported by)\s+[^,]+,\s*(?:once|when|while|because|although|and|but)\b/i;
 const FRAGMENT_OPENING = /^(?:no|not|adds? that|said that|which|where|how)\s+/i;
@@ -1926,6 +2198,37 @@ export const MAX_SENTENCE_CHARS = 420;
 export const MIN_PARAGRAPH_WORDS = 8;
 export const MAX_PARAGRAPH_WORDS = 220;
 
+/**
+ * A section heading that opens on a gerund and has no finite verb in it.
+ *
+ * "Forecasting a threat to critical infrastructure." and "Evaluating
+ * geomagnetic forecasts and infrastructure risk." are the Microsoft Research
+ * read's own section titles, concatenated with the paragraph under them by the
+ * extractor and published as sentences. A gerund is a verb form, so
+ * `hasPredicate` accepts them.
+ *
+ * Bounded hard, because a real short sentence can open on a gerund ("Running
+ * improves health."): at most nine words, no comma, no digit, no second
+ * capitalised word and no finite auxiliary. A heading carries none of those; a
+ * sentence reporting something almost always carries one.
+ */
+function bareGerundHeading(text: string): boolean {
+  const match = /^[A-Z][a-z]+ing\b([^.!?]*)[.!?]?$/.exec(text.trim());
+  if (!match) return false;
+  if (text.trim().split(/\s+/).length > 9) return false;
+  const rest = match[1] ?? "";
+  if (/[,\d]/.test(rest)) return false;
+  if (/\b[A-Z][a-z]{2,}/.test(rest)) return false;
+  if (
+    /(?:\b(?:is|are|was|were|has|have|had|will|would|can|could|may|might|must|should|does|do|did)\b)/i.test(
+      rest,
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
 /** A phrase repeated three times or more is padding or boilerplate, not prose. */
 function repetitionBomb(text: string): boolean {
   const words = (text.match(/[\p{L}\p{N}]+/gu) ?? []).map((word) => word.toLowerCase());
@@ -1957,8 +2260,18 @@ export function validDeterministicSentence(value: string): boolean {
   // is a leak from a route that skipped it.
   if (HTML_LEFTOVER.test(text) || hasVisibleEntity(text)) return false;
   if (DANGLING_OPENING.test(text) || FRAGMENT_OPENING.test(text)) return false;
+  if (TRUNCATED_DOMAIN_OPENING.test(text)) return false;
+  if (SPLICE_OPENING.test(text) || COMMA_SUBORDINATOR.test(text)) return false;
+  if (bareGerundHeading(text)) return false;
   if (BROKEN_ATTRIBUTION.test(text)) return false;
   if (/[,:;]$/.test(text) || /(?:\.\.\.|…)\s*$/.test(text)) return false;
+  // Cut-off extraction seams, which are not sentences. "...45.141.21[.[" is an
+  // ad unit spliced into a payload the splitter then halved; a run that ends on
+  // an opener, or carries one unclosed, is the same class of half-unit.
+  if (/[[({]$/.test(text) || unbalancedBrackets(text)) return false;
+  // A name truncated to its initial: "... was co-led by Wellington and T." is the
+  // front half of "T. Rowe Price", split at the initial's full stop.
+  if (/\s[A-Z]\.$/.test(text)) return false;
   if ((text.match(/["“]/g)?.length ?? 0) !== (text.match(/["”]/g)?.length ?? 0)) return false;
   if (/^(?:the )?(?:report|study|article),?\s*[A-Z][^.!?]{0,80}\??$/.test(text)) return false;
   if (repetitionBomb(text)) return false;
@@ -1999,6 +2312,42 @@ export function unbalancedQuotes(text: string): boolean {
 }
 
 /**
+ * Whether a bracket opened in this unit was never closed in it -- a citation,
+ * an aside or a footnote left half-copied by the extractor.
+ *
+ * Counts only the ASCII pairs an article body uses; a bracketed aside that
+ * closes is prose and stays.
+ */
+export function unbalancedBrackets(text: string): boolean {
+  const pairs: [RegExp, RegExp][] = [
+    [/\[/g, /\]/g],
+    [/\(/g, /\)/g],
+    [/\{/g, /\}/g],
+  ];
+  return pairs.some(
+    ([open, close]) => (text.match(open)?.length ?? 0) !== (text.match(close)?.length ?? 0),
+  );
+}
+
+/**
+ * Whether a unit opens inside a name the source spells in full somewhere else.
+ *
+ *   unit    "Rowe Price, large institutional investors that back private ..."
+ *   context "... co-led by Wellington and T. Rowe Price."
+ *
+ * The stored unit is the tail of one sentence an earlier split cut in half at
+ * the initial's full stop. The two opening tokens are both capitalised -- a
+ * bare surname opening a sentence is ordinary prose ("Smith expects earnings
+ * to rise."), and a name that opens with its initial ("T. Rowe Price said ...")
+ * is whole -- so the rule only fires on the middle of a multi-token name.
+ */
+function nameContinuationFragment(text: string, context: string): boolean {
+  const opening = /^([A-Z][a-z]+)\s+([A-Z][a-z]+)\b/.exec(text.trim());
+  if (!opening) return false;
+  return new RegExp(`\\b[A-Z]\\.\\s+${opening[1]}\\s+${opening[2]}\\b`).test(context);
+}
+
+/**
  * The textual rules a candidate unit must satisfy to become a published fact.
  *
  * Shared, because there is more than one path that can turn a source sentence
@@ -2010,7 +2359,11 @@ export function unbalancedQuotes(text: string): boolean {
  * anyway. One predicate, so "refused" means refused wherever the sentence is
  * re-read from.
  */
-export function unitTextRejection(text: string, quote: boolean): EvidenceRejectionReason | null {
+export function unitTextRejection(
+  text: string,
+  quote: boolean,
+  context?: string,
+): EvidenceRejectionReason | null {
   // A subhead that arrived as a unit of its own, first, because it passes every
   // test below: "Why identity built for humans breaks at agent speed" has a
   // subject and a verb, which is why a heading used to reach the page as a
@@ -2022,6 +2375,19 @@ export function unitTextRejection(text: string, quote: boolean): EvidenceRejecti
   // category of its own, because that is exactly what the unit stopped being: one
   // sentence. See `sourceSeam` for why the seam cannot be cut back apart.
   if (sourceSeam(text)) return "invalid_sentence";
+  // A unit that begins inside a name the source spells in full elsewhere:
+  // "Rowe Price, large institutional investors ..." after "Wellington and T.
+  // Rowe Price" is the tail of one sentence that an earlier split cut in half at
+  // the initial. The head is in another unit, so this one has no subject -- but
+  // it carries verbs enough to pass every local test ("that back", "goes"),
+  // which is why the source's own text decides.
+  if (context && nameContinuationFragment(text, context)) return "invalid_sentence";
+  // The publication's own furniture: a masthead bio, an arXiv solicitation, a
+  // vendor's ad unit, a conference promo. A closed phrase set, because grammar
+  // cannot refuse these -- they are complete sentences -- and it is read before
+  // the grammar test so a unit that is furniture is counted as furniture rather
+  // than as the invalid sentence its truncation also makes it.
+  if (publisherFurniture(text)) return "editorial_noise";
   if (!validDeterministicSentence(text)) return "invalid_sentence";
   if (unresolvableContext(text)) return "unresolved_context";
   if (/…$|\.\.\.$/.test(text)) return "trailing_ellipsis";
@@ -2776,12 +3142,22 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
     // Use both existing evidence stores: an enrichment cap must not hide an RSS fact.
     // The source-local neighbors are kept only in memory; they are never emitted as
     // a paragraph and are used solely to repair a small, explicit context dependency.
+    let enrichedOrder = 0;
     const units = [
-      ...(source.enrichedEvidence ?? []).map((u, order) => ({
-        ...u,
-        origin: "enriched" as const,
-        sourceOrder: order,
-      })),
+      // A stored unit may hold more than one sentence -- a multi-sentence extract,
+      // or a caption pasted onto the sentence above it with no punctuation between
+      // them (`captionSeamSplit`). Quotes stay whole: their attribution wraps the
+      // entire text.
+      ...(source.enrichedEvidence ?? []).flatMap((u) =>
+        u.kind === "quote"
+          ? [{ ...u, origin: "enriched" as const, sourceOrder: enrichedOrder++ }]
+          : captionSeamSplit(u.text).map((text) => ({
+              ...u,
+              text,
+              origin: "enriched" as const,
+              sourceOrder: enrichedOrder++,
+            })),
+      ),
       ...readerSentences(source.excerpt ?? "").map((text, order) => ({
         text,
         kind: "fact",
@@ -2790,13 +3166,17 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
         sourceOrder: order,
       })),
     ];
+    // The source's whole text, for the mid-name fragment test: a unit that begins
+    // inside a name the source spells in full somewhere else was cut at storage
+    // time, and its head ("T. Rowe") lives in a different unit.
+    const sourceContext = [source.excerpt ?? "", ...units.map((unit) => unit.text)].join(" ");
     for (const [unitIndex, unit] of units.entries()) {
       const previousText = units[unitIndex - 1]?.text;
       const nextText = units[unitIndex + 1]?.text;
       const quote = unit.kind === "quote" && !!unit.attribution;
       let text = quote
         ? `${unit.attribution} said: "${unit.text}"`
-        : unit.text.trim().replace(/®$/, "");
+        : stripHeadingLabel(unit.text.trim().replace(/®$/, ""));
       // "When we started work on that story, X claimed $8 million" is the
       // publication describing its own writing, and the clause after the comma is
       // the fact. Naming the outlet is right -- the words are its report -- but
@@ -2901,6 +3281,7 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
         ...(previousText ? { previousText } : {}),
         ...(nextText ? { nextText } : {}),
         ...(narratorAmbiguous ? { narratorAmbiguous: true } : {}),
+        ...(sourceContext ? { sourceContext } : {}),
       });
     }
   });
@@ -2930,7 +3311,7 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
       ? "narrator_ambiguous"
       : fact.score <= -100
         ? "editorial_noise"
-        : unitTextRejection(text, fact.quote);
+        : unitTextRejection(text, fact.quote, fact.sourceContext);
     if (reason) {
       rejectionReasons[reason] += 1;
       rejected++;
