@@ -115,6 +115,12 @@ export function SiteNav({
       <header
         className={
           "fixed inset-x-0 top-0 z-50 transition-all duration-500 " +
+          // A phone that installed the site draws the page under its own status
+          // bar, and `viewport-fit=cover` is what lets it reach there -- so the
+          // strip itself has to start below it. This header is `fixed`, so the
+          // padding grows the header downward rather than moving it, which is
+          // why the document is given the same inset back below.
+          "pt-[env(safe-area-inset-top)] " +
           (scrolled ? "glass border-b border-hairline" : "")
         }
       >
@@ -221,6 +227,13 @@ export function SiteNav({
           </div>
         ) : null}
       </header>
+
+      {/* The inset the header's own padding consumed. The header is fixed, so
+          the padding that kept its row below the status bar did not move the
+          page: without this the first screenful would start under the taller
+          header instead. Zero in a browser tab, where the header keeps the
+          height it always had. */}
+      <div className="h-[env(safe-area-inset-top)]" aria-hidden="true" />
 
       {/* The header is fixed, so its children take no flow space and every page's
           top padding is measured from y=0. Rather than teach each page about the

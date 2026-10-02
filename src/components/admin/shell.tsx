@@ -236,8 +236,12 @@ export function AdminLayout() {
       </aside>
 
       <div className="lg:pl-60">
-        <header className="glass sticky top-0 z-30 border-b border-hairline bg-surface/85">
-          <div className="flex min-h-16 items-center gap-3 px-4 py-2 sm:px-7 lg:px-7">
+        <header className="glass sticky top-0 z-30 border-b border-hairline bg-surface/85 pt-[env(safe-area-inset-top)]">
+          {/* The console is reachable from the installed app's account menu, so
+              its chrome needs the same insets the reader's does: the header
+              clears the status bar above it, and the row's own side padding
+              takes over from the fixed step when a notch is beside it. */}
+          <div className="flex min-h-16 items-center gap-3 py-2 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:pl-[max(1.75rem,env(safe-area-inset-left))] sm:pr-[max(1.75rem,env(safe-area-inset-right))]">
             <div className="lg:hidden">
               <Logo />
             </div>
@@ -267,7 +271,7 @@ export function AdminLayout() {
               onClick={() => setMobileNavOpen(false)}
               className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-[2px] lg:hidden"
             />
-            <aside className="fixed inset-y-0 left-0 z-50 flex w-[min(21rem,calc(100vw-2rem))] flex-col overflow-y-auto border-r border-hairline bg-surface px-4 pb-6 pt-[max(1rem,env(safe-area-inset-top))] shadow-[var(--shadow-float)] lg:hidden">
+            <aside className="fixed inset-y-0 left-0 z-50 flex w-[min(21rem,calc(100vw-2rem))] flex-col overflow-y-auto border-r border-hairline bg-surface px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] shadow-[var(--shadow-float)] lg:hidden">
               <div className="flex items-center justify-between px-2">
                 <Logo />
                 <button

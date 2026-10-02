@@ -32,7 +32,7 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-background/70 px-5 pt-[12vh] backdrop-blur-md"
+      className="fixed inset-0 z-50 bg-background/70 pl-[max(1.25rem,env(safe-area-inset-left))] pr-[max(1.25rem,env(safe-area-inset-right))] pt-[12vh] backdrop-blur-md"
       onClick={onClose}
     >
       <div
