@@ -402,6 +402,34 @@ export function finalizeMetadata(
  * legitimate outcome, because headline plus sources is a better page than a
  * credit line presented as news.
  */
+/**
+ * Fronted discourse connectors: words that refer *backwards* to a sentence a
+ * feed description no longer contains. `Meanwhile, advanced chip packaging is
+ * emerging…` and `To address that matter, on Tuesday, Trump signed…` were both
+ * stored as events' entire summaries — the reader never saw the sentence that
+ * `Meanwhile` was meanwhile to. A summary that opens by referring back refers
+ * to nothing; dropping the connector keeps the sentence's content and loses
+ * only its dangling thread. Only the opening is touched, and only when the
+ * connector is followed by a comma — `meanwhile` mid-sentence is ordinary.
+ */
+const FRONTED_CONNECTOR =
+  /^(meanwhile|meantime|furthermore|moreover|additionally|however|therefore|thus|otherwise|instead|still|that said|in the meantime|to address (?:that|this)(?: matter| issue| concern| problem)?|to that end|in response|amid (?:that|this)|despite (?:that|this)|at the same time|on top of that|in any case|either way)\b,?\s*/iu;
+
+export function stripFrontedConnector(text: string): string {
+  let out = text;
+  // A summary can open with two of them (`So meanwhile, ...`); two passes, no
+  // loop — nothing in the corpus has three.
+  for (let i = 0; i < 2; i += 1) {
+    const next = out.replace(FRONTED_CONNECTOR, "");
+    if (next === out) break;
+    out = next;
+  }
+  // Capitalise the first letter that is left, so the sentence still reads as
+  // one: `meanwhile, advanced chip packaging is…` becomes `Advanced chip
+  // packaging is…`, not `advanced chip packaging is…`.
+  return out.replace(/^\s*(\p{Ll})/u, (match, letter: string) => letter.toUpperCase());
+}
+
 function summaryFor(title: string, candidate: string): string {
   const normalized = normalizeSourceText(undefined, candidate);
   if (normalized.metadataOnly) return "";
@@ -412,7 +440,7 @@ function summaryFor(title: string, candidate: string): string {
   // The headline is already the headline. Storing it here is what made every
   // such story's deck a duplicate of its own title.
   if (cleanText(text).toLowerCase() === cleanText(title).toLowerCase()) return "";
-  return text;
+  return stripFrontedConnector(text);
 }
 
 export function distinctNews<T>(items: readonly T[], title: (item: T) => string): T[] {

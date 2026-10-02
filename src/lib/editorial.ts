@@ -44,6 +44,7 @@ import {
   malformedAttribution,
   REPORTED_CLAUSE_WORDS,
 } from "./pipeline/source-text";
+import { stripFrontedConnector } from "./pipeline/news-signals";
 import { relatedContext } from "./related-events";
 import { repeats } from "./understand";
 
@@ -1125,6 +1126,14 @@ function qualityGate(
   // The deck is prose, so it is judged as prose. Indexing it only when it
   // already passed is what let a photo credit sit under a headline: an invalid
   // deck was never refused, because nothing here ever asked.
+  //
+  // Before judging: a deck opens a page nobody has read half of, so a
+  // backwards-referencing connector -- "Meanwhile, The Register reports that
+  // ..." shipped on the 2026-10-01 briefing -- must go. The event-summary
+  // path strips the same family (news-signals.ts); the deck takes the
+  // identical treatment here, at the one gate every deck path passes through,
+  // so the gate judges and publishes the same cleaned sentence.
+  if (deck.text.trim() !== "") deck.text = stripFrontedConnector(deck.text);
   const deckVerdict = deck.text.trim() === "" ? null : judgeFallbackDeck(deck.text, title);
   if (deckVerdict === null) {
     // Nothing to publish; the page renders headline and sources.

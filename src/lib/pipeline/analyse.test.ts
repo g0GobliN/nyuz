@@ -57,6 +57,40 @@ describe("deterministic event metadata", () => {
     );
   });
 
+  it("strips a fronted connector that refers back to text a feed dropped", () => {
+    // Both from the 2026-10-01 briefing: a summary that opened "Meanwhile,"
+    // and one that opened "To address that matter," — each referring to a
+    // sentence the feed description never carried, so the reader met a thread
+    // with nothing on the other end.
+    const meanwhile = {
+      ...article("1"),
+      excerpt:
+        "Meanwhile, advanced chip packaging is emerging as another constraint on how quickly new AI capacity can come online.",
+    };
+    expect(finalizeMetadata([meanwhile], sources, now.toISOString(), now).what_happened).toBe(
+      "Advanced chip packaging is emerging as another constraint on how quickly new AI capacity can come online.",
+    );
+
+    const matter = {
+      ...article("1"),
+      excerpt:
+        "To address that matter, on Tuesday, Trump signed an executive order requiring federal agencies to use the term “Super Intelligence”.",
+    };
+    const stored = finalizeMetadata([matter], sources, now.toISOString(), now).what_happened;
+    expect(stored.startsWith("On Tuesday")).toBe(true);
+    expect(stored).not.toContain("To address that matter");
+  });
+
+  it("leaves a connector that is doing normal sentence work alone", () => {
+    const a = {
+      ...article("1"),
+      excerpt:
+        "The upgrade ships next week for most users, and enterprises can however defer it where long-term support branches are in play.",
+    };
+    const stored = finalizeMetadata([a], sources, now.toISOString(), now).what_happened;
+    expect(stored).toContain("enterprises can however defer");
+  });
+
   it("counts five articles by one publisher as one publisher", () => {
     const many = Array.from({ length: 5 }, (_, i) =>
       article(String(i), i % 2 ? "bbc" : "bbc-sport"),

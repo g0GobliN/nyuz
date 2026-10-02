@@ -237,6 +237,22 @@ describe("composeArticle", () => {
     expect(composeArticle(story).deck.text).toBe("The council approved a new library.");
   });
 
+  it("strips a backwards-referencing connector from the deck", () => {
+    // Production, 2026-10-01: the story page opened "Meanwhile, The Register
+    // reports that advanced chip packaging ..." -- a connector that refers to
+    // discourse the page does not contain, hoisted in front of the attribution
+    // by the adverbial branch. A page's first line may not point backwards.
+    const story = makeStory({
+      sources: 1,
+      sourceList: [{ name: "The Register", at: "10:00", url: "https://theregister.com" }],
+      what: "Meanwhile, advanced chip packaging is emerging as another constraint on how quickly AI capacity can come online.",
+    });
+
+    const deck = composeArticle(story).deck.text;
+    expect(deck).not.toMatch(/^meanwhile\b/i);
+    expect(deck.toLowerCase()).toContain("advanced chip packaging");
+  });
+
   it("does not use the one-sentence analysis when the story has no source summary", () => {
     const story = makeStory({
       what: "   ",
