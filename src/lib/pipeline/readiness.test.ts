@@ -22,6 +22,24 @@ describe("assessReadiness", () => {
     if (!verdict.ready) expect(verdict.kind).toBe("marketing");
   });
 
+  it("refuses a first-party post that addresses the reader's own work or data", () => {
+    // Cloudflare's Pay Per Use launch and an AWS product update. Both are the
+    // vendor talking to the reader about the reader's material, which a
+    // third-party report of the same change would not do.
+    for (const title of [
+      "Pay Per Use: when AI uses your work, you should get paid",
+      "Amazon Aurora PostgreSQL now supports direct querying of Apache Iceberg data in your data lake",
+    ]) {
+      const verdict = assessReadiness({
+        title,
+        whatHappened: "The feature is available in public beta for existing customers today.",
+        sourceCount: 1,
+      });
+      expect(verdict.ready, title).toBe(false);
+      if (!verdict.ready) expect(verdict.kind, title).toBe("marketing");
+    }
+  });
+
   it("still allows third-party reporting that mentions a reader benefit", () => {
     const verdict = assessReadiness({
       title: "Cloudflare says Auto Router cuts AI costs for enterprise customers",

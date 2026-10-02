@@ -96,7 +96,8 @@ const CELEBRATION_TITLE =
  * second person pronoun or possessive aimed at the reader is the tell no
  * third-party report of the product carries.
  */
-const BENEFIT_TITLE = /\b(?:your)\s+(?:AI\s+)?(?:spend|costs?|workflow|bills?|data|apps?|team)\b/i;
+const BENEFIT_TITLE =
+  /\b(?:your)\s+(?:AI\s+|cloud\s+|security\s+)?(?:spend|costs?|workflow|bills?|data|apps?|team|work|content|usage|traffic|account|infrastructure)\b/i;
 
 /**
  * A themed week/campaign banner: "AI Chip Design Week", "Partner Day".
