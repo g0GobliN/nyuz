@@ -1355,3 +1355,73 @@ describe("the composed article opens with what the thing does", () => {
     expect(text).toContain("declined to say how much the agent costs to run");
   });
 });
+
+/**
+ * A paper's own typesetting must never reach the reader.
+ *
+ * Measured over the 2026-10-03 corpus: 12 of the 100 stories the briefing
+ * would publish carried raw markup in their published prose, every one a
+ * research abstract. The rule is unit-level on purpose — a paper whose abstract
+ * is four facts keeps the ones that read as prose, and the briefability floor
+ * then decides whether the story still ships.
+ */
+describe("source markup never reaches a published block", () => {
+  const story = (excerpt: string): Story => ({
+    id: "s",
+    org: "arXiv cs.CR",
+    title: "A paper about a bound nobody outside the field will read",
+    what: "The authors establish a bound on the iteration complexity of the method.",
+    why: "",
+    importance: "Medium",
+    score: { relevance: 50, importance: 50, novelty: 50 },
+    sources: 1,
+    topics: [],
+    time: "",
+    publishedAt: "2026-10-01T00:00:00.000Z",
+    sourceList: [{ name: "arXiv cs.CR", at: "", excerpt }],
+    before: "",
+    after: "",
+    timeline: [],
+  });
+
+  it("unwraps a formatting command and publishes the sentence", () => {
+    const { article } = composeArticleWithDiagnostics(
+      story(
+        "This report presents the \\textbf{OpenSpace Lab}'s solution to the competition. The team evaluated the approach on three separate robot platforms.",
+      ),
+    );
+    const published = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    expect(published).toContain("OpenSpace Lab's solution");
+    expect(published).not.toContain("\\textbf");
+    expect(article.paragraphs.length).toBeGreaterThan(0);
+  });
+
+  it("refuses a unit whose markup carries meaning, and keeps the story's prose", () => {
+    const excerpt =
+      "The authors prove the bound holds for every grid of $2^{128}$ protocol keys. A second experiment measured the same effect on real hardware last year.";
+    const { article } = composeArticleWithDiagnostics(story(excerpt));
+    const published = [article.deck.text, ...article.paragraphs.map((p) => p.text)];
+    expect(published.join(" ")).not.toContain("$2^{128}$");
+    // The refusal is the unit's, not the story's: the prose fact still ships.
+    expect(published.join(" ")).toContain("real hardware");
+    // Counted where the unit is judged, which is the evidence pass rather than
+    // the composer: `unitTextRejection` refuses a sentence that never becomes a
+    // paragraph, so it never reaches a composer-level counter.
+    const selection = selectReaderEvidence("A paper about a bound", [
+      { name: "arXiv cs.CR", excerpt },
+    ]);
+    expect(selection.rejectionReasons.source_markup).toBe(1);
+    expect(selection.facts.some((fact) => fact.text.includes("real hardware"))).toBe(true);
+  });
+
+  it("leaves a price alone", () => {
+    const { article } = composeArticleWithDiagnostics(
+      story(
+        "Samsung's M-series televisions range from $300 to $2,300 depending on the panel size. The company said pricing would hold through the quarter.",
+      ),
+    );
+    const published = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    expect(published).toContain("$300");
+    expect(article.paragraphs.length).toBeGreaterThan(0);
+  });
+});

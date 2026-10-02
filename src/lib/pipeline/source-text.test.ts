@@ -6,9 +6,11 @@ import {
   isSubjectCode,
   malformedAttribution,
   metadataOnlyEvidence,
+  normalizeSourceMarkup,
   normalizeSourceText,
   providerFurniture,
   sourceFamily,
+  sourceMarkupRemains,
 } from "./source-text";
 
 /** The production regression, verbatim: arXiv's cs.CR feed description. */
@@ -291,5 +293,66 @@ describe("provider furniture", () => {
     );
     expect(normalization.text).toContain("new version is available on Friday");
     expect(normalization.text).not.toContain("Release:");
+  });
+});
+
+/**
+ * A paper's own typesetting, seen by a reader.
+ *
+ * On 2026-10-03, 12 of the 100 stories the briefing would publish carried raw
+ * markup in their published prose — `\textbf{OpenSpace Lab}`, `$2^{128}$` — and
+ * every one was a research abstract. A reader does not need to know LaTeX to
+ * notice that something went wrong, so the boundary has two halves: unwrap a
+ * typesetting command whose payload is prose, and refuse a unit whose markup
+ * carries meaning.
+ */
+describe("source markup", () => {
+  it("unwraps a typesetting command whose payload is ordinary prose", () => {
+    const { text, unwrapped } = normalizeSourceMarkup(
+      "This report presents the \\textbf{OpenSpace Lab}'s solution to the competition.",
+    );
+    expect(text).toBe("This report presents the OpenSpace Lab's solution to the competition.");
+    expect(unwrapped).toBe(1);
+    expect(sourceMarkupRemains(text)).toBe(false);
+  });
+
+  it("refuses to unwrap a wrapper whose payload is a formula", () => {
+    // The same command, and the payload is what decides. Flattening this gives
+    // "Parity-G games", which is no longer the authors' phrase.
+    const input = "The authors introduce $\\textit{Parity-$G$ games}$ in the paper.";
+    const { text, unwrapped } = normalizeSourceMarkup(input);
+    expect(text).toBe(input);
+    expect(unwrapped).toBe(0);
+    expect(sourceMarkupRemains(text)).toBe(true);
+  });
+
+  it.each([
+    "For a grid of $2^{128}$ protocol keys the bound holds.",
+    "The result is a $95\\%$ lower confidence bound on the error rate.",
+    "On a regular $(3,6)$ LDPC-coded link one key per codeword suffices.",
+  ])("still finds mathematics after normalization: %s", (text) => {
+    expect(normalizeSourceMarkup(text).text).toBe(text);
+    expect(sourceMarkupRemains(text)).toBe(true);
+  });
+
+  it("does not mistake a price for mathematics", () => {
+    // The first draft of this rule counted any `$...$` pair, and flagged six
+    // real news sentences because a television range reads as one enormous
+    // inline formula. A dollar run with no mathematical signal is money.
+    const text = "Samsung's M-series TVs range from $300 to $2,300 depending on the size.";
+    expect(normalizeSourceMarkup(text).text).toBe(text);
+    expect(sourceMarkupRemains(text)).toBe(false);
+  });
+
+  it("leaves ordinary prose and unescaped text alone", () => {
+    for (const text of [
+      "The regulator approved the merger on Tuesday after a lengthy review.",
+      "Revenue rose to $4.2 billion, the company said in its filing.",
+    ]) {
+      const result = normalizeSourceMarkup(text);
+      expect(result.text).toBe(text);
+      expect(result.unwrapped).toBe(0);
+      expect(sourceMarkupRemains(text)).toBe(false);
+    }
   });
 });

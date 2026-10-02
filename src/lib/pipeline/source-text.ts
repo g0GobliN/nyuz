@@ -540,6 +540,83 @@ export function normalizeAuthorialVoice(
 }
 
 /**
+ * Typesetting commands that wrap a run of ordinary words.
+ *
+ * The payload is prose, so dropping the wrapper keeps the sentence and loses
+ * nothing a reader could read. Deliberately a closed list of wrappers only: a
+ * general "strip any LaTeX command" rule is what turns `$\textit{Parity-$G$
+ * games}$` into a phrase that is no longer the authors' phrase, and nyuz has no
+ * business rewriting a paper's terminology.
+ */
+const WORD_WRAPPERS = /\\(textbf|textit|emph|textnormal|textbfit)\{([^{}$^\\]*)\}/g;
+
+/**
+ * A wrapper whose entire payload is plain prose.
+ *
+ * The test is on the payload, not the command: `\textit{ordinary words}` is
+ * recoverable and `\textit{Parity-$G$ games}` is not, and both use the same
+ * command. Anything with a nested brace, a dollar, a backslash or a caret is
+ * therefore left alone, which is what keeps a wrapper around a formula from
+ * being flattened into the formula's neighbour.
+ */
+const SAFE_WRAPPED_PROSE = /\\(textbf|textit|emph|textnormal|textbfit)\{([^{}$^\\]*)\}/g;
+/**
+ * Mathematical markup whose syntax carries meaning.
+ *
+ * `$2^{128}$`, `$95\%$`, `$(3,6)$`: no deterministic rewrite preserves the
+ * expression, and an ASCII transliteration is a change of content wearing a
+ * cleanup costume. A unit carrying one of these is refused rather than
+ * published, which is the same trade every other refusal in this module makes
+ * -- a shorter article beats an article that shows the reader its source's
+ * serialization syntax.
+ *
+ * A dollar-delimited run counts as mathematics only when its content carries a
+ * mathematical signal. A bare `$` pair does not: "range from $300 for a
+ * 43-inch model to $2,300" is two prices, and the first draft of this rule
+ * flagged six real news sentences as contaminated because of it.
+ */
+const MATH_SIGNAL = /[\\^_=+(){}]|\\frac|\\cdot/;
+const MATH_PAIR = /\$[^$\n]{1,200}\$/;
+const MATH_DELIMITED = /\\\(|\\\)|\\\[|\\\]/;
+
+function hasSemanticMath(text: string): boolean {
+  if (MATH_DELIMITED.test(text)) return true;
+  if (/\\[a-zA-Z]+/.test(text)) return true;
+  return MATH_PAIR.test(text) && MATH_SIGNAL.test(MATH_PAIR.exec(text)?.[0] ?? "");
+}
+
+/**
+ * Whether the text still shows its source's markup after safe normalization.
+ *
+ * A cheap diagnostic for the evidence layer and the audit: a gate that no
+ * longer produces these is only proven by reading what came out.
+ */
+export function sourceMarkupRemains(text: string): boolean {
+  if (hasSemanticMath(text)) return true;
+  // A wrapper whose payload was not plain prose survives normalization.
+  return /\\[a-zA-Z]+\{/.test(text);
+}
+
+/**
+ * A source's own typesetting, normalized where that is safe and refused where
+ * it is not.
+ *
+ * Applied to the unit, never to the story. A paper whose abstract is four facts
+ * keeps the three that read as prose and loses the one that is a formula, and
+ * the briefability floor then decides whether the story still ships -- the same
+ * composition the empty-story gate already made.
+ */
+export function normalizeSourceMarkup(text: string): { text: string; unwrapped: number } {
+  if (!text.includes("\\")) return { text, unwrapped: 0 };
+  let unwrapped = 0;
+  const out = text.replace(SAFE_WRAPPED_PROSE, (_match, _command: string, payload: string) => {
+    unwrapped += 1;
+    return payload;
+  });
+  return { text: out, unwrapped };
+}
+
+/**
  * A label from the closed set, lowercased. Anything else -- including a real
  * sentence that happens to contain a colon -- is not a field.
  */

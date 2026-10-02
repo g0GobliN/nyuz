@@ -6,8 +6,10 @@ import {
   hasVisibleEntity,
   metadataOnlyEvidence,
   normalizePlainText,
+  normalizeSourceMarkup,
   normalizeSourceText,
   providerFurniture,
+  sourceMarkupRemains,
   isRepositorySourceName,
   type SourceContext,
 } from "./pipeline/source-text";
@@ -2500,6 +2502,14 @@ export function unitTextRejection(
   // the grammar test so a unit that is furniture is counted as furniture rather
   // than as the invalid sentence its truncation also makes it.
   if (publisherFurniture(text)) return "editorial_noise";
+  // The source's own typesetting, when safe normalization could not remove it.
+  // `\textbf{OpenSpace Lab}` is unwrapped upstream and survives; `$2^{128}$`
+  // cannot be rewritten without changing what the authors wrote, so the unit
+  // goes. Measured over the 2026-10-03 corpus this reached 12 of the 100
+  // shipping stories, all of them research abstracts -- the reader sees a
+  // backslash, and a reader does not need to know LaTeX to notice that
+  // something went wrong.
+  if (sourceMarkupRemains(text)) return "source_markup";
   if (!validDeterministicSentence(text)) return "invalid_sentence";
   if (unresolvableContext(text)) return "unresolved_context";
   if (/…$|\.\.\.$/.test(text)) return "trailing_ellipsis";
@@ -3110,6 +3120,8 @@ export type ReaderSourceNormalization = {
   rejectedMetadataOnly: number;
   /** Sentences whose first-person voice was resolved to the paper's authors. */
   authorialVoiceRewrites: number;
+  /** Typesetting wrappers unwrapped from a sentence whose payload was prose. */
+  markupUnwrapped: number;
   /** Texts that opened by repeating their own item headline. */
   strippedHeadlines: number;
   /** Sentences an editorial adverbial was removed from, keeping the fact. */
@@ -3167,6 +3179,8 @@ export type EvidenceRejectionReason =
   | "invalid_sentence"
   | "no_predicate"
   | "editorial_noise"
+  /** A unit still carrying the source's own typesetting after safe unwrapping. */
+  | "source_markup"
   | "trailing_ellipsis"
   | "unbalanced_quote"
   | "unassigned_quote"
@@ -3243,6 +3257,7 @@ function emptyNormalizationStats(): ReaderSourceNormalization & ReaderDedupe {
     cleanedEvidence: 0,
     rejectedMetadataOnly: 0,
     authorialVoiceRewrites: 0,
+    markupUnwrapped: 0,
     strippedHeadlines: 0,
     sourceVoiceStripped: 0,
     strippedFrames: 0,
@@ -3302,10 +3317,20 @@ function normalizeReaderSource(
       stats.removedMetadataFields += normalization.removedFields.length;
       stats.cleanedEvidence += 1;
     }
+    // The source's own typesetting, unwrapped where the payload is prose. A
+    // wrapper left standing is refused by `unitTextRejection`, so this is the
+    // difference between a paper's abstract arriving readable and not
+    // arriving at all.
+    const markup = normalizeSourceMarkup(normalization.text);
+    if (markup.unwrapped > 0) {
+      stats.markupUnwrapped += markup.unwrapped;
+      stats.cleanedEvidence += 1;
+    }
+    const marked = { ...normalization, text: markup.text };
     stats.authorialVoiceRewrites += normalization.authorialVoiceRewrites;
     // What the provider wrapped around its own text goes next: its headline
     // repeated at the front of the description.
-    const furniture = stripSourceFurniture(normalization.text, source.headline);
+    const furniture = stripSourceFurniture(marked.text, source.headline);
     if (furniture.strippedHeadline) stats.strippedHeadlines += 1;
     if (
       normalization.metadataOnly ||
@@ -3531,6 +3556,7 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
     unbalanced_quote: 0,
     unassigned_quote: 0,
     unverifiable_attribution: 0,
+    source_markup: 0,
     unresolved_context: 0,
     narrator_ambiguous: 0,
   };
