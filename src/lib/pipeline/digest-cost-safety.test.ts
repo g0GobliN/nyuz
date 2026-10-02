@@ -135,6 +135,22 @@ function tables(over: {
             },
           ],
     digest_items: [],
+    // The event's coverage. A story cannot reach a reader without articles --
+    // matching runs over them -- so a fixture that seeds an event and no
+    // articles describes something the pipeline cannot produce. It used to pass
+    // because selection never looked at coverage; the briefability contract
+    // does, and a story with no source evidence has no body to publish.
+    articles: [
+      {
+        id: "article-1",
+        event_id: "event-1",
+        title: "OpenAI ships a reasoning model",
+        source_id: "s1",
+        sources: { name: "The Verge" },
+        excerpt:
+          "OpenAI released a reasoning model this morning, published alongside API documentation and a pricing page. The lab said the model is available to existing customers today.",
+      },
+    ],
     subscriptions: [{ user_id: "reader-1", plan: "uno" }],
     telegram_accounts: [],
     push_subscriptions: [],

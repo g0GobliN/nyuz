@@ -204,3 +204,132 @@ describe("assessReadiness", () => {
     ).toEqual({ ready: true });
   });
 });
+
+/**
+ * The briefability contract, measured over 200 live events on 2026-10-03.
+ *
+ * The audit counted 76 of 200 stories composing no paragraph at all, which read
+ * as a 39% product failure. Re-running the same corpus *through the existing
+ * readiness gate first* moved the number to 35 of the 134 that would actually
+ * ship — the other 41 were already refused, mostly live-blog entries whose only
+ * coverage is a photo credit. So the defect is real but a quarter the size the
+ * raw count suggests, and the fix belongs at selection rather than in the
+ * composer.
+ *
+ * The predicate is a count of facts the evidence pass accepts, and the count
+ * that matters is two: the lead fact is spent on the deck, so a story with one
+ * accepted fact has a deck and nothing else. Every case below is quoted from the
+ * corpus, including the four that were the closest calls.
+ */
+describe("assessReadiness — briefability", () => {
+  it("refuses a story whose evidence yields one fact, which is only a deck", () => {
+    // Reuters, via the 2026-10-03 corpus. A single-sentence excerpt: real news,
+    // correctly summarised, and enough for the deck. There is no second fact,
+    // so the Read page would render a title, a deck and no article.
+    const verdict = assessReadiness({
+      title: "DoorDash launches an AI agent you can text to order food",
+      whatHappened: "DoorDash launched an AI agent you can text to order food.",
+      sourceCount: 1,
+      sources: [
+        {
+          name: "Reuters",
+          excerpt: "DoorDash launched an AI agent you can text to order food.",
+        },
+      ],
+    });
+    expect(verdict).toEqual({
+      ready: false,
+      kind: "unbriefable",
+      reason: expect.any(String),
+    });
+  });
+
+  it("keeps a story with two accepted facts, however short each one is", () => {
+    // The same shape, one sentence longer. Nothing about the second sentence is
+    // better prose than the first; there is simply something for the body to
+    // be made of, which is the whole contract.
+    const verdict = assessReadiness({
+      title: "UK-France 'one in, one out' migrant scheme scrapped",
+      whatHappened: "The government has scrapped the one-in, one-out migrant scheme.",
+      sourceCount: 1,
+      sources: [
+        {
+          name: "Reuters",
+          excerpt:
+            "The government has scrapped the one-in, one-out migrant scheme. Ministers said the pilot had cost too much and returned too few results.",
+        },
+      ],
+    });
+    expect(verdict).toEqual({ ready: true });
+  });
+
+  it("refuses a story whose only coverage is a photo credit", () => {
+    // 18 of the 35 empty stories were live-blog entries carrying exactly this:
+    // a Guardian or BBC photo caption as the entire excerpt, and an empty
+    // summary. The 20-character summary rung cannot see them, because there is
+    // no summary -- the gap this closes.
+    const verdict = assessReadiness({
+      title: "Eastern Spain braces for torrential rain and flooding",
+      whatHappened: "Heavy rain is forecast to bring flooding across eastern Spain this week.",
+      sourceCount: 1,
+      sources: [{ name: "The Guardian", excerpt: "Photograph: Josep Lago/AFP/Getty Images" }],
+    });
+    expect(verdict).toEqual({
+      ready: false,
+      kind: "unbriefable",
+      reason: expect.any(String),
+    });
+  });
+
+  it("counts accepted facts, not sentences the composer would go on to refuse", () => {
+    // The 16 stories with several sentences and one accepted fact. The extra
+    // sentences are a publisher solicitation and a newsletter sign-off, so a
+    // rule that counted sentences would admit this and the composer would
+    // still publish no body. Counting what survived is the only version of this
+    // that cannot be wrong.
+    const verdict = assessReadiness({
+      title: "The ugly economics of consumer AI",
+      whatHappened: "Consumer AI services cost more to run than the subscriptions charge.",
+      sourceCount: 1,
+      sources: [
+        {
+          name: "The Verge",
+          excerpt:
+            "Consumer AI services cost more to run than the subscriptions charge. Subscribe to The Verge for more.",
+        },
+      ],
+    });
+    expect(verdict).toEqual({
+      ready: false,
+      kind: "unbriefable",
+      reason: expect.any(String),
+    });
+  });
+
+  it("leaves a caller that has not loaded coverage to the other rungs", () => {
+    // `briefing-preview.ts` and the digest tests call the gate without
+    // coverage. Skipping the rung is the honest answer there; refusing every
+    // story for material the caller never fetched would be a gate that
+    // measures the caller's laziness.
+    expect(
+      assessReadiness({
+        title: "Intel patent embeds MicroLEDs in chip packaging",
+        whatHappened: "At ECTC in May, Intel showcased a 24-layer glass-core panel.",
+      }),
+    ).toEqual({ ready: true });
+  });
+
+  it("reports the more specific reason when a story fails both rungs", () => {
+    // The marketing rungs run first, so a vendor advert that also has no body
+    // is withheld as marketing. An operator reading the withheld note learns
+    // what to fix about the source, not merely that it was thin.
+    expect(
+      assessReadiness({
+        title: "Cut your AI spend with AI Gateway's Auto Router",
+        whatHappened: "The router picks the cheapest model for each request.",
+        sourceCount: 1,
+        sources: [{ name: "Cloudflare", excerpt: "The router picks the cheapest model." }],
+      }),
+    ).toEqual({ ready: false, kind: "marketing", reason: expect.any(String) });
+  });
+});

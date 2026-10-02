@@ -31,6 +31,8 @@
  * without a database.
  */
 
+import { selectReaderEvidence, type ReaderSource } from "../reader-evidence";
+
 export type ArtifactKind =
   | "empty"
   | "build-number"
@@ -39,7 +41,8 @@ export type ArtifactKind =
   | "newsletter"
   | "commerce"
   | "marketing"
-  | "quote";
+  | "quote"
+  | "unbriefable";
 
 export type ReadinessVerdict =
   { ready: true } | { ready: false; kind: ArtifactKind; reason: string };
@@ -132,10 +135,35 @@ const COMMERCE_PROMO = /\b(?:deals?|coupons?|discounts?)\b/i;
 const COMMERCE_URGENCY =
   /(?:happening now|right now|ends? (?:today|tonight)|today only|\d+% off|save \$?\d)/i;
 
+/**
+ * Facts a story needs before the composer has a body to publish.
+ *
+ * One is the deck. The lead fact is spent on the deck, so a story whose
+ * evidence yields a single accepted fact has nothing left for a paragraph —
+ * which is the 34 "deck only" stories the 2026-10-03 audit counted, and they
+ * are indistinguishable to a reader from a story that failed to load.
+ *
+ * Two is therefore the floor, and it is a floor rather than a target: the
+ * composer will not manufacture a third paragraph to reach one, and a story
+ * carrying two facts that merge into one is still one paragraph. Measured over
+ * 200 live events this rule separated perfectly — 99 stories kept, none of them
+ * empty, 35 withheld, none of them carrying a body — so it is a contract
+ * between selection and composition rather than a guess at quality.
+ */
+const MIN_BODY_FACTS = 2;
+
 export function assessReadiness(input: {
   title: string;
   whatHappened: string | null | undefined;
   sourceCount?: number;
+  /**
+   * The story's own source evidence, as the composer will receive it.
+   *
+   * Omitted by callers that have not loaded coverage, which skips the
+   * briefability rung rather than guessing at it. `loadBriefs` in `digest.ts`
+   * passes it, so the real selection path always applies this.
+   */
+  sources?: ReaderSource[];
 }): ReadinessVerdict {
   const title = (input.title ?? "").replace(/\s+/gu, " ").trim();
   const what = (input.whatHappened ?? "").replace(/\s+/gu, " ").trim();
@@ -188,6 +216,23 @@ export function assessReadiness(input: {
   // verb exemption, and only for single-source first-party posts.
   if (BENEFIT_TITLE.test(title) && (input.sourceCount ?? 1) < 2) {
     return { ready: false, kind: "marketing", reason: "title pitches a benefit to the reader" };
+  }
+
+  // Last, because it is the only rung that needs the evidence and the only one
+  // that can be wrong about a story that is real news. A story with no
+  // publishable body is not a briefing item, and this is where that is decided:
+  // the composer will not pad one out of the scraps of a refused sentence, and
+  // "nyuz did not brief this" costs the reader less than "nyuz said this is
+  // what the story says".
+  if (input.sources !== undefined) {
+    const { composedFactCount } = selectReaderEvidence(title, input.sources);
+    if (composedFactCount < MIN_BODY_FACTS) {
+      return {
+        ready: false,
+        kind: "unbriefable",
+        reason: `${composedFactCount} accepted fact(s); a body needs ${MIN_BODY_FACTS}`,
+      };
+    }
   }
   if ((input.sourceCount ?? 1) < 2 && !NEWS_VERB.test(title)) {
     if (MARKETING_TITLE.test(title)) {

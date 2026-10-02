@@ -42,6 +42,7 @@ import type { SecretBag } from "@/lib/ai/config";
 import { capFor } from "@/lib/density";
 import { reasonFor } from "./inclusion";
 import { assessReadiness } from "./readiness";
+import type { ReaderSource } from "../reader-evidence";
 import { needsTranslation, toLanguageTag, type LanguageTag } from "@/lib/languages";
 import { translateEvents, type TranslatableEvent, type TranslatedText } from "./translate";
 import { mailGrafs } from "@/lib/article-body";
@@ -697,6 +698,17 @@ type EventBrief = {
    * which then fall through to the follow rung as they always did.
    */
   tags: string[];
+  /**
+   * The story's own source evidence, exactly as the Read composer receives it.
+   *
+   * Carried so the readiness gate can apply the briefability contract at
+   * selection time. A story whose evidence cannot fill a paragraph is not a
+   * briefing item, and the composer that would discover this is one render
+   * away — too late, because by then the reader has a card with a title, a
+   * deck and no article. The list is loaded once for the whole considered set
+   * and shared with the email path, which needed the excerpts anyway.
+   */
+  sources: ReaderSource[];
 };
 
 async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise<DigestOutcome> {
@@ -806,6 +818,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
       title: brief.title,
       whatHappened: brief.whatHappened,
       sourceCount: brief.sourceCount,
+      sources: brief.sources,
     });
     if (verdict.ready) ready.push(brief);
     else withheld.push({ eventId: brief.eventId, kind: verdict.kind });
@@ -1334,11 +1347,16 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   // outlet's worth of corroboration, and the inclusion line says "independent".
   const { data: coverage, error: coverageError } = await db
     .from("articles")
-    .select("event_id, source_id, sources ( name )")
+    .select("id, event_id, source_id, title, excerpt, sources ( name )")
     .in("event_id", ids);
   if (coverageError) throw new Error(`reading coverage: ${coverageError.message}`);
 
   const outlets = new Map<string, Set<string>>();
+  // The reader's evidence per event, for the readiness gate's briefability
+  // contract. Built in the same pass as the outlet counts because it is the
+  // same rows; a second query for material already selected would be the kind
+  // of drift that makes a gate disagree with the composer it guards.
+  const evidence = new Map<string, ReaderSource[]>();
   // Names as well as ids, because the count is not the whole question: the
   // inclusion line has to be able to say who has a single-source story, or it
   // falls back to the reader's topics and repeats itself. Collected separately
@@ -1349,6 +1367,17 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
     const seen = outlets.get(row.event_id) ?? new Set<string>();
     seen.add(row.source_id ?? "unknown");
     outlets.set(row.event_id, seen);
+
+    // The reader's evidence for this story, in the shape `selectReaderEvidence`
+    // expects. The gate reads the same list the composer will, so a story is
+    // never admitted here and refused there for want of the same material.
+    const sourceList = evidence.get(row.event_id) ?? [];
+    sourceList.push({
+      name: (row.sources as { name?: string } | null)?.name ?? "Unattributed",
+      ...(row.title ? { headline: row.title } : {}),
+      ...(row.excerpt ? { excerpt: row.excerpt } : {}),
+    });
+    evidence.set(row.event_id, sourceList);
 
     const name = (row.sources as { name?: string } | null)?.name;
     if (!name) continue;
@@ -1376,6 +1405,7 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
         sourceCount: event.publisher_count || outlets.get(row.eventId)?.size || 0,
         outlet: named && named.size === 1 ? ([...named][0] ?? null) : null,
         tags: event.tags ?? [],
+        sources: evidence.get(row.eventId) ?? [],
         relevance: row.relevance,
         matchedAt: row.matchedAt,
       },

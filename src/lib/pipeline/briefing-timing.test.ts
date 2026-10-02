@@ -213,7 +213,21 @@ function tables(over: { impact?: Row | null; digest?: Row } = {}): Record<string
             },
           ],
     digest_items: [],
-    articles: [],
+    // The event's coverage, which the briefability contract reads. Every story
+    // these tests are about has to have a body the composer can fill, or the
+    // gate withholds it and the test measures a skipped day instead of a
+    // delivery. See `digest-cost-safety.test.ts` for the same note.
+    articles: [
+      {
+        id: "article-1",
+        event_id: "event-1",
+        title: "A story the reader was matched to",
+        source_id: "s1",
+        sources: { name: "The Verge" },
+        excerpt:
+          "The story happened overnight, according to people familiar with the matter. A spokesperson declined to give further details on Tuesday.",
+      },
+    ],
     subscriptions: [{ user_id: "reader-1", plan: "uno" }],
     profiles: [{ id: "reader-1", email: "reader@example.test", name: "Reader" }],
     telegram_accounts: [],
