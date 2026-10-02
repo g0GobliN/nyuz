@@ -3074,7 +3074,46 @@ const NOT_AN_ACTOR = new Set(
   ),
 );
 
-function recoverContext(text: string, previousText?: string): string | null {
+/**
+ * Whether the source itself writes this name inside a clause.
+ *
+ * `recoverContext` substitutes the previous sentence's opening for a leading
+ * `It`, and a sentence's first word is capitalised whether or not it names
+ * anybody. The corpus published `For was used heavily by Democratic candidates
+ * including Mark Kelly, Joe Biden, Bernie Sanders`, `While then decides whether
+ * to retain or replace the token`, `In carried a top-secret payload for the US
+ * military`, `Move wasn't.` and `Nobody handled the website update, too.` --
+ * every one of them read off a preposition, a conjunction, a verb or a pronoun
+ * that merely opened the sentence before.
+ *
+ * Vocabulary does not separate those from the names that work. The extracted
+ * entity list holds `Move` and `Read` as readily as it holds `Amazon` (both are
+ * capitalised runs the extractor harvests), so membership proves nothing. Usage
+ * does: the source writes the real ones after a lowercase word, mid-clause --
+ * "said Amazon SVP Peter DeSantis", "over Fort Worth", "group it tracks as
+ * TA419" -- while the impostors only ever appear at the head of a sentence.
+ * That is the test, and where it fails the pronoun stays unresolved and the
+ * fact is dropped, which is what already happens to every other orphan.
+ */
+function sourceUsesName(sourceText: string, name: string): boolean {
+  const occurrences = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+  for (const match of sourceText.matchAll(occurrences)) {
+    // The word before it, across whatever punctuation the source put between
+    // them ("the following: Enterprise AI", "Synopsys/Amazon", "as TA419") --
+    // but never across a full stop, or the previous sentence's last word would
+    // count as this one's clause: "…decide which device you want next. Read the
+    // documentation" is `Read` opening a sentence, not a verb the source wrote
+    // after `next`.
+    const context = sourceText.slice(0, match.index).match(/([A-Za-z][\w'-]*)([^\w\s]*)\s*$/);
+    // No word before it at all: the source opens by capitalising this, which is
+    // exactly the accident this test exists to catch.
+    if (context === null) continue;
+    if (/^[a-z]/.test(context[1] ?? "") && !/[.!?]/.test(context[2] ?? "")) return true;
+  }
+  return false;
+}
+
+function recoverContext(text: string, previousText?: string, sourceText = ""): string | null {
   const previousSubject = previousText?.match(
     /^(?:The )?([A-Z][\w.-]*(?:\s+[A-Z][\w.-]*){0,2})\b/,
   )?.[1];
@@ -3084,6 +3123,7 @@ function recoverContext(text: string, previousText?: string): string | null {
   }
   // Non-null past the guard above; named so the narrow survives into the closures.
   const subject: string = previousSubject!;
+  if (!sourceUsesName(sourceText, subject)) return null;
   return (
     text
       .replace(/^The figure\b/i, "The figure described above")
@@ -3520,7 +3560,7 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
         } else {
           // `null` when the sentence before it names no actor to substitute:
           // the pronoun then points at nothing and the sentence goes.
-          text = recoverContext(text, previousText) ?? "";
+          text = recoverContext(text, previousText, sourceContext) ?? "";
         }
       }
       const voiced = stripEditorialVoice(text);
@@ -3559,7 +3599,19 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
         text = cleanDeterministicSentence(normalizeEvidenceText(framed));
       }
       const subject = entities.find(
-        (e) => e.role !== "REPORTING_SOURCE" && text.replace(/^The /, "").startsWith(`${e.name} `),
+        (e) =>
+          e.role !== "REPORTING_SOURCE" &&
+          text.replace(/^The /, "").startsWith(`${e.name} `) &&
+          // The same source-usage test `recoverContext` makes, and for the same
+          // reason: a unit opening on a capitalised word hands the next unit a
+          // subject the source never wrote as a name either. "Move 37 in game two
+          // of the five-game match looked so absurd" supplied `Move` for "It
+          // wasn't", which published as `Move wasn't.`; "Read the documentation"
+          // supplied `Read` for "It supports any AI agent", and "While a causal
+          // selector combines" supplied `While` for "It then decides". The
+          // extracted entity list holds all three names, so membership is not a
+          // test -- usage is.
+          sourceUsesName(sourceContext, e.name),
       );
       antecedent = subject?.name;
       raw.push({

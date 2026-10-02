@@ -1283,10 +1283,68 @@ describe("`It's` is a contraction, never a possessive", () => {
       {
         name: "Reuters",
         excerpt:
-          "Acme said the delay cost it the quarter. Its revenue still rose to $18.5 million, the company reported to regulators.",
+          "Acme said the delay cost it the quarter. Its revenue still rose to $18.5 million, " +
+          "the company reported to regulators. Analysts expect Acme's margins to hold.",
       },
     ]);
     expect(facts.some((fact) => fact.text.startsWith("Acme's revenue still rose"))).toBe(true);
+  });
+});
+
+describe("a pronoun is only given a subject the source uses as a name", () => {
+  /**
+   * The corpus published `While then decides whether to retain or replace the
+   * token`, `Move wasn't.`, `Read supports any AI agent or tool in building more
+   * efficiently for Android`, `Key requires connecting people, processes, and
+   * data in real time` and `For was used heavily by Democratic candidates`.
+   * Every one of those subjects came from the *first word of the sentence
+   * before*, and a sentence's first word is capitalised whether or not it names
+   * anybody. The extracted entity list holds `Move` and `Read` as readily as it
+   * holds `Amazon`, so membership is not a test; the source's own usage is. Each
+   * of these fixtures reproduces one production shape.
+   */
+  it.each([
+    [
+      "a conjunction opening the sentence before",
+      "While a causal selector combines candidate-level information extracted from both passes. " +
+        "It then decides whether to retain or replace the token, thereby repairing early errors.",
+      "decides whether to retain or replace the token",
+    ],
+    [
+      "a noun the sentence before happened to start with",
+      "Move 37 in game two of the five-game match looked so absurd that some called it a gift. " +
+        "It was so unexpected that commentators replayed it for years, though they could not " +
+        "explain how it worked.",
+      "commentators replayed it for years",
+    ],
+    [
+      "an imperative opening the sentence before",
+      "Read the documentation to learn more about how the build works. " +
+        "It supports any AI agent or tool in building more efficiently for Android.",
+      "supports any AI agent or tool in building more efficiently",
+    ],
+  ])("drops the fact when the subject came from %s", (_shape, excerpt, substituted) => {
+    const { facts } = selectReaderEvidence("A token repair pass ships", [
+      { name: "Kabel Wire", excerpt },
+    ]);
+    // The pronoun's own sentence, which had no antecedent worth naming: dropped,
+    // not published under whatever word happened to open the sentence before it.
+    expect(facts.some((fact) => fact.text.includes(substituted))).toBe(false);
+  });
+
+  it("keeps the substitution when the source names the actor inside a sentence", () => {
+    const { facts } = selectReaderEvidence("Flock wins a Fort Worth drone contract", [
+      {
+        name: "Kabel Wire",
+        excerpt:
+          "Officials said the drones arrive in Fort Worth within minutes. Fort Worth said that " +
+          "the drone was the first unit to arrive during the pilot. It was also the first unit " +
+          "to arrive in 76 of these calls and even allowed the automation to take over.",
+      },
+    ]);
+    expect(facts.some((fact) => fact.text.startsWith("Fort Worth was also the first unit"))).toBe(
+      true,
+    );
   });
 });
 
