@@ -1,0 +1,195 @@
+{
+  "measuredAt": "2026-10-03",
+  "measuredAtCommit": "7f886ff0",
+  "note": "The floor for `npm run coverage:ratchet`. Raise it with `npm run coverage:ratchet -- --update` in the commit that adds the tests, never by hand.\n`measuredAtCommit` is the commit the measurement was taken at, so a later\ndrop can be attributed to a change rather than guessed at. Read it before\nblaming the change under review.",
+  "directories": {
+    "src": {
+      "files": 3,
+      "lines": 0,
+      "statements": 0,
+      "functions": 0,
+      "branches": 0
+    },
+    "src/components": {
+      "files": 12,
+      "lines": 15.36,
+      "statements": 15.36,
+      "functions": 13.33,
+      "branches": 28.13
+    },
+    "src/components/admin": {
+      "files": 2,
+      "lines": 0,
+      "statements": 0,
+      "functions": 0,
+      "branches": 0
+    },
+    "src/components/blog": {
+      "files": 1,
+      "lines": 0,
+      "statements": 0,
+      "functions": 0,
+      "branches": 0
+    },
+    "src/components/dashboard": {
+      "files": 13,
+      "lines": 13,
+      "statements": 13,
+      "functions": 15.38,
+      "branches": 77.42
+    },
+    "src/components/landing": {
+      "files": 9,
+      "lines": 1.22,
+      "statements": 1.22,
+      "functions": 0,
+      "branches": 0
+    },
+    "src/components/ui": {
+      "files": 46,
+      "lines": 1.59,
+      "statements": 1.59,
+      "functions": 24.44,
+      "branches": 25
+    },
+    "src/hooks": {
+      "files": 1,
+      "lines": 0,
+      "statements": 0,
+      "functions": 0,
+      "branches": 0
+    },
+    "src/lib": {
+      "files": 65,
+      "lines": 80.3,
+      "statements": 80.3,
+      "functions": 89.52,
+      "branches": 86.07
+    },
+    "src/lib/ai": {
+      "files": 10,
+      "lines": 88.21,
+      "statements": 88.21,
+      "functions": 89.19,
+      "branches": 81.35
+    },
+    "src/lib/discovery": {
+      "files": 7,
+      "lines": 88.19,
+      "statements": 88.19,
+      "functions": 88.24,
+      "branches": 81.59
+    },
+    "src/lib/email": {
+      "files": 2,
+      "lines": 88.03,
+      "statements": 88.03,
+      "functions": 88,
+      "branches": 91.04
+    },
+    "src/lib/install": {
+      "files": 3,
+      "lines": 64.02,
+      "statements": 64.02,
+      "functions": 75,
+      "branches": 78.18
+    },
+    "src/lib/net": {
+      "files": 1,
+      "lines": 84.44,
+      "statements": 84.44,
+      "functions": 100,
+      "branches": 78.85
+    },
+    "src/lib/offline": {
+      "files": 6,
+      "lines": 33.5,
+      "statements": 33.5,
+      "functions": 52.94,
+      "branches": 87.84
+    },
+    "src/lib/pipeline": {
+      "files": 41,
+      "lines": 83.32,
+      "statements": 83.32,
+      "functions": 87,
+      "branches": 79.2
+    },
+    "src/lib/push": {
+      "files": 3,
+      "lines": 84.48,
+      "statements": 84.48,
+      "functions": 80.95,
+      "branches": 85.83
+    },
+    "src/lib/server": {
+      "files": 47,
+      "lines": 21.3,
+      "statements": 21.3,
+      "functions": 43.59,
+      "branches": 69.83
+    },
+    "src/lib/supabase": {
+      "files": 3,
+      "lines": 20.93,
+      "statements": 20.93,
+      "functions": 25,
+      "branches": 50
+    },
+    "src/lib/telegram": {
+      "files": 1,
+      "lines": 100,
+      "statements": 100,
+      "functions": 100,
+      "branches": 87.5
+    },
+    "src/nitro": {
+      "files": 1,
+      "lines": 0,
+      "statements": 0,
+      "functions": 0,
+      "branches": 0
+    },
+    "src/routes": {
+      "files": 10,
+      "lines": 0,
+      "statements": 0,
+      "functions": 0,
+      "branches": 0
+    },
+    "src/routes/admin": {
+      "files": 19,
+      "lines": 0.43,
+      "statements": 0.43,
+      "functions": 20,
+      "branches": 33.33
+    },
+    "src/routes/blog": {
+      "files": 2,
+      "lines": 0,
+      "statements": 0,
+      "functions": 0,
+      "branches": 0
+    },
+    "src/routes/dashboard": {
+      "files": 13,
+      "lines": 0,
+      "statements": 0,
+      "functions": 0,
+      "branches": 0
+    },
+    "src/routes/legal": {
+      "files": 1,
+      "lines": 0,
+      "statements": 0,
+      "functions": 0,
+      "branches": 0
+    }
+  },
+  "total": {
+    "lines": 40.14,
+    "statements": 40.14,
+    "functions": 72.22,
+    "branches": 80.57
+  }
+}

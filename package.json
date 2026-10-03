@@ -15,10 +15,16 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:shard": "vitest run --reporter=dot --reporter=github-actions --shard",
+    "test:coverage": "vitest run --coverage",
+    "coverage:ratchet": "node scripts/coverage-ratchet.mjs",
+    "e2e": "playwright test",
+    "route:walk": "node scripts/route-walk.mjs",
+    "route:walk:self-test": "node scripts/route-walk.mjs --self-test",
     "pwa:check": "node scripts/pwa-check.mjs",
     "pwa:self-test": "node scripts/pwa-check.mjs --self-test",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.scripts.json",
-    "ci": "npm run typecheck && npm run lint && npm run test && npm run build && npm run pwa:self-test",
+    "ci": "npm run typecheck && npm run lint && npm run test:coverage && npm run coverage:ratchet && npm run build && npm run pwa:self-test && npm run route:walk:self-test && npm run e2e",
     "db:status": "node --env-file=.env scripts/tsrun.mjs scripts/db-status.ts",
     "billing:check": "node --env-file=.env scripts/tsrun.mjs scripts/check-billing.ts",
     "briefing:timing": "node --env-file=.env scripts/tsrun.mjs scripts/briefing-timing.ts",
@@ -103,10 +109,12 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "@eslint/js": "^9.32.0",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.16.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "@vitest/coverage-v8": "^3.2.7",
     "eslint": "^9.32.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-prettier": "^5.2.6",
@@ -118,6 +126,7 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
     "vite": "8.1.5",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "wrangler": "4.147.0"
   }
 }
