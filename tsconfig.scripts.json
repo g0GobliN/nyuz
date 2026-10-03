@@ -14,5 +14,16 @@
   // `src` is included as well, not to check it twice, but because the scripts
   // import from it and the compiler needs the graph.
   "extends": "./tsconfig.json",
-  "include": ["scripts/**/*.ts", "src/**/*.ts"]
+  // The Playwright config and its specs are here for the same reason the
+  // operator scripts are: they run on Node, against the built Worker, rather
+  // than in the browser bundle. They were outside every tsconfig until
+  // 2026-10-03, which meant a typo in a spec was a runtime failure in a job that
+  // takes three minutes to reach it -- and the thing being asserted on is the
+  // deploy, so a silently skipped assertion is worse than a red one.
+  "include": [
+    "scripts/**/*.ts",
+    "src/**/*.ts",
+    "e2e/**/*.ts",
+    "playwright.config.ts"
+  ]
 }

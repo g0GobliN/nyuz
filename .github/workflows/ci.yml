@@ -182,7 +182,7 @@ jobs:
           echo "No VITE_-prefixed secret names."
 
   verify:
-    name: Typecheck, lint, test, build
+    name: Typecheck, lint, build
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -214,16 +214,13 @@ jobs:
 
       # Each check is its own step so a red run names what broke in the job
       # summary, instead of one "npm run ci" that could have failed anywhere.
-      # They run in ascending order of cost: types before lint before tests
-      # before the full build.
+      # They run in ascending order of cost: types, then lint, then the build.
+      # The suite moved to its own job below, where it can be split.
       - name: Typecheck
         run: npm run typecheck
 
       - name: Lint
         run: npm run lint
-
-      - name: Test
-        run: npm run test
 
       - name: Build
         run: npm run build
@@ -237,13 +234,200 @@ jobs:
       - name: PWA install contract
         run: npm run pwa:self-test
 
+      # The route walk's own self-test, and for the same reason the PWA one is
+      # here. `scripts/route-walk.mjs` is what the deploy job and the nightly
+      # health workflow both trust to tell them whether production is serving; a
+      # check that has never failed proves nothing, and its self-test costs about
+      # a second. It breaks nine things on purpose — a wrong title, an empty
+      # body, a rendered `undefined`, a missing chunk — and the suite has to
+      # report all nine. A change to the checker that made it stop reporting them
+      # fails here, rather than reporting production healthy for weeks.
+      #
+      # It needs no network and no build, so it sits with the other self-tests
+      # rather than in the e2e job.
+      - name: Route walk self-test
+        run: npm run route:walk:self-test
+
+  # ---------------------------------------------------------------------------
+  # The suite, in four shards
+  # ---------------------------------------------------------------------------
+  #
+  # 2751 tests in 163 files take a bit under five minutes on one runner, and the
+  # checks below add to that — so the suite is split rather than trimmed. Vitest
+  # partitions by file, so a shard cannot leak state into another, and each shard
+  # is a separate runner: the wall clock is the slowest quarter, not the sum.
+  #
+  # `fail-fast: false` is deliberate. With one shard cancelling the rest, the run
+  # reports only the first failure alphabetically and the next push reveals the
+  # second. Every shard reports, so one pass over the failures fixes all of them.
+  test:
+    name: Test (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    env:
+      # Only src/lib/supabase/client.ts reads these, at module scope, and it is
+      # imported by suites that assert on URLs rather than by anything that
+      # calls out. The same throwaways as `verify`, for the same reason.
+      VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+      VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # `--reporter=github` annotates the failing assertion on the diff itself,
+      # which is the difference between reading a log and opening a file.
+      - name: Test
+        run: npm run test:shard -- ${{ matrix.shard }}/4
+
+  # ---------------------------------------------------------------------------
+  # Coverage, measured and ratcheted
+  # ---------------------------------------------------------------------------
+  #
+  # The suite runs a second time here, with instrumentation, and that is a
+  # deliberate cost rather than an oversight. A ratchet needs one coherent
+  # measurement of the whole tree; merging four shards' v8 reports would measure
+  # each shard against files it never loaded, and a number that is subtly wrong
+  # is worse than a job that is three minutes slower. The alternative — no
+  # coverage gate at all — means the 2751 tests stop being a floor and become a
+  # snapshot.
+  #
+  # It gates the deploy. Everything about this job is about what the *suite*
+  # covers, so a commit that adds a module with no tests takes the deploy down
+  # with it until either the module is tested or the floor is raised on purpose.
+  coverage:
+    name: Coverage floor
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+      VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Measure
+        run: npm run test:coverage
+
+      # Compares against .ci/baseline/coverage.json, per directory and in total.
+      # Fails on a decrease only, and writes the table to the job summary.
+      - name: Ratchet
+        run: npm run coverage:ratchet
+
+      # The raw summary, so a red run can be read without re-running it. Small
+      # (one JSON file) and short-lived; `retention-days` keeps it from piling up.
+      - name: Keep the measurement
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-summary
+          path: coverage/coverage-summary.json
+          retention-days: 7
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # The browser, against the artifact that deploys
+  # ---------------------------------------------------------------------------
+  #
+  # Every other job here reads source. This one loads the built Worker in
+  # Chromium, which is the only way to see the failure a green unit suite cannot:
+  # a module-scope throw in the client entry, a route file that does not import,
+  # a page that answers 200 with an error page in it. It blocks the deploy.
+  #
+  # `npm run e2e` builds inside its own webServer command, so the artifact under
+  # test is always the one this commit produces — never one left over from
+  # `verify`, which builds with the same placeholders but for a different job.
+  #
+  # No credentials: `wrangler dev --local` never contacts Cloudflare, and the
+  # public pages read site content through a path that falls back to the bundled
+  # copy, so they render without a database. See playwright.config.ts.
+  e2e:
+    name: Browser smoke on the built Worker
+    needs: [commits, audit, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      VITE_SUPABASE_URL: https://ci-placeholder.supabase.co
+      VITE_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # `--with-deps` because a bare Chromium download still needs the system
+      # libraries it links against, and a missing one shows up as a launch
+      # failure several steps later. Not cached: the download is about forty
+      # seconds, and a cache populated by an earlier run is a second supply
+      # chain to reason about for no gain.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Both specs: `smoke.spec.ts` proves each page renders, `interaction.spec.ts`
+      # proves the four client-side things a render walk cannot see — the billing
+      # toggle, the sign-in flow's address step, the support mailboxes and the
+      # theme. One Worker serves both, so they cost one build and one boot.
+      - name: Browser smoke
+        run: npm run e2e
+
+      # Traces and screenshots from a failed run. A browser assertion that fails
+      # in CI is hard to reproduce locally, and the trace is the whole story:
+      # DOM at the moment of failure, network log, console output.
+      - name: Keep the evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: playwright-failure
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
   # ---------------------------------------------------------------------------
   # Deploy
   # ---------------------------------------------------------------------------
   #
-  # Runs only for a push to main, and only once `commits`, `audit` and `verify`
-  # are all green — `needs` is what makes a red test unshippable rather than
-  # merely embarrassing. A pull request builds and is checked; it never deploys.
+  # Runs only for a push to main, and only once every check above is green —
+  # `needs` is what makes a red test unshippable rather than merely
+  # embarrassing, and it now names the browser suite and the coverage floor as
+  # well as the four the build depends on. A pull request builds and is checked;
+  # it never deploys.
   #
   # The build is repeated here rather than carried over from `verify` as an
   # artifact, and that is deliberate. Vite inlines every VITE_-prefixed variable
@@ -254,7 +438,7 @@ jobs:
   # deployable bundle has to be built with the real values, so it is built here.
   deploy:
     name: Deploy to Cloudflare Workers
-    needs: [commits, audit, verify]
+    needs: [commits, audit, verify, test, coverage, e2e]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -388,8 +572,16 @@ jobs:
           fi
           echo "No secrets found in .output/public."
 
-      # wrangler is not a project dependency — the action installs it. Pinned so
-      # a deploy is reproducible; bump it deliberately, not by drifting to latest.
+      # wrangler is pinned, here and in package.json, to the same version: the
+      # e2e job serves the built output with this wrangler's local runtime, and
+      # a preview that ran an older runtime than production would be a weaker
+      # proof than it looks. `toolchain-consistency.test.ts` fails if the two
+      # drift apart.
+      #
+      # It was bumped to 4.147.0 because the build stamps `compatibility_date`
+      # as the day it ran, and 4.126.0's local runtime tops out at 2026-09-01 --
+      # by 2026-10-03 the artifact could be deployed but not previewed, which
+      # means it could not be tested either.
       #
       # The action's `secrets:` input is deliberately unused. Routing the service
       # role key and the provider keys through GitHub to set them on every deploy
@@ -403,36 +595,30 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerVersion: "4.126.0"
+          wranglerVersion: "4.147.0"
           command: deploy
 
       # A successful `wrangler deploy` means Cloudflare accepted the upload, not
-      # that the Worker runs. A module-scope throw — the exact failure the
-      # configuration check above guards against — uploads perfectly and then
-      # 500s for every visitor. Ask the deployment the one question that matters
-      # before calling the job green, with retries because propagation is not
-      # instant. This cannot roll back, but a red deploy is a page rather than
-      # something noticed the next morning.
-      - name: Smoke-check the deployment
+      # that the Worker runs. A module-scope throw -- the exact failure the
+      # configuration check above guards against -- uploads perfectly and then
+      # 500s for every visitor. A single `curl` on `/` is not enough either:
+      # Cloudflare serves the document from the asset manifest, so a 200 on `/`
+      # is compatible with a bundle that never boots, references a missing chunk,
+      # or renders an error page inside a 200.
+      #
+      # So this reads the body of every public page and the assets it names. The
+      # retries are inside the script because a fresh deploy propagates to the
+      # edge asynchronously and the first answer is often the previous build.
+      - name: Walk every public page on the deployment
         env:
           TARGET: ${{ steps.deploy.outputs.deployment-url || vars.VITE_SITE_URL }}
         run: |
           set -euo pipefail
           if [ -z "${TARGET:-}" ]; then
-            echo "::warning::No deployment URL to check"
-            exit 0
+            echo "::error::No deployment URL and no VITE_SITE_URL to check"
+            exit 1
           fi
-          for attempt in 1 2 3 4 5; do
-            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$TARGET" || echo 000)
-            echo "attempt $attempt: $code"
-            if [ "$code" = "200" ]; then
-              echo "$TARGET is serving."
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "::error::$TARGET did not return 200 after five attempts (last: $code)"
-          exit 1
+          node scripts/route-walk.mjs "$TARGET"
 
       # The half of the install contract that only a deployment can answer:
       # whether Cloudflare is serving the manifest the browser accepts, icons
@@ -440,8 +626,7 @@ jobs:
       # manifest with `viewport-fit=cover`, and a worker that caches the shell
       # without ever caching a per-account response. The self-test in `verify`
       # proves the artifact; this proves the origin.
-      #
-      # Retried like the 200 check above, because a fresh deploy can answer on
+      # Retried like the route walk above, because a fresh deploy can answer on
       # the document before every asset is being served from the colo.
       - name: Check the deployment's install contract
         env:

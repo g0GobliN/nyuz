@@ -1,0 +1,172 @@
+name: Production health
+
+# ---------------------------------------------------------------------------
+# What this is for
+# ---------------------------------------------------------------------------
+# Every check in ci.yml runs before a deploy. None of them runs *after* one,
+# except the two steps at the end of the `deploy` job -- and those only fire on
+# the run that deployed, so they are gone the next time anything changes. If a
+# Worker is broken by a Cloudflare-side change, a bad environment variable set
+# out of band, a certificate that does not renew, or a domain that stops
+# resolving, nothing in this repository notices until a reader does.
+#
+# This workflow is the one thing that looks at production on its own schedule. It
+# answers a single question: does every public page still render for a reader
+# with no session and no cache?
+#
+# ---------------------------------------------------------------------------
+# Why it needs no secrets
+# ---------------------------------------------------------------------------
+# It reads public pages. Everything it asserts -- status, title, rendered text,
+# referenced assets -- is visible to an anonymous visitor, so there is no
+# service-role key, no Cloudflare token and no Stripe secret anywhere in this
+# file. `permissions: contents: read` is the only grant, and nothing here checks
+# out a database or an account-scoped page.
+#
+# The consequence worth stating plainly: a compromise of this workflow leaks
+# nothing, because there is nothing to leak. That is the reason it is safe to
+# schedule on a repository whose main branch can already deploy.
+#
+# ---------------------------------------------------------------------------
+# Why the origin is a required variable rather than a literal
+# ---------------------------------------------------------------------------
+# `vars.SITE_URL` is set under Settings > Secrets and variables > Actions >
+# Variables. It is deliberately *not* hardcoded here, for two reasons. A domain
+# that does not resolve yet must fail loudly instead of reporting on a typo'd
+# address forever, and the domain should change in one place -- the variable --
+# rather than in a script, a workflow and four comments. The same value is
+# `VITE_SITE_URL`, which the deploy job already uses as its fallback target.
+#
+# The step below refuses to run when it is unset, with a message saying what to
+# do. A health check that silently passes because it had nowhere to look is worse
+# than no health check, because it reads as coverage in the Actions tab.
+
+on:
+  schedule:
+    # 03:17 UTC. An off-the-hour minute is deliberate: every repository that
+    # schedules at :00 competes for the same runner pool and queues behind it,
+    # and a health check that starts twenty minutes late is still useful.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      attempts:
+        description: "How many times to retry the walk (propagation is not instant)"
+        type: string
+        default: "5"
+
+# A manual run should be able to interrupt a scheduled one rather than queue
+# behind it -- the point of a manual run is usually "is it broken right now".
+concurrency:
+  group: health-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  walk:
+    name: Every public page renders
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # Only the two scripts, and only the one this workflow runs. No `npm ci`:
+      # the walkers have no dependencies by design, because this job must keep
+      # working when a lockfile is the thing that is broken.
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+
+      # The walker's own self-test runs first, on every scheduled fire. It costs
+      # about a second and it answers the question that makes the rest of this
+      # file meaningful: a check that has never failed proves nothing. If a
+      # change to the checker makes it stop reporting a broken page, this goes
+      # red here rather than reporting production healthy for weeks.
+      - name: Prove the checker still reports failures
+        run: node scripts/route-walk.mjs --self-test
+
+      - name: Require an origin to check
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SITE_URL:-}" ]; then
+            echo "::error::vars.SITE_URL is not set, so there is nothing to check."
+            echo ""
+            echo "Set it under Settings > Secrets and variables > Actions >"
+            echo "Variables. It is the public origin, https:// included, and it"
+            echo "is the same value as VITE_SITE_URL."
+            echo ""
+            echo "A health check with no target passes by having nothing to do,"
+            echo "which is worse than no health check at all."
+            exit 1
+          fi
+          case "$SITE_URL" in
+            http://*)
+              echo "::error::SITE_URL is not https — a reader would not be"
+              echo "reaching the deployment the deploy job published."
+              exit 1
+              ;;
+            *localhost*|*127.0.0.1*)
+              echo "::error::SITE_URL points at a loopback address; this runner"
+              echo "would be checking itself rather than the origin."
+              exit 1
+              ;;
+          esac
+          echo "Checking $SITE_URL"
+
+      - name: Walk every public page
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+          ATTEMPTS: ${{ inputs.attempts || '5' }}
+        run: node scripts/route-walk.mjs "$SITE_URL" --attempts "$ATTEMPTS"
+
+      # The other half of what a reader notices. The walk proves the pages
+      # render; this proves the site can be installed, which is the promise the
+      # marketing copy makes and the one a static 200 check cannot see.
+      - name: Check the install contract
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "attempt $attempt"
+            if node scripts/pwa-check.mjs "$SITE_URL"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$SITE_URL does not satisfy the install contract"
+          exit 1
+
+      # A scheduled run nobody reads is decoration. This posts the result to
+      # whatever the repository's notification channel is wired to, which for
+      # GitHub means the Actions tab and anything watching it — and it carries
+      # the failing routes, not just a red dot, so the alert says which page broke.
+      - name: Summary
+        if: always()
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          {
+            echo "### Production health"
+            echo ""
+            echo "- Origin: ${SITE_URL:-_not set_}"
+            echo "- Commit: \`${GITHUB_SHA:0:8}\`"
+            echo ""
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "Every public page rendered and the install contract held."
+            else
+              echo "**Something is wrong.** The failing assertions are in this"
+              echo "run's log above; each names the route, the status and the"
+              echo "asset that did not answer."
+              echo ""
+              echo "If a page is failing right now, a deploy is the only fix:"
+              echo "push to \`main\`. This workflow has no credentials and cannot"
+              echo "change the Worker."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
