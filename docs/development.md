@@ -37,17 +37,21 @@ grant yourself the console. Details in [database.md](database.md#applying-migrat
 
 ## Scripts
 
-| Script               | Does                                                   |
-| -------------------- | ------------------------------------------------------ |
-| `npm run dev`        | Dev server on 8080                                     |
-| `npm run build`      | Production build — nitro bundle for Cloudflare Workers |
-| `npm run preview`    | Serve the built output                                 |
-| `npm run typecheck`  | `tsc --noEmit`                                         |
-| `npm run lint`       | ESLint, including Prettier as a rule                   |
-| `npm run format`     | Prettier write                                         |
-| `npm run test`       | Vitest, once                                           |
-| `npm run test:watch` | Vitest, watching                                       |
-| `npm run ci`         | All four checks, in CI order                           |
+| Script                     | Does                                                   |
+| -------------------------- | ------------------------------------------------------ |
+| `npm run dev`              | Dev server on 8080                                     |
+| `npm run build`            | Production build — nitro bundle for Cloudflare Workers |
+| `npm run preview`          | Serve the built output                                 |
+| `npm run typecheck`        | `tsc --noEmit`                                         |
+| `npm run lint`             | ESLint, including Prettier as a rule                   |
+| `npm run format`           | Prettier write                                         |
+| `npm run test`             | Vitest, once                                           |
+| `npm run test:watch`       | Vitest, watching                                       |
+| `npm run test:shard`       | One quarter of the suite — `npm run test:shard -- 1/4` |
+| `npm run test:coverage`    | Vitest with v8 coverage into `coverage/`               |
+| `npm run coverage:ratchet` | Compare coverage against `.ci/baseline/coverage.json`  |
+| `npm run e2e`              | Chromium against the built Worker (builds first)       |
+| `npm run ci`               | Every check CI runs, in CI order                       |
 
 ---
 
@@ -56,24 +60,85 @@ grant yourself the console. Details in [database.md](database.md#applying-migrat
 `.github/workflows/ci.yml` runs on every push and PR to `main`, and can be triggered by
 hand from the Actions tab.
 
-Four steps, **each its own step** so a red run names what broke rather than reporting that
-`npm run ci` failed somewhere. They run in ascending order of cost:
+Seven jobs. Each check is **its own step** so a red run names what broke rather than
+reporting that `npm run ci` failed somewhere.
 
-```
-typecheck  →  lint  →  test  →  build
-```
+| Job        | What it proves                                                                                                                                                                                                        |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `commits`  | No `Co-Authored-By` trailer, which needs a rebase rather than a fix-up commit                                                                                                                                         |
+| `audit`    | The lockfile resolves only to the public registry, production dependencies have no known advisory, and no server secret is named `VITE_`                                                                              |
+| `verify`   | `typecheck` → `lint` → `build` → the PWA install contract against the emitted artifact → the route walk's own self-test                                                                                               |
+| `test`     | The suite, in four shards — 2780 tests, the slowest quarter rather than the sum                                                                                                                                       |
+| `coverage` | The suite again, instrumented, then the floor in `.ci/baseline/coverage.json`                                                                                                                                         |
+| `e2e`      | Chromium against the built Worker: the public routes render, the guards hold, the health endpoint stays hidden without its token, the billing toggle moves the prices, and the theme is the one the product documents |
+| `deploy`   | Ships, then walks every public page on the origin (status, title, rendered content, referenced assets) and checks the install contract                                                                                |
 
 CI supplies obvious throwaway `VITE_SUPABASE_*` values. The build is _checked_, not run,
 and no request is made to that host — so a build failure can never be mistaken for a
-credential problem and a PR needs no real secrets.
+credential problem and a PR needs no real secrets. The same values reach `e2e`, where the
+public pages render from the bundled site content because reads that fail fall back to it.
 
 A second push to a branch cancels the earlier run; `main` is excluded so its history stays
 fully checked.
 
-A fifth job, `deploy`, runs only for a push to `main` and only once the commit-message
-check and all four steps above are green. It rebuilds with the real configuration —
-the checked build's placeholders must never reach a browser — and ships to Cloudflare.
+`deploy` runs only for a push to `main` and only once every job above is green — including
+the browser suite and the coverage floor. It rebuilds with the real configuration, because
+the checked build's placeholders must never reach a browser, and ships to Cloudflare.
 See [deployment.md](deployment.md).
+
+### Production health
+
+`.github/workflows/health.yml` is the one job that looks at production without deploying it:
+03:17 UTC daily, or by hand from the Actions tab. It re-reads every public page and re-checks
+the install contract against `vars.SITE_URL`.
+
+It is the only workflow with **no secrets at all** — `permissions: contents: read` is the whole
+grant and it never checks out a database or an account-scoped page, so there is nothing there
+to leak. That is what makes it safe to schedule on a repository whose `main` can already deploy.
+
+Two deliberate choices. It runs the route walk's self-test first, on every fire, because a check
+that has never failed proves nothing and this one is the thing that reports production healthy.
+And it **refuses to run** when `vars.SITE_URL` is unset or is not a public https origin, rather
+than passing because it had nowhere to look — a green health check with no target is worse than
+no health check, because it reads as coverage in the Actions tab.
+
+### The coverage floor
+
+`npm run test:coverage` measures the whole tree — `all: true`, so a file nothing imports is
+counted at 0% rather than omitted — and `npm run coverage:ratchet` compares that measurement
+per directory against `.ci/baseline/coverage.json`. Only a **decrease** fails.
+
+It is a ratchet, not a threshold, because the honest number for this codebase is whatever it
+measures: a threshold picked by hand would either be unreachable and switched off, or already
+passed and telling nobody anything. What the ratchet asks on every commit is narrower and
+true — did this change make the codebase less tested than it was?
+
+The floor only rises. `--update` records a new measurement and **refuses to lower anything**;
+a deliberate drop needs `--update --allow-lower` and a reason in the commit. Adding a module
+with no tests therefore fails the build, and the fix is either a test or an explicit raise.
+
+The one friction worth knowing: `src/routes/**` and most of `src/components/**` sit near 0%
+because the unit suite never imports a component. That is the browser suite's territory, and
+the rows are there to make the gap visible rather than to demand unit tests for JSX. The
+browser suite covers it instead — `e2e/interaction.spec.ts` clicks the billing toggle, walks
+the sign-in flow to its address step, and reads every support mailbox — which is worth more
+than a line-coverage number, because those are the parts a unit test would have to mock the
+very thing it is meant to check.
+
+`.ci/baseline/coverage.json` records `measuredAtCommit`, the commit it was taken at, so a drop
+can be attributed to a change rather than guessed at. It is filled in from `git rev-parse HEAD`
+when the floor is recorded locally, not only from `GITHUB_SHA` in CI — a floor that cannot say
+what it is a floor _for_ is indistinguishable from one that drifted because the source moved.
+
+### The browser suite
+
+`npm run e2e` builds the Worker, serves it with `wrangler dev --local`, and drives it with
+Playwright. It is the only check that can see a module-scope throw in the client entry, a
+route file that fails to import, or a page that answers 200 with an error page in it — none
+of which `tsc` or 2751 unit tests can detect, because none of them load the bundle.
+
+It uses no credentials and never contacts Cloudflare. It runs on a pull request, and it
+gates the deploy.
 
 ---
 
@@ -92,6 +157,11 @@ and must change alongside it.
 
 **Routes are file-based** under `src/routes/`. `src/routeTree.gen.ts` is generated — never
 edit it by hand.
+
+**Every environment variable is in `.env.example`.** `env-contract.test.ts` reads the code
+and fails on a variable that is read anywhere in `src/` or `scripts/` but documented
+nowhere; platform-provided names (`DEV`, `PROD`, `GITHUB_SHA`) are listed in that test
+rather than in the example file, because nobody can set them.
 
 **Line endings are LF**, enforced by `.gitattributes`. This was added because lint could not
 be made green without it: Prettier is configured for LF but files authored on Windows were

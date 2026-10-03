@@ -53,14 +53,32 @@ Formatting-only changes go in their own commit, never mixed with logic.
 
 ## Checks
 
-All four must pass before review. CI runs the same four.
+Everything CI runs must pass before review, and `npm run ci` is that list in that order —
+typecheck, lint, the suite with coverage, the coverage floor, the build, the PWA install
+contract, the route walk's self-test, then Chromium against the built Worker. Running it before
+you push is the whole point: a green push is then a checked push.
+
+```bash
+npm run ci
+```
+
+The individual pieces, if you want one of them:
 
 ```bash
 npm run typecheck
 npm run lint
-npm run test
+npm run test          # or: npm run test:shard -- 1/4
+npm run test:coverage && npm run coverage:ratchet
 npm run build
+npm run route:walk:self-test   # does the checker still report failures?
+npm run route:walk -- https://nyuz.app   # against a live origin
+npm run e2e           # builds first, then drives the Worker in Chromium
 ```
+
+`npm run coverage:ratchet` fails when a change makes the codebase **less tested** than it
+was — a new module with no tests, most often. Cover it, or raise the floor deliberately with
+`npm run coverage:ratchet -- --update` in the same commit, which is a decision the diff then
+shows.
 
 Add a test when you fix a bug in pure logic. `matching.test.ts` exists because of a real
 bug; its cases are the specification now.
