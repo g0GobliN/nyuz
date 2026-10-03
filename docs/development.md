@@ -77,6 +77,11 @@ CI supplies obvious throwaway `VITE_SUPABASE_*` values. The build is _checked_, 
 and no request is made to that host — so a build failure can never be mistaken for a
 credential problem and a PR needs no real secrets. The same values reach `e2e`, where the
 public pages render from the bundled site content because reads that fail fall back to it.
+The one page that does not render there is `/blog`, which is gated on the fail-closed `blog`
+feature flag: with no database the flag resolves off and the route answers 404 on purpose.
+The suite asserts that contract — the home page's link and the route flip together, so it
+checks a 200 when the site advertises the blog and a 404 when it does not — and the deploy
+job's route walk is where a rendered blog is asserted.
 
 A second push to a branch cancels the earlier run; `main` is excluded so its history stays
 fully checked.

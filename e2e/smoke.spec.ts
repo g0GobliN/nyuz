@@ -19,17 +19,29 @@ import { expect, test, type ConsoleMessage, type Page } from "@playwright/test";
  * client then tries to reach `ci-placeholder.supabase.co`, which does not exist:
  * failures to that host are expected here and are excluded from the network
  * assertions below, while a failure to any other host is a real defect.
+ *
+ * The one page this job cannot render is `/blog`. Its route is gated on the
+ * `blog` feature flag and that gate is fail-closed: with no database the flag
+ * resolves off and the route answers 404 on purpose. That is the gate working,
+ * not a broken page, so the suite asserts the gate's own contract instead of a
+ * 200 — the home page's link and the route flip together, and
+ * `blogIsAdvertised` below reads the link to decide which state is on.
  */
 
 const PLACEHOLDER_HOST = "ci-placeholder.supabase.co";
 
-/** The public pages a reader reaches without a session. */
+/**
+ * The public pages a reader reaches without a session.
+ *
+ * `/blog` is deliberately absent: it is behind the fail-closed `blog` flag, so
+ * this list holds only the pages that render in every environment. The blog is
+ * covered by `the blog and its link appear together, or neither does` below.
+ */
 const PUBLIC_ROUTES = [
   { path: "/", title: /nyuz/i },
   { path: "/how-it-works", title: /how nyuz works/i },
   { path: "/pricing", title: /pricing/i },
   { path: "/about", title: /about/i },
-  { path: "/blog", title: /blog/i },
   { path: "/legal/terms", title: /terms/i },
   { path: "/legal/privacy", title: /privacy/i },
 ] as const;
@@ -79,6 +91,24 @@ function realFailures(noise: Noise): string[] {
   ];
 }
 
+/**
+ * Whether the site is advertising the blog right now.
+ *
+ * `src/routes/blog/index.tsx` states the contract: the flag is a 404 rather
+ * than a hidden link, and flipping it "reveals the nav link and the route
+ * together, so the two cannot disagree". With no database behind this job the
+ * flag reads off, so `/blog` is supposed to 404 — and the home page's own
+ * markup is the honest way to ask which state is on, because the link is the
+ * flag's observable half. Reading it from the rendered page rather than
+ * importing the flag keeps this suite outside the application.
+ */
+async function blogIsAdvertised(page: Page): Promise<boolean> {
+  await page.goto("/", { waitUntil: "networkidle" });
+  // Exact match: the landing page's hard-coded `/blog/why-i-built-nyuz` link is
+  // not the nav's, and must not be mistaken for it.
+  return (await page.locator('a[href="/blog"]').count()) > 0;
+}
+
 test.describe("the built site answers a request", () => {
   for (const route of PUBLIC_ROUTES) {
     test(`${route.path} renders a page a reader can read`, async ({ page }) => {
@@ -101,6 +131,35 @@ test.describe("the built site answers a request", () => {
       expect(realFailures(noise), `${route.path} browser errors`).toEqual([]);
     });
   }
+
+  test("the blog and its link appear together, or neither does", async ({ page }) => {
+    // The gate is the contract, so this asserts the pair: a site that
+    // advertises the blog must serve it, and a site that does not must 404 it.
+    // Either way, neither half may disagree with the other.
+    const advertised = await blogIsAdvertised(page);
+    const noise = watch(page);
+    const response = await page.goto("/blog", { waitUntil: "networkidle" });
+
+    if (!advertised) {
+      expect(response?.status(), "the gate is off, so the route answers 404").toBe(404);
+      await expect(page.locator("h1")).toHaveText("Nothing here.");
+      // The browser logs the 404 itself, which is this page working as
+      // designed; what must not appear is a script that threw while rendering
+      // the 404 page.
+      expect(noise.pageErrors, "the 404 page did not throw").toEqual([]);
+      return;
+    }
+
+    expect(response?.status(), "the flag is on, so the route renders").toBe(200);
+    await expect(page).toHaveTitle(/blog/i);
+    const height = await page.evaluate(() => document.body.scrollHeight);
+    expect(height, "/blog rendered height").toBeGreaterThan(400);
+    const text = await page.locator("body").innerText();
+    for (const failure of RENDER_FAILURES) {
+      expect(text, `/blog must not render ${failure}`).not.toMatch(failure);
+    }
+    expect(realFailures(noise), "/blog browser errors").toEqual([]);
+  });
 
   test("the home page shows the copy, not an error page", async ({ page }) => {
     await page.goto("/", { waitUntil: "networkidle" });
@@ -197,9 +256,15 @@ test.describe("the origin keeps its promises", () => {
   });
 
   test("a route walk never serves a broken asset", async ({ page }) => {
+    // The blog joins the walk only when the site is advertising it: a
+    // deliberate 404 for a gated page is not a broken asset, and walking it
+    // regardless would report the gate as a defect. See `blogIsAdvertised`.
+    const routes: string[] = PUBLIC_ROUTES.map((route) => route.path);
+    if (await blogIsAdvertised(page)) routes.push("/blog");
+
     const noise = watch(page);
-    for (const route of PUBLIC_ROUTES) {
-      await page.goto(route.path, { waitUntil: "networkidle" });
+    for (const route of routes) {
+      await page.goto(route, { waitUntil: "networkidle" });
     }
     expect(realFailures(noise)).toEqual([]);
   });

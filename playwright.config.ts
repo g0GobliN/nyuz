@@ -40,8 +40,12 @@ import { defineConfig, devices } from "@playwright/test";
  * are placeholders compiled into the bundle: every public page reads site
  * content through `getPublicSiteContent`, which never throws and falls back to
  * the copy bundled in the components, so the public routes render the same
- * markup production serves before anyone edits a headline. Nothing here needs a
- * Supabase session, and nothing here asserts on account-scoped pages.
+ * markup production serves before anyone edits a headline. The one exception is
+ * `/blog`, whose route is gated on the `blog` feature flag and fails closed
+ * without a database: the suite asserts that gate instead of a 200, and the
+ * production route walk (`scripts/route-walk.mjs`) is where a rendered blog is
+ * asserted. Nothing here needs a Supabase session, and nothing here asserts on
+ * account-scoped pages.
  */
 
 const PORT = Number(process.env["E2E_PORT"] ?? 8788);
