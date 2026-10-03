@@ -577,6 +577,14 @@ function supplementalEntityFacts(
   );
   story.sourceList.forEach((source, sourceIndex) => {
     const sentences = readerSentences(source.excerpt ?? "");
+    // The same context the evidence pass reads -- the source's whole text -- so
+    // every textual rule fires here exactly as it fired there. A rule that
+    // needs the source's own words (a newsletter's index, a name cut at an
+    // initial) is inert without it, and the sentence came back published.
+    const sourceContext = [
+      source.excerpt ?? "",
+      ...(source.enrichedEvidence ?? []).map((unit) => unit.text),
+    ].join(" ");
     for (const [sentenceIndex, raw] of sentences.entries()) {
       const entity = entities.find((candidate) => {
         const surname = candidate.name.split(" ").at(-1);
@@ -622,7 +630,7 @@ function supplementalEntityFacts(
       const carriesSelected = selection.facts.some((fact) => carries([text], fact.text));
       if (
         !carriesSelected &&
-        unitTextRejection(text, false) === null &&
+        unitTextRejection(text, false, sourceContext) === null &&
         !editorialNoise(text) &&
         !headingUnit(text) &&
         !contextDependent(text)
