@@ -2563,7 +2563,9 @@ function nameContinuationFragment(text: string, context: string): boolean {
  * corpus, 17 of them genuine instructions. The two casualties are prose and a
  * caption ("Take this display at Alcantarí International Airport, which serves
  * Sucre, Bolivia's constitutional and judicial capital."), accepted as the
- * cost of the rule and being watched. Refusal rather than rewrite: turning
+ * cost of the rule and recorded as its accepted cost -- two sentences, each
+ * refused once, in two different stories, not a recurring family on the corpus
+ * (ruling, 2026-10-04). Refusal rather than rewrite: turning
  * "Use BF16 compute type" into "the release uses BF16" would invent a claim
  * the imperative does not make. Measured cost: 15 instruction sentences never
  * publish again; the release stories keep 3+ facts each and stay alive.
