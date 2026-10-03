@@ -193,6 +193,8 @@ export type CompositionDiagnostics = {
     removedMetadataFields: number;
     cleanedEvidence: number;
     rejectedMetadataOnly: number;
+    /** Sources refused whole because they are a digest of other publications'. */
+    refusedDigests: number;
     authorialVoiceRewrites: number;
     /** Texts that opened by repeating their own item headline. */
     strippedHeadlines: number;
@@ -376,6 +378,7 @@ function createDiagnostics(): CompositionDiagnostics {
       removedMetadataFields: 0,
       cleanedEvidence: 0,
       rejectedMetadataOnly: 0,
+      refusedDigests: 0,
       authorialVoiceRewrites: 0,
       strippedHeadlines: 0,
       sourceVoiceStripped: 0,

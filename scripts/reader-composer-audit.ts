@@ -133,6 +133,8 @@ type Totals = {
   ambiguousNarratorRejected: number;
   relativeTimeRefusals: number;
   colourRejections: number;
+  /** Sources refused whole as digests of other publications' stories. */
+  refusedDigests: number;
 };
 
 function emptyTotals(): Totals {
@@ -169,6 +171,7 @@ function emptyTotals(): Totals {
     ambiguousNarratorRejected: 0,
     relativeTimeRefusals: 0,
     colourRejections: 0,
+    refusedDigests: 0,
   };
 }
 
@@ -276,6 +279,7 @@ main(async () => {
     totals.ambiguousNarratorRejected += diagnostics.sourceNormalization.ambiguousNarratorRejected;
     totals.relativeTimeRefusals += diagnostics.qualityGate.relativeTimeRefusals;
     totals.colourRejections += diagnostics.sourceNormalization.sourceColourRejections;
+    totals.refusedDigests += diagnostics.sourceNormalization.refusedDigests;
     for (const [reason, count] of Object.entries(diagnostics.sentences.reasons)) {
       refusedByReason[reason] = (refusedByReason[reason] ?? 0) + count;
     }
@@ -406,6 +410,9 @@ main(async () => {
   }
 
   heading("Rewrites, with before/after examples to check by hand");
+  // A source-level refusal rather than a rewrite, and the only place this audit
+  // can answer whether the digest boundary fired on the corpus it measured.
+  say(row("digest sources refused", totals.refusedDigests));
   say(row("editorial adverbials removed", totals.voiceStripped));
   say(row("fronted frames removed", totals.framesStripped));
   // Not a defect count on its own: a share statistic has to be readable after its

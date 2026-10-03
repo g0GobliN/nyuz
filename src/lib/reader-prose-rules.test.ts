@@ -11,10 +11,12 @@ import {
   captionSeamSplit,
   cleanDeterministicSentence,
   contextDependent,
+  digestSource,
   editorialNoise,
   hasPredicate,
   headingUnit,
   isOwnSource,
+  normalizeReaderSources,
   normalizeRelativeTime,
   normalizeReportFraming,
   publisherFurniture,
@@ -1820,5 +1822,91 @@ describe("source markup never reaches a published block", () => {
     const published = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
     expect(published).toContain("$300");
     expect(article.paragraphs.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * A digest of other publications' stories is not one story.
+ *
+ * Measured on the frozen corpus before the rule existed: one source in 205 had
+ * this shape -- MIT Technology Review's `The Download` -- and it published ten
+ * unrelated stories under one title: 19 of the story's 33 published sentences
+ * carried the provider's `(Outlet)` markers, 9 carried the `+` that joined
+ * them, 6 of 7 paragraphs mixed items, and one sentence was stitched across a
+ * headline and its elaboration. The refusal is whole because the unit is wrong,
+ * not the sentences; the counterfactual measured the alternative -- the same
+ * story with the source removed rendered 0 facts instead of 35, which is the
+ * page the reader gets either way. The decoys are the corpus's own false
+ * positives for a looser screen: acronym parentheses and prose that cites
+ * outlets without the digest's separators.
+ */
+describe("a digest of other publications is not one story", () => {
+  const digest = [
+    "This is today’s edition of The Download, our weekday newsletter.",
+    "1 OpenAI says rogue agents may have affected more than 100 organizations. The company is searching 50 petabytes of data for incidents. (Reuters $) + It says none of the incidents matched the Hugging Face attack. (Gizmodo) 2 A US man allegedly smuggled $300 million of Nvidia chips to China. He’s been arrested in California on federal charges. (BBC) + The chip smuggling cases expose Nvidia’s blind spots. (Bloomberg $)",
+  ].join(" ");
+
+  const story = (excerpt: string): Story => ({
+    id: "digest",
+    org: "MIT Technology Review",
+    title: "The Download: a biological de-aging contest and why LLMs don’t reason",
+    what: "Don’t be fooled—LLMs don’t reason.",
+    why: "",
+    importance: "High",
+    score: { relevance: 8, importance: 9, novelty: 7 },
+    sources: 1,
+    topics: ["tech"],
+    time: "10:00",
+    publishedAt: "2026-10-03T00:00:00.000Z",
+    sourceList: [{ name: "MIT Technology Review", at: "", headline: "The Download", excerpt }],
+    before: "",
+    after: "",
+    timeline: [],
+  });
+
+  it("refuses the source whole, both stores, and counts the refusal", () => {
+    const { sources, normalization } = normalizeReaderSources([
+      {
+        name: "MIT Technology Review",
+        headline: "The Download",
+        excerpt: digest,
+        enrichedEvidence: [
+          { kind: "fact", text: "(Reuters $) + It says none of the incidents matched the attack." },
+        ],
+      },
+    ]);
+    expect(normalization.refusedDigests).toBe(1);
+    expect(sources[0]?.excerpt).toBeUndefined();
+    expect(sources[0]?.enrichedEvidence).toBeUndefined();
+  });
+
+  it("publishes nothing of it, markers included", () => {
+    const { article, diagnostics } = composeArticleWithDiagnostics(story(digest));
+    expect(article.paragraphs).toEqual([]);
+    expect(diagnostics.facts.rendered).toBe(0);
+    expect(diagnostics.sourceNormalization.refusedDigests).toBe(1);
+    const published = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    expect(published).not.toMatch(/\(\s*(?:Reuters|Gizmodo|BBC)/);
+  });
+
+  it("keeps an article whose parentheses are acronyms", () => {
+    const articleText =
+      "Nvidia's new accelerator pairs (HBM) memory with (CPO) optics and (LTI) interconnects. The company said the part ships in 2027 and declined to give a price.";
+    expect(digestSource(articleText)).toBe(false);
+    const { sources, normalization } = normalizeReaderSources([
+      { name: "Tom's Hardware", at: "", excerpt: articleText },
+    ]);
+    expect(normalization.refusedDigests).toBe(0);
+    expect(sources[0]?.excerpt).toBe(articleText);
+  });
+
+  it("keeps prose that cites outlets without the digest's separators", () => {
+    // Three outlet markers, no `+` runs: the markers alone are not the signature.
+    const cited =
+      "The report cites (Reuters), (Gizmodo) and (BBC) on the pricing question. The company declined to comment.";
+    expect(digestSource(cited)).toBe(false);
+    // One marker with separators is an article with arithmetic in it.
+    const joined = "Two outlets (Gizmodo) and (BBC) ran the story, and the math is 2 + 2 = 4.";
+    expect(digestSource(joined)).toBe(false);
   });
 });

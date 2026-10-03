@@ -3154,6 +3154,51 @@ export function stripSourceFurniture(
   };
 }
 
+/** A parenthesised citation, which is an outlet marker or an acronym in prose. */
+const DIGEST_OUTLET = /\(\s*([^()]{1,40}?)\s*(\$)?\s*\)/g;
+
+/**
+ * A newsletter that is not an article but a digest of other publications'.
+ *
+ * `The Download` reached a reader as one story and published ten unrelated
+ * stories' claims under one title: 19 of the story's 33 published sentences
+ * still held the provider's own `(Outlet)` markers, 9 held the `+` that joined
+ * them, 6 of 7 paragraphs mixed items, one sentence was stitched across the
+ * headline and the elaboration ("AlphaGo was AlphaGo's powers of reasoning ..."),
+ * and the page about a de-aging contest also carried chip smuggling, Flock
+ * cameras, a coral experiment, humanoid robots and a crocodile panic. The event
+ * *is* the digest -- its `what` is one item's headline -- so no sentence rule
+ * can make it one story: the unit error is at the source, which is where this
+ * refuses it. Measured before building it: the refusal takes the story from 35
+ * rendered facts to 0, which is the honest page here rather than a clean-looking
+ * one.
+ *
+ * The signature is measured, not imagined, and deliberately narrow. In the
+ * frozen corpus one source in 205 has it; a coarse screen ("two parenthesised
+ * phrases") finds 37, and hand-reading shows why that screen cannot be used:
+ * acronyms ("(CPO)", "(CISA)", "(DFR)"), arXiv abstracts, release-note bullet
+ * runs and related-headline pastes all match it. So a parenthetical counts only
+ * when it names an outlet -- a lowercase letter inside, or a `$` paywall tag,
+ * the shape of `(Gizmodo)`, `(NYT $)`, `( BBC )` -- and one marker is not
+ * enough: a digest is a run of them joined by the `+` separator, so the source
+ * must show three outlet markers and two separators.
+ *
+ * Extracting the numbered items instead was measured and rejected as a prose
+ * fix: each item needs its own outlet and its own event identity, which is a
+ * source-unit and attribution project. Until that exists the honest outcome is
+ * the one this returns -- nothing, rather than one page pretending to be one
+ * story.
+ */
+export function digestSource(text: string): boolean {
+  const outlets = [...text.matchAll(DIGEST_OUTLET)].filter(([, inner = "", dollar]) => {
+    if (dollar) return true;
+    if (!/[a-z]/.test(inner)) return false;
+    return !/^(?:Image|Photo|Note|Figure|Table|see|Sources?|Credit)/i.test(inner.trim());
+  }).length;
+  if (outlets < 3) return false;
+  return (text.match(/\s\+\s/g)?.length ?? 0) >= 2;
+}
+
 /**
  * Words that occupy a subject position without naming anybody.
  *
@@ -3283,6 +3328,13 @@ export type ReaderSourceNormalization = {
   removedMetadataFields: number;
   cleanedEvidence: number;
   rejectedMetadataOnly: number;
+  /**
+   * Sources refused whole because their text is a digest of other
+   * publications'. The refusal drops both stores, so the counter is the only
+   * trace of what the source would have contributed; see `digestSource` for
+   * the signature and the measured reason it is narrow.
+   */
+  refusedDigests: number;
   /** Sentences whose first-person voice was resolved to the paper's authors. */
   authorialVoiceRewrites: number;
   /** Typesetting wrappers unwrapped from a sentence whose payload was prose. */
@@ -3421,6 +3473,7 @@ function emptyNormalizationStats(): ReaderSourceNormalization & ReaderDedupe {
     removedMetadataFields: 0,
     cleanedEvidence: 0,
     rejectedMetadataOnly: 0,
+    refusedDigests: 0,
     authorialVoiceRewrites: 0,
     markupUnwrapped: 0,
     strippedHeadlines: 0,
@@ -3475,6 +3528,23 @@ function normalizeReaderSource(
   // escaping in its RSS, and it was reaching every attribution the composer
   // built from this source.
   const name = source.name === undefined ? undefined : normalizePlainText(source.name);
+  // A digest of other publications' stories is refused before anything reads
+  // it. Its text is not one article, and composing it as one page is exactly
+  // the defect `digestSource` documents; dropping both stores is what makes the
+  // refusal whole rather than a rewrite the composer can still stitch.
+  const digestText = [
+    source.excerpt ?? "",
+    ...(source.enrichedEvidence ?? []).map((unit) => unit.text),
+  ].join(" ");
+  if (digestSource(digestText)) {
+    stats.refusedDigests += 1;
+    return {
+      ...source,
+      ...(name === undefined ? {} : { name }),
+      excerpt: undefined,
+      enrichedEvidence: undefined,
+    };
+  }
   const context: SourceContext = { name, url: undefined };
   const keep = (text: string): string | undefined => {
     const normalization = normalizeSourceText(context, text);
