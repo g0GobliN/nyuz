@@ -2092,6 +2092,51 @@ describe("an instruction is not a claim", () => {
     ).toBe("imperative_instruction");
   });
 
+  it("reads the verb through the publisher's label", () => {
+    // A short label pushed the imperative off position 0 and the unit published:
+    // Android docs bullets ("CameraX: Replace ..."), llama.cpp changelog lines
+    // ("Model: support ..."), the GitHub post's numbered tips, and the lead-in
+    // forms the entity path rebuilt after the clean variants were refused
+    // ("Here's where to focus: Tip #1: ..."). Measured before landing on the
+    // 2026-10-03 fresh corpus: 13 units newly refused, 10 of them published or
+    // selected, zero false positives on the 21 colon-labelled candidates.
+    for (const text of [
+      "CameraX: Replace legacy Camera1/Camera2 code with lifecycle-aware CameraX.",
+      "Model: support nimble decision model (#29844) Website: https://llama.app.",
+      "Tip #2: Don't trust AI's first answer.",
+      "Here's where to focus: Tip #1: Learn to direct AI, not just use it.",
+      "For example: Issue #4821 Title: Add dark mode AI \u2713 Build implementation \u2713 Generate tests \u2713.",
+    ])
+      expect(unitTextRejection(text, false, undefined)).toBe("imperative_instruction");
+  });
+
+  it("keeps a colon label that introduces a claim", () => {
+    // The counterexample census: 17 of the 21 label-shaped candidates are real
+    // claims, and a blanket "label: refuse" rule would kill them.
+    for (const text of [
+      "They're more like coworkers: business software that can use other software.",
+      'He added: "We do not have line of sight to when supply and demand will return to balance."',
+      "Here's what's launching: One place to explore logs from across Cloudflare.",
+      "Investigate traces in Cloudflare: View request timelines and span details directly in the Cloudflare dashboard.",
+    ])
+      expect(unitTextRejection(text, false, undefined)).toBeNull();
+  });
+
+  it("cannot be evaded by the entity path's re-read of the raw excerpt", () => {
+    const story = oneSource(
+      "GitHub is changing how developers work. Here's where to focus: Tip #1: Learn to direct AI with GitHub, not just use it. " +
+        "GitHub Copilot autocompletes code in the editor.",
+      "The Verge",
+    );
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+    const all = [
+      article.deck.text,
+      ...article.paragraphs.map((paragraph) => paragraph.text),
+      ...diagnostics.facts.lostFacts,
+    ].join(" ");
+    expect(all).not.toContain("Tip #1");
+  });
+
   it("keeps past-tense reporting and quoted speech", () => {
     expect(
       unitTextRejection(

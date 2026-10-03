@@ -2578,8 +2578,65 @@ function nameContinuationFragment(text: string, context: string): boolean {
  * the imperative does not make. Measured cost: 15 instruction sentences never
  * publish again; the release stories keep 3+ facts each and stay alive.
  */
-const INSTRUCTION_OPENING =
-  /^(?:Detect|Integrate|Replace|Deploy|Configure|Use|Try|Read|Learn|Follow|Get|See|Set|Build|Create|Manage|Enable|Install|Update|Run|Add|Make|Publish|Host|Apply|Register|Sign|Check|Implement|Test|Write|Support|Handle|Fix|Remove|Improve|Allow|Prevent|Ensure|Include|Continue|Point|Ground|Access|Explore|Discover|Watch|Listen|Bring|Protect|Track|Reduce|Control|Filter|Scan|Verify|Keep|Put|Give|Take)\b/;
+const INSTRUCTION_VERBS =
+  "Detect|Integrate|Replace|Deploy|Configure|Use|Try|Read|Learn|Follow|Get|See|Set|Build|Create|Manage|Enable|Install|Update|Run|Add|Make|Publish|Host|Apply|Register|Sign|Check|Implement|Test|Write|Support|Handle|Fix|Remove|Improve|Allow|Prevent|Ensure|Include|Continue|Point|Ground|Access|Explore|Discover|Watch|Listen|Bring|Protect|Track|Reduce|Control|Filter|Scan|Verify|Keep|Put|Give|Take";
+const INSTRUCTION_OPENING = new RegExp(`^(?:${INSTRUCTION_VERBS})\\b`);
+/** The same list after a label, where the publisher wrote the verb in lowercase. */
+const INSTRUCTION_OPENING_FOLDED = new RegExp(`^(?:${INSTRUCTION_VERBS})\\b`, "i");
+
+/**
+ * A short label does not change what a unit is.
+ *
+ * "Android Intent security: Detect and prevent implicit intent hijacking..."
+ * and "CameraX: Replace legacy Camera1/Camera2 code with lifecycle-aware
+ * CameraX." were published as facts while their unlabelled siblings were
+ * refused: the imperative test is anchored at position 0, and a component
+ * label pushed the verb off it. The same shape hid llama.cpp changelog bullets
+ * ("Model: support nimble decision model (#29844) Website: ...") -- the family
+ * F4 refuses without a release-feed carve-out. The label is bounded at four
+ * tokens before the colon, so a sentence that merely contains a colon
+ * ("They're more like coworkers: business software that can use other
+ * software.") is not touched, and the remainder is judged by the same closed
+ * verb list, so the mechanism stays one predicate. Measured before landing on
+ * the 2026-10-03 fresh corpus: newly refuses 13 units, 10 of them published or
+ * selected, and none of the 21 colon-labelled candidates that are real claims
+ * (the counterexample census -- 0 false positives).
+ */
+const LABEL_PREFIX = /^[A-Z][\p{L}\d'’&.-]*(?:\s+[#\d\p{L}'’&.-]+){0,3}\s*:\s+(?=\S)/u;
+
+/**
+ * The publisher's own mark that a unit is advice, not reporting.
+ *
+ * The GitHub post labelled its own region ("Here's where to focus:", then
+ * "Tip #1:", "Tip #2:", "Tip #3:", each closed by "Takeaway:") and three of
+ * the numbered tips published as facts. This rule is the numbered mark only --
+ * three measured units, one source, no measured counterexamples. "Takeaway:",
+ * "Notice what changed." and the prompt example stay for now: a label alone is
+ * not a safe refusal shape, and none of the three has a structural
+ * discriminator that is not a new verb or a vocabulary blacklist (ruling,
+ * 2026-10-05).
+ */
+const TIP_LABEL = /^Tip\s*#?\d+\s*:/i;
+
+function instructionOpening(text: string): boolean {
+  // A label can sit inside a label: "Here's where to focus: Tip #1: Learn to
+  // direct AI..." and "For example: Issue #4821 Title: Add dark mode..." are
+  // the same instructional units with their region lead-in still attached, and
+  // they reached the reader from the entity path's re-read of the raw excerpt
+  // after the clean variant was refused. The lookthrough repeats, bounded at
+  // two labels, and each remainder is judged by the same closed list or the
+  // numbered-tip mark, so the refusal cannot be evaded by re-reading the unit
+  // in a longer form.
+  let rest = text.trim();
+  for (let labels = 0; labels <= 2; labels += 1) {
+    if (INSTRUCTION_OPENING.test(rest) || TIP_LABEL.test(rest)) return true;
+    const labelled = LABEL_PREFIX.exec(rest);
+    if (!labelled) return false;
+    rest = rest.slice(labelled[0].length);
+    if (INSTRUCTION_OPENING_FOLDED.test(rest)) return true;
+  }
+  return false;
+}
 
 /**
  * The newsletter's own index of itself.
@@ -2704,8 +2761,9 @@ export function unitTextRejection(
   // A subjectless instruction is addressed to the reader, not about the world:
   // it cannot become a fact without inventing the actor who does it. Quotations
   // are excluded -- an imperative inside someone's speech is their words, and
-  // the quote rules above own it.
-  if (!quote && INSTRUCTION_OPENING.test(text.trim())) return "imperative_instruction";
+  // the quote rules above own it. A short label ("CameraX:", "Tip #1:") does
+  // not change what the unit is -- see `instructionOpening`.
+  if (!quote && instructionOpening(text)) return "imperative_instruction";
   if (!quote && !hasPredicate(text)) return "no_predicate";
   if (unverifiableAttribution(text)) return "unverifiable_attribution";
   return null;
