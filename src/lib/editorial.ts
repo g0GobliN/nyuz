@@ -604,12 +604,25 @@ function supplementalEntityFacts(
       // refusal below instead, which is where the same sentence's "we" already
       // belongs.
       const normalizedRaw = raw.replace(/^As we write,\s*/i, "");
+      // The introduction is the operation the evidence pass performs -- a bare
+      // surname resolved to the full name the source supplies -- and it carries
+      // the same two guards that pass applies to it: the surname must be
+      // name-shaped (capital plus lowercase; `on` and `AI` are not surnames) and
+      // the occurrence must be written as a name (case-sensitive; `power-on` is
+      // a word, not a person). Without them the first word-boundary occurrence
+      // anywhere was replaced, and a heading's text landed mid-sentence:
+      // `power-Developer Use Cases on to running models` and `Personal Local AI
+      // Supercomputing` on the fresh corpus were both this substitution, made
+      // from the harvest's half-phrase "Developer Use Cases on" and the term
+      // "Local AI" whose surname is the initialism `AI`.
+      const nameShaped = /^[A-Z][a-z]+$/.test(surname ?? "");
       const text = cleanDeterministicSentence(
         surname &&
+          nameShaped &&
           !new RegExp(`\\b${entity.name.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\b`, "i").test(
             normalizedRaw,
           )
-          ? normalizedRaw.replace(new RegExp(`\\b${surname}\\b`, "i"), entity.name)
+          ? normalizedRaw.replace(new RegExp(`\\b${surname}\\b`), entity.name)
           : normalizedRaw,
       );
       // The same boundary the evidence pass applies. This path rebuilds a

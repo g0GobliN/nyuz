@@ -127,6 +127,71 @@ describe("production deterministic Read quality", () => {
       text.match(/\bOmacom Foundation\b/g)?.length,
     );
   });
+  it("does not harvest half a heading as an entity name", () => {
+    // A capitalised run may pass through a lowercase `on` on its way to the next
+    // capitalised word ("Battle on the Beach"), but when the run STOPS there the
+    // match is a phrase cut at its preposition. The fresh corpus harvested
+    // "Developer Use Cases on", "GB DGX Spark on" and "One More Note on" as
+    // names; the first then had its surname `on` substituted into `power-on`.
+    const entities = rankEntities("Local AI on DGX Spark", [
+      {
+        excerpt:
+          "One More Note on the topic. Developer Use Cases on DGX Spark. Local AI is useful.",
+      },
+    ]);
+    expect(entities.map((e) => e.name)).not.toContain("Developer Use Cases on");
+    for (const entity of entities) expect(entity.name.trim().split(/\s+/).at(-1)).toMatch(/^[A-Z]/);
+  });
+  it("does not splice an entity into the middle of another word or phrase", () => {
+    // The reduced fresh-corpus fixture: a vendor blog's headings, a term whose
+    // last word is an initialism, and a sentence with `power-on` in it. The
+    // entity path introduced "Local AI" at the first `AI` of a section heading
+    // ("Personal Local AI Supercomputing") and the harvest's half-phrase
+    // "Developer Use Cases on" at the `on` of "power-on" -- a heading's text
+    // landing mid-sentence, and the heading published twice beside itself.
+    // The introduction carries the evidence pass's two guards: the surname must
+    // be name-shaped, and the occurrence must be written as a name.
+    const s: Story = {
+      id: "dgx-fixture",
+      title: "NVIDIA introduces 64GB DGX Spark to throw local AI fans a lifeline",
+      what: "NVIDIA introduced a 64GB DGX Spark.",
+      why: "",
+      org: "",
+      sources: 1,
+      topics: [],
+      importance: "Medium",
+      score: { relevance: 50, importance: 50, novelty: 50 },
+      time: "",
+      publishedAt: "2026-10-02T00:00:00.000Z",
+      sourceList: [
+        {
+          name: "NVIDIA blog",
+          at: "",
+          excerpt:
+            "NVIDIA is tailoring the DGX Spark platform to better fit the realities of today's AI models. " +
+            "Local AI is becoming more useful by the token. " +
+            "A New Starting Point for Personal AI Supercomputing. " +
+            "DGX Spark combines NVIDIA Grace Blackwell compute in one system. " +
+            "Developer Use Cases on DGX Spark. " +
+            "Developers can go from power-on to running models in minutes. " +
+            "The new DGX Spark 64GB configuration keeps the GB10 Grace Blackwell Superchip and starts at $4,999.",
+        },
+      ],
+      before: "",
+      after: "",
+      timeline: [],
+    };
+    const { article, diagnostics } = composeArticleWithDiagnostics(s);
+    const all = [
+      article.deck.text,
+      ...article.paragraphs.map((p) => p.text),
+      ...diagnostics.facts.lostFacts,
+    ].join("\n");
+    expect(all).not.toContain("power-Developer");
+    expect(all).not.toContain("Personal Local AI");
+    expect(all).toContain("Developers can go from power-on to running models in minutes");
+    expect(all.match(/A New Starting Point for Personal AI Supercomputing/g)?.length).toBe(1);
+  });
   it("ranks central entities above incidental company mentions", () => {
     const s = story(1);
     const entities = rankEntities(s.title, s.sourceList);

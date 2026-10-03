@@ -2158,8 +2158,16 @@ export function rankEntities(title: string, sources: ReaderSource[]): RankedEnti
   for (const hit of [...extractCompanies(all, 0), ...extractProducts(all, 0)]) add(hit.value);
   for (const name of all.match(
     /\b(?:[A-Z][\p{L}\d-]*(?:\.[\p{L}\d-]+)*)(?:\s+(?:[A-Z][\p{L}\d-]*(?:\.[\p{L}\d-]+)*|on(?=\s+[A-Z]))){0,3}/gu,
-  ) ?? [])
+  ) ?? []) {
+    // The `on` bridge exists to join a run across a lowercase preposition, but
+    // when the run STOPS there the match is half a phrase cut at its preposition
+    // -- "Developer Use Cases on", "GB DGX Spark on", "One More Note on" on the
+    // frozen corpus, all three names. A harvested run is a name only when it
+    // ends on a capitalised token; the whole match goes, because the text before
+    // the preposition is the same half-phrase.
+    if (!/^[A-Z]/.test(name.trim().split(/\s+/).at(-1) ?? "")) continue;
     add(name);
+  }
   for (const s of sources) if (s.name) add(s.name);
   // Article sentences do not depend on the candidate entity, so split each source
   // once rather than rescanning a long excerpt for every name in it.

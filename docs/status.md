@@ -349,6 +349,19 @@ opportunity is recorded here as future work**: the ten numbered items are ordina
 self-contained claims, and each needs its own outlet and its own event identity before
 it can be published — a source-unit and attribution project, not a prose rule.
 
+**The article cap drops the tail of a long story.** The composer publishes at most 8
+blocks when a story assembles more than 12 (`article_limit` in `editorial.ts`), and the
+cap chooses by assembled position, not by weight. On the fresh corpus (3 October 2026)
+the Nvidia DGX Spark story assembled 32 blocks from two legitimate sources and dropped
+24 — about 20 of them real facts, including the $4,999 price and the 23 October launch
+date, while the head, specs already published elsewhere, survived. Measured at one
+commit across both frozen corpora: the old corpus lost 18 sentences in 4 stories (max
+9), the fresh 55 in 7, 24 of them one story. **Recorded as an accepted limitation**, not
+a defect: the average story is 120 words with no padding, 5 of 200 events are
+multi-source, and re-ranking by importance or widening the cap for multi-source stories
+would be a product-shape change decided from one event. Revisit if multi-source events
+grow; until then the drop stays counted in `diagnostics.facts.lost`.
+
 ---
 
 ## Checks that must stay green
