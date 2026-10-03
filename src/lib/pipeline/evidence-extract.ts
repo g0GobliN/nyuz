@@ -6,7 +6,11 @@ import {
   extractProducts,
 } from "./extract";
 import { sentences, repeats, isEvidenceBoilerplate, type EvidenceUnit } from "@/lib/understand";
-import { cleanDeterministicSentence, validDeterministicSentence } from "@/lib/reader-evidence";
+import {
+  cleanDeterministicSentence,
+  isCutSentence,
+  validDeterministicSentence,
+} from "@/lib/reader-evidence";
 import { evidenceScore, rankEntities } from "../reader-evidence";
 import { normalizeSourceText, type SourceContext } from "./source-text";
 
@@ -85,6 +89,35 @@ function factDensity(text: string): number {
 
 export const MAX_EVIDENCE_UNITS = 12;
 
+/** The stored unit's character bound -- the copyright-safety cap the tests pin. */
+export const MAX_UNIT_CHARS = 320;
+/** A cut below this many characters is a stub, not a fact, so the unit is dropped. */
+const MIN_CUT_CHARS = 120;
+
+/**
+ * A unit is a sentence or it is not stored.
+ *
+ * The bound used to be a plain `slice(0, 320)`, which stops mid-word: the corpus
+ * stored "...delivering " (PyTorch), "...after a deployment of An" (TechCrunch)
+ * and "...into the Pacific O" (The Guardian) -- text a reader can see, ending in
+ * the middle of a word. A sentence that does not fit is now cut at its last full
+ * stop inside the bound, so whole sentences are kept instead of fragments; one
+ * with no boundary in range is dropped, because a fragment is not a fact.
+ */
+export function boundUnitText(text: string): string | null {
+  if (text.length <= MAX_UNIT_CHARS) return text;
+  const window = text.slice(0, MAX_UNIT_CHARS);
+  const cut = Math.max(
+    window.lastIndexOf(". "),
+    window.lastIndexOf("? "),
+    window.lastIndexOf("! "),
+    window.lastIndexOf('."'),
+    window.lastIndexOf(".”"),
+  );
+  if (cut + 1 < MIN_CUT_CHARS) return null;
+  return window.slice(0, cut + 1);
+}
+
 /**
  * `mainText` is the already-extracted, script/nav/footer-stripped body -- see
  * `html-text.ts`.
@@ -116,6 +149,10 @@ export function selectEvidenceUnits(
     .filter((unit) => !unit.metadataOnly)
     .map((unit) => cleanDeterministicSentence(unit.text))
     .filter((text) => validDeterministicSentence(text))
+    // Storage holds the block verbatim, so a block that was cut -- a page's
+    // extraction stopping before its stop, a caption seam's punctuationless head
+    // -- is refused here rather than stored and printed as a sentence later.
+    .filter((text) => !isCutSentence(text))
     .filter((text) => !isEvidenceBoilerplate(text))
     .filter((text) => !quoteKeys.some((q) => text.toLowerCase().includes(q)));
 
@@ -135,9 +172,11 @@ export function selectEvidenceUnits(
     if (keptTexts.some((existing) => repeats(existing, item.text))) continue;
     keptTexts.push(item.text);
     const entities = entitiesIn(item.text);
+    const bounded = boundUnitText(item.text);
+    if (bounded === null) continue;
     kept.push({
       kind: item.uncertain ? "uncertain" : "fact",
-      text: item.text.slice(0, 320),
+      text: bounded,
       ...(entities.length ? { entities } : {}),
     });
   }

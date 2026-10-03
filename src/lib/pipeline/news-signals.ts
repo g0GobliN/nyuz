@@ -7,7 +7,14 @@ import {
   normalizeSourceText,
   providerFurniture,
 } from "./source-text";
-import { editorialNoise, selectReaderEvidence } from "../reader-evidence";
+import {
+  editorialNoise,
+  isCutSentence,
+  magnitudeKeys,
+  numericKeys,
+  rankEntities,
+  selectReaderEvidence,
+} from "../reader-evidence";
 
 export type NewsArticle = {
   id: string;
@@ -203,6 +210,53 @@ const MIN_WORDS = 5;
 const ROUNDUP = /\.\s+(?:and|but|plus|also)\b|\s\|\s/i;
 
 /**
+ * One incident written in two outlets' own words, with no shared wording to see.
+ *
+ * `sameStory` counts words, and two desks describing one arrest rarely agree on
+ * them: "accused of shipping $300M worth of Nvidia chips to China" against
+ * "arrested ... for smuggling $300 million in Nvidia AI servers to China" shares
+ * Nvidia, China and the figure, and `MIN_SHARED` wants three. That miss is not
+ * academic: one arrest became three events and three cards in one briefing, and
+ * the reader noticed before the audit did.
+ *
+ * The shape survives paraphrase where the words do not: the same *primary*
+ * entity -- not merely a capitalised word -- and the same figure. That is a much
+ * narrower claim than it sounds, because the figure has to match: two Nvidia
+ * stories about different money share none, the DGX Spark pair shares Nvidia and
+ * no figure at all, and the caller's figure-conflict guard in `sameStory` has
+ * already refused headlines whose numbers disagree.
+ *
+ * The figure vocabulary here is `numericKeys` **plus** `magnitudeKeys`: a bare
+ * "100 million barrels" is an anchor two accounts of one release keep, and it is
+ * too weak to be trusted as a *conflict*. Measured over the 400-event weekly
+ * population, adding it joined exactly one of the 322 same-actor residual pairs
+ * -- the G7 diesel release, one event from two outlets -- and no unrelated pair.
+ *
+ * Titles only, and no time window: the callers own both. `cluster` applies it
+ * across publishers inside its match window, and the briefing twin test applies
+ * it within one morning's list and against what was delivered in the last 48
+ * hours.
+ */
+export function sameIncident(left: string, right: string): boolean {
+  const primary = (title: string) =>
+    new Set(
+      rankEntities(title, [{ excerpt: "" }])
+        .filter((entity) => entity.role === "PRIMARY")
+        .map((entity) => entity.name.toLowerCase()),
+    );
+  const leftEntities = primary(left);
+  const rightEntities = primary(right);
+  const leftFigures = [...numericKeys(left), ...magnitudeKeys(left)];
+  const rightFigures = [...numericKeys(right), ...magnitudeKeys(right)];
+  if (leftEntities.size === 0 || rightEntities.size === 0) return false;
+  if (leftFigures.length === 0 || rightFigures.length === 0) return false;
+  return (
+    [...leftEntities].some((name) => rightEntities.has(name)) &&
+    leftFigures.some((figure) => rightFigures.includes(figure))
+  );
+}
+
+/**
  * Same story, worded differently -- the cross-outlet companion to `sameHeadline`.
  *
  * `sameHeadline` asks whether two outlets printed the *same words*: it is the
@@ -260,6 +314,12 @@ export function sameStory(left: string, right: string): boolean {
       .sort()
       .join("|");
   if (negationKey(a) !== negationKey(b)) return false;
+
+  // The shape of one incident, before the word tests: this is the path for the
+  // paraphrase the vocabulary below cannot see (see `sameIncident`). The figure
+  // guards above have already run, so a pair with conflicting numbers is
+  // rejected before it can reach here.
+  if (sameIncident(left, right)) return true;
 
   const contentA = new Set(a.filter((word) => !SCAFFOLD.has(word)).map(figureKey));
   const contentB = new Set(b.filter((word) => !SCAFFOLD.has(word)).map(figureKey));
@@ -358,9 +418,16 @@ export function finalizeMetadata(
         text.length >= 40 &&
         !/^(?:subscribe|sign up|enable javascript|access denied)\b/i.test(text),
     );
+  // The first full stop after forty characters, unless it is the final stop of
+  // a dotted abbreviation: "... in violation of U.S. export controls" must not
+  // clip to "... in violation of U.S.", which is the fragment the corpus stored
+  // as this event's summary. A clip with no clean stop inside the bound falls
+  // back to the word-boundary cut, which `summaryFor` refuses if it is broken.
+  const clipped = excerpt?.match(/^.{40,280}?[.!?](?:\s|$)/)?.[0]?.trim();
   const short = excerpt
-    ? (excerpt.match(/^.{40,280}?[.!?](?:\s|$)/)?.[0]?.trim() ??
-      excerpt.slice(0, 280).replace(/\s+\S*$/, ""))
+    ? clipped && !isCutSentence(clipped)
+      ? clipped
+      : excerpt.slice(0, 280).replace(/\s+\S*$/, "")
     : title;
   const representatives = [...groups.values()];
   const text = representatives.map((a) => `${a.title}\n${a.excerpt ?? ""}`).join("\n");
@@ -437,6 +504,13 @@ function summaryFor(title: string, candidate: string): string {
   if (metadataOnlyEvidence(text)) return "";
   if (providerFurniture(text) || hasSourceMetadata(text)) return "";
   if (editorialNoise(text)) return "";
+  // A stored summary is a sentence a reader will see as the card's paragraph
+  // and as the article's deck when no evidence lead survives. A block that stops
+  // mid-clause, or at the final stop of a dotted abbreviation, was cut rather
+  // than written -- the corpus stored "... in violation of U.S." as the whole
+  // summary of an arrest. An empty summary is the documented better outcome:
+  // headline plus sources beats a broken sentence.
+  if (isCutSentence(text)) return "";
   // The headline is already the headline. Storing it here is what made every
   // such story's deck a duplicate of its own title.
   if (cleanText(text).toLowerCase() === cleanText(title).toLowerCase()) return "";

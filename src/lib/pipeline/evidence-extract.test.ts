@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { extractQuotes, selectEvidenceUnits, MAX_EVIDENCE_UNITS } from "./evidence-extract";
+import {
+  boundUnitText,
+  extractQuotes,
+  selectEvidenceUnits,
+  MAX_EVIDENCE_UNITS,
+} from "./evidence-extract";
 import {
   cleanDeterministicSentence,
   deterministicFactType,
@@ -112,6 +117,27 @@ describe("selectEvidenceUnits", () => {
     const longSentence = `This sentence goes on and on with a lot of repeated words and clauses about the acquisition deal and its terms and conditions and structure and financing arrangement and closing timeline and regulatory approvals process, all of which matter enormously to shareholders and analysts and reporters covering it. ${"x"}`;
     const units = selectEvidenceUnits(longSentence);
     for (const unit of units) expect(unit.text.length).toBeLessThanOrEqual(320);
+  });
+
+  it("bounds a stored unit at a sentence boundary, never mid-word", () => {
+    // The bound used to be `slice(0, 320)`, and the corpus stored the fragment
+    // it left: "...delivering " (PyTorch), "...after a deployment of An"
+    // (TechCrunch), "...into the Pacific O" (The Guardian). A reader can see
+    // those. A unit is now a sentence or it is not stored at all.
+    expect(boundUnitText("A short sentence about the deal.")).toBe(
+      "A short sentence about the deal.",
+    );
+    const sentence =
+      "The company confirmed the second phase of its plan will begin next month after regulators signed off, a step the filing describes as final. ";
+    const bounded = boundUnitText(`${sentence.repeat(3)}more words past the bound`);
+    expect(bounded).not.toBeNull();
+    expect(bounded!.length).toBeLessThanOrEqual(320);
+    expect(bounded!.endsWith(".")).toBe(true);
+    // No full stop inside the bound at all: dropping the fact beats publishing
+    // a fragment of one, because a fragment is what the reader noticed.
+    const runOn = `${Array.from({ length: 60 }, (_, i) => `clause ${i}`).join(", ")} and no full stop anywhere in it`;
+    expect(runOn.length).toBeGreaterThan(320);
+    expect(boundUnitText(runOn)).toBeNull();
   });
 
   it("reorders by fact density rather than preserving strict source order (avoids mirroring phrasing/order)", () => {

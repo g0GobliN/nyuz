@@ -270,29 +270,38 @@ describe("production deterministic Read quality", () => {
   });
   it("keeps only the relevant fact from an otherwise mixed related-story summary", () => {
     const current = {
-      title: "Acme secures funding for a factory",
-      summary: "Acme began phase two.",
+      title: "Acme secures $40 million funding for a factory",
+      summary: "The $40 million carries the second phase.",
     };
     const prior = {
-      title: "Acme announced its factory",
+      title: "Acme announced its $40 million factory",
       summary:
-        "Acme announced plans for the factory in June. Nvidia separately released a graphics card for gaming customers.",
+        "Acme announced plans for the $40 million factory in June. Nvidia separately released a graphics card for gaming customers.",
     };
     expect(relatedContext(current, prior)).toBe(
-      "Previously, Acme announced plans for the factory in June.",
+      "Previously, Acme announced plans for the $40 million factory in June.",
     );
   });
-  it("accepts a shared central entity and composes a supported historical fact", () => {
-    const current = { title: "Acme secures funding for a factory" };
+  it("accepts a figure-backed historical fact and refuses an entity-only one", () => {
+    // The figure is the whole test: two Acme stories sharing an actor and no sum
+    // cannot be told apart from two different Acme stories, and the corpus read
+    // is that a wrong "Previously," costs more than the sentence is worth.
+    const current = { title: "Acme secures $40 million funding for a factory" };
     const prior = {
-      title: "Acme announced its factory",
-      summary: "Acme announced plans for the factory in June.",
+      title: "Acme announced its $40 million factory",
+      summary: "Acme announced plans for the $40 million factory in June.",
     };
     expect(scoreRelatedEvent(current, prior).accepted).toBe(true);
     expect(relatedContext(current, prior)).toBe(
-      "Previously, Acme announced plans for the factory in June.",
+      "Previously, Acme announced plans for the $40 million factory in June.",
     );
     expect(relatedContext(current, { title: prior.title })).toBeNull();
+    expect(
+      relatedContext(current, {
+        title: "Acme announced its factory",
+        summary: "Acme announced plans for the factory in June.",
+      }),
+    ).toBeNull();
   });
   it("weights central event categories over incidental controversy and industry", () => {
     const a = story(0),

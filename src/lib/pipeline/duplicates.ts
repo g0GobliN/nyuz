@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
+import { numericKeys, rankEntities } from "@/lib/reader-evidence";
 import { capitalised, sameHeadline } from "./news-signals";
 import { STOPWORDS } from "./shortlist";
 
@@ -216,8 +217,16 @@ export type TwinBrief = { title: string; whatHappened: string | null };
  * Ranked order is preserved and the first telling of a story is the one kept,
  * because the list is ordered by what the reader should read first.
  */
-/** The twin shape of one brief: the three signals a pair is compared on. */
-type Shape = { words: Set<string>; entities: Set<string>; markers: Set<string> };
+/** The twin shape of one brief: the signals a pair is compared on. */
+type Shape = {
+  words: Set<string>;
+  entities: Set<string>;
+  markers: Set<string>;
+  /** PRIMARY entity names: the actor a claim is about, not merely a capital. */
+  primary: Set<string>;
+  /** Figures, so two accounts of one incident can meet without shared words. */
+  figures: Set<string>;
+};
 
 /**
  * Whether two briefs tell one story, by exactly the conditions
@@ -234,6 +243,14 @@ type Shape = { words: Set<string>; entities: Set<string>; markers: Set<string> }
  * the kind of event and the actor, not just filler.
  */
 function areTwins(a: Shape, b: Shape): boolean {
+  // The shape of one incident: the same actor and the same figure. Two desks
+  // describing one arrest share neither wording nor marker -- "accused of
+  // shipping" against "arrested for smuggling" -- and the word tests below
+  // cannot see them, so the reader got one arrest as three cards. Checked
+  // first, because it exists precisely for the pairs the word tests reject.
+  // The 48-hour window is the caller's: one morning's list, or the delivered
+  // history `suppressDeliveredDuplicates` already bounds.
+  if (sharedCount(a.primary, b.primary) > 0 && sharedCount(a.figures, b.figures) > 0) return true;
   const overlap = sharedCount(a.words, b.words);
   if (overlap < 2) return false;
   if (sharedCount(a.entities, b.entities) === 0) return false;
@@ -254,6 +271,12 @@ const shapeOf = (brief: TwinBrief): Shape => {
     words: new Set([...contentWords(brief.title), ...contentWords(summary)]),
     entities: capitalised(brief.title),
     markers: markersOf(brief.title, summary),
+    primary: new Set(
+      rankEntities(brief.title, [{ excerpt: summary }])
+        .filter((entity) => entity.role === "PRIMARY")
+        .map((entity) => entity.name.toLowerCase()),
+    ),
+    figures: new Set(numericKeys(`${brief.title} ${summary}`)),
   };
 };
 

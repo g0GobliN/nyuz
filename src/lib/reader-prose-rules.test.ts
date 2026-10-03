@@ -15,6 +15,7 @@ import {
   editorialNoise,
   hasPredicate,
   headingUnit,
+  isCutSentence,
   isOwnSource,
   normalizeReaderSources,
   normalizeRelativeTime,
@@ -200,6 +201,24 @@ describe("a cut-off extraction seam is not a sentence", () => {
     ).toEqual([
       "On 30 September 2026 the group asked the court for an injunction.",
       "Stop calling it safe.",
+    ]);
+  });
+
+  it("does not cut a sentence open at a dotted abbreviation", () => {
+    // The production deck read "... in violation of U.S." -- the splitter took
+    // the final stop of "U.S. export controls" for a sentence end. A dotted
+    // abbreviation is held back the way a single initial is; a sentence that
+    // genuinely ends with one merges with the next rather than cutting open.
+    expect(
+      readerSentences(
+        "The chips were shipped to China in violation of U.S. export controls. The department said so.",
+      ),
+    ).toEqual([
+      "The chips were shipped to China in violation of U.S. export controls.",
+      "The department said so.",
+    ]);
+    expect(readerSentences("The company is based in the U.S. It employs 500 people.")).toEqual([
+      "The company is based in the U.S. It employs 500 people.",
     ]);
   });
 });
@@ -2102,12 +2121,21 @@ describe("an instruction is not a claim", () => {
     // selected, zero false positives on the 21 colon-labelled candidates.
     for (const text of [
       "CameraX: Replace legacy Camera1/Camera2 code with lifecycle-aware CameraX.",
-      "Model: support nimble decision model (#29844) Website: https://llama.app.",
       "Tip #2: Don't trust AI's first answer.",
       "Here's where to focus: Tip #1: Learn to direct AI, not just use it.",
       "For example: Issue #4821 Title: Add dark mode AI \u2713 Build implementation \u2713 Generate tests \u2713.",
     ])
       expect(unitTextRejection(text, false, undefined)).toBe("imperative_instruction");
+    // The llama.cpp bullet carries a raw URL, and since the URL rule landed the
+    // refusal is charged to that instead. The unit is still refused; the reason
+    // names the first rule that saw it.
+    expect(
+      unitTextRejection(
+        "Model: support nimble decision model (#29844) Website: https://llama.app.",
+        false,
+        undefined,
+      ),
+    ).toBe("invalid_sentence");
   });
 
   it("keeps a colon label that introduces a claim", () => {
@@ -2161,5 +2189,18 @@ describe("an instruction is not a claim", () => {
     ]);
     expect(selection.rejectionReasons.imperative_instruction).toBe(2);
     expect(selection.facts.some((fact) => fact.text.includes("Device Streaming"))).toBe(true);
+  });
+
+  describe("a block cut rather than written", () => {
+    it("refuses a stop-less block and one cut at a dotted abbreviation", () => {
+      expect(isCutSentence("now only $199.99 at Amazon")).toBe(true);
+      expect(isCutSentence("the rule was applied in violation of U.S.")).toBe(true);
+    });
+
+    it("accepts a complete sentence, a quotation, and the empty string", () => {
+      expect(isCutSentence("The council approved the plan.")).toBe(false);
+      expect(isCutSentence('He said "we are leaving"')).toBe(false);
+      expect(isCutSentence("   ")).toBe(false);
+    });
   });
 });

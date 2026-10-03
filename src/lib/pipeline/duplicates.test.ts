@@ -117,6 +117,76 @@ describe("one story per briefing", () => {
     ]);
   });
 
+  it("collapses one incident told in two outlets' own words, by actor and figure", () => {
+    // The live pair the owner found in the briefing: The Register's account of
+    // an arrest against Tom's Hardware's. They share no marker word -- one says
+    // "accused", the other "arrested" -- and only two content words, so the
+    // word tests keep both. The actor and the $300 million say it is one story.
+    const kept = suppressStoryTwins([
+      brief(
+        "Californian accused of shipping $300M worth of Nvidia chips to China without Uncle Sam's approval",
+        "Greg Lui, 38, allegedly tried to export around $300 million worth of Nvidia kit via US-based freight businesses.",
+      ),
+      brief(
+        "California tech CEO arrested, faces up to 20 years in prison for smuggling $300 million in Nvidia AI servers to China",
+        "A California man has been arrested for smuggling over $300 million worth of restricted Nvidia chips to China.",
+      ),
+    ]);
+    expect(kept.map((b) => b.title)).toEqual([
+      "Californian accused of shipping $300M worth of Nvidia chips to China without Uncle Sam's approval",
+    ]);
+  });
+
+  it("keeps two stories about one company apart when no figure is shared", () => {
+    // The DGX Spark pair from the corpus: same actor, and only one side carries
+    // a figure, so neither the shape test nor the marker test may fuse them.
+    const kept = suppressStoryTwins([
+      brief(
+        "Nvidia debuts $4,999 DGX Spark with half the RAM and storage, amid memory crunch",
+        "The desktop AI machine ships with 128 GB of unified memory.",
+      ),
+      brief(
+        "NVIDIA DGX Spark 64GB Gives Developers More Ways to Build and Scale Local AI",
+        "The company said the compact machine runs local models for developers.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("collapses a price change the two desks hedged differently", () => {
+    // The corpus pair the structural path caught at delivery: one title carries
+    // the percentage, the other the dollar figure, and only the summaries make
+    // the shared figure visible. Titles alone keep them apart, which is why
+    // this test builds the briefs the way a briefing does.
+    const kept = suppressStoryTwins([
+      brief(
+        "Component shortages drive Raspberry Pi prices up by up to 23%",
+        "Following the latest price adjustments, the cost of the Raspberry Pi 4 2GB jumps to $67.50, a 23% increase.",
+      ),
+      brief(
+        "Once a $35 computer, the 2 GB Raspberry Pi 4 now costs $67.50",
+        "Raspberry Pi has raised prices for the 2 GB Pi 4 and Pi 5, citing rapidly rising memory costs.",
+      ),
+    ]);
+    expect(kept.map((b) => b.title)).toEqual([
+      "Component shortages drive Raspberry Pi prices up by up to 23%",
+    ]);
+  });
+
+  it("does not fuse two companies by a shared figure", () => {
+    const kept = suppressStoryTwins([
+      brief(
+        "Amazon commits $1B to community grants near its data centers",
+        "The five-year fund is aimed at the towns hosting its campuses.",
+      ),
+      brief(
+        "Microsoft commits $1B to community grants near its data centers",
+        "The five-year fund is aimed at the towns hosting its campuses.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
   it("keeps other stories about the same company", () => {
     const kept = suppressStoryTwins([
       IPO_FAMILY[0]!,

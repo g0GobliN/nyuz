@@ -109,6 +109,17 @@ describe("resolveFeed — a candidate that is already a feed", () => {
     expect(result.feed.title).toBe("Arsenal News");
   });
 
+  it("falls back to the requested URL when the transport reports no final URL", async () => {
+    const { fetcher } = fakeFetcher({
+      "https://example.com/feed": { ok: true, body: RSS, finalUrl: "" },
+    });
+    const result = await resolveFeed("https://example.com/feed", { fetcher });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+    expect(result.feed.feedUrl).toBe("https://example.com/feed");
+  });
+
   it("uses the URL the transport actually landed on, after redirects", async () => {
     const { fetcher } = fakeFetcher({
       "https://example.com/old-feed": {
@@ -221,6 +232,15 @@ describe("declaredFeedLinks", () => {
   it("keeps only alternate feed hints, resolved against the page", () => {
     const links = declaredFeedLinks(HTML_WITH_LINK, "https://example.com/post");
     expect(links).toEqual(["https://example.com/feed.xml"]);
+  });
+
+  it("refuses a hint that is not an http address or cannot be resolved", () => {
+    const html = `<link rel="alternate" type="application/rss+xml" href="mailto:feed@example.com">
+<link rel="alternate" type="application/rss+xml" href="http://[">
+<link rel="alternate" type="application/rss+xml" href="/feed.xml">`;
+    expect(declaredFeedLinks(html, "https://example.com/")).toEqual([
+      "https://example.com/feed.xml",
+    ]);
   });
 
   it("ignores a stylesheet, a wrong type and a duplicate", () => {

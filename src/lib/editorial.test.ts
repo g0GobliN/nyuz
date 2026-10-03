@@ -237,6 +237,19 @@ describe("composeArticle", () => {
     expect(composeArticle(story).deck.text).toBe("The council approved a new library.");
   });
 
+  it("refuses a summary that is the source's own markup", () => {
+    // Production, 2026-10-03: this event's whole deck was the tail of a feed's
+    // image tag -- attribute assignments, a closing residue and a URL, with no
+    // tag name anywhere -- because the terse branch only asked for a clause.
+    const story = makeStory({
+      what: ' data-portal-copyright="Image: Nabu Casa " /> src="https://news.home-assistant.io/post" Home Assistant is renaming its cloud service Home Assistant Link and',
+    });
+
+    const deck = composeArticle(story).deck.text;
+    expect(deck).not.toContain("data-portal-copyright");
+    expect(deck).not.toContain("home-assistant.io");
+  });
+
   it("strips a backwards-referencing connector from the deck", () => {
     // Production, 2026-10-01: the story page opened "Meanwhile, The Register
     // reports that advanced chip packaging ..." -- a connector that refers to
@@ -400,6 +413,39 @@ describe("composeArticle", () => {
 
     it("adds a background paragraph from related nyuz coverage when supplied", () => {
       const story = makeStory({
+        title: "Acme confirms the second phase of its $40 million plan",
+        understand: undefined as never,
+        sourceList: [
+          {
+            name: "Reuters",
+            at: "10:00",
+            excerpt:
+              "The company confirmed the second phase of its $40 million plan will begin next month.",
+          },
+        ],
+        relatedEvents: [
+          {
+            id: "prior-1",
+            title: "Acme announced phase one of its $40 million plan",
+            summary: "Acme announced phase one of its $40 million plan last quarter.",
+          },
+        ],
+      });
+
+      const body = composeArticle(story)
+        .paragraphs.map((p) => p.text)
+        .join(" ");
+      expect(body).toContain(
+        "Previously, Acme announced phase one of its $40 million plan last quarter.",
+      );
+      expect(body).not.toContain("nyuz has also covered");
+    });
+
+    it("refuses background that shares an actor but not the story's figure", () => {
+      // The unrelated class Audit 24 measured: a different event that merely
+      // names the same company or person. Nothing about it is falsifiable by the
+      // sentence alone, so the rule refuses it instead of explaining it.
+      const story = makeStory({
         title: "Acme confirms the second phase of its plan",
         understand: undefined as never,
         sourceList: [
@@ -412,8 +458,8 @@ describe("composeArticle", () => {
         relatedEvents: [
           {
             id: "prior-1",
-            title: "Acme announced phase one",
-            summary: "Acme announced phase one last quarter.",
+            title: "Acme announces quarterly dividend",
+            summary: "Acme announces quarterly dividend for shareholders.",
           },
         ],
       });
@@ -421,8 +467,88 @@ describe("composeArticle", () => {
       const body = composeArticle(story)
         .paragraphs.map((p) => p.text)
         .join(" ");
-      expect(body).toContain("Previously, Acme announced phase one last quarter.");
-      expect(body).not.toContain("nyuz has also covered");
+      expect(body).not.toContain("Previously,");
+    });
+
+    it("refuses background that restates the story's own incident", () => {
+      // The composer must not print the story's deck back as history: a
+      // "Previously," that is the same arrest is not context, it is a stutter.
+      const story = makeStory({
+        title: "California tech CEO arrested for smuggling $300 million in Nvidia chips to China",
+        understand: undefined as never,
+        sourceList: [
+          {
+            name: "Reuters",
+            at: "10:00",
+            excerpt: "A California man was arrested for smuggling $300 million in Nvidia chips.",
+          },
+        ],
+        relatedEvents: [
+          {
+            id: "same-1",
+            title: "Californian accused of shipping $300M in Nvidia chips to China",
+            summary: "The man is accused of exporting $300 million worth of Nvidia chips.",
+          },
+        ],
+      });
+
+      const body = composeArticle(story)
+        .paragraphs.map((p) => p.text)
+        .join(" ");
+      expect(body).not.toContain("Previously,");
+    });
+
+    it("refuses background when the story itself names no actor", () => {
+      const story = makeStory({
+        title: "The decision lands this week",
+        understand: undefined as never,
+        sourceList: [
+          {
+            name: "Reuters",
+            at: "10:00",
+            excerpt: "The decision lands this week after the council vote.",
+          },
+        ],
+        relatedEvents: [
+          {
+            id: "prior-1",
+            title: "Acme announced phase one of its $40 million plan",
+            summary: "Acme announced phase one of its $40 million plan last quarter.",
+          },
+        ],
+      });
+
+      const body = composeArticle(story)
+        .paragraphs.map((p) => p.text)
+        .join(" ");
+      expect(body).not.toContain("Previously,");
+    });
+
+    it("refuses background whose actor is a different one", () => {
+      const story = makeStory({
+        title: "Acme confirms the second phase of its $40 million plan",
+        understand: undefined as never,
+        sourceList: [
+          {
+            name: "Reuters",
+            at: "10:00",
+            excerpt:
+              "The company confirmed the second phase of its $40 million plan will begin next month.",
+          },
+        ],
+        relatedEvents: [
+          {
+            id: "prior-1",
+            title: "Globex announced its $40 million plan",
+            summary: "Globex announced its $40 million plan last quarter.",
+          },
+        ],
+      });
+
+      const body = composeArticle(story)
+        .paragraphs.map((p) => p.text)
+        .join(" ");
+      expect(body).not.toContain("Previously,");
     });
 
     it("never fabricates related coverage when none is supplied", () => {

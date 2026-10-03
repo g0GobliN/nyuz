@@ -153,6 +153,33 @@ describe("paraphrases attach across outlets, and only across outlets", () => {
     expect(paid).not.toHaveBeenCalled();
   });
 
+  it("attaches to the best match when an article matches two events", async () => {
+    // The three-card arrest: the third outlet's account matched both existing
+    // events, and the old `ids.length === 1` rule answered that by creating a
+    // third one. The article belongs on the best-ranked match; the events'
+    // own merge is the backfill's job.
+    const db = fixture(
+      "US arrests tech CEO accused of smuggling $300M in Nvidia chips into China",
+      "news",
+      { sources: [verge, crunch], ids: ["verge", "tc"] },
+      "Californian accused of shipping $300M worth of Nvidia chips to China without Uncle Sam's approval",
+    );
+    db.rows("articles").push({
+      id: "c",
+      title:
+        "California tech CEO arrested, faces up to 20 years in prison for smuggling $300 million in Nvidia AI servers to China",
+      published_at: new Date().toISOString(),
+      event_id: "other",
+      kind: "news",
+      source_id: "tc",
+    });
+    const report = await cluster(asDb(db), { articleIds: ["a"] });
+    expect(report.attached).toBe(1);
+    expect(report.outcomes[0]?.detail).toBe("Cross-outlet paraphrase; 2 events matched");
+    expect(db.rows("articles")[0]!["event_id"]).not.toBe("new");
+    expect(paid).not.toHaveBeenCalled();
+  });
+
   it("refuses when either article's publisher cannot be established", async () => {
     const db = fixture(PARAPHRASE, "news", undefined, STORY);
     expect((await cluster(asDb(db), { articleIds: ["a"] })).alone).toBe(1);

@@ -489,6 +489,13 @@ const PUBLISHER_FURNITURE = new RegExp(
     String.raw`\bDownload (?:the|our|your) (?:free )?(?:guide|report|ebook|whitepaper)\b`,
     String.raw`\bsponsored (?:content|post|by)\b`,
     String.raw`\baffiliate (?:links?|commission)\b`,
+    // A sponsored insert inside a magazine's own feed (MIT Technology Review,
+    // 2026-10-03): a vendor's name is pasted into a label and the report's
+    // findings are announced rather than reported. Measured on the frozen
+    // corpus, both phrases occur only in that block's units, so the closed set
+    // costs no reporting.
+    String.raw`\bkey findings include\b`,
+    String.raw`\bin partnership with\b`,
     String.raw`\blearn more at\b`,
     String.raw`\bLet['’]s show how it works\b`,
     // Campaign copy, which arrives inside a news post as a caption or a slogan.
@@ -2062,8 +2069,14 @@ export function readerSentences(text: string): string[] {
         // and T. Rowe Price, large institutional investors..." was split into a
         // fragment ending "T." and a second starting "Rowe Price", which the
         // composer then published as two. Only a name's initial looks like this, so
-        // the split is held back and the sentence stays whole.
-        !/(?:^|\s)[A-Z]$/.test(clean.slice(Math.max(0, i - 2), i)) &&
+        // the split is held back and the sentence stays whole. A dotted
+        // abbreviation is the same shape one letter longer -- the production deck
+        // read "... in violation of U.S." because the splitter cut at the final
+        // stop of "U.S. export controls", and "According to a U.S. Department of
+        // Justice..." splits the same way. A sentence that genuinely ends with an
+        // abbreviation merges with the next one; a fragment no reader can parse is
+        // the worse error.
+        !/(?:^|\s)(?:[A-Z]\.)+$/.test(clean.slice(0, i + 1)) &&
         !/^(?:said|says|he|she|they|according|told)\b/.test(
           clean.slice(clean[i + 1] === " " ? i + 2 : i + 1),
         )
@@ -2245,6 +2258,36 @@ export function numericKeys(text: string): string[] {
   });
 }
 
+/**
+ * Bare magnitudes and dimensioned quantities: the identity vocabulary.
+ *
+ * `numericKeys` above is the conflict vocabulary -- currency and percentages,
+ * figures strong enough to say two claims disagree. This one is deliberately
+ * weaker, because it is only ever asked whether two headlines are about one
+ * incident: "100 million barrels" is an anchor a paraphrase keeps, while it is
+ * not strong enough to call a conflict. Measured over the 400-event weekly
+ * population: of 322 same-actor residual pairs that share no `numericKeys`
+ * figure, exactly one shares a magnitude -- the G7 diesel release, one event
+ * told by two outlets -- and zero unrelated pairs join. Used only by
+ * `sameIncident`; the figure-conflict guard keeps the conservative vocabulary.
+ */
+export function magnitudeKeys(text: string): string[] {
+  const scale: Record<string, number> = { million: 1e6, billion: 1e9, trillion: 1e12 };
+  const out: string[] = [];
+  for (const m of text.matchAll(/\b(\d+(?:\.\d+)?)\s?(million|billion|trillion)\b/gi)) {
+    out.push(`m${Number(m[1]) * (scale[m[2]!.toLowerCase()] ?? 1)}`);
+  }
+  for (const m of text.matchAll(/\b(\d+(?:\.\d+)?)\s?(GB|TB|MB|KB|PB)\b/g)) {
+    out.push(`s${m[1]}${m[2]!.toUpperCase()}`);
+  }
+  for (const m of text.matchAll(
+    /\b(\d[\d,]*(?:\.\d+)?)\s?(ft|feet|metres?|meters?|km|miles?|kg|tonnes?|tons?|barrels?|litres?|liters?|percent)\b/gi,
+  )) {
+    out.push(`u${m[1]!.replace(/,/g, "")}${m[2]!.toLowerCase().replace(/s$/, "")}`);
+  }
+  return out;
+}
+
 export function evidenceScore(text: string, title: string, entities: RankedEntity[] = []): number {
   if (editorialNoise(text)) return -100;
   const tokens = new Set(centralTokens(text));
@@ -2346,6 +2389,34 @@ const EDITORIAL_SLANG =
 const SOURCE_COLOUR =
   /\b(?:goblin mode|dumpster fire|snafus?|snafu|clusterf\w+|shitshow|hackerati|cybercrims?|chuckleheads?|boffins?|wonks?|ninjas?)\b/i;
 const HTML_LEFTOVER = /<\/?[a-z][^>]*>/i;
+
+/**
+ * Markup a truncated feed left behind, and the raw URL a source prints.
+ *
+ * `HTML_LEFTOVER` needs a whole tag; a provider that truncates the string it
+ * sends leaves less than one. The corpus published a Verge story whose entire
+ * deck was `" data-portal-copyright="Image: Nabu Casa " ... src="https://…" />
+ * Home Assistant is renaming its cloud service to Home Assistant Link and` --
+ * attribute assignments, a closing residue and a URL, no tag name anywhere. The
+ * three arXiv stories of the same briefing carried `https://github.com/...`
+ * inside otherwise good sentences. A reader never needs either: markup is the
+ * source's serialization and a bare URL is an address, not a claim.
+ */
+const SOURCE_MARKUP_OR_URL =
+  /<\/?[a-z!][^>]*|\/>|\b(?:src|href|class|style|alt|title|data-[\w-]+)\s*=\s*["']|\bhttps?:\/\/|\bwww\.[a-z0-9-]+\.[a-z]{2,}\b/i;
+
+/**
+ * Whether text still carries its source's markup or a raw URL.
+ *
+ * Exported because the deck's terse branch is allowed to accept a
+ * publisher-written summary that is shorter than a fact, and it still has to
+ * refuse markup: the corpus's entire Home Assistant deck was a truncation
+ * residue with an image URL in it, and the terse deck took it because it ended
+ * in a clause.
+ */
+export function sourceMarkupOrUrl(text: string): boolean {
+  return SOURCE_MARKUP_OR_URL.test(text);
+}
 
 function stripControls(value: string): string {
   return [...value]
@@ -2452,10 +2523,35 @@ function repetitionBomb(text: string): boolean {
   return false;
 }
 
+/**
+ * Whether a stored block was cut rather than written.
+ *
+ * Two shapes mean truncation and nothing else. A block that stops without a
+ * full stop is a feed's `description` halved at a byte limit: the corpus stored
+ * "... now only $199.99 at Amazon", "... before shipping them to buyers in" and
+ * "... even as the biggest money [...]" -- and the card printed each as if the
+ * sentence had ended there. A block ending in a dotted abbreviation is the
+ * splitter's cut, not the author's: "... in violation of U.S." is the front
+ * half of "U.S. export controls", and it was stored as an event's entire
+ * summary. A sentence that genuinely ends with an abbreviation is refused
+ * alongside the fragment; the fragment is the worse error, and it is the one
+ * the reader saw.
+ */
+export function isCutSentence(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed === "") return false;
+  // A quotation is quoted, not sentence-shaped: a unit ending in a closing mark
+  // is the speaker's words, which the composer prints as they were said.
+  if (/["”]$/.test(trimmed)) return false;
+  if (!/[.!?][)\]"”']*$/.test(trimmed)) return true;
+  return /(?:^|\s)(?:[A-Z]\.)+$/.test(trimmed);
+}
+
 /** Reject only clear fragments; it deliberately does not attempt grammar correction. */
 export function validDeterministicSentence(value: string): boolean {
   const text = value.trim();
   if (text.length < MIN_SENTENCE_CHARS || text.length > MAX_SENTENCE_CHARS) return false;
+
   // A sentence that *starts* with a provider field is not a sentence, whatever
   // else it contains. Normalization removes headers before this point, so a hit
   // here means a leak reached the validator -- and the structural test is what
@@ -2465,7 +2561,7 @@ export function validDeterministicSentence(value: string): boolean {
   // An undecoded reference is not prose: it is four characters a reader was
   // never meant to see. Normalization decodes before this point, so a hit here
   // is a leak from a route that skipped it.
-  if (HTML_LEFTOVER.test(text) || hasVisibleEntity(text)) return false;
+  if (HTML_LEFTOVER.test(text) || sourceMarkupOrUrl(text) || hasVisibleEntity(text)) return false;
   if (DANGLING_OPENING.test(text) || FRAGMENT_OPENING.test(text)) return false;
   if (TRUNCATED_DOMAIN_OPENING.test(text)) return false;
   if (SPLICE_OPENING.test(text) || COMMA_SUBORDINATOR.test(text)) return false;
@@ -2477,8 +2573,12 @@ export function validDeterministicSentence(value: string): boolean {
   // an opener, or carries one unclosed, is the same class of half-unit.
   if (/[[({]$/.test(text) || unbalancedBrackets(text)) return false;
   // A name truncated to its initial: "... was co-led by Wellington and T." is the
-  // front half of "T. Rowe Price", split at the initial's full stop.
-  if (/\s[A-Z]\.$/.test(text)) return false;
+  // front half of "T. Rowe Price", split at the initial's full stop. A dotted
+  // abbreviation is the same shape one letter longer, and the corpus stored
+  // "... in violation of U.S." as a whole unit. Read-time composition may add
+  // punctuation to a sentence-shaped fragment (a caption seam's head has none),
+  // so the terminal-stop half of the cut test belongs to storage, not here.
+  if (/(?:^|\s)(?:[A-Z]\.)+$/.test(text)) return false;
   if ((text.match(/["“]/g)?.length ?? 0) !== (text.match(/["”]/g)?.length ?? 0)) return false;
   if (/^(?:the )?(?:report|study|article),?\s*[A-Z][^.!?]{0,80}\??$/.test(text)) return false;
   if (repetitionBomb(text)) return false;

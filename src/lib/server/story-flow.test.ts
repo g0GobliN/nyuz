@@ -251,16 +251,25 @@ describe("Read never depends on a live AI call", () => {
     expect(paid).not.toHaveBeenCalled();
   });
 
-  it("attaches prior coverage with a shared central entity and factual summary", async () => {
+  it("attaches prior coverage that shares the story's actor and figure", async () => {
     const db = newsPipelineFixture();
     seedPendingNews(db);
+    // The background rule requires the same actor *and* the same figure: two
+    // OpenAI stories with no shared number cannot be told apart from two
+    // different OpenAI stories, and the corpus read is that a wrong
+    // "Previously," costs more than the sentence is worth (see
+    // `related-events.ts`).
+    const seeded = db.rows("articles").find((row) => row["id"] === "a")!;
+    seeded["excerpt"] =
+      "OpenAI released a new model for developers at $10 per million tokens, with documentation published today. The company says the release is available to its existing customers.";
     await run(startFirstBriefing, db);
 
     const priorId = "33333333-3333-4333-8333-333333333333";
     db.rows("events").push({
       id: priorId,
-      title: "OpenAI announced its previous model",
-      what_happened: "OpenAI announced its previous model in August.",
+      title: "OpenAI cut prices for its coding tool at $10 per million tokens",
+      what_happened:
+        "OpenAI cut prices for its coding tool at $10 per million tokens last quarter.",
       first_seen_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
       status: "complete",
       analysed_at: new Date(Date.now() - 30 * 86_400_000).toISOString(),
@@ -276,7 +285,7 @@ describe("Read never depends on a live AI call", () => {
     const body = composeArticle(story)
       .paragraphs.map((p) => p.text)
       .join(" ");
-    expect(body).toContain("OpenAI announced its previous model");
+    expect(body).toContain("OpenAI cut prices for its coding tool at $10 per million tokens");
   });
 
   it("does not attach related coverage when no other event shares a topic", async () => {

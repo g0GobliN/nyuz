@@ -473,13 +473,27 @@ export function normalizeSourceText(
   return result(rest);
 }
 
+/**
+ * The image credit a page glues to the sentence it illustrates.
+ *
+ * Publishers ship the credit inside the feed's description: Tom's Hardware
+ * sends "(Image credit: Toshiba) The company intends to continue investing ..."
+ * and The Verge sends a credit between two sentences of prose. Over the
+ * 2026-10-03 corpus, composed Read text carried one on six stories -- a
+ * parenthetical a reader can see and never wants. The credit is furniture, not
+ * content, and removing it leaves the sentence intact, so it is stripped here,
+ * at the same boundary that removes a provider's field labels.
+ */
+const MEDIA_CREDIT =
+  /\((?:image|photo|picture|illustration|video|screen|credit)s?(?:\s+credits?)?\s*:[^)]*\)/gi;
+
 function finish(
   rest: string,
   removedFields: string[],
   family: SourceFamily,
   source?: SourceContext | undefined,
 ): SourceNormalization {
-  const prose = collapse(rest);
+  const prose = collapse(collapse(rest).replace(MEDIA_CREDIT, " "));
   const voice = normalizeAuthorialVoice(prose, source);
   return {
     text: voice.text,

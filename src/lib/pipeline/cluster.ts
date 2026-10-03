@@ -216,10 +216,18 @@ export async function cluster(db: Db, options: ClusterOptions = {}): Promise<Clu
         return crossOutlet(article.source_id, c.source_id) && sameStory(article.title, c.title);
       });
       const nearIdentical = matches.some((c) => sameHeadline(article.title, c.title));
-      const ids = [
-        ...new Set(matches.map((c) => c.event_id).filter((id): id is string => id !== null)),
-      ];
-      const target = ids.length === 1 ? ids[0]! : null;
+      const matchedEvents = new Set(
+        matches.map((c) => c.event_id).filter((id): id is string => id !== null),
+      );
+      // An article that matches two events is evidence that those events are one
+      // story, and a third row is the one outcome that is certainly wrong. This
+      // corpus printed one arrest three times exactly that way: the first account
+      // landed alone, the second's wording matched nothing, and the third then
+      // matched both existing events and -- under the old `=== 1` rule -- created
+      // a third event. Attaching to the best-ranked match keeps the briefing to
+      // one card per story; collapsing the event rows themselves is the merge
+      // backfill's job, not something to invent here.
+      const target = matches[0]?.event_id ?? null;
       const ignored = isVcsRef(article.title);
       if (options.dryRun) {
         outcomes.push({
@@ -245,7 +253,9 @@ export async function cluster(db: Db, options: ClusterOptions = {}): Promise<Clu
         detail: target
           ? nearIdentical
             ? "Near-identical reporting"
-            : "Cross-outlet paraphrase"
+            : matchedEvents.size > 1
+              ? `Cross-outlet paraphrase; ${matchedEvents.size} events matched`
+              : "Cross-outlet paraphrase"
           : "Conservative separate event",
       });
     } catch (error) {

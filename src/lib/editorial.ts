@@ -26,6 +26,7 @@ import {
   selectReaderEvidence,
   sentenceKey,
   sourceNameForEvidence,
+  sourceMarkupOrUrl,
   sourceSeam,
   readerSentences,
   validDeterministicParagraph,
@@ -1663,6 +1664,10 @@ function validDeckSentence(text: string): boolean {
   if (validDeterministicSentence(text)) return true;
   const trimmed = text.trim();
   if (trimmed.length < MIN_SENTENCE_CHARS || trimmed.length > MAX_SENTENCE_CHARS) return false;
+  // Terse is allowed; markup is not. The lighter standard below judges the
+  // clause, not the serialization, and a stored summary that stops mid-word
+  // inside an image tag is neither.
+  if (sourceMarkupOrUrl(trimmed)) return false;
   // Terse is allowed; a domain tail is not. "Org automated benchmarking
   // software." is the second half of a site's own about line, and a deck made of
   // it is worse than no deck at all.
@@ -2105,11 +2110,40 @@ export function composeArticleWithDiagnostics(story: Story): {
      * if it were padding is how a thin story silently loses the context the
      * product promised to attach.
      */
+    // The background path is the one entrance to the reader the evidence pass
+    // never sees: this sentence was never a selected fact, so nothing judged it.
+    // It runs the same sentence gates here and drops a sentence the article
+    // already carries -- one story printed its own deck back as "Previously, a
+    // California man has been arrested ...", which is a stutter, not context.
+    const publishedTokens = new Set(
+      centralTokens([deck?.text ?? "", ...paragraphs.map((p) => p.text)].join(" ")),
+    );
     const related: ArticleParagraph[] = [];
     for (const candidate of story.relatedEvents ?? []) {
       const context = relatedContext({ title: story.title, summary: leadText }, candidate);
-      if (context && validDeterministicSentence(context))
-        related.push({ text: sentence(context), evidence: [] });
+      if (!context || !validDeterministicSentence(context)) continue;
+      if (
+        readerSentences(context).some(
+          (line) =>
+            hasSourceMetadata(line) ||
+            hasVisibleEntity(line) ||
+            editorialNoise(line) ||
+            malformedAttribution(line) ||
+            gluedAttribution(line) ||
+            unitTextRejection(line, /["“]/.test(line)) !== null,
+        )
+      )
+        continue;
+      const text = sentence(context);
+      // The "Previously," connector is not content: counting it would let the
+      // same stutter slip under the ratio by one token.
+      const tokens = centralTokens(text).filter((token) => token !== "previously");
+      if (
+        tokens.length >= 6 &&
+        tokens.filter((token) => publishedTokens.has(token)).length / tokens.length >= 0.6
+      )
+        continue;
+      related.push({ text, evidence: [] });
     }
     // Thin evidence should remain thin; rich evidence is capped at four useful blocks.
     // Whatever the cap drops is counted, so a fact behind it is explicable.

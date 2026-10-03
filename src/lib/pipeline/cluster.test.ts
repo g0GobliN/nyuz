@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sameHeadline, sameStory, distinctNews } from "./news-signals";
+import { sameHeadline, sameIncident, sameStory, distinctNews } from "./news-signals";
 describe("conservative full-headline identity", () => {
   it("accepts normalized identical reporting", () => {
     expect(
@@ -80,6 +80,17 @@ describe("cross-outlet paraphrase matching", () => {
       "Meta Connect 2026: The 7 biggest announcements",
       "Meta Connect 2026: The biggest news and announcements",
     ],
+    // One arrest in two outlets' own words. No three content words are shared;
+    // the actor and the figure are what identify the incident, and the reader
+    // saw this pair print as two cards before the shape test existed.
+    [
+      "Californian accused of shipping $300M worth of Nvidia chips to China without Uncle Sam's approval",
+      "California tech CEO arrested, faces up to 20 years in prison for smuggling $300 million in Nvidia AI servers to China",
+    ],
+    [
+      "Amazon's $1B plan to combat data center backlash draws more backlash",
+      "Shut up and take our money: Amazon plows $1B into quashing datacenter dissent",
+    ],
   ])("merges two accounts of one event: %s", (a, b) => {
     expect(sameStory(a, b)).toBe(true);
   });
@@ -138,6 +149,25 @@ describe("cross-outlet paraphrase matching", () => {
       "Company denies takeover agreement after negotiations",
       "Company confirms takeover agreement after negotiations",
     ],
+    // The same actor and two different sums: the DGX Spark's launch price and
+    // the other outlet's account of the same product with no figure at all.
+    // The figure is what makes "same incident" a claim about the world instead
+    // of a claim about a company name.
+    [
+      "Nvidia debuts $4,999 DGX Spark with half the RAM and storage, amid memory crunch",
+      "NVIDIA DGX Spark 64GB Gives Developers More Ways to Build and Scale Local AI",
+    ],
+    // One actor, two different figures: a launch price and a currency figure
+    // that belong to different stories.
+    [
+      "Nvidia debuts $4,999 DGX Spark with half the RAM and storage, amid memory crunch",
+      "Nvidia's $5 billion AI bet faces a memory crunch",
+    ],
+    // The same event kind and the same percentage, two different subjects.
+    [
+      "Component shortages drive Raspberry Pi prices up by up to 23%",
+      "DRAM contract prices rose by up to 23% in the third quarter",
+    ],
   ])("keeps distinct stories apart: %s", (a, b) => {
     expect(sameStory(a, b)).toBe(false);
   });
@@ -156,6 +186,44 @@ describe("cross-outlet paraphrase matching", () => {
       sameHeadline(
         "Apple acquires startup for $40 million",
         "Apple acquires startup for $400 million",
+      ),
+    ).toBe(false);
+  });
+
+  it("joins two accounts of one release by their shared bare magnitude", () => {
+    // Audit 27's counterfactual: of the 322 same-actor residual pairs that share
+    // no currency or percentage figure, this was the one true event -- and the
+    // only one the magnitude vocabulary joins.
+    expect(
+      sameIncident(
+        "The G7 will release 100 million reserve barrels of diesel fuel over the next 4 months",
+        "G7 to release 100 million barrels of oil and diesel after Trump export ban threat",
+      ),
+    ).toBe(true);
+    // Different magnitudes are different releases; the identity vocabulary is
+    // still a match, not a threshold.
+    expect(
+      sameIncident(
+        "Acme to ship 100 million widgets to Brazil",
+        "Acme to ship 200 million widgets to Brazil",
+      ),
+    ).toBe(false);
+  });
+
+  it("needs an entity and a figure on both sides of the paraphrase test", () => {
+    // A headline with no named actor is not an identity, however many of its
+    // words the other side repeats: the shape requires a primary entity on
+    // both sides before the paragraph is even compared.
+    expect(
+      sameIncident(
+        "Californian accused of shipping $300M worth of Nvidia chips to China",
+        "accused of shipping $300m worth of chips to china",
+      ),
+    ).toBe(false);
+    expect(
+      sameIncident(
+        "Californian accused of shipping $300M worth of Nvidia chips to China",
+        "Nvidia accused of shipping chips to China",
       ),
     ).toBe(false);
   });

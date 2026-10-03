@@ -3,6 +3,7 @@ import {
   captionSeamSplit,
   centralTokens,
   editorialNoise,
+  isCutSentence,
   normalizeSummary,
   selectReaderEvidence,
 } from "./reader-evidence";
@@ -691,11 +692,29 @@ export function dedupeStatements<T extends { text: string }>(items: T[]): T[] {
   return out;
 }
 
-/** A decimal point, protected so a figure like "$2.5 billion" never splits into "2." and "5 billion". */
-const DECIMAL_POINT_PLACEHOLDER = "\uE000";
+/**
+ * An interior full stop, protected so a dotted token never splits open.
+ *
+ * The old rule protected only a digit-dot-digit pair, and its regex consumed
+ * both sides of every match -- so `19.2.4` had its first stop hidden and its
+ * second cut open anyway. Storage then held "The flaw is fixed in gateway
+ * versions 19.2." and "4, 19.3.2, and 19.4.1." as two units and the Read
+ * published the truncated one verbatim. A domain is the same bug one token
+ * over: `GitLab.com` split into an unusable "GitLab." and a tail that began
+ * "Com, GitLab Dedicated, ..." -- the head-sliced fact a reader saw in
+ * production. Every stop between two word characters is inside a number, a
+ * domain or an abbreviation, never a sentence boundary, and the reader's own
+ * splitter (`readerSentences`) already refuses all of them.
+ */
+const DOT_PLACEHOLDER = "\uE000";
+
+/** A stop that closes a token rather than sitting inside one may end a sentence. */
+const INTERIOR_DOT = /(?<=[\p{L}\p{N}])\.(?=[\p{L}\p{N}])/gu;
 
 export function sentences(text: string): string[] {
-  const protectedText = text.replace(/(\d)\.(\d)/g, `$1${DECIMAL_POINT_PLACEHOLDER}$2`);
+  // A stop with whitespace after it stays visible to the splitter below, so a
+  // real sentence boundary is untouched; only a stop inside a token is hidden.
+  const protectedText = text.replace(INTERIOR_DOT, DOT_PLACEHOLDER);
   // A caption pasted onto a sentence with no punctuation between them has no
   // boundary for the regex below to find, so the seam is cut first, while it is
   // still detectable (`captionSeamSplit`).
@@ -706,7 +725,7 @@ export function sentences(text: string): string[] {
   const merged: string[] = [];
   for (const piece of cut) {
     const sentence = piece
-      .replace(new RegExp(DECIMAL_POINT_PLACEHOLDER, "g"), ".")
+      .replace(new RegExp(DOT_PLACEHOLDER, "g"), ".")
       .replace(/\s+/g, " ")
       .trim();
     if (!sentence) continue;
@@ -716,9 +735,14 @@ export function sentences(text: string): string[] {
     // half at the initial's full stop. The reader's own splitter refuses to cut
     // there (see `readerSentences`), and so does storage -- otherwise the
     // fragments are stored as two units, the head unusable and the tail an
-    // orphan no gate can tie back to it. "U." + "S. Courts" is a dotted
-    // abbreviation the regex cut open, and rejoins without its space back.
-    if (previous && /(?:^|\s)[A-Z]\.$/.test(previous)) {
+    // orphan no gate can tie back to it. A dotted abbreviation is the same shape
+    // one letter longer: "... in violation of U.S." + "export controls." is one
+    // sentence, and storage held the first half as an event summary and as an
+    // evidence unit. A sentence that genuinely ends with an abbreviation merges
+    // with the next one; a fragment no reader can parse is the worse error.
+    // "U." + "S. Courts" is a dotted abbreviation the regex cut open, and
+    // rejoins without its space back.
+    if (previous && /(?:^|\s)(?:[A-Z]\.)+$/.test(previous)) {
       const joiner = /^[A-Z]\.(?:\s|$)/.test(sentence) ? "" : " ";
       merged[merged.length - 1] = `${previous}${joiner}${sentence}`;
     } else {
@@ -742,7 +766,14 @@ export function briefingText(text: string, maxWords = 90): string {
   // writer learned to refuse these still carry them.
   const summary = normalizeSummary(text);
   if (summary.reason !== null) return "";
-  const unique = dedupeStatements(sentences(summary.text).map((sentence) => ({ text: sentence })));
+  // A stored block that was cut -- no full stop, or a dotted abbreviation where
+  // the sentence should have continued -- is dropped rather than printed: rows
+  // written before the writer learned to refuse them still reach the card.
+  const unique = dedupeStatements(
+    sentences(summary.text)
+      .filter((sentence) => !isCutSentence(sentence))
+      .map((sentence) => ({ text: sentence })),
+  );
   const selected: string[] = [];
   let words = 0;
   for (const item of unique) {

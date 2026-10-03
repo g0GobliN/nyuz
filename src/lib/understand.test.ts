@@ -1464,11 +1464,22 @@ describe("storage does not cut a name at its initial, and does cut a pasted capt
       "The transaction was co-led by Wellington and T. Rowe Price, large institutional investors that back private companies.",
     ]);
     // An abbreviation cut open at its own period rejoins without a space --
-    // "U." + "S." is "U.S.", never "U. S." -- and the boundary after it is the
-    // one the reader's splitter draws. Decimals are protected.
+    // "U." + "S." is "U.S.", never "U. S." -- and the boundary after it is not
+    // a boundary at all: this is the production deck that read "... in
+    // violation of U.S.", cut at the final stop of "U.S. export controls".
+    // Decimals are protected, and a sentence that genuinely ends with an
+    // abbreviation merges with the next one rather than cutting the run open.
     expect(
       sentences("The ruling affected the U.S. Courts next. The model scores 92.5 on MMLU."),
-    ).toEqual(["The ruling affected the U.S.", "Courts next.", "The model scores 92.5 on MMLU."]);
+    ).toEqual(["The ruling affected the U.S. Courts next.", "The model scores 92.5 on MMLU."]);
+    expect(
+      sentences(
+        "A California man has been arrested for smuggling over $300 million worth of restricted Nvidia chips to China in violation of U.S. export controls. According to a U.S. Department of Justice press release, he shipped them in servers.",
+      ),
+    ).toEqual([
+      "A California man has been arrested for smuggling over $300 million worth of restricted Nvidia chips to China in violation of U.S. export controls.",
+      "According to a U.S. Department of Justice press release, he shipped them in servers.",
+    ]);
   });
 
   it("cuts a caption pasted onto a sentence with no punctuation", () => {

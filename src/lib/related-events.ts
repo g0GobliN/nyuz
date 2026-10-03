@@ -68,6 +68,38 @@ export function scoreRelatedEvent(
   };
 }
 
+/**
+ * The shape a background sentence has to have: the same actor and the same figure.
+ *
+ * Audit 24 measured 37 stories publishing background in one window and read
+ * them: 17 were about a different event that merely shared a name -- a football
+ * club, a president, a company -- and an entity rule cannot separate them. Requiring
+ * one shared primary entity removed 2 of those 17; requiring two removed all 17
+ * and 5 of the 8 genuinely useful ones. The figure is what makes the claim
+ * structural rather than lexical: two accounts of one continuing story name the
+ * same money, the same percentage, the same date, and stories that merely share
+ * an actor do not. Measured on the same window: the 17 unrelated sentences
+ * become 0, at the cost of the legitimate ones that carry no shared figure --
+ * background that could not be told apart from coincidence, which is the
+ * accepted price of never printing one.
+ */
+function sameShape(current: RelatedCandidate, candidate: RelatedCandidate): boolean {
+  const primary = (event: RelatedCandidate) =>
+    new Set(
+      rankEntities(event.title, [{ excerpt: event.summary ?? "" }])
+        .filter((entity) => entity.role === "PRIMARY")
+        .map((entity) => entity.name.toLowerCase()),
+    );
+  const left = primary(current);
+  const right = primary(candidate);
+  if (left.size === 0 || right.size === 0) return false;
+  if (![...left].some((name) => right.has(name))) return false;
+  const figures = (event: RelatedCandidate) => numericKeys(`${event.title} ${event.summary ?? ""}`);
+  const leftFigures = figures(current);
+  const rightFigures = figures(candidate);
+  return leftFigures.some((figure) => rightFigures.includes(figure));
+}
+
 export function relatedContext(
   current: RelatedCandidate,
   candidate: RelatedCandidate,
@@ -78,6 +110,7 @@ export function relatedContext(
     editorialNoise(candidate.summary)
   )
     return null;
+  if (!sameShape(current, candidate)) return null;
   const normalized = normalizeSummary(candidate.summary);
   if (normalized.reason !== null) return null;
   const currentTokens = new Set(centralTokens(`${current.title} ${current.summary ?? ""}`));
