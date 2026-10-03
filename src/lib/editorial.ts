@@ -299,6 +299,14 @@ export type CompositionDiagnostics = {
      * this is missing".
      */
     refused: number;
+    /**
+     * Units refused in the evidence pass, before selection, by reason.
+     *
+     * The gate's `reasons` above can only name a sentence that became a fact;
+     * these never did, and a refusal nobody can read is a silent one. The keys
+     * are `EvidenceRejectionReason` names.
+     */
+    evidenceRefusals: Record<string, number>;
     /** Selected facts not rendered and not refused. Anything above zero is a bug. */
     lost: number;
     /**
@@ -422,6 +430,7 @@ function createDiagnostics(): CompositionDiagnostics {
       deduplicated: 0,
       rejected: 0,
       refused: 0,
+      evidenceRefusals: {},
       lost: 0,
       lostFacts: [],
     },
@@ -1900,6 +1909,11 @@ export function composeArticleWithDiagnostics(story: Story): {
       )
       .join(" ");
     const selection = selectReaderEvidence(story.title, sources);
+    // A unit the evidence pass refused never becomes a fact, so the gate's own
+    // reason table can never name it. Carried here verbatim, because a refusal
+    // nobody can read is a silent one -- the audit prints this table beside the
+    // gate's.
+    diagnostics.facts.evidenceRefusals = { ...selection.rejectionReasons };
     // Furniture counters come from *this* pass, which is the one that strips
     // headlines and standfirsts, while voice and colour are counted in the
     // evidence pass, where each unit is judged. Taking the whole set from either

@@ -210,6 +210,8 @@ main(async () => {
   const census = emptyCensus();
   const offenders: string[] = [];
   const refusedByReason: Record<string, number> = {};
+  /** Units the evidence pass refused before they were ever facts, by reason. */
+  const evidenceRefusals: Record<string, number> = {};
   const attributionShapes: Record<string, number> = {};
   const examples: Record<string, string[]> = {
     voiceStrips: [],
@@ -280,6 +282,9 @@ main(async () => {
     totals.relativeTimeRefusals += diagnostics.qualityGate.relativeTimeRefusals;
     totals.colourRejections += diagnostics.sourceNormalization.sourceColourRejections;
     totals.refusedDigests += diagnostics.sourceNormalization.refusedDigests;
+    for (const [reason, count] of Object.entries(diagnostics.facts.evidenceRefusals ?? {})) {
+      evidenceRefusals[reason] = (evidenceRefusals[reason] ?? 0) + count;
+    }
     for (const [reason, count] of Object.entries(diagnostics.sentences.reasons)) {
       refusedByReason[reason] = (refusedByReason[reason] ?? 0) + count;
     }
@@ -396,6 +401,18 @@ main(async () => {
   heading("What the composer refused, by reason");
   for (const [reason, count] of Object.entries(refusedByReason).sort((a, b) => b[1] - a[1])) {
     say(row(REASON_LABEL[reason] ?? reason, count));
+  }
+  // The other table half: units the evidence pass refused before they were
+  // ever facts. Without it, `newsletter_index` and `imperative_instruction`
+  // and every sibling reason are silent -- the gate cannot name a sentence
+  // that never reached it.
+  if (Object.values(evidenceRefusals).some((count) => count > 0)) {
+    heading("Refused in the evidence pass, before selection");
+    for (const [reason, count] of Object.entries(evidenceRefusals)
+      .filter(([, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1])) {
+      say(row(REASON_LABEL[reason] ?? reason, count));
+    }
   }
   // The other half of that table: `facts lost` counts what no rule refused by
   // name -- a block-level refusal charges the sentence, not the fact behind it
