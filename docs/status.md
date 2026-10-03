@@ -334,6 +334,21 @@ export both a component and a helper. They affect hot-reload granularity in deve
 and nothing else. Left alone deliberately; splitting those files to satisfy the rule
 would scatter closely-related code for no runtime benefit.
 
+**A digest of other publications is refused whole.** MIT Technology Review's
+`The Download` published ten unrelated stories under one title: 19 of the story's 33
+published sentences still held the provider's `(Outlet)` markers, 9 held the `+` that
+joined them, 6 of 7 paragraphs mixed items, and one sentence was stitched across a
+headline and its elaboration. Measured before the rule: 1 source in 205 on the frozen
+corpus; a looser screen ("any two parenthesised phrases") finds 37 and catches acronyms,
+arXiv abstracts and related-headline pastes instead. The refusal is `digestSource` in
+`reader-evidence.ts` — three outlet markers plus two `+` separators, at the source
+boundary, dropping both stores — and `refusedDigests` in the composer audit counts it.
+On the frozen corpus it moves facts selected 1133 → 1096 and rendered 1059 → 1024; the
+digest's story ships as a deck alone with none of its claims. **The extraction
+opportunity is recorded here as future work**: the ten numbered items are ordinary,
+self-contained claims, and each needs its own outlet and its own event identity before
+it can be published — a source-unit and attribution project, not a prose rule.
+
 ---
 
 ## Checks that must stay green
