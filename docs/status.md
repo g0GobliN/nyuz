@@ -349,6 +349,23 @@ opportunity is recorded here as future work**: the ten numbered items are ordina
 self-contained claims, and each needs its own outlet and its own event identity before
 it can be published — a source-unit and attribution project, not a prose rule.
 
+**Instructions do not publish, labelled or not.** A subjectless imperative is addressed to the
+reader, not about the world, so it is refused at the evidence boundary
+(`imperative_instruction` in `reader-evidence.ts`). Unlabelled instructions have been refused
+since the F4 measurement; since 6bb07bf the same refusal sees through a short publisher label
+that used to push the verb off position 0 — "CameraX: Replace legacy Camera1/Camera2 code",
+"Model: support nimble decision model (#29844)", "Tip #1: Learn to direct AI" — with the
+lookthrough bounded at two labels of four tokens each. Measured before landing on the fresh
+corpus: 13 units newly refused, 10 of them published, and none of the 21 colon-labelled
+candidates that are real claims ("They're more like coworkers: …", "He added: …"), which the
+tests pin. **The cost is recorded, not weakened:** five llama.cpp release-tag stories whose
+only body was a labelled changelog bullet now publish the deck alone, and release-feed
+exceptions are intentionally not applied — a release story may remain deck-only when its only
+body evidence is instructional changelog lines. Three shapes stay published on purpose: the
+region opener "Notice what changed.", the prompt example, and a "Takeaway:" whose label is
+stripped before the rule sees it; none has a structural discriminator that is not a
+vocabulary blacklist (ruling, 2026-10-05).
+
 **The article cap drops the tail of a long story.** The composer publishes at most 8
 blocks when a story assembles more than 12 (`article_limit` in `editorial.ts`), and the
 cap chooses by assembled position, not by weight. On the fresh corpus (3 October 2026)
