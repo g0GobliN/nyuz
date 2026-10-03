@@ -2547,6 +2547,86 @@ function nameContinuationFragment(text: string, context: string): boolean {
 }
 
 /**
+ * A subjectless instruction, addressed to the reader: documentation, not news.
+ *
+ * "Implement re-authentication across device setup and cloud restores using
+ * Jetpack Credential Manager." and "Configure unit test suites, Compose UI
+ * testing rules, and screenshot testing infrastructure." were published as
+ * facts, attributed "according to Android Developers" -- instructions to a
+ * developer, carrying no claim about the world. Release feeds use the same
+ * voice for their changelogs ("Add unstable parameter matching APIs: #97393"),
+ * and there the imperative was stitched with its neighbours into one published
+ * sentence that read as ordinary reporting.
+ *
+ * The rule is the open verb with no actor in front of it -- the closed list is
+ * measured, not imagined: 19 published sentences opened this way on the frozen
+ * corpus, 17 of them genuine instructions. The two casualties are prose and a
+ * caption ("Take this display at Alcantarí International Airport, which serves
+ * Sucre, Bolivia's constitutional and judicial capital."), accepted as the
+ * cost of the rule and being watched. Refusal rather than rewrite: turning
+ * "Use BF16 compute type" into "the release uses BF16" would invent a claim
+ * the imperative does not make. Measured cost: 15 instruction sentences never
+ * publish again; the release stories keep 3+ facts each and stay alive.
+ */
+const INSTRUCTION_OPENING =
+  /^(?:Detect|Integrate|Replace|Deploy|Configure|Use|Try|Read|Learn|Follow|Get|See|Set|Build|Create|Manage|Enable|Install|Update|Run|Add|Make|Publish|Host|Apply|Register|Sign|Check|Implement|Test|Write|Support|Handle|Fix|Remove|Improve|Allow|Prevent|Ensure|Include|Continue|Point|Ground|Access|Explore|Discover|Watch|Listen|Bring|Protect|Track|Reduce|Control|Filter|Scan|Verify|Keep|Put|Give|Take)\b/;
+
+/**
+ * The newsletter's own index of itself.
+ *
+ * A weekly newsletter identifies itself ("Welcome back to This Week in
+ * Stratechery!"), then runs a labeled section -- "Stratechery Articles and
+ * Updates." -- of `Title — blurb` pairs, title lists and promo lines. Those
+ * are the publication's table of contents for its own previous articles, and
+ * the composer published them as the story: 6 index entries on the frozen
+ * corpus, every one about other coverage (topic overlap ~0, cross-
+ * representation 0). The provenance decides, not the typography: the rule
+ * fires only inside a source whose text identifies it as a newsletter, and it
+ * keeps the same source's essay prose -- the front-matter blurbs ("Can Meta
+ * Focus? It's risky, both as a technical person ...") are ordinary sentences
+ * with subjects and verbs, and they survive. Measured cost: 6 index entries,
+ * which is the whole measured population; the story keeps 8 of its 14 facts.
+ */
+const NEWSLETTER_CONTEXT =
+  /\bWelcome back\b|\beach week\b|\bweekday newsletter\b|\bThis Week in\b/i;
+const INDEX_PROMO =
+  /\b(?:Dithering|This week['’]s \w+ video|Stratechery Update|Articles and Updates|The Update|pass along)\b/i;
+
+/** Whether a text's words are headline-cased: mostly initial capitals. */
+function headlineCased(head: string): boolean {
+  const words = head.split(/\s+/).filter((word) => /[A-Za-z0-9]/.test(word));
+  if (words.length < 2) return false;
+  const caps = words.filter((word) => /^[A-Z0-9]/.test(word)).length;
+  return caps / words.length >= 0.6;
+}
+
+/** A `Title — blurb` pair: a dash whose left side is a headline, not a sentence. */
+function indexDashUnit(text: string): boolean {
+  const dash = text.match(/\s[—–]\s/);
+  if (!dash || dash.index === undefined) return false;
+  const head = text.slice(0, dash.index).trim();
+  const words = head.split(/\s+/).filter(Boolean);
+  if (words.length === 0 || words.length > 14 || hasPredicate(head)) return false;
+  return headlineCased(head) && hasPredicate(text.slice(dash.index));
+}
+
+/** A semicolon run of titles: "Era for the US; Xi Welcomes; Domestic Crackdowns". */
+function indexListUnit(text: string): boolean {
+  if (!/;\s*\S/.test(text)) return false;
+  const segments = text.split(";").map((part) => part.trim());
+  if (segments.length < 3 || !segments.every((part) => part.split(/\s+/).length <= 10))
+    return false;
+  return headlineCased(segments[0] ?? "");
+}
+
+function newsletterIndexUnit(text: string, context: string | undefined): boolean {
+  // The provenance is the gate: without a source that identifies itself as a
+  // newsletter, a dash or a semicolon list is ordinary prose and stays.
+  if (!context || !NEWSLETTER_CONTEXT.test(context)) return false;
+  return INDEX_PROMO.test(text) || indexDashUnit(text) || indexListUnit(text);
+}
+
+/**
  * The textual rules a candidate unit must satisfy to become a published fact.
  *
  * Shared, because there is more than one path that can turn a source sentence
@@ -2587,6 +2667,9 @@ export function unitTextRejection(
   // the grammar test so a unit that is furniture is counted as furniture rather
   // than as the invalid sentence its truncation also makes it.
   if (publisherFurniture(text)) return "editorial_noise";
+  // The newsletter's index of its own previous articles: a labeled table of
+  // contents, not the story. Provenance-gated -- see `newsletterIndexUnit`.
+  if (newsletterIndexUnit(text, context)) return "newsletter_index";
   // The source's own typesetting, when safe normalization could not remove it.
   // `\textbf{OpenSpace Lab}` is unwrapped upstream and survives; `$2^{128}$`
   // cannot be rewritten without changing what the authors wrote, so the unit
@@ -2608,6 +2691,11 @@ export function unitTextRejection(
   // would otherwise be published believing it carried provenance.
   if (/^["“]/.test(text) && !/\b(?:said|says|told|according to)\b/.test(text))
     return "unassigned_quote";
+  // A subjectless instruction is addressed to the reader, not about the world:
+  // it cannot become a fact without inventing the actor who does it. Quotations
+  // are excluded -- an imperative inside someone's speech is their words, and
+  // the quote rules above own it.
+  if (!quote && INSTRUCTION_OPENING.test(text.trim())) return "imperative_instruction";
   if (!quote && !hasPredicate(text)) return "no_predicate";
   if (unverifiableAttribution(text)) return "unverifiable_attribution";
   return null;
@@ -3199,6 +3287,66 @@ export function digestSource(text: string): boolean {
   return (text.match(/\s\+\s/g)?.length ?? 0) >= 2;
 }
 
+/** The label a provider puts on its own navigation block inside an article. */
+const NAV_LABEL =
+  /\bGo deeper with TH Premium\b|\bPremium Roadmaps\b|\bRelated [Aa]rticles?\b|\bRead more\b|\bTH Premium\b/;
+
+/**
+ * A provider's own navigation, pasted into the middle of its article text.
+ *
+ * Tom's Hardware's excerpt reads: the story, then `Go deeper with TH Premium:
+ * CPU    (Image credit: Tom's Hardware) Intel VP Robert Hallock sets Nova Lake
+ * expectations, teases return to Raptor Lake for DDR4 platforms. CPU scaling
+ * with DLSS. Intel's one-two punch plan in desktop CPUs is taking shape. ...`
+ * -- a labeled run of *other articles'* headlines, which the composer published
+ * inside a story about something else: 6 paste headlines on the frozen corpus,
+ * all with zero cross-representation and near-zero topic overlap, and the prose
+ * after the paste resumes mid-thought ("As part of the expansion, Toshiba has
+ * installed ..."), which the composer then refused as unresolved context. The
+ * paste does not merely add junk; it un-glues its neighbours.
+ *
+ * Cut at the source boundary, whole, like a feed's footer -- not by judging
+ * each headline, which would teach the evidence layer that certain sentences
+ * "look like headlines". The region is the label sentence plus the run that
+ * follows it, bounded: the run ends at the first sentence long enough to be
+ * prose again, or after eight sentences, and a label with no run after it is
+ * prose mentioning navigation and is left alone. Measured before building it:
+ * the cut costs every one of its rendered sentences and no other claim --
+ * Toshiba 18 rendered facts to 16, Nova Lake 21 to 16.
+ */
+export function stripProviderNavigation(text: string): {
+  text: string;
+  strippedNavigation: boolean;
+} {
+  // The provider's own spacing is noise ("Roadmaps    (Image credit: ...)") and
+  // the splice below matches sentences back against the text, so the cut works
+  // on a copy with the runs of spaces collapsed first.
+  const flat = text.replace(/[ \t]{2,}/g, " ");
+  const sentences = readerSentences(flat);
+  const labelIndex = sentences.findIndex((sentence) => NAV_LABEL.test(sentence));
+  if (labelIndex < 0) return { text, strippedNavigation: false };
+  let end = labelIndex + 1;
+  while (end < sentences.length && (sentences[end] ?? "").length <= 140 && end - labelIndex <= 8)
+    end += 1;
+  if (end - labelIndex < 2) return { text, strippedNavigation: false };
+  const start = flat.indexOf(sentences[labelIndex] ?? "");
+  if (start < 0) return { text, strippedNavigation: false };
+  let cursor = start;
+  let lastEnd = -1;
+  for (let index = labelIndex; index < end; index += 1) {
+    const sentence = sentences[index] ?? "";
+    const at = flat.indexOf(sentence, cursor);
+    if (at < 0) return { text, strippedNavigation: false };
+    lastEnd = at + sentence.length;
+    cursor = lastEnd;
+  }
+  const cut = `${flat.slice(0, start)} ${flat.slice(Math.max(lastEnd, 0))}`.replace(
+    /[ \t]{2,}/g,
+    " ",
+  );
+  return { text: cut.trim(), strippedNavigation: true };
+}
+
 /**
  * Words that occupy a subject position without naming anybody.
  *
@@ -3406,7 +3554,20 @@ export type EvidenceRejectionReason =
   /** A pronoun with no antecedent the sentence itself supplies. */
   | "unresolved_context"
   /** A narrator whose subject cannot be restored without guessing. */
-  | "narrator_ambiguous";
+  | "narrator_ambiguous"
+  /**
+   * A newsletter's index of its own previous articles, inside a source that
+   * identifies itself as a newsletter: the labeled `Title — blurb` run, a
+   * title list, or a promo line. See `newsletterIndexUnit` for the measured
+   * shape and why the provenance, not the punctuation, decides.
+   */
+  | "newsletter_index"
+  /**
+   * A subjectless instruction -- documentation addressed to the reader, not a
+   * claim about the world. See `INSTRUCTION_OPENING` for the measured list
+   * and the two prose casualties the rule is known to cost.
+   */
+  | "imperative_instruction";
 
 /**
  * Authority with nobody behind it.
@@ -3570,17 +3731,23 @@ function normalizeReaderSource(
     // Counted with the other clean-ups rather than in a counter of its own: the
     // audit's `cleanedEvidence` already means "this text needed the boundary".
     if (furniture.strippedFooter) stats.cleanedEvidence += 1;
+    // The provider's own navigation, pasted into the middle of its text: a
+    // labeled related-headline run whose headlines are other articles' links.
+    // Cut whole at this boundary, like the footer above -- see
+    // `stripProviderNavigation` for the measurement behind the shape.
+    const navigation = stripProviderNavigation(furniture.text);
+    if (navigation.strippedNavigation) stats.cleanedEvidence += 1;
     if (
       normalization.metadataOnly ||
-      furniture.text === "" ||
-      metadataOnlyEvidence(furniture.text)
+      navigation.text === "" ||
+      metadataOnlyEvidence(navigation.text)
     ) {
       stats.rejectedMetadataOnly += 1;
       return undefined;
     }
     // Last, because the frame is around the sentence that survives everything
     // else: `We present: <fact>` is the authors' pronoun before it is a label.
-    const framing = normalizeReportFraming(furniture.text, name === undefined ? [] : [name]);
+    const framing = normalizeReportFraming(navigation.text, name === undefined ? [] : [name]);
     stats.reportFramesMoved += framing.moved;
     stats.reportFramesDropped += framing.dropped;
     return framing.text;
@@ -3815,6 +3982,8 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
     source_markup: 0,
     unresolved_context: 0,
     narrator_ambiguous: 0,
+    newsletter_index: 0,
+    imperative_instruction: 0,
   };
   for (const fact of raw) {
     const text = fact.text;

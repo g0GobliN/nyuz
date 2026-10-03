@@ -29,6 +29,7 @@ import {
   stripEditorialVoice,
   stripFrontedFrame,
   stripHeadingLabel,
+  stripProviderNavigation,
   stripSourceFurniture,
   stripUnanchorableTime,
   unitTextRejection,
@@ -1908,5 +1909,212 @@ describe("a digest of other publications is not one story", () => {
     // One marker with separators is an article with arithmetic in it.
     const joined = "Two outlets (Gizmodo) and (BBC) ran the story, and the math is 2 + 2 = 4.";
     expect(digestSource(joined)).toBe(false);
+  });
+});
+
+/**
+ * A provider's own navigation, pasted into the middle of its article text, is
+ * cut at the source boundary -- not judged headline by headline.
+ *
+ * Measured on the frozen corpus: two Tom's Hardware stories published six of
+ * the paste's other articles' headlines ("CPU scaling with DLSS." inside a
+ * story about a leaked SKU table), with zero cross-representation, and the
+ * prose after the paste resumed mid-thought, which the composer then refused
+ * as unresolved context. The cut costs every rendered paste sentence and no
+ * other claim: Toshiba 18 rendered facts to 16, Nova Lake 21 to 16.
+ */
+describe("a provider's navigation paste is cut whole, not published", () => {
+  const toshiba = [
+    "Toshiba has spent approximately ¥60 billion ($380 million) to expand its hard drive assembly capacity in the Philippines, doubling its production capacity for nearline HDDs in fiscal 2027 compared to fiscal 2025, reports Nikkei.",
+    "Tom's Hardware Premium Roadmaps    (Image credit: Future) Leading-edge foundry roadmaps.",
+    "Nvidia Enterprise GPU and CPU roadmap.",
+    "AMD's Enterprise GPU and CPU roadmap.",
+    "Intel's roadmaps examined — 14A, Nova Lake, Diamond Rapids & AI accelerator push.",
+    "Co-Packaged Optics (CPO) foundry roadmaps   .",
+    "As part of the expansion, Toshiba has installed additional manufacturing lines at its Philippine Laguna Technopark facility to build nearline hard drives and prepare it to produce next-generation HDDs that increase storage capacity per drive by as much as 40%.",
+  ].join(" ");
+
+  it("cuts the labeled region and keeps the reporting on both sides of it", () => {
+    const { text, strippedNavigation } = stripProviderNavigation(toshiba);
+    expect(strippedNavigation).toBe(true);
+    expect(text).toContain("reports Nikkei");
+    expect(text).toContain("As part of the expansion");
+    expect(text).not.toContain("Premium Roadmaps");
+    expect(text).not.toContain("Nvidia Enterprise GPU and CPU roadmap");
+    expect(text).not.toContain("foundry roadmaps");
+  });
+
+  it("cuts a paste whose first headline is glued to the label", () => {
+    const novaLake = [
+      "A rumored SKU table for Intel's upcoming Nova Lake desktop CPUs has surfaced, showcasing seven models that will make up Intel's initial NVL-S lineup.",
+      "Go deeper with TH Premium: CPU    (Image credit: Tom's Hardware) Intel VP Robert Hallock sets Nova Lake expectations, teases return to Raptor Lake for DDR4 platforms.",
+      "CPU scaling with DLSS.",
+      "Intel's one-two punch plan in desktop CPUs is taking shape.",
+      "Benchmarking AMD's BC-250, offering Steam Machine-like performance at half the price.",
+      "As previously rumored, the table tops out at the flagship Core Ultra 9 4970K BFC, which the spec list suggests is a 28-core chip with 8 P-cores, 16 E-cores, and 4 LPE-cores.",
+    ].join(" ");
+    const { text, strippedNavigation } = stripProviderNavigation(novaLake);
+    expect(strippedNavigation).toBe(true);
+    expect(text).toContain("initial NVL-S lineup");
+    expect(text).toContain("As previously rumored");
+    expect(text).not.toContain("Go deeper with TH Premium");
+    expect(text).not.toContain("CPU scaling with DLSS");
+  });
+
+  it("leaves prose that merely mentions navigation", () => {
+    const prose =
+      "The guide says Read more about the launch on its blog, and the company said the rollout begins in October with a capacity of 40% more drives.";
+    expect(stripProviderNavigation(prose)).toEqual({ text: prose, strippedNavigation: false });
+  });
+
+  it("publishes neither the paste nor a fragment of it", () => {
+    const story: Story = {
+      id: "paste",
+      org: "Tom's Hardware",
+      title: "Toshiba to double HDD production capacity amid devastating shortages",
+      what: "Toshiba will double its hard drive assembly capacity in the Philippines.",
+      why: "",
+      importance: "High",
+      score: { relevance: 8, importance: 9, novelty: 7 },
+      sources: 1,
+      topics: ["tech"],
+      time: "10:00",
+      publishedAt: "2026-10-03T00:00:00.000Z",
+      sourceList: [{ name: "Tom's Hardware", at: "", excerpt: toshiba }],
+      before: "",
+      after: "",
+      timeline: [],
+    } as unknown as Story;
+    const { article } = composeArticleWithDiagnostics(story);
+    const published = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    expect(published).toContain("reports Nikkei");
+    expect(published).toContain("As part of the expansion");
+    expect(published).not.toContain("Nvidia Enterprise GPU and CPU roadmap");
+    expect(published).not.toContain("Intel's roadmaps examined");
+  });
+});
+
+/**
+ * A newsletter's index of its own previous articles is not evidence.
+ *
+ * The provenance decides, not the typography: the rule fires only inside a
+ * source whose text identifies it as a newsletter, so an ordinary article's
+ * dashes and lists are untouched, and the same newsletter's essay prose --
+ * sentences with subjects and verbs -- is untouched too. Measured on the
+ * frozen corpus: 6 index entries refused, the whole measured population, and
+ * the story keeps 8 of its 14 facts.
+ */
+describe("a newsletter's index of itself is not evidence", () => {
+  const context =
+    "Welcome back to This Week in Stratechery! Each week we send this overview of content in the bundle.";
+
+  it("refuses the title—blurb pairs, the title list and the promo lines", () => {
+    expect(
+      unitTextRejection(
+        "Apps, Agents, and Aggregation — Agents are the ultimate Aggregators; they reveal apps as a means, not an ends, and providing them is tech's biggest prize.",
+        false,
+        context,
+      ),
+    ).toBe("newsletter_index");
+    expect(
+      unitTextRejection(
+        "The Strategic Stalemate Era for the US and China; Xi Welcomes American Young People; Domestic Crackdowns and Economic Concerns.",
+        false,
+        context,
+      ),
+    ).toBe("newsletter_index");
+    expect(
+      unitTextRejection("This week's Stratechery video is on Frontier Overhangs.", false, context),
+    ).toBe("newsletter_index");
+  });
+
+  it("keeps the same shapes outside a newsletter, and the newsletter's prose", () => {
+    // The identical pair, in a source that is not a newsletter: ordinary prose.
+    expect(
+      unitTextRejection(
+        "Apps, Agents, and Aggregation — Agents are the ultimate Aggregators; they reveal apps as a means, not an ends, and providing them is tech's biggest prize.",
+        false,
+        "The company said the deal closes in October, and analysts agreed the price is fair.",
+      ),
+    ).toBeNull();
+    // The front-matter essay blurb: a sentence with a subject and a verb.
+    expect(
+      unitTextRejection(
+        "Can Meta Focus? It's risky, both as a technical person enthralled with new technology, and as an analyst in the midst of AI fervor, to claim that the next computing paradigm is truly here, but I do think that everyone will use agents, eventually. — Ben Thompson .",
+        false,
+        context,
+      ),
+    ).toBeNull();
+    // Paired dashes with a lowercase head, in the same newsletter: prose.
+    expect(
+      unitTextRejection(
+        "The company — which has three offices — said the plant will employ 400 workers.",
+        false,
+        context,
+      ),
+    ).toBeNull();
+  });
+});
+
+/**
+ * A subjectless instruction is addressed to the reader, not about the world.
+ *
+ * Measured on the frozen corpus: 19 published sentences opened on a base verb
+ * with no actor, 17 of them genuine instructions published as facts ("according
+ * to Android Developers"). The rule refuses them wherever they come from --
+ * including a release feed's changelog, whose imperative bullets the ruling
+ * judged cheaper to lose than to keep: Next.js renders 8 facts to 3, llama.cpp
+ * 5 to 3, and both stories stay alive. The two prose casualties (a caption, a
+ * "Put differently ..." opener) are the measured cost and are being watched.
+ */
+describe("an instruction is not a claim", () => {
+  it("refuses documentation instructions and changelog bullets", () => {
+    expect(
+      unitTextRejection(
+        "Implement re-authentication across device setup and cloud restores using Jetpack Credential Manager.",
+        false,
+        undefined,
+      ),
+    ).toBe("imperative_instruction");
+    expect(
+      unitTextRejection(
+        "Use BF16 compute type for quantized models if HW allows.",
+        false,
+        undefined,
+      ),
+    ).toBe("imperative_instruction");
+    expect(
+      unitTextRejection(
+        "Add unstable parameter matching APIs: #97393 docs: point next package security disclosure to HackerOne: #99459.",
+        false,
+        undefined,
+      ),
+    ).toBe("imperative_instruction");
+  });
+
+  it("keeps past-tense reporting and quoted speech", () => {
+    expect(
+      unitTextRejection(
+        "The release added unstable parameter matching APIs for the App Router.",
+        false,
+        undefined,
+      ),
+    ).toBeNull();
+    expect(
+      unitTextRejection('"Add salt to the pipeline," the engineer said.', false, undefined),
+    ).toBeNull();
+  });
+
+  it("publishes neither the instructions nor the missing claim", () => {
+    const androidDocs = [
+      "Google said Android Device Streaming lets an agent drive a real device from the command line during app testing.",
+      "Implement Restore Credentials: Implement re-authentication across device setup and cloud restores using Jetpack Credential Manager.",
+      "Set up testing strategy: Configure unit test suites, Compose UI testing rules, and screenshot testing infrastructure.",
+    ].join(" ");
+    const selection = selectReaderEvidence("Device Streaming and Android skills", [
+      { name: "Android Developers", excerpt: androidDocs },
+    ]);
+    expect(selection.rejectionReasons.imperative_instruction).toBe(2);
+    expect(selection.facts.some((fact) => fact.text.includes("Device Streaming"))).toBe(true);
   });
 });
