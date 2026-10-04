@@ -43,7 +43,8 @@
     "telegram:webhook": "node --env-file=.env scripts/tsrun.mjs scripts/telegram-webhook.ts",
     "topics:backfill": "node --env-file=.env scripts/tsrun.mjs scripts/topic-backfill.ts",
     "vapid": "node --env-file=.env scripts/tsrun.mjs scripts/vapid.ts",
-    "audit:reader": "node --env-file=.env scripts/tsrun.mjs scripts/reader-composer-audit.ts"
+    "audit:reader": "node --env-file=.env scripts/tsrun.mjs scripts/reader-composer-audit.ts",
+    "eval:corpus": "node --env-file=.env scripts/tsrun.mjs scripts/reader-eval-corpus.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"

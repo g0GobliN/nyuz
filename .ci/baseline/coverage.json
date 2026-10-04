@@ -1,6 +1,6 @@
 {
   "measuredAt": "2026-10-03",
-  "measuredAtCommit": "7f886ff0",
+  "measuredAtCommit": "7547fc33",
   "note": "The floor for `npm run coverage:ratchet`. Raise it with `npm run coverage:ratchet -- --update` in the commit that adds the tests, never by hand.\n`measuredAtCommit` is the commit the measurement was taken at, so a later\ndrop can be attributed to a change rather than guessed at. Read it before\nblaming the change under review.",
   "directories": {
     "src": {
@@ -60,11 +60,11 @@
       "branches": 0
     },
     "src/lib": {
-      "files": 65,
-      "lines": 80.3,
-      "statements": 80.3,
-      "functions": 89.52,
-      "branches": 86.07
+      "files": 66,
+      "lines": 80.75,
+      "statements": 80.75,
+      "functions": 89.86,
+      "branches": 86.35
     },
     "src/lib/ai": {
       "files": 10,
@@ -75,10 +75,10 @@
     },
     "src/lib/discovery": {
       "files": 7,
-      "lines": 88.19,
-      "statements": 88.19,
+      "lines": 88.35,
+      "statements": 88.35,
       "functions": 88.24,
-      "branches": 81.59
+      "branches": 82.31
     },
     "src/lib/email": {
       "files": 2,
@@ -110,10 +110,10 @@
     },
     "src/lib/pipeline": {
       "files": 41,
-      "lines": 83.32,
-      "statements": 83.32,
-      "functions": 87,
-      "branches": 79.2
+      "lines": 83.41,
+      "statements": 83.41,
+      "functions": 87.09,
+      "branches": 79.5
     },
     "src/lib/push": {
       "files": 3,
@@ -187,9 +187,9 @@
     }
   },
   "total": {
-    "lines": 40.14,
-    "statements": 40.14,
-    "functions": 72.22,
-    "branches": 80.57
+    "lines": 40.43,
+    "statements": 40.43,
+    "functions": 72.55,
+    "branches": 80.88
   }
 }
