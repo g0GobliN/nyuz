@@ -18,6 +18,24 @@ export default defineConfig({
     // No Node built-ins are available at runtime — keep server code fetch-based.
     nitro({
       preset: "cloudflare-module",
+      // Pinned, not left to the default. Left unset, nitro stamps
+      // `compatibility_date` with *today's local* date, and wrangler rejects any
+      // date later than today in UTC -- so on a machine east of UTC, between
+      // local midnight and UTC midnight, every build produces a Worker that
+      // `wrangler dev` refuses to start:
+      //
+      //   Compatibility date "2026-10-04" is in the future and unsupported
+      //
+      // That window is nine hours wide in JST, and it broke `npm run e2e`
+      // outright here while `npm run build` stayed green, because the failure
+      // only appears when wrangler tries to *serve* the output. A date that
+      // moves with the clock is also a runtime contract that changes without a
+      // commit, which is the worse half of the problem: the same commit would
+      // deploy onto two different Workers runtimes depending on the hour.
+      //
+      // Pinning it makes the build reproducible and puts the date under review.
+      // Raise it deliberately, in a commit, when a newer runtime is wanted.
+      compatibilityDate: "2026-01-01",
       // The cron entry point. Not `src/server.ts`: the preset owns the Worker's
       // scheduled handler and dispatches it to a hook — see src/nitro/scheduled.ts
       // for why an export there would be ignored without complaint.
