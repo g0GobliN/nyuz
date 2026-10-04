@@ -22,12 +22,14 @@ type Db = SupabaseClient<Database>;
  * Worst-case subrequest accounting (Workers free plan: 50/invocation)
  * ---------------------------------------------------------------------------
  *
- * Setup: up to 10 DB calls (flag check, reader-visible event ids: user_events
- * + deliveries + digest_items in two `.in()` chunks, candidate articles,
+ * Setup: up to 12 DB calls (flag check, reader-visible event ids: user_events
+ * + deliveries + digest_items in two `.in()` chunks, candidate articles in
+ * two `.in()` chunks — the arm caps at 400 event ids, past one URL —,
  * existing-evidence check, possible stale-claim reclaim, the window refill
- * past its done head plus those rows' evidence check, and — only when the
- * priority window survives filtering with less than a tick's worth of eligible
- * rows — the recency fallback's candidates and evidence check).
+ * past its done head — itself two chunked reads — plus those rows' evidence
+ * check, and — only when the priority window survives filtering with less
+ * than a tick's worth of eligible rows — the recency fallback's candidates
+ * and evidence check).
  * -- or just 1 if the flag is off, since the function returns immediately.
  *
  * Per article, worst case (a source never checked before, both robots.txt and
@@ -45,9 +47,9 @@ type Db = SupabaseClient<Database>;
  *
  *   ENRICH_LIMIT * 10 + 10 setup <=  50
  *
- * With ENRICH_LIMIT = 3: 3*10 + 10 = 40, leaving 10 (20%) of margin under the
- * free-plan ceiling even in this pessimal case. Raising ENRICH_LIMIT requires
- * re-doing this arithmetic, not just editing the constant.
+ * With ENRICH_LIMIT = 3: 3*10 + 12 = 42, leaving 8 (16%) of margin under the
+ * free-plan ceiling even in this pessimal case. Raising ENRICH_LIMIT or the
+ * arm cap requires re-doing this arithmetic, not just editing the constant.
  *
  * Throughput comes from the schedule, not this constant: STAGES_CRON fires this
  * stage six times an hour, so 6 * 3 = 18 articles an hour against an arrival
@@ -136,6 +138,8 @@ type Candidate = {
   id: string;
   title: string;
   url: string | null;
+  /** Read only so the chunked arm read can be re-sorted into one window. */
+  published_at: string;
   sources: CandidateSource | null;
 };
 
@@ -188,8 +192,15 @@ export /**
  * stage a run.
  */
 const READER_VISIBLE_DAYS = 7;
-/** The cap the arm feeds: `.in()` with 120 ids, well under PostgREST's limit. */
-const READER_VISIBLE_EVENT_CAP = 120;
+/**
+ * The cap the arm feeds: the newest reader-visible events by touch time. 400
+ * matches the arm-row read caps, so the arm never asks for more ids than its
+ * sources were read with. 400 uuids do not fit one `.in()` URL, so the
+ * candidate read chunks them — see `ARM_ID_CHUNK`.
+ */
+const READER_VISIBLE_EVENT_CAP = 400;
+/** Ids per `.in()` over the arm: 400 × 36-char uuids ≈ 15 KB, past a safe URL. */
+const ARM_ID_CHUNK = 200;
 /**
  * Rows read per arm before the merge. Bounded so a reader burst cannot turn
  * one tick into a scan; 400 because the `digest_items` `.in()` chunks below
@@ -268,7 +279,7 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
     const q = db
       .from("articles")
       .select(
-        "id, title, url, sources ( id, name, homepage, enrichment_allowed, enrichment_failure_count )",
+        "id, title, url, published_at, sources ( id, name, homepage, enrichment_allowed, enrichment_failure_count )",
       )
       .not("event_id", "is", null)
       .not("url", "is", null)
@@ -288,10 +299,35 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
   // the 2026-09-30 briefing had an enriched body.
   let rows: Candidate[] = [];
   const priorityIds = options.articleId ? null : await readerVisibleEventIds(db, now);
+
+  /**
+   * The arm's candidate window, newest-published first across the WHOLE arm.
+   * The event ids travel in `.in()` URLs, so they are chunked; each page is
+   * bounded and the merge is re-sorted and cut again, because a chunk boundary
+   * must not decide which sixty articles a tick sees. One failed chunk fails
+   * the arm — the recency fallback answers, exactly as the single read did.
+   */
+  const armCandidates = async (exclude?: ReadonlySet<string>): Promise<Candidate[]> => {
+    const ids = priorityIds ?? [];
+    const merged: Candidate[] = [];
+    for (let i = 0; i < ids.length; i += ARM_ID_CHUNK) {
+      let query = base().in("event_id", ids.slice(i, i + ARM_ID_CHUNK));
+      if (exclude && exclude.size > 0) query = query.not("id", "in", `(${[...exclude].join(",")})`);
+      const { data, error } = await query.limit(CANDIDATE_WINDOW_ROWS);
+      if (error) throw new Error(`reading priority arm: ${error.message}`);
+      merged.push(...((data ?? []) as unknown as Candidate[]));
+    }
+    return merged
+      .sort((a, b) => {
+        const at = (candidate: Candidate): number => Date.parse(candidate.published_at) || 0;
+        return at(b) - at(a);
+      })
+      .slice(0, CANDIDATE_WINDOW_ROWS);
+  };
+
   if (priorityIds) {
     try {
-      const { data, error } = await base().in("event_id", priorityIds).limit(CANDIDATE_WINDOW_ROWS);
-      if (!error && data) rows = data as unknown as Candidate[];
+      rows = await armCandidates();
     } catch {
       rows = [];
     }
@@ -345,14 +381,8 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
   // the re-request budget below still clears the plan's 50.
   if (priorityIds && done.size > 0) {
     try {
-      const { data, error } = await base()
-        .in("event_id", priorityIds)
-        .not("id", "in", `(${[...done].join(",")})`)
-        .limit(CANDIDATE_WINDOW_ROWS);
-      if (!error && data) {
-        rows = data as unknown as Candidate[];
-        await readEvidence(rows);
-      }
+      rows = await armCandidates(done);
+      await readEvidence(rows);
     } catch {
       // The first-pass window stands: degraded reach, not a dead tick.
     }

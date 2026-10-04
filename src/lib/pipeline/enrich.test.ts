@@ -664,6 +664,77 @@ describe("enrich", () => {
     expect(done2?.["status"]).toBe("enriched");
   });
 
+  it("keeps the newest-published window across a chunked arm read", async () => {
+    // Audit 31: the arm caps at 400 reader-visible events, and 400 uuids do not
+    // fit one `.in()` URL, so the read is chunked 2×200 and merged. The merge
+    // must re-sort: a very new article on an event at the far end of the arm
+    // (second chunk) has to outrank the older articles of the first chunk, not
+    // lose to them because of which side of a chunk boundary it sits on.
+    const db = fixture();
+    for (let i = 1; i <= 250; i += 1) {
+      const isNewest = i === 250;
+      db.rows("articles").push({
+        ...article(`aArm${i}`, `https://arm${i}.example.com/story`, source("s1", true)),
+        event_id: `eArm${i}`,
+        published_at: isNewest
+          ? new Date().toISOString()
+          : new Date(Date.now() - (i + 6) * 3600e3).toISOString(),
+      });
+      // Touch time orders the arm: event i is touched i MINUTES ago — all 250
+      // stay inside the seven-day touch window, so event 250, the one carrying
+      // the newest article, sits at the far end of the arm, in the second chunk.
+      db.rows("user_events").push({
+        user_id: "u1",
+        event_id: `eArm${i}`,
+        matched_at: new Date(Date.now() - i * 60_000).toISOString(),
+      });
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    const done = db.rows("article_evidence").find((r) => r["status"] === "enriched");
+    expect(done?.["article_id"]).toBe("aArm250");
+  });
+
+  it("caps the arm at four hundred reader-visible events", async () => {
+    // The 401st-touched event falls off the cap. Its article is four days old,
+    // outside the recency fallback, so if the cap leaked past 400 it would be
+    // enriched and this test would fail — the cap is the only thing hiding it.
+    const db = fixture();
+    for (let i = 1; i <= 401; i += 1) {
+      const offArm = i === 401;
+      db.rows("articles").push({
+        ...article(`aCap${i}`, `https://cap${i}.example.com/story`, source("s1", true)),
+        event_id: `eCap${i}`,
+        published_at: offArm
+          ? new Date(Date.now() - 96 * 3600e3).toISOString()
+          : new Date(Date.now() - 80 * 3600e3).toISOString(),
+      });
+      db.rows("user_events").push({
+        user_id: "u1",
+        event_id: `eCap${i}`,
+        // Minutes, so every touch stays inside the seven-day window and the
+        // cap — not the window — is what drops event 401 off the arm.
+        matched_at: new Date(Date.now() - i * 60_000).toISOString(),
+      });
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    const done = db.rows("article_evidence").find((r) => r["status"] === "enriched");
+    expect(done?.["article_id"]).not.toBe("aCap401");
+  });
+
   it("walks the window backward past sixty done rows", async () => {
     // The closing fix of Audit 29-B: a fixed newest-60 prefix never rotates on
     // its own, because done rows STAY in it — sixty finished articles pin the

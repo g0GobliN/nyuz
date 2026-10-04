@@ -37,7 +37,8 @@ const PAGE = 1000;
 const CHUNK = 200;
 /** The enrich stage's own constants, restated so the classes stay honest. */
 const VISIBLE_DAYS = 7;
-const EVENT_CAP = 120;
+/** Audit 31 ruling: raised from 120 to 400, matching the arm-row read caps. */
+const EVENT_CAP = 400;
 const ARM_ROWS = 400;
 const FALLBACK_HOURS = 72;
 
