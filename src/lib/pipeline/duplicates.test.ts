@@ -264,6 +264,71 @@ describe("one story per briefing", () => {
     expect(kept).toHaveLength(2);
   });
 
+  it("keeps a generic marker honest when the pair shares too little else", () => {
+    // Both titles carry a generic marker (a launch) and the same actor, but only
+    // two content words in common, which is one short of what a generic marker
+    // needs. The pair falls all the way through `areTwins` and both survive --
+    // this is the branch that stops "launches" fusing two unrelated launches by
+    // one company.
+    const kept = suppressStoryTwins([
+      brief("Acme launches a phone in Europe", "The handset ships in March."),
+      brief("Acme launches a laptop in Japan", "The notebook arrives in April."),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("ignores a marker only one side carries", () => {
+    // The inner `continue` in the marker loop, and the reason it is reachable at
+    // all: the left brief carries the non-generic `deal` marker and the right
+    // one carries no marker, so the loop advances instead of deciding. Getting
+    // here needs a pair with real word overlap, a shared entity and *no* shared
+    // figure — with a figure the structural test returns first and this arm is
+    // never reached, which is exactly what the magnitude fix changed.
+    const kept = suppressStoryTwins([
+      brief("Acme completes takeover of Beta Systems", "The deal closes next week."),
+      brief("Acme completes purchase of Beta Systems", "The transaction closes next week."),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("collapses one incident inside a single briefing when only a magnitude is shared", () => {
+    // The in-batch half of the same fix: two accounts of the G7 release in one
+    // morning's list, sharing no currency figure at all.
+    const kept = suppressStoryTwins([
+      brief(
+        "The G7 will release 100 million reserve barrels of diesel fuel",
+        "The world's wealthiest nations say they will release 100 million barrels of oil and diesel fuel in their reserves.",
+      ),
+      brief(
+        "G7 to release 100 million barrels of oil and diesel after Trump export ban",
+        "The coordinated release is aimed at heading off further price spikes and avoiding a ban on US diesel exports.",
+      ),
+    ]);
+    expect(kept).toHaveLength(1);
+  });
+
+  it("suppresses one incident whose only shared figure is a bare magnitude", () => {
+    // The G7 oil release, measured in the 30-day evaluation window as two
+    // cards. Neither headline names a currency figure, so `numericKeys` alone
+    // could not see the pair; the identity vocabulary is what joins it.
+    const kept = suppressDeliveredTwins(
+      [
+        {
+          eventId: "g7-b",
+          title: "G7 to release 100 million barrels of oil and dampen prices",
+          whatHappened: "Members agreed to release reserves from emergency stockpiles.",
+        },
+      ],
+      [
+        {
+          title: "The G7 will release 100 million reserve barrels to calm markets",
+          whatHappened: "The group said the release would be coordinated across members.",
+        },
+      ],
+    );
+    expect(kept).toEqual([]);
+  });
+
   it("suppresses a reworded story the reader was already sent", () => {
     // The ShinyHunters arrest shipped on 2026-10-01 and was set to ship again
     // on 10-02 as a different event with a reworded headline.
@@ -291,6 +356,17 @@ describe("one story per briefing", () => {
       ],
     );
     expect(kept.map((b) => b.eventId)).toEqual(["other"]);
+  });
+
+  it("treats a missing summary as empty rather than as a crash", () => {
+    // `whatHappened` is nullable on the delivered-history side: `digest_items`
+    // does not carry a summary, so a caller passing the delivered titles through
+    // hands over `null`. The shape has to read that as "no summary", not throw.
+    const kept = suppressDeliveredTwins(
+      [{ eventId: "fresh", title: "Acme ships a thing", whatHappened: null }],
+      [{ title: "Unrelated story about something else entirely", whatHappened: null }],
+    );
+    expect(kept.map((entry) => entry.eventId)).toEqual(["fresh"]);
   });
 
   it("leaves fresh stories alone when delivery history is empty", () => {

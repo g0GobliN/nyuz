@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
-import { numericKeys, rankEntities } from "@/lib/reader-evidence";
+import { magnitudeKeys, numericKeys, rankEntities } from "@/lib/reader-evidence";
 import { capitalised, sameHeadline } from "./news-signals";
 import { STOPWORDS } from "./shortlist";
 
@@ -224,7 +224,20 @@ type Shape = {
   markers: Set<string>;
   /** PRIMARY entity names: the actor a claim is about, not merely a capital. */
   primary: Set<string>;
-  /** Figures, so two accounts of one incident can meet without shared words. */
+  /**
+   * Figures, so two accounts of one incident can meet without shared words.
+   *
+   * `numericKeys` **plus** `magnitudeKeys`, which is the identity vocabulary
+   * `sameIncident` already uses — a bare "100 million barrels" is an anchor two
+   * accounts of one release keep, while it is too weak to be trusted as a
+   * *conflict*, so the figure-conflict guard keeps the conservative set.
+   *
+   * Without the magnitudes this pass could not see the G7 pair at all: both
+   * headlines say "100 million" and neither says a currency figure, so the
+   * shared-figure test failed and two cards for one oil release reached the
+   * reader. Measured over the 30-day evaluation window, `numericKeys` alone left
+   * the G7 pair and the "17,000ft"/"64GB" shapes joined by nothing.
+   */
   figures: Set<string>;
 };
 
@@ -276,7 +289,10 @@ const shapeOf = (brief: TwinBrief): Shape => {
         .filter((entity) => entity.role === "PRIMARY")
         .map((entity) => entity.name.toLowerCase()),
     ),
-    figures: new Set(numericKeys(`${brief.title} ${summary}`)),
+    figures: new Set([
+      ...numericKeys(`${brief.title} ${summary}`),
+      ...magnitudeKeys(`${brief.title} ${summary}`),
+    ]),
   };
 };
 
