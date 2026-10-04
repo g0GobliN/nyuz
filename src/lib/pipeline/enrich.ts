@@ -22,9 +22,10 @@ type Db = SupabaseClient<Database>;
  * Worst-case subrequest accounting (Workers free plan: 50/invocation)
  * ---------------------------------------------------------------------------
  *
- * Setup: up to 9 DB calls (flag check, reader-visible event ids: user_events
+ * Setup: up to 10 DB calls (flag check, reader-visible event ids: user_events
  * + deliveries + digest_items in two `.in()` chunks, candidate articles,
- * existing-evidence check, possible stale-claim reclaim, and — only when the
+ * existing-evidence check, possible stale-claim reclaim, the window refill
+ * past its done head plus those rows' evidence check, and — only when the
  * priority window survives filtering with less than a tick's worth of eligible
  * rows — the recency fallback's candidates and evidence check).
  * -- or just 1 if the flag is off, since the function returns immediately.
@@ -42,9 +43,9 @@ type Db = SupabaseClient<Database>;
  * (the same-run robots cache only helps when articles share a source, so this
  * is the true ceiling, not softened by it):
  *
- *   ENRICH_LIMIT * 10 + 9 setup  <=  50
+ *   ENRICH_LIMIT * 10 + 10 setup <=  50
  *
- * With ENRICH_LIMIT = 3: 3*10 + 9 = 39, leaving 11 (22%) of margin under the
+ * With ENRICH_LIMIT = 3: 3*10 + 10 = 40, leaving 10 (20%) of margin under the
  * free-plan ceiling even in this pessimal case. Raising ENRICH_LIMIT requires
  * re-doing this arithmetic, not just editing the constant.
  *
@@ -335,6 +336,27 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
     }
   };
   await readEvidence(rows);
+
+  // The done ids read just now are the window's dead head. Re-fetch the arm
+  // excluding them: all sixty slots become live candidates and the window
+  // walks backward through the touched pool instead of waiting for new
+  // arrivals to push it forward (Audit 29-B). The refetched rows' evidence is
+  // read too — a candidate at position 61 can carry a row from weeks ago — so
+  // the re-request budget below still clears the plan's 50.
+  if (priorityIds && done.size > 0) {
+    try {
+      const { data, error } = await base()
+        .in("event_id", priorityIds)
+        .not("id", "in", `(${[...done].join(",")})`)
+        .limit(CANDIDATE_WINDOW_ROWS);
+      if (!error && data) {
+        rows = data as unknown as Candidate[];
+        await readEvidence(rows);
+      }
+    } catch {
+      // The first-pass window stands: degraded reach, not a dead tick.
+    }
+  }
 
   const backedOff: Candidate[] = [];
   const eligible: Candidate[] = [];

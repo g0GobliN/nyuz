@@ -132,6 +132,16 @@ function compare(actual: unknown, op: string, expected: unknown): boolean {
       return actual !== null && actual !== undefined && String(actual) > String(expected);
     case "gte":
       return actual !== null && actual !== undefined && String(actual) >= String(expected);
+    case "in": {
+      // PostgREST spells the list `(a,b,c)`. Same String comparison the
+      // dedicated `.in()` builder uses, so `.not(col, "in", ...)` and
+      // `.in(col, [...])` answer identically.
+      const list = String(expected)
+        .replace(/^\(|\)$/g, "")
+        .split(",")
+        .map((v) => v.trim());
+      return actual !== null && actual !== undefined && list.includes(String(actual));
+    }
     case "ilike":
     case "like": {
       // PostgREST spells the wildcard `*`; SQL spells it `%`. Both appear in

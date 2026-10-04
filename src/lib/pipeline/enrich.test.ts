@@ -664,6 +664,73 @@ describe("enrich", () => {
     expect(done2?.["status"]).toBe("enriched");
   });
 
+  it("walks the window backward past sixty done rows", async () => {
+    // The closing fix of Audit 29-B: a fixed newest-60 prefix never rotates on
+    // its own, because done rows STAY in it — sixty finished articles pin the
+    // window and the backlog behind it waits for new arrivals. The tick now
+    // re-reads the arm excluding the done ids, so the three healthy articles
+    // behind sixty dead ones are this tick's work, not next week's.
+    const db = fixture();
+    for (let i = 0; i < 60; i += 1) {
+      const id = `aDone${i}`;
+      db.rows("articles").push({
+        ...article(id, `https://done${i}.example.com/story`, source("s1", true)),
+        event_id: `eDone${i}`,
+        published_at: new Date(Date.now() - (i + 1) * 60_000).toISOString(),
+      });
+      db.rows("user_events").push({
+        user_id: "u1",
+        event_id: `eDone${i}`,
+        matched_at: new Date().toISOString(),
+      });
+      db.rows("article_evidence").push({
+        article_id: id,
+        status: "enriched",
+        attempts: 1,
+        evidence: [],
+        extracted_at: new Date().toISOString(),
+        source_word_count: 100,
+      });
+    }
+    db.rows("articles").push(
+      {
+        ...article("aBacklog1", "https://backlog1.example.com/story", source("s1", true)),
+        event_id: "eBacklog1",
+        published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+      },
+      {
+        ...article("aBacklog2", "https://backlog2.example.com/story", source("s2", true)),
+        event_id: "eBacklog2",
+        published_at: new Date(Date.now() - 97 * 3600e3).toISOString(),
+      },
+      {
+        ...article("aBacklog3", "https://backlog3.example.com/story", source("s3", true)),
+        event_id: "eBacklog3",
+        published_at: new Date(Date.now() - 98 * 3600e3).toISOString(),
+      },
+    );
+    for (const event of ["eBacklog1", "eBacklog2", "eBacklog3"]) {
+      db.rows("user_events").push({
+        user_id: "u1",
+        event_id: event,
+        matched_at: new Date().toISOString(),
+      });
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(report.enriched).toBe(3);
+    const enrichedIds = report.outcomes
+      .filter((o) => o.decision === "enriched")
+      .map((o) => o.articleId)
+      .sort();
+    expect(enrichedIds).toEqual(["aBacklog1", "aBacklog2", "aBacklog3"]);
+  });
+
   it("opens the fallback when the priority window survives filtering empty", async () => {
     // The gate used to read `rows.length < limit` — the raw window size — so a
     // window holding one done article inerted the recency arm even though no
