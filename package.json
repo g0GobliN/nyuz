@@ -45,7 +45,8 @@
     "vapid": "node --env-file=.env scripts/tsrun.mjs scripts/vapid.ts",
     "audit:reader": "node --env-file=.env scripts/tsrun.mjs scripts/reader-composer-audit.ts",
     "eval:corpus": "node --env-file=.env scripts/tsrun.mjs scripts/reader-eval-corpus.ts",
-    "audit:enrichment": "node --env-file=.env scripts/tsrun.mjs scripts/reader-enrichment-census.ts"
+    "audit:enrichment": "node --env-file=.env scripts/tsrun.mjs scripts/reader-enrichment-census.ts",
+    "audit:matching": "node --env-file=.env scripts/tsrun.mjs scripts/reader-matching-cause.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"
