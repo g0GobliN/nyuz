@@ -611,6 +611,103 @@ describe("enrich", () => {
     expect(report.outcomes[1]?.articleId).toBe("aD");
   });
 
+  it("reaches eligible articles past a dead head of done rows", async () => {
+    // Audit 29-B: at a twelve-row window filled with finished evidence rows,
+    // the tick considered its dead head forever and never reached the healthy
+    // article behind it. Sixty rows with the done set filtered before the slice
+    // rotates the window instead of locking it. The eligible article here is
+    // four days old — outside the recency fallback — so only the priority arm
+    // can reach it, and it sits at position thirteen.
+    const db = fixture();
+    const articleIds: string[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      const id = `aDone${i}`;
+      articleIds.push(id);
+      db.rows("articles").push({
+        ...article(id, `https://done${i}.example.com/story`, source("s1", true)),
+        event_id: `eDone${i}`,
+        published_at: new Date(Date.now() - (i + 1) * 60_000).toISOString(),
+      });
+      db.rows("user_events").push({
+        user_id: "u1",
+        event_id: `eDone${i}`,
+        matched_at: new Date().toISOString(),
+      });
+      db.rows("article_evidence").push({
+        article_id: id,
+        status: "enriched",
+        attempts: 1,
+        evidence: [],
+        extracted_at: new Date().toISOString(),
+        source_word_count: 100,
+      });
+    }
+    db.rows("articles").push({
+      ...article("aEligible", "https://eligible.example.com/story", source("s1", true)),
+      event_id: "eEligible",
+      published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eEligible",
+      matched_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    const done2 = db.rows("article_evidence").find((r) => r["article_id"] === "aEligible");
+    expect(done2?.["status"]).toBe("enriched");
+  });
+
+  it("opens the fallback when the priority window survives filtering empty", async () => {
+    // The gate used to read `rows.length < limit` — the raw window size — so a
+    // window holding one done article inerted the recency arm even though no
+    // eligible work existed. It now reads the post-filter count (Audit 29-B).
+    const db = fixture();
+    db.rows("articles").push(
+      {
+        ...article("aDone", "https://done.example.com/story", source("s1", true)),
+        event_id: "eTouched",
+        published_at: new Date().toISOString(),
+      },
+      {
+        ...article("aFresh", "https://fresh.example.com/story", source("s1", true)),
+        event_id: "eUnmatched",
+        published_at: new Date(Date.now() - 60_000).toISOString(),
+      },
+    );
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eTouched",
+      matched_at: new Date().toISOString(),
+    });
+    db.rows("article_evidence").push({
+      article_id: "aDone",
+      status: "enriched",
+      attempts: 1,
+      evidence: [],
+      extracted_at: new Date().toISOString(),
+      source_word_count: 100,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    // The tick's own outcome names aFresh — aDone's pre-seeded row is not
+    // evidence of anything this run did.
+    expect(report.outcomes[0]?.articleId).toBe("aFresh");
+    expect(report.outcomes[0]?.decision).toBe("enriched");
+  });
+
   it("ignores reader-touch rows that do not name an event", async () => {
     // Defensive guards the arm carries because the schema allows both columns
     // to be null: a match row with no event, a delivery item with no event,

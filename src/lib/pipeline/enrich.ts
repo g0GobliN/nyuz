@@ -22,9 +22,11 @@ type Db = SupabaseClient<Database>;
  * Worst-case subrequest accounting (Workers free plan: 50/invocation)
  * ---------------------------------------------------------------------------
  *
- * Setup: up to 8 DB calls (flag check, reader-visible event ids: user_events
+ * Setup: up to 9 DB calls (flag check, reader-visible event ids: user_events
  * + deliveries + digest_items in two `.in()` chunks, candidate articles,
- * existing-evidence check, possible stale-claim reclaim).
+ * existing-evidence check, possible stale-claim reclaim, and — only when the
+ * priority window survives filtering with less than a tick's worth of eligible
+ * rows — the recency fallback's candidates and evidence check).
  * -- or just 1 if the flag is off, since the function returns immediately.
  *
  * Per article, worst case (a source never checked before, both robots.txt and
@@ -40,9 +42,9 @@ type Db = SupabaseClient<Database>;
  * (the same-run robots cache only helps when articles share a source, so this
  * is the true ceiling, not softened by it):
  *
- *   ENRICH_LIMIT * 10 + 8 setup  <=  50
+ *   ENRICH_LIMIT * 10 + 9 setup  <=  50
  *
- * With ENRICH_LIMIT = 3: 3*10 + 8 = 38, leaving 12 (24%) of margin under the
+ * With ENRICH_LIMIT = 3: 3*10 + 9 = 39, leaving 11 (22%) of margin under the
  * free-plan ceiling even in this pessimal case. Raising ENRICH_LIMIT requires
  * re-doing this arithmetic, not just editing the constant.
  *
@@ -100,6 +102,16 @@ export type EnrichReport = {
 const ENRICH_LIMIT = 3;
 /** Below this many words of extracted body text, treat the page like a paywall/thin page: fall back rather than enrich from noise. */
 const MIN_USABLE_WORDS = 60;
+/**
+ * Rows read per arm before the eligibility filters. Sixty, measured: the
+ * twelve-row window this replaced saturated at the head of a 487-event touched
+ * set — of the head-60 articles, 23 were already done, 26 belonged to sources
+ * at the failure-backoff threshold, and only 11 were eligible — so every tick
+ * considered 5 dead candidates, skipped 5, and enriched nothing at all
+ * (Audit 29-B). Wide enough that a dead head cannot consume it; the filters
+ * run before the slice, so throughput stays ENRICH_LIMIT.
+ */
+const CANDIDATE_WINDOW_ROWS = 60;
 /**
  * Consecutive enrichment failures (fetch/extraction, not robots) before a
  * source's remaining articles are skipped for the rest of this run and future
@@ -277,71 +289,86 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
   const priorityIds = options.articleId ? null : await readerVisibleEventIds(db, now);
   if (priorityIds) {
     try {
-      const { data, error } = await base()
-        .in("event_id", priorityIds)
-        .limit(limit * 4);
+      const { data, error } = await base().in("event_id", priorityIds).limit(CANDIDATE_WINDOW_ROWS);
       if (!error && data) rows = data as unknown as Candidate[];
     } catch {
       rows = [];
     }
   }
-  if (rows.length < limit && !options.articleId) {
+
+  // A row in the window is dead until proven eligible: a finished evidence row
+  // (any status) or a source at the failure backoff removes it from this tick.
+  // Both filters run BEFORE the slice — at a twelve-row window the dead head of
+  // the touched set consumed it entirely and the tick starved (Audit 29-B).
+  const done = new Set<string>();
+  const readEvidence = async (candidates: Candidate[]): Promise<void> => {
+    const ids = candidates.map((a) => a.id);
+    if (ids.length === 0) return;
+    const existing = await db
+      .from("article_evidence")
+      .select("article_id, status")
+      .in("article_id", ids);
+    if (existing.error) throw new Error(`reading article_evidence: ${existing.error.message}`);
+    // A `pending` row is a claim some earlier run died holding. There is no
+    // timestamp on a claim — `extracted_at` is written when the work *finishes*
+    // — so age cannot be measured, and it does not have to be: this stage fires
+    // on its own cron minutes and walks its batch sequentially, so a pending
+    // row seen at the start of a run is not from this run.
+    const abandoned: string[] = [];
+    for (const row of existing.data ?? []) {
+      if (row.status === "pending") abandoned.push(row.article_id);
+      else done.add(row.article_id);
+    }
+    // Reclaim before claiming. Best effort: if this fails the claim below
+    // simply reports `already_claimed`, which is the behaviour we have today,
+    // so a database that refuses the delete cannot cost the stage its run.
+    if (abandoned.length > 0) {
+      try {
+        await db
+          .from("article_evidence")
+          .delete()
+          .in("article_id", abandoned)
+          .eq("status", "pending");
+      } catch {
+        // left for a later run
+      }
+    }
+  };
+  await readEvidence(rows);
+
+  const backedOff: Candidate[] = [];
+  const eligible: Candidate[] = [];
+  const classify = (candidates: Candidate[]): void => {
+    for (const article of candidates) {
+      if (done.has(article.id)) continue;
+      const failures = article.sources?.enrichment_failure_count ?? 0;
+      if (!options.articleId && failures >= ENRICHMENT_FAILURE_THRESHOLD) backedOff.push(article);
+      else eligible.push(article);
+    }
+  };
+  classify(rows);
+
+  // The fallback arm, judged from the post-filter count: a window clogged with
+  // done or backed-off rows must not inert it (Audit 29-B).
+  if (eligible.length < limit && !options.articleId) {
     const { data, error } = await base()
       .gte("published_at", activeCutoff(now).toISOString())
-      .limit(limit * 4);
+      .limit(CANDIDATE_WINDOW_ROWS);
     if (error) throw new Error(`reading enrichment candidates: ${error.message}`);
     const seen = new Set(rows.map((r) => r.id));
-    for (const row of (data ?? []) as unknown as Candidate[]) {
-      if (!seen.has(row.id)) rows.push(row);
-    }
+    const fresh = ((data ?? []) as unknown as Candidate[]).filter((r) => !seen.has(r.id));
+    rows.push(...fresh);
+    await readEvidence(fresh);
+    classify(fresh);
   }
   if (rows.length === 0 && options.articleId) {
     const { data, error } = await base();
     if (error) throw new Error(`reading enrichment candidates: ${error.message}`);
     rows = (data ?? []) as unknown as Candidate[];
+    await readEvidence(rows);
+    classify(rows);
   }
 
-  const ids = rows.map((a) => a.id);
-  const existing = ids.length
-    ? await db.from("article_evidence").select("article_id, status").in("article_id", ids)
-    : { data: [] as { article_id: string; status: string }[], error: null };
-  if (existing.error) throw new Error(`reading article_evidence: ${existing.error.message}`);
-  // A `pending` row is a claim some earlier run died holding. There is no
-  // timestamp on a claim — `extracted_at` is written when the work *finishes*
-  // — so age cannot be measured, and it does not have to be: this stage fires
-  // on its own cron minutes and walks its batch sequentially, so a pending row
-  // seen at the start of a run is not from this run. Production held 93 of them
-  // (oldest 2026-09-17), each permanently un-enrichable because any row counts
-  // as done.
-  const done = new Set<string>();
-  const abandoned: string[] = [];
-  for (const row of existing.data ?? []) {
-    if (row.status === "pending") abandoned.push(row.article_id);
-    else done.add(row.article_id);
-  }
-  // Reclaim before claiming. Best effort: if this fails the claim below simply
-  // reports `already_claimed`, which is the behaviour we have today, so a
-  // database that refuses the delete cannot cost the stage its whole run.
-  if (abandoned.length > 0) {
-    try {
-      await db
-        .from("article_evidence")
-        .delete()
-        .in("article_id", abandoned)
-        .eq("status", "pending");
-    } catch {
-      // left for a later run
-    }
-  }
-
-  const notDone = rows.filter((a) => !done.has(a.id));
-  const backedOff: Candidate[] = [];
-  const eligible: Candidate[] = [];
-  for (const article of notDone) {
-    const failures = article.sources?.enrichment_failure_count ?? 0;
-    if (!options.articleId && failures >= ENRICHMENT_FAILURE_THRESHOLD) backedOff.push(article);
-    else eligible.push(article);
-  }
   const todo = eligible.slice(0, limit);
 
   // Bounds every source's robots.txt to at most one check per run, even when
