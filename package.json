@@ -44,7 +44,8 @@
     "topics:backfill": "node --env-file=.env scripts/tsrun.mjs scripts/topic-backfill.ts",
     "vapid": "node --env-file=.env scripts/tsrun.mjs scripts/vapid.ts",
     "audit:reader": "node --env-file=.env scripts/tsrun.mjs scripts/reader-composer-audit.ts",
-    "eval:corpus": "node --env-file=.env scripts/tsrun.mjs scripts/reader-eval-corpus.ts"
+    "eval:corpus": "node --env-file=.env scripts/tsrun.mjs scripts/reader-eval-corpus.ts",
+    "audit:enrichment": "node --env-file=.env scripts/tsrun.mjs scripts/reader-enrichment-census.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"
