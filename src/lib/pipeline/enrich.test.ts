@@ -406,6 +406,308 @@ describe("enrich", () => {
     expect(done?.["article_id"]).toBe("aMatched");
   });
 
+  it("enriches an article whose event a reader was delivered but whose match day has passed", async () => {
+    // Audit 29: the priority arm read only the last 24h of matches, so an event
+    // matched once, delivered, then left alone fell out of that arm — and out
+    // of the 72h recency fallback, its articles now too old — and could never
+    // be enriched by any later run. 145 events in the 30-day window were
+    // stranded exactly this way, 60 of them delivered with zero evidence.
+    const db = fixture();
+    db.rows("articles").push({
+      ...article("aDelivered", "https://delivered.example.com/story", source("s1", true)),
+      event_id: "eDelivered",
+      // Four days old: outside `activeCutoff`, so the fallback arm cannot see it.
+      published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eDelivered",
+      // Three days ago: outside the arm's old 24h window.
+      matched_at: new Date(Date.now() - 72 * 3600e3).toISOString(),
+    });
+    db.rows("deliveries").push({
+      digest_id: "d1",
+      // Two days ago: the touch that must keep the event enrichable.
+      delivered_at: new Date(Date.now() - 48 * 3600e3).toISOString(),
+    });
+    db.rows("digest_items").push({ digest_id: "d1", event_id: "eDelivered" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    const done = db.rows("article_evidence").find((r) => r["status"] === "enriched");
+    expect(done?.["article_id"]).toBe("aDelivered");
+  });
+
+  it("does not reach back past the seven-day touch window", async () => {
+    // The arm anchors to reader visibility, not to the corpus: an event whose
+    // last touch is eight days old has fallen out of every reader surface, and
+    // its articles are for the recency fallback to judge on their own merits.
+    const db = fixture();
+    db.rows("articles").push(
+      {
+        ...article("aStale", "https://stale.example.com/story", source("s1", true)),
+        event_id: "eStale",
+        published_at: new Date(Date.now() - 8 * 24 * 3600e3).toISOString(),
+      },
+      {
+        ...article("aFresh", "https://fresh.example.com/story", source("s1", true)),
+        event_id: "eUnmatched",
+        published_at: new Date().toISOString(),
+      },
+    );
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eStale",
+      matched_at: new Date(Date.now() - 8 * 24 * 3600e3).toISOString(),
+    });
+    db.rows("deliveries").push({
+      digest_id: "d1",
+      delivered_at: new Date(Date.now() - 8 * 24 * 3600e3).toISOString(),
+    });
+    db.rows("digest_items").push({ digest_id: "d1", event_id: "eStale" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    const done = db.rows("article_evidence").find((r) => r["status"] === "enriched");
+    expect(done?.["article_id"]).toBe("aFresh");
+  });
+
+  it("orders the priority set by the most recent touch across both arms", async () => {
+    // Two events, both reader-visible, both with articles too old for the
+    // recency fallback. The one touched most recently — here by a match an
+    // hour ago, against a delivery three days ago — is the one the reader is
+    // still looking at, so it goes first.
+    const db = fixture();
+    db.rows("articles").push(
+      {
+        ...article("aRecent", "https://recent.example.com/story", source("s1", true)),
+        event_id: "eRecent",
+        published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+      },
+      {
+        ...article("aOld", "https://old.example.com/story", source("s2", true)),
+        event_id: "eOld",
+        published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+      },
+    );
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eRecent",
+      matched_at: new Date(Date.now() - 1 * 3600e3).toISOString(),
+    });
+    db.rows("deliveries").push({
+      digest_id: "d1",
+      delivered_at: new Date(Date.now() - 72 * 3600e3).toISOString(),
+    });
+    db.rows("digest_items").push({ digest_id: "d1", event_id: "eOld" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 2 });
+
+    expect(report.enriched).toBe(2);
+    const first = db.rows("article_evidence").find((r) => r["article_id"] === "aRecent");
+    const second = db.rows("article_evidence").find((r) => r["article_id"] === "aOld");
+    expect(first?.["status"]).toBe("enriched");
+    expect(second?.["status"]).toBe("enriched");
+    // The most recent touch claims the first fetch of the run.
+    expect(report.outcomes[0]?.articleId).toBe("aRecent");
+  });
+
+  it("keeps the newest touch when a reader touched the same event twice", async () => {
+    // A repeat match and a repeat delivery both arrive newest-first, and a
+    // delivery that is older than a match must not drag the event's priority
+    // timestamp backwards — with the stale 2.5h touch kept, the 90-minute
+    // competitor would win this race.
+    const db = fixture();
+    db.rows("articles").push(
+      {
+        ...article("aA", "https://a.example.com/story", source("s1", true)),
+        event_id: "eA",
+        published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+      },
+      {
+        ...article("aB", "https://b.example.com/story", source("s2", true)),
+        event_id: "eB",
+        published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+      },
+    );
+    db.rows("user_events").push(
+      {
+        user_id: "u1",
+        event_id: "eA",
+        matched_at: new Date(Date.now() - 1 * 3600e3).toISOString(),
+      },
+      {
+        user_id: "u1",
+        event_id: "eA",
+        matched_at: new Date(Date.now() - 2 * 3600e3).toISOString(),
+      },
+      {
+        user_id: "u1",
+        event_id: "eB",
+        matched_at: new Date(Date.now() - 1.5 * 3600e3).toISOString(),
+      },
+    );
+    db.rows("deliveries").push(
+      { digest_id: "d1", delivered_at: new Date(Date.now() - 3 * 3600e3).toISOString() },
+      { digest_id: "d1", delivered_at: new Date(Date.now() - 2.5 * 3600e3).toISOString() },
+    );
+    db.rows("digest_items").push({ digest_id: "d1", event_id: "eA" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    expect(report.outcomes[0]?.articleId).toBe("aA");
+  });
+
+  it("breaks ordering ties deterministically by event id", async () => {
+    // Two events touched in the same millisecond cannot be ordered by recency;
+    // the tie-break falls to the event id so the priority set is reproducible
+    // run over run instead of depending on map iteration order.
+    const db = fixture();
+    const hourAgo = new Date(Date.now() - 1 * 3600e3).toISOString();
+    db.rows("articles").push(
+      {
+        ...article("aC", "https://c.example.com/story", source("s1", true)),
+        event_id: "eC",
+        published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+      },
+      {
+        ...article("aD", "https://d.example.com/story", source("s2", true)),
+        event_id: "eD",
+        published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+      },
+    );
+    db.rows("user_events").push(
+      { user_id: "u1", event_id: "eD", matched_at: hourAgo },
+      { user_id: "u1", event_id: "eC", matched_at: hourAgo },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 2 });
+
+    expect(report.enriched).toBe(2);
+    expect(report.outcomes[0]?.articleId).toBe("aC");
+    expect(report.outcomes[1]?.articleId).toBe("aD");
+  });
+
+  it("ignores reader-touch rows that do not name an event", async () => {
+    // Defensive guards the arm carries because the schema allows both columns
+    // to be null: a match row with no event, a delivery item with no event,
+    // and an item whose digest id was rewritten out from under its delivery.
+    // None of the three may crash the arm or leak into the priority set.
+    const db = fixture();
+    db.rows("articles").push({
+      ...article("aFresh", "https://fresh.example.com/story", source("s1", true)),
+      event_id: "eUnmatched",
+      published_at: new Date().toISOString(),
+    });
+    db.rows("user_events").push({ user_id: "u1", matched_at: new Date().toISOString() });
+    db.rows("deliveries").push({ digest_id: "d1", delivered_at: new Date().toISOString() });
+    db.rows("digest_items").push({ digest_id: "d1", event_id: null });
+    db.hooks.afterSelect = (table, rows) => {
+      if (table === "digest_items") for (const row of rows) row["digest_id"] = "dRewritten";
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    // The priority set came out empty, so the stage fell back to recency and
+    // enriched the unmatched fresh article rather than crashing.
+    expect(report.enriched).toBe(1);
+    const done = db.rows("article_evidence").find((r) => r["status"] === "enriched");
+    expect(done?.["article_id"]).toBe("aFresh");
+  });
+
+  it("falls back to the recency window when the priority read fails", async () => {
+    // The arms are an improvement, never a requirement: a database error on
+    // any of their three reads degrades the tick to what recency alone would
+    // have done, instead of costing the run. The touched event's article is
+    // four days old — priority could reach it, recency cannot — so the tick
+    // lands on the fresh unmatched article instead.
+    const makeDb = (failing: string) => {
+      const db = fixture();
+      db.hooks.failSelect = (table) => (table === failing ? "connection refused" : null);
+      db.rows("articles").push(
+        {
+          ...article("aStale", "https://stale.example.com/story", source("s1", true)),
+          event_id: "eTouched",
+          published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+        },
+        {
+          ...article("aFresh", "https://fresh.example.com/story", source("s2", true)),
+          event_id: "eUnmatched",
+          published_at: new Date().toISOString(),
+        },
+      );
+      db.rows("deliveries").push({
+        digest_id: "d1",
+        delivered_at: new Date(Date.now() - 1 * 3600e3).toISOString(),
+      });
+      db.rows("digest_items").push({ digest_id: "d1", event_id: "eTouched" });
+      return db;
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    for (const failing of ["user_events", "deliveries", "digest_items"]) {
+      const db = makeDb(failing);
+      const report = await enrich(asDb(db), { limit: 1 });
+      expect(report.enriched, `failed read: ${failing}`).toBe(1);
+      const done = db.rows("article_evidence").find((r) => r["status"] === "enriched");
+      expect(done?.["article_id"]).toBe("aFresh");
+    }
+  });
+
+  it("treats a thrown priority read like a failed one", async () => {
+    // A throw from inside the arm is caught and answered with "no priority",
+    // the same contract an error result gets.
+    const db = fixture();
+    db.hooks.afterSelect = (table) => {
+      if (table === "user_events") throw new Error("socket hung up");
+    };
+    db.rows("articles").push({
+      ...article("aFresh", "https://fresh.example.com/story", source("s1", true)),
+      event_id: "eUnmatched",
+      published_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    const done = db.rows("article_evidence").find((r) => r["status"] === "enriched");
+    expect(done?.["article_id"]).toBe("aFresh");
+  });
+
   it("reclaims a claim an earlier run died holding", async () => {
     // Production held 93 `pending` rows, the oldest from 2026-09-17, each one a
     // run that crashed between the claim and the finish. Any row counted as

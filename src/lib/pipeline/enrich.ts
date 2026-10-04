@@ -22,8 +22,9 @@ type Db = SupabaseClient<Database>;
  * Worst-case subrequest accounting (Workers free plan: 50/invocation)
  * ---------------------------------------------------------------------------
  *
- * Setup: 5 DB calls (reader-visible event ids, candidate articles, existing-
- * evidence check, possible stale-claim reclaim, flag check)
+ * Setup: up to 8 DB calls (flag check, reader-visible event ids: user_events
+ * + deliveries + digest_items in two `.in()` chunks, candidate articles,
+ * existing-evidence check, possible stale-claim reclaim).
  * -- or just 1 if the flag is off, since the function returns immediately.
  *
  * Per article, worst case (a source never checked before, both robots.txt and
@@ -39,9 +40,9 @@ type Db = SupabaseClient<Database>;
  * (the same-run robots cache only helps when articles share a source, so this
  * is the true ceiling, not softened by it):
  *
- *   ENRICH_LIMIT * 10 + 3 setup  <=  50
+ *   ENRICH_LIMIT * 10 + 8 setup  <=  50
  *
- * With ENRICH_LIMIT = 3: 3*10 + 5 = 35, leaving 15 (30%) of margin under the
+ * With ENRICH_LIMIT = 3: 3*10 + 8 = 38, leaving 12 (24%) of margin under the
  * free-plan ceiling even in this pessimal case. Raising ENRICH_LIMIT requires
  * re-doing this arithmetic, not just editing the constant.
  *
@@ -152,27 +153,92 @@ function emptyReport(now: Date): EnrichReport {
 }
 
 export /**
- * Events matched to a reader in the last day, most recent first.
+ * Events a reader can still see, most recent touch first.
  *
  * The priority set for enrichment. These are the stories the next briefing and
  * the home feed draw from, and they are the only ones a reader can reach:
  * `article_evidence` is read while hydrating a dashboard, briefing, search or
  * saved view, so an article on an event nobody matched can never surface one.
- * Null means "no priority" rather than "no candidates" — any failure falls back
- * to the recency window.
+ *
+ * A *touch* is either a match (`user_events`) or a delivery (`digest_items`,
+ * whose send time lives on the digest's `deliveries` row), and the window is
+ * seven days, not the 24 hours this arm used to read. A match day that came
+ * and went while the stage was busy used to strand the event permanently:
+ * outside this arm for being older than a day, and outside the recency
+ * fallback for being older than `activeCutoff` — which is how 145 events in
+ * the 30-day evaluation window had matched or delivered readers and yet never
+ * one enriched article (Audit 29). One reader touch should keep an event's
+ * articles enrichable for as long as a reader can still open the story.
+ *
+ * Null means "no priority" rather than "no candidates" — any failure or an
+ * empty set falls back to the recency window below rather than costing the
+ * stage a run.
  */
+const READER_VISIBLE_DAYS = 7;
+/** The cap the arm feeds: `.in()` with 120 ids, well under PostgREST's limit. */
+const READER_VISIBLE_EVENT_CAP = 120;
+/**
+ * Rows read per arm before the merge. Bounded so a reader burst cannot turn
+ * one tick into a scan; 400 because the `digest_items` `.in()` chunks below
+ * are 200 wide and PostgREST silently returns nothing over ~400 ids.
+ */
+const READER_VISIBLE_ARM_ROWS = 400;
+
 async function readerVisibleEventIds(db: Db, now: Date): Promise<string[] | null> {
   try {
-    const since = new Date(now.getTime() - 24 * 60 * 60_000).toISOString();
-    const { data, error } = await db
+    const since = new Date(now.getTime() - READER_VISIBLE_DAYS * 24 * 3_600_000).toISOString();
+    /** `event_id` → the reader's most recent touch, which is the priority order. */
+    const touched = new Map<string, string>();
+
+    const { data: matches, error: matchError } = await db
       .from("user_events")
-      .select("event_id")
+      .select("event_id, matched_at")
       .gte("matched_at", since)
       .order("matched_at", { ascending: false })
-      .limit(120);
-    if (error || !data || data.length === 0) return null;
-    const ids = [...new Set(data.map((row) => row.event_id))].filter(Boolean);
-    return ids.length > 0 ? ids : null;
+      .limit(READER_VISIBLE_ARM_ROWS);
+    if (matchError) return null;
+    for (const row of matches ?? []) {
+      if (!row.event_id) continue;
+      const prior = touched.get(row.event_id);
+      if (!prior || row.matched_at > prior) touched.set(row.event_id, row.matched_at);
+    }
+
+    const { data: sends, error: sendError } = await db
+      .from("deliveries")
+      .select("digest_id, delivered_at")
+      .gte("delivered_at", since)
+      .order("delivered_at", { ascending: false })
+      .limit(READER_VISIBLE_ARM_ROWS);
+    if (sendError) return null;
+    const deliveredAt = new Map<string, string>();
+    for (const row of sends ?? []) {
+      // `delivered_at` is nullable in the schema; the `.gte` above already
+      // excludes the nulls, but the type does not know that.
+      if (!row.delivered_at) continue;
+      const prior = deliveredAt.get(row.digest_id);
+      if (!prior || row.delivered_at > prior) deliveredAt.set(row.digest_id, row.delivered_at);
+    }
+    const digestIds = [...deliveredAt.keys()];
+    for (let i = 0; i < digestIds.length; i += 200) {
+      const { data: items, error: itemsError } = await db
+        .from("digest_items")
+        .select("digest_id, event_id")
+        .in("digest_id", digestIds.slice(i, i + 200));
+      if (itemsError) return null;
+      for (const item of items ?? []) {
+        if (!item.event_id) continue;
+        const at = deliveredAt.get(item.digest_id);
+        if (!at) continue;
+        const prior = touched.get(item.event_id);
+        if (!prior || at > prior) touched.set(item.event_id, at);
+      }
+    }
+
+    if (touched.size === 0) return null;
+    return [...touched.entries()]
+      .sort((a, b) => (a[1] === b[1] ? (a[0] < b[0] ? -1 : 1) : a[1] < b[1] ? 1 : -1))
+      .slice(0, READER_VISIBLE_EVENT_CAP)
+      .map(([id]) => id);
   } catch {
     // Priority is an improvement, never a requirement: any failure here falls
     // back to the recency window below rather than costing the stage a run.

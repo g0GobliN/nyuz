@@ -37,6 +37,13 @@ type Hooks = {
    * your select and your update" is expressed.
    */
   afterSelect?: (table: string, rows: Row[]) => void;
+  /**
+   * Makes a table's select fail the way Postgres does — `{ data: null, error }`
+   * back to the caller, not a throw — so a stage's error arm can be exercised:
+   * the code that decides what a run does when the database refuses to answer.
+   * Return an error message, or null/undefined to let the select succeed.
+   */
+  failSelect?: (table: string) => string | null | undefined;
 };
 
 export type RpcHandler = (args: Record<string, unknown>) => unknown;
@@ -397,6 +404,9 @@ class FakeQuery implements PromiseLike<{
       this.db.tables[this.table] = rows.filter((row) => !hit.has(row));
       return { data: [], error: null };
     }
+
+    const failure = this.db.hooks.failSelect?.(this.table);
+    if (failure) return { data: null, error: { message: failure } };
 
     let out = this.matches().map((r) => ({ ...r }));
     const total = out.length;
