@@ -269,7 +269,33 @@ export const saveMutedTopic = createServerFn({ method: "POST" })
       p_topic: validated.label,
       p_muted: data.muted,
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      // 0109 is applied by hand, like every migration here, so a deploy can
+      // reach a database the function is not on yet. PGRST202 is that state:
+      // the brake is missing, not refusing. The cap is a cost control and the
+      // codebase's rule for an unreadable brake is fail-open (claimBackfillSlot
+      // does the same), so until 0109 lands the write takes the direct path —
+      // the feature stays alive and the cap wakes up with the migration.
+      if (error.code !== "PGRST202") throw new Error(error.message);
+      console.warn(`feedback: save_muted_topic missing, writing directly: ${error.message}`);
+      if (data.muted) {
+        const { error: upsertError } = await actor.db
+          .from("muted_topics")
+          .upsert(
+            { user_id: actor.id, topic: validated.label },
+            { onConflict: "user_id,topic", ignoreDuplicates: true },
+          );
+        if (upsertError) throw new Error(upsertError.message);
+      } else {
+        const { error: deleteError } = await actor.db
+          .from("muted_topics")
+          .delete()
+          .eq("user_id", actor.id)
+          .eq("topic", validated.label);
+        if (deleteError) throw new Error(deleteError.message);
+      }
+      return { ok: true };
+    }
     if (result === "limit")
       throw new Error("You have muted a lot of topics already. Unmute one first.");
 
