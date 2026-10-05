@@ -31,6 +31,7 @@ type Candidate = {
 
 /** One line of the per-event verdict table printed below. */
 type VerdictRow = {
+  eventId: string;
   title: string;
   cls: string;
   t0pos: number | null;
@@ -205,6 +206,7 @@ main(async () => {
     const lastAttempt = ownRow ? (ownRow.extractedAt ?? "pending-no-timestamp") : "never_attempted";
     tally.set(verdict, (tally.get(verdict) ?? 0) + 1);
     rows.push({
+      eventId: entry.id,
       title: entry.title.slice(0, 44),
       cls: entry.cls,
       t0pos: entry.position ?? null,
