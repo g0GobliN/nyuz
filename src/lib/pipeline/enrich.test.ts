@@ -1049,4 +1049,81 @@ describe("enrich", () => {
     const done = db.rows("article_evidence").find((r) => r["status"] === "enriched");
     expect(done?.["article_id"]).toBe("aOld");
   });
+
+  it("gives the tick one starved slot and two productive ones, never the whole tick", async () => {
+    // Audit 33: the first post-deploy census measured the arm's oldest eligible
+    // cohort (72-96h) yielding zero evidence units on every attempt while 192
+    // extractable 24-48h candidates queued behind it — a whole tick spent on
+    // proving old pages were old. Old work keeps a guaranteed share of every
+    // tick, but never the whole tick: one starved slot, two productive ones.
+    const db = fixture();
+    for (const [id, hoursAgo] of [
+      ["aStarved1", 96],
+      ["aStarved2", 90],
+      ["aProd1", 40],
+      ["aProd2", 30],
+      ["aProd3", 20],
+    ] as const) {
+      db.rows("articles").push({
+        ...article(id, `https://${id}.example.com/story`, source(`s_${id}`, true)),
+        event_id: `e_${id}`,
+        published_at: new Date(Date.now() - hoursAgo * 3600e3).toISOString(),
+      });
+      db.rows("user_events").push({
+        user_id: "u1",
+        event_id: `e_${id}`,
+        matched_at: new Date().toISOString(),
+      });
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db));
+
+    expect(report.enriched).toBe(3);
+    const worked = db
+      .rows("article_evidence")
+      .map((r) => String(r["article_id"]))
+      .sort();
+    // The starved band contributes its oldest one; the productive band its two
+    // oldest. The second starved article waits for the next tick.
+    expect(worked).toEqual(["aProd1", "aProd2", "aStarved1"]);
+  });
+
+  it("surrenders the starved slot to productive work once the old band runs dry", async () => {
+    // A band that runs dry must not leave capacity idle: with no candidate over
+    // the band boundary, the tick behaves exactly as strict oldest-first would.
+    const db = fixture();
+    for (const [id, hoursAgo] of [
+      ["aYoung1", 10],
+      ["aYoung2", 8],
+      ["aYoung3", 6],
+    ] as const) {
+      db.rows("articles").push({
+        ...article(id, `https://${id}.example.com/story`, source(`s_${id}`, true)),
+        event_id: `e_${id}`,
+        published_at: new Date(Date.now() - hoursAgo * 3600e3).toISOString(),
+      });
+      db.rows("user_events").push({
+        user_id: "u1",
+        event_id: `e_${id}`,
+        matched_at: new Date().toISOString(),
+      });
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db));
+
+    expect(report.enriched).toBe(3);
+    const worked = db
+      .rows("article_evidence")
+      .map((r) => String(r["article_id"]))
+      .sort();
+    expect(worked).toEqual(["aYoung1", "aYoung2", "aYoung3"]);
+  });
 });

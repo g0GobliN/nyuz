@@ -439,7 +439,7 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
     classify(rows);
   }
 
-  const todo = eligible.slice(0, limit);
+  const todo = interleaveBands(eligible, limit, now);
 
   // Bounds every source's robots.txt to at most one check per run, even when
   // several of this run's articles share a domain -- without it, each would
@@ -474,6 +474,62 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
     reasons,
     outcomes,
   };
+}
+
+/**
+ * Age at which an eligible candidate moves from the productive band into the
+ * starvation band. Measured, not sacred: the first post-deploy census found the
+ * arm's oldest eligible cohort at 72-96h yielding zero evidence units on every
+ * attempt, while 192 extractable candidates sat at 24-48h behind it, so a pure
+ * starvation order would spend ~2.5 hours of capacity proving old pages were
+ * old before reaching anything usable (Audit 33).
+ */
+const STARVED_BAND_HOURS = 72;
+/** Slots per interleave group: 1 starved, 2 productive — repeat to `limit`. */
+const STARVED_SLOTS = 1;
+const PRODUCTIVE_SLOTS = 2;
+
+/**
+ * Audit 33's scheduling experiment: old work keeps a guaranteed share of every
+ * tick, but never the whole tick.
+ *
+ * `eligible` arrives ordered oldest-first, so each band is already in its own
+ * starvation order and the interleave only decides how the tick's slots are
+ * split. A band that runs dry surrenders its slots to the other rather than
+ * leaving capacity idle, and when one band is empty the tick behaves exactly
+ * as strict oldest-first would — so the split is a share, never a reservation
+ * that can starve the other side.
+ */
+function interleaveBands(eligible: Candidate[], limit: number, now: Date): Candidate[] {
+  const cutoff = now.getTime() - STARVED_BAND_HOURS * 3_600_000;
+  const starved = eligible.filter((c) => (Date.parse(c.published_at) || 0) < cutoff);
+  const productive = eligible.filter((c) => (Date.parse(c.published_at) || 0) >= cutoff);
+  const todo: Candidate[] = [];
+  let starvedIndex = 0;
+  let productiveIndex = 0;
+  // Bounded by `limit` groups: each pass consumes at least one candidate while
+  // either band has work, so the loop always terminates at `limit` slots or an
+  // empty pool, whichever comes first. A band that runs dry mid-group simply
+  // yields its remaining slots to the other.
+  for (
+    let group = 0;
+    group < limit &&
+    todo.length < limit &&
+    (starvedIndex < starved.length || productiveIndex < productive.length);
+    group += 1
+  ) {
+    for (let slot = 0; slot < STARVED_SLOTS && todo.length < limit; slot += 1) {
+      const next = starved[starvedIndex];
+      starvedIndex += 1;
+      if (next) todo.push(next);
+    }
+    for (let slot = 0; slot < PRODUCTIVE_SLOTS && todo.length < limit; slot += 1) {
+      const next = productive[productiveIndex];
+      productiveIndex += 1;
+      if (next) todo.push(next);
+    }
+  }
+  return todo;
 }
 
 async function enrichOne(
