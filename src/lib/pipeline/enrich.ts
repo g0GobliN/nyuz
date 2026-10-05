@@ -55,6 +55,14 @@ type Db = SupabaseClient<Database>;
  * calls, so the ceiling is unchanged while the tick can now reach every
  * reader-visible event the cap admits.
  *
+ * Audit 36 note: the spare-capacity recovery probe adds nothing to a tick
+ * that uses all three slots (40 of the 40 recent ticks did — see
+ * `scripts/audit36-probe-census.ts`), because the probe's setup read only
+ * runs when a slot went spare. A probing tick pays one setup read (the
+ * backed-off sources' articles with their evidence status nested, answering
+ * lifetime success, last failure and unattempted rows in one query) plus the
+ * probe article's own worst case: 2*10 + 15 = 35, under the ceiling.
+ *
  * Throughput comes from the schedule, not this constant: STAGES_CRON fires this
  * stage six times an hour, so 6 * 3 = 18 articles an hour against an arrival
  * rate of about 13.
@@ -136,6 +144,34 @@ const ARM_ROW_CAP = 400;
  * regardless of outcome (there is no retry loop to space out).
  */
 const ENRICHMENT_FAILURE_THRESHOLD = 5;
+
+/**
+ * Hours a recoverable source must sit after its newest failed enrichment
+ * attempt before the spare-capacity probe may try it again (Audit 36).
+ *
+ * The cooldown is derived, not stored: no schema column records when a probe
+ * failed, and the stage already timestamps every finished attempt in
+ * `article_evidence.extracted_at`, so the newest failed or unavailable row is
+ * the honest last-probe time. Deriving it keeps `enrichment_failure_count` as
+ * the only probe-relevant state the stage writes — no migration, no second
+ * lifecycle to keep consistent with the counter the latch already owns.
+ */
+const PROBE_COOLDOWN_HOURS = 24;
+/**
+ * How far back the probe's history read looks. A source quiet longer than
+ * this window is past any cooldown that matters — "no failure seen in seven
+ * days" is a strictly stronger answer than "cooldown elapsed" — so a bounded
+ * read loses nothing while never becoming a scan.
+ */
+const PROBE_HISTORY_DAYS = 7;
+/**
+ * The oldest article a probe will offer. The normal scheduler refuses work
+ * this old for measured reasons (Audit 33: the starved band yielded zero
+ * evidence units on every attempt), so recovery work holds itself to the
+ * productive band's floor rather than re-litigating that decision with spare
+ * capacity.
+ */
+const PROBE_MAX_ARTICLE_AGE_HOURS = 72;
 
 type CandidateSource = {
   id: string;
@@ -441,6 +477,32 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
 
   const todo = interleaveBands(eligible, limit, now);
 
+  // ---------------------------------------------------------------------------
+  // Spare-capacity recovery probe (Audit 36)
+  // ---------------------------------------------------------------------------
+  // The failure backoff is a one-way latch: `classify` above excludes sources
+  // at the threshold before any attempt is made, so `recordSourceOutcome`'s
+  // reset path is unreachable for them and a source that accumulates five
+  // failures stays parked even after its feed recovers. The arbiter's ruling
+  // on the fix: recovery work may consume idle capacity, but it may never
+  // compete with productive work. So the probe runs only when normal selection
+  // left slots unused, takes at most one of them per tick, and considers only
+  // sources with a lifetime enrichment success — a source that never enriched
+  // one article keeps its park (Tom's Hardware and OpenAI, per the pre-change
+  // census). A successful probe flows through `enrichOne` like any other
+  // attempt, so `recordSourceOutcome(..., true)` resets the counter and the
+  // source re-enters the normal pool with no duplicate reset logic.
+  if (!options.articleId && todo.length < limit && backedOff.length > 0) {
+    const probe = await selectProbeCandidate(db, backedOff, limit - todo.length, now);
+    if (probe) {
+      todo.push(probe);
+      // The probed article leaves the backoff tally: it is this tick's work
+      // now, and reporting it as both skipped and enriched would double-count
+      // it in the go/no-go breakdown.
+      backedOff.splice(backedOff.indexOf(probe), 1);
+    }
+  }
+
   // Bounds every source's robots.txt to at most one check per run, even when
   // several of this run's articles share a domain -- without it, each would
   // independently see the same stale `enrichment_allowed: null` snapshot from
@@ -530,6 +592,117 @@ function interleaveBands(eligible: Candidate[], limit: number, now: Date): Candi
     }
   }
   return todo;
+}
+
+type ProbeHistoryRow = {
+  id: string;
+  source_id: string | null;
+  event_id: string | null;
+  published_at: string;
+  article_evidence: { status: string | null; extracted_at: string | null } | null;
+};
+
+/**
+ * The one candidate a spare-capacity tick may probe, or null.
+ *
+ * Eligibility follows the ruling: the source must be backed off AND have at
+ * least one lifetime enrichment success (a never-succeeded source stays
+ * parked), the source's newest failed attempt must be older than the cooldown,
+ * and the article itself must be unattempted and young enough to be worth
+ * extracting (see `PROBE_MAX_ARTICLE_AGE_HOURS`). One chunked read answers
+ * everything: lifetime success, last failure, and the unattempted pool, from
+ * `article_evidence(status, extracted_at)` nested on `articles` — the column
+ * is the table's primary key, so the embed is one-to-one and returns a single
+ * row or null. The history is matched to its source through the row's own
+ * `source_id`, not through the arm: a source's successes usually sit on events
+ * no reader currently sees, so they are precisely the rows the arm does not
+ * hold.
+ */
+async function selectProbeCandidate(
+  db: Db,
+  backedOff: Candidate[],
+  spareSlots: number,
+  now: Date,
+): Promise<Candidate | null> {
+  if (spareSlots < 1) return null;
+  const cutoff = new Date(now.getTime() - PROBE_HISTORY_DAYS * 24 * 3_600_000).toISOString();
+
+  try {
+    // One article per backed-off source enters this list, but several can
+    // share a source; `.in()` dedupes server-side and the URL budget does not
+    // (400 uuids is the size PostgREST silently refuses — see ARM_ID_CHUNK).
+    const sourceIds = [
+      ...new Set(backedOff.map((a) => a.sources?.id).filter((id): id is string => !!id)),
+    ];
+    const rows: ProbeHistoryRow[] = [];
+    for (let i = 0; i < sourceIds.length; i += ARM_ID_CHUNK) {
+      const { data, error } = await db
+        .from("articles")
+        .select("id, source_id, event_id, published_at, article_evidence(status, extracted_at)")
+        .gte("published_at", cutoff)
+        .in("source_id", sourceIds.slice(i, i + ARM_ID_CHUNK));
+      if (error) return null;
+      rows.push(...((data ?? []) as unknown as ProbeHistoryRow[]));
+    }
+
+    const newestFailure = new Map<string, string>();
+    const successes = new Set<string>();
+    const unattempted: ProbeHistoryRow[] = [];
+    for (const row of rows) {
+      // The history is matched to its source through the row's own source_id,
+      // not through the arm: a source's successes usually sit on events no
+      // reader currently sees, so they are precisely the rows the arm does
+      // not hold.
+      const sourceId = row.source_id;
+      if (!sourceId) continue;
+      const evidence = row.article_evidence;
+      if (!evidence) {
+        unattempted.push(row);
+        continue;
+      }
+      if (evidence.status === "enriched") {
+        successes.add(sourceId);
+      } else if (evidence.status === "failed" || evidence.status === "unavailable") {
+        const at = evidence.extracted_at;
+        if (at) {
+          const prior = newestFailure.get(sourceId);
+          if (!prior || at > prior) newestFailure.set(sourceId, at);
+        }
+      }
+    }
+
+    const cooldownCutoff = new Date(now.getTime() - PROBE_COOLDOWN_HOURS * 3_600_000).getTime();
+    const ageCutoff = now.getTime() - PROBE_MAX_ARTICLE_AGE_HOURS * 3_600_000;
+    const readySources = backedOff.filter((article) => {
+      if (!article.sources) return false;
+      // robots.txt already refused this source: a probe would claim, block and
+      // finish one article after another without ever moving the counter, so
+      // the slot would be spent re-proving a known boundary every spare tick.
+      if (article.sources.enrichment_allowed === false) return false;
+      if (!successes.has(article.sources.id)) return false;
+      const lastFailure = newestFailure.get(article.sources.id);
+      if (lastFailure && Date.parse(lastFailure) > cooldownCutoff) return false;
+      return true;
+    });
+    if (readySources.length === 0) return null;
+
+    const readyIds = new Set(readySources.map((a) => a.sources?.id ?? ""));
+    const candidate = unattempted
+      .filter(
+        (row) =>
+          row.source_id !== null &&
+          readyIds.has(row.source_id) &&
+          (Date.parse(row.published_at) || 0) >= ageCutoff,
+      )
+      .sort((a, b) => Date.parse(a.published_at) - Date.parse(b.published_at))
+      .map((row) => backedOff.find((a) => a.sources?.id === row.source_id))
+      .find((c): c is Candidate => c !== undefined);
+    return candidate ?? null;
+  } catch {
+    // Recovery work never costs the tick: a probe that cannot read its own
+    // history simply does not happen.
+    return null;
+  }
 }
 
 async function enrichOne(

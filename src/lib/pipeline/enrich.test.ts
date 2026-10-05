@@ -27,6 +27,9 @@ function article(id: string, url: string, src: ReturnType<typeof source>) {
     id,
     url,
     event_id: "e1",
+    // The probe's history read filters on this column; the fake does not
+    // derive it from the embedded source.
+    source_id: src.id,
     published_at: new Date().toISOString(),
     sources: src,
   };
@@ -1125,5 +1128,381 @@ describe("enrich", () => {
       .map((r) => String(r["article_id"]))
       .sort();
     expect(worked).toEqual(["aYoung1", "aYoung2", "aYoung3"]);
+  });
+
+  it("probes one backed-off article only when a slot went spare, and a success reopens the source", async () => {
+    // Audit 36: the failure backoff is a one-way latch -- `classify` excludes
+    // sources at the threshold before any attempt, so the reset path in
+    // `recordSourceOutcome` is unreachable for them. The arbiter's ruling: a
+    // recovery probe may consume idle capacity, never compete for slots. Here
+    // the tick has one normal candidate and a limit of two, so one slot went
+    // spare; the parked source has a lifetime success (its recovery signal)
+    // and its newest failure is three days old, past the cooldown. The probe
+    // flows through `enrichOne`, so the success resets the counter and the
+    // source re-enters the normal pool with no duplicate reset logic.
+    const db = fixture();
+    const probeSource = source("sProbe", true, 5);
+    db.rows("sources").push(probeSource);
+    db.rows("articles").push(
+      article("aYoung", "https://young.example.com/story", source("sYoung", true)),
+      {
+        ...article("aProbe", "https://probe.example.com/story", probeSource),
+        event_id: "eProbe",
+      },
+      {
+        ...article("aHistoryOk", "https://probe.example.com/older-1", probeSource),
+        event_id: "eProbe",
+        published_at: new Date(Date.now() - 4 * 24 * 3600e3).toISOString(),
+        // The fake does not perform embeds: seed the history read's answer.
+        article_evidence: {
+          status: "enriched",
+          extracted_at: new Date(Date.now() - 3 * 24 * 3600e3).toISOString(),
+        },
+      },
+      {
+        ...article("aHistoryFail", "https://probe.example.com/older-2", probeSource),
+        event_id: "eProbe",
+        published_at: new Date(Date.now() - 4 * 24 * 3600e3).toISOString(),
+        article_evidence: {
+          status: "failed",
+          extracted_at: new Date(Date.now() - 3 * 24 * 3600e3).toISOString(),
+        },
+      },
+    );
+    // Attempted articles have evidence rows in production, so the done-filter
+    // keeps them out of the backoff tally; the probe read sees their outcome
+    // through its own embed above.
+    db.rows("article_evidence").push(
+      {
+        article_id: "aHistoryOk",
+        status: "enriched",
+        evidence: [],
+        source_word_count: 120,
+        attempts: 1,
+        extracted_at: new Date(Date.now() - 3 * 24 * 3600e3).toISOString(),
+      },
+      {
+        article_id: "aHistoryFail",
+        status: "failed",
+        evidence: [],
+        source_word_count: 0,
+        attempts: 1,
+        extracted_at: new Date(Date.now() - 3 * 24 * 3600e3).toISOString(),
+      },
+    );
+    db.rows("user_events").push(
+      { user_id: "u1", event_id: "eYoung", matched_at: new Date().toISOString() },
+      { user_id: "u1", event_id: "eProbe", matched_at: new Date().toISOString() },
+    );
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        fetched.push(typeof input === "string" ? input : input.toString());
+        return html(ARTICLE_HTML);
+      }),
+    );
+
+    const report = await enrich(asDb(db), { limit: 2 });
+
+    expect(report.enriched).toBe(2);
+    // The probe takes the source's only unattempted article -- the history
+    // rows are already finished and are the recovery signal, not the work.
+    expect(fetched.some((u) => u.includes("probe.example.com/story"))).toBe(true);
+    // The success resets the parked source through the existing path.
+    const updated = db.rows("sources").find((r) => r["id"] === "sProbe");
+    expect(updated?.["enrichment_failure_count"]).toBe(0);
+  });
+
+  it("never spends a normal slot on the probe", async () => {
+    // The same fixture as the probe-fires test, but the limit is one and the
+    // normal candidate needs it: recovery work may not displace productive
+    // work, so the probe must not fire and the parked source stays parked.
+    const db = fixture();
+    const probeSource = source("sProbe", true, 5);
+    db.rows("sources").push(probeSource);
+    db.rows("articles").push(
+      article("aYoung", "https://young.example.com/story", source("sYoung", true)),
+      {
+        ...article("aProbe", "https://probe.example.com/story", probeSource),
+        event_id: "eProbe",
+      },
+      {
+        ...article("aHistoryOk", "https://probe.example.com/older-1", probeSource),
+        event_id: "eProbe",
+        published_at: new Date(Date.now() - 4 * 24 * 3600e3).toISOString(),
+        article_evidence: {
+          status: "enriched",
+          extracted_at: new Date(Date.now() - 3 * 24 * 3600e3).toISOString(),
+        },
+      },
+    );
+    db.rows("user_events").push(
+      { user_id: "u1", event_id: "eYoung", matched_at: new Date().toISOString() },
+      { user_id: "u1", event_id: "eProbe", matched_at: new Date().toISOString() },
+    );
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        fetched.push(typeof input === "string" ? input : input.toString());
+        return html(ARTICLE_HTML);
+      }),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    expect(fetched.some((u) => u.includes("probe.example.com"))).toBe(false);
+    expect(db.rows("sources").find((r) => r["id"] === "sProbe")?.["enrichment_failure_count"]).toBe(
+      5,
+    );
+  });
+
+  it("does not probe at all when normal selection fills the tick", async () => {
+    // The census measured 40 of 40 recent ticks at full 3-slot selection: the
+    // probe is dormant insurance while the pool is healthy. Four candidates
+    // and a limit of three mean no slot went spare, so the ready-to-recover
+    // parked source behind them must not be touched either.
+    const db = fixture();
+    const probeSource = source("sProbe", true, 5);
+    db.rows("sources").push(probeSource);
+    for (const [id, hoursAgo] of [
+      ["aN1", 6],
+      ["aN2", 8],
+      ["aN3", 10],
+      ["aN4", 12],
+    ] as const) {
+      db.rows("articles").push({
+        ...article(id, `https://${id}.example.com/story`, source(`s_${id}`, true)),
+        event_id: `e_${id}`,
+        published_at: new Date(Date.now() - hoursAgo * 3600e3).toISOString(),
+      });
+      db.rows("user_events").push({
+        user_id: "u1",
+        event_id: `e_${id}`,
+        matched_at: new Date().toISOString(),
+      });
+    }
+    db.rows("articles").push({
+      ...article("aProbe", "https://probe.example.com/story", probeSource),
+      event_id: "eProbe",
+      published_at: new Date(Date.now() - 10 * 3600e3).toISOString(),
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    db.rows("articles").push({
+      ...article("aHistory", "https://probe.example.com/older", probeSource),
+      event_id: "eProbe",
+      published_at: new Date(Date.now() - 4 * 24 * 3600e3).toISOString(),
+      article_evidence: {
+        status: "enriched",
+        extracted_at: new Date(Date.now() - 3 * 24 * 3600e3).toISOString(),
+      },
+    });
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        fetched.push(typeof input === "string" ? input : input.toString());
+        return html(ARTICLE_HTML);
+      }),
+    );
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(report.enriched).toBe(3);
+    expect(fetched.some((u) => u.includes("probe.example.com"))).toBe(false);
+  });
+
+  it("never probes a source with no lifetime enrichment success", async () => {
+    // The arbiter's gate: a source that has never enriched one article keeps
+    // its park no matter how much capacity is idle -- a probe there is a
+    // gamble the history has already lost (Tom's Hardware: 519 articles, zero
+    // successes). With no spare-capacity-eligible source, nothing fetches.
+    const db = fixture();
+    const deadSource = source("sDead", true, 5);
+    db.rows("sources").push(deadSource);
+    db.rows("articles").push({
+      ...article("aProbe", "https://dead.example.com/story", deadSource),
+      event_id: "eProbe",
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    const spy = vi.fn(async () => html(ARTICLE_HTML));
+    vi.stubGlobal("fetch", spy);
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(report.enriched).toBe(0);
+    expect(report.skipped).toBe(1);
+  });
+
+  it("waits out the cooldown before probing the same source again", async () => {
+    // A failed probe must not be retried immediately: the source's newest
+    // failed attempt (two hours ago) is inside the 24h cooldown, so the spare
+    // slot stays idle. The cooldown is derived from the newest failed or
+    // unavailable evidence row -- no schema column records it.
+    const db = fixture();
+    const probeSource = source("sProbe", true, 5);
+    db.rows("sources").push(probeSource);
+    db.rows("articles").push(
+      {
+        ...article("aProbe", "https://probe.example.com/story", probeSource),
+        event_id: "eProbe",
+      },
+      {
+        ...article("aHistoryOk", "https://probe.example.com/older-1", probeSource),
+        event_id: "eProbe",
+        published_at: new Date(Date.now() - 4 * 24 * 3600e3).toISOString(),
+        article_evidence: {
+          status: "enriched",
+          extracted_at: new Date(Date.now() - 5 * 24 * 3600e3).toISOString(),
+        },
+      },
+      {
+        ...article("aHistoryFail", "https://probe.example.com/older-2", probeSource),
+        event_id: "eProbe",
+        published_at: new Date(Date.now() - 4 * 24 * 3600e3).toISOString(),
+        article_evidence: {
+          status: "failed",
+          extracted_at: new Date(Date.now() - 2 * 3600e3).toISOString(),
+        },
+      },
+    );
+    db.rows("article_evidence").push(
+      {
+        article_id: "aHistoryOk",
+        status: "enriched",
+        evidence: [],
+        source_word_count: 120,
+        attempts: 1,
+        extracted_at: new Date(Date.now() - 5 * 24 * 3600e3).toISOString(),
+      },
+      {
+        article_id: "aHistoryFail",
+        status: "failed",
+        evidence: [],
+        source_word_count: 0,
+        attempts: 1,
+        extracted_at: new Date(Date.now() - 2 * 3600e3).toISOString(),
+      },
+    );
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    const spy = vi.fn(async () => html(ARTICLE_HTML));
+    vi.stubGlobal("fetch", spy);
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(report.enriched).toBe(0);
+    expect(report.skipped).toBe(1);
+  });
+
+  it("keeps the tick alive when the probe's history read fails", async () => {
+    // Recovery work never costs the tick: the probe read failing must leave a
+    // quiet, empty report -- not an exception the cron has to absorb. The
+    // probe's history read is the third `articles` select -- after the arm
+    // read and the recency fallback -- so that is the one the hook refuses.
+    const db = fixture();
+    const probeSource = source("sProbe", true, 5);
+    db.rows("sources").push(probeSource);
+    db.rows("articles").push(
+      {
+        ...article("aProbe", "https://probe.example.com/story", probeSource),
+        event_id: "eProbe",
+      },
+      {
+        ...article("aHistoryOk", "https://probe.example.com/older", probeSource),
+        event_id: "eProbe",
+        published_at: new Date(Date.now() - 4 * 24 * 3600e3).toISOString(),
+        article_evidence: {
+          status: "enriched",
+          extracted_at: new Date(Date.now() - 3 * 24 * 3600e3).toISOString(),
+        },
+      },
+    );
+    db.rows("article_evidence").push({
+      article_id: "aHistoryOk",
+      status: "enriched",
+      evidence: [],
+      source_word_count: 120,
+      attempts: 1,
+      extracted_at: new Date(Date.now() - 3 * 24 * 3600e3).toISOString(),
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    let articleSelects = 0;
+    db.hooks.failSelect = (table) => {
+      if (table === "articles") {
+        articleSelects += 1;
+        return articleSelects === 3 ? "probe history read refused" : null;
+      }
+      return null;
+    };
+    const spy = vi.fn(async () => html(ARTICLE_HTML));
+    vi.stubGlobal("fetch", spy);
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(report.enriched).toBe(0);
+    expect(report.skipped).toBe(1);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("does not probe articles older than the productive band the scheduler trusts", async () => {
+    // Audit 33 measured the starved band yielding zero evidence units on
+    // every attempt; the probe holds itself to the same 72h floor rather than
+    // spending recovery slots re-proving that old pages are old.
+    const db = fixture();
+    const probeSource = source("sProbe", true, 5);
+    db.rows("sources").push(probeSource);
+    db.rows("articles").push(
+      {
+        ...article("aProbe", "https://probe.example.com/story", probeSource),
+        event_id: "eProbe",
+        published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+      },
+      {
+        ...article("aHistoryOk", "https://probe.example.com/older", probeSource),
+        event_id: "eProbe",
+        published_at: new Date(Date.now() - 5 * 24 * 3600e3).toISOString(),
+      },
+    );
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    db.rows("article_evidence").push({
+      article_id: "aHistoryOk",
+      status: "enriched",
+      evidence: [],
+      source_word_count: 120,
+      attempts: 1,
+      extracted_at: new Date(Date.now() - 6 * 24 * 3600e3).toISOString(),
+    });
+    const spy = vi.fn(async () => html(ARTICLE_HTML));
+    vi.stubGlobal("fetch", spy);
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(report.enriched).toBe(0);
+    expect(report.skipped).toBe(1);
   });
 });
