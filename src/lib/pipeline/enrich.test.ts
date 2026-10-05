@@ -664,11 +664,11 @@ describe("enrich", () => {
     expect(done2?.["status"]).toBe("enriched");
   });
 
-  it("keeps the newest-published window across a chunked arm read", async () => {
-    // Audit 31: the arm caps at 400 reader-visible events, and 400 uuids do not
+  it("keeps the starvation-first window across a chunked arm read", async () => {
+    // Audit 32: the arm caps at 400 reader-visible events, and 400 uuids do not
     // fit one `.in()` URL, so the read is chunked 2×200 and merged. The merge
-    // must re-sort: a very new article on an event at the far end of the arm
-    // (second chunk) has to outrank the older articles of the first chunk, not
+    // must re-sort: the oldest article on an event at the far end of the arm
+    // (second chunk) has to outrank the newer articles of the first chunk, not
     // lose to them because of which side of a chunk boundary it sits on.
     const db = fixture();
     for (let i = 1; i <= 250; i += 1) {
@@ -681,8 +681,9 @@ describe("enrich", () => {
           : new Date(Date.now() - (i + 6) * 3600e3).toISOString(),
       });
       // Touch time orders the arm: event i is touched i MINUTES ago — all 250
-      // stay inside the seven-day touch window, so event 250, the one carrying
-      // the newest article, sits at the far end of the arm, in the second chunk.
+      // stay inside the seven-day touch window, so event 249 — whose article is
+      // the oldest in the arm — sits at the far end of the arm, in the second
+      // chunk, and event 250's brand-new article must lose to it.
       db.rows("user_events").push({
         user_id: "u1",
         event_id: `eArm${i}`,
@@ -698,7 +699,7 @@ describe("enrich", () => {
 
     expect(report.enriched).toBe(1);
     const done = db.rows("article_evidence").find((r) => r["status"] === "enriched");
-    expect(done?.["article_id"]).toBe("aArm250");
+    expect(done?.["article_id"]).toBe("aArm249");
   });
 
   it("caps the arm at four hundred reader-visible events", async () => {
@@ -967,5 +968,85 @@ describe("enrich", () => {
     expect(report.enriched).toBe(1);
     const row = db.rows("article_evidence").find((r) => r["article_id"] === "a1");
     expect(row?.["status"]).toBe("enriched");
+  });
+
+  it("filters backoff rows out before the arm is sliced, so they cost no tick supply", async () => {
+    // Audit 31: sixty window slots measured at 32 done + 28 source-backoff and
+    // zero eligible — the backoff rows consumed window capacity they could
+    // never return, because the refill pass excluded done ids only. Filtering
+    // both before the slice means an old eligible article behind a wall of
+    // backoff sources is still this tick's work.
+    const db = fixture();
+    for (let i = 0; i < 30; i += 1) {
+      const id = `aBackoff${i}`;
+      // Newer than the eligible article, so under the old newest-first window
+      // these thirty rows would have taken the slots and starved it.
+      db.rows("articles").push({
+        ...article(id, `https://backoff${i}.example.com/story`, source(`sBackoff${i}`, true, 5)),
+        event_id: `eBackoff${i}`,
+        published_at: new Date(Date.now() - (i + 1) * 60_000).toISOString(),
+      });
+      db.rows("user_events").push({
+        user_id: "u1",
+        event_id: `eBackoff${i}`,
+        matched_at: new Date().toISOString(),
+      });
+    }
+    db.rows("articles").push({
+      ...article("aEligible", "https://eligible.example.com/story", source("sEligible", true)),
+      event_id: "eEligible",
+      published_at: new Date(Date.now() - 96 * 3600e3).toISOString(),
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eEligible",
+      matched_at: new Date().toISOString(),
+    });
+    const pageFetch = vi.fn(async () => html(ARTICLE_HTML));
+    vi.stubGlobal("fetch", pageFetch);
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    // The backoff rows are still reported as skipped — thirty of them — but
+    // they no longer consume the tick's supply: the eligible article got its
+    // slot despite being the oldest article in the arm.
+    expect(report.skipped).toBe(30);
+    const done = db.rows("article_evidence").find((r) => r["article_id"] === "aEligible");
+    expect(done?.["status"]).toBe("enriched");
+  });
+
+  it("enriches the oldest eligible article first, not the newest", async () => {
+    // Audit 32's ordering rule: among eligible candidates there is no
+    // last-attempt variance to sort on, so article age is the starvation
+    // signal. A brand-new arrival must not outrank an older story a reader is
+    // still seeing and that has waited longer for evidence.
+    const db = fixture();
+    for (const [id, hoursAgo] of [
+      ["aOld", 48],
+      ["aMid", 12],
+      ["aNew", 1],
+    ] as const) {
+      db.rows("articles").push({
+        ...article(id, `https://${id}.example.com/story`, source(`s_${id}`, true)),
+        event_id: `e_${id}`,
+        published_at: new Date(Date.now() - hoursAgo * 3600e3).toISOString(),
+      });
+      db.rows("user_events").push({
+        user_id: "u1",
+        event_id: `e_${id}`,
+        matched_at: new Date().toISOString(),
+      });
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    const done = db.rows("article_evidence").find((r) => r["status"] === "enriched");
+    expect(done?.["article_id"]).toBe("aOld");
   });
 });

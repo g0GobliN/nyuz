@@ -22,14 +22,13 @@ type Db = SupabaseClient<Database>;
  * Worst-case subrequest accounting (Workers free plan: 50/invocation)
  * ---------------------------------------------------------------------------
  *
- * Setup: up to 12 DB calls (flag check, reader-visible event ids: user_events
+ * Setup: up to 14 DB calls (flag check, reader-visible event ids: user_events
  * + deliveries + digest_items in two `.in()` chunks, candidate articles in
- * two `.in()` chunks — the arm caps at 400 event ids, past one URL —,
- * existing-evidence check, possible stale-claim reclaim, the window refill
- * past its done head — itself two chunked reads — plus those rows' evidence
- * check, and — only when the priority window survives filtering with less
- * than a tick's worth of eligible rows — the recency fallback's candidates
- * and evidence check).
+ * two `.in()` chunks — the arm caps at 400 event ids, past one URL —, the
+ * evidence check over the whole arm in up to four `.in()` chunks of 200, a
+ * possible stale-claim reclaim, and — only when the arm survives filtering
+ * with less than a tick's worth of eligible rows — the recency fallback's
+ * candidates and evidence check).
  * -- or just 1 if the flag is off, since the function returns immediately.
  *
  * Per article, worst case (a source never checked before, both robots.txt and
@@ -47,9 +46,14 @@ type Db = SupabaseClient<Database>;
  *
  *   ENRICH_LIMIT * 10 + 10 setup <=  50
  *
- * With ENRICH_LIMIT = 3: 3*10 + 12 = 42, leaving 8 (16%) of margin under the
+ * With ENRICH_LIMIT = 3: 3*10 + 14 = 44, leaving 6 (12%) of margin under the
  * free-plan ceiling even in this pessimal case. Raising ENRICH_LIMIT or the
  * arm cap requires re-doing this arithmetic, not just editing the constant.
+ *
+ * Audit 32 note: reading the arm in full — instead of a newest-60 slice plus
+ * a refill pass — costs one extra evidence chunk but drops the refill's three
+ * calls, so the ceiling is unchanged while the tick can now reach every
+ * reader-visible event the cap admits.
  *
  * Throughput comes from the schedule, not this constant: STAGES_CRON fires this
  * stage six times an hour, so 6 * 3 = 18 articles an hour against an arrival
@@ -106,15 +110,22 @@ const ENRICH_LIMIT = 3;
 /** Below this many words of extracted body text, treat the page like a paywall/thin page: fall back rather than enrich from noise. */
 const MIN_USABLE_WORDS = 60;
 /**
- * Rows read per arm before the eligibility filters. Sixty, measured: the
- * twelve-row window this replaced saturated at the head of a 487-event touched
- * set — of the head-60 articles, 23 were already done, 26 belonged to sources
- * at the failure-backoff threshold, and only 11 were eligible — so every tick
- * considered 5 dead candidates, skipped 5, and enriched nothing at all
- * (Audit 29-B). Wide enough that a dead head cannot consume it; the filters
- * run before the slice, so throughput stays ENRICH_LIMIT.
+ * Rows the fallback arm reads. The priority arm no longer slices at all — see
+ * `armCandidates` — so this bounds only the recency fallback, where sixty is
+ * still the right shape: the fallback exists for the moments the arm comes up
+ * empty, not for draining it.
  */
 const CANDIDATE_WINDOW_ROWS = 60;
+/**
+ * Rows read per arm chunk before the eligibility filters. The arm is read in
+ * full — Audit 31 measured the old newest-60 slice excluding 21 of the 23
+ * control events by publish recency alone, while 60 slots held 32 done and 28
+ * backoff rows and supplied nothing — so the eligibility filters run over the
+ * whole arm and the slice happens last. Bounded per chunk so a reader burst
+ * cannot turn one tick into a scan: 400 events carry roughly one article each,
+ * so 400 rows per 200-id chunk leaves generous headroom.
+ */
+const ARM_ROW_CAP = 400;
 /**
  * Consecutive enrichment failures (fetch/extraction, not robots) before a
  * source's remaining articles are skipped for the rest of this run and future
@@ -301,60 +312,73 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
   const priorityIds = options.articleId ? null : await readerVisibleEventIds(db, now);
 
   /**
-   * The arm's candidate window, newest-published first across the WHOLE arm.
+   * The arm's candidate pool, read in full and ordered oldest-published first.
+   *
+   * Audit 31 falsified the cap as the primary bottleneck: after the arm cap
+   * went 120 → 400, the 23 events that were inside the original cap drained 0
+   * of 23, because the old newest-60-by-published_at slice never reached them —
+   * their window ranks were 62-312 of 406 arm articles. So the eligibility
+   * filters now run over the WHOLE arm and the slice happens last, which also
+   * retires the dead-head refill pass: a window that is filtered before it is
+   * cut cannot have a dead head to walk past.
+   *
+   * Ordering is starvation-first. Every candidate surviving the filters is one
+   * that has never been attempted (a finished evidence row of any status, or a
+   * source at the failure-backoff threshold, removes it), so there is no
+   * last-attempt variance left to sort on and article age is the honest
+   * starvation signal: the oldest has been waiting longest, and the arm's own
+   * 7-day touch cap already bounds how old can enter. A fresh arrival still
+   * clears within a tick or two of the pool emptying, which the drain rate
+   * (3/tick) reaches long before inflow does.
+   *
    * The event ids travel in `.in()` URLs, so they are chunked; each page is
-   * bounded and the merge is re-sorted and cut again, because a chunk boundary
-   * must not decide which sixty articles a tick sees. One failed chunk fails
-   * the arm — the recency fallback answers, exactly as the single read did.
+   * bounded and the merge is re-sorted, because a chunk boundary must not
+   * decide which articles a tick sees. One failed chunk fails the arm — the
+   * recency fallback answers, exactly as the single read did.
    */
-  const armCandidates = async (exclude?: ReadonlySet<string>): Promise<Candidate[]> => {
+  const armCandidates = async (): Promise<Candidate[]> => {
     const ids = priorityIds ?? [];
     const merged: Candidate[] = [];
     for (let i = 0; i < ids.length; i += ARM_ID_CHUNK) {
-      let query = base().in("event_id", ids.slice(i, i + ARM_ID_CHUNK));
-      if (exclude && exclude.size > 0) query = query.not("id", "in", `(${[...exclude].join(",")})`);
-      const { data, error } = await query.limit(CANDIDATE_WINDOW_ROWS);
+      const { data, error } = await base()
+        .in("event_id", ids.slice(i, i + ARM_ID_CHUNK))
+        .limit(ARM_ROW_CAP);
       if (error) throw new Error(`reading priority arm: ${error.message}`);
       merged.push(...((data ?? []) as unknown as Candidate[]));
     }
-    return merged
-      .sort((a, b) => {
-        const at = (candidate: Candidate): number => Date.parse(candidate.published_at) || 0;
-        return at(b) - at(a);
-      })
-      .slice(0, CANDIDATE_WINDOW_ROWS);
+    return merged.sort((a, b) => {
+      const at = (candidate: Candidate): number => Date.parse(candidate.published_at) || 0;
+      return at(a) - at(b);
+    });
   };
 
-  if (priorityIds) {
-    try {
-      rows = await armCandidates();
-    } catch {
-      rows = [];
-    }
-  }
-
-  // A row in the window is dead until proven eligible: a finished evidence row
-  // (any status) or a source at the failure backoff removes it from this tick.
-  // Both filters run BEFORE the slice — at a twelve-row window the dead head of
-  // the touched set consumed it entirely and the tick starved (Audit 29-B).
+  // A candidate is dead until proven eligible: a finished evidence row (any
+  // status) or a source at the failure backoff removes it from this tick. Both
+  // filters run over the whole arm BEFORE anything is sliced — the slice now
+  // happens at `todo` below, on the survivors, so neither a dead head (Audit
+  // 29-B) nor a publish-recency window (Audit 31) can hide the backlog.
   const done = new Set<string>();
   const readEvidence = async (candidates: Candidate[]): Promise<void> => {
     const ids = candidates.map((a) => a.id);
-    if (ids.length === 0) return;
-    const existing = await db
-      .from("article_evidence")
-      .select("article_id, status")
-      .in("article_id", ids);
-    if (existing.error) throw new Error(`reading article_evidence: ${existing.error.message}`);
-    // A `pending` row is a claim some earlier run died holding. There is no
-    // timestamp on a claim — `extracted_at` is written when the work *finishes*
-    // — so age cannot be measured, and it does not have to be: this stage fires
-    // on its own cron minutes and walks its batch sequentially, so a pending
-    // row seen at the start of a run is not from this run.
+    // Chunked: the arm is read in full now, so this can carry several hundred
+    // ids and a single `.in()` URL does not survive that.
     const abandoned: string[] = [];
-    for (const row of existing.data ?? []) {
-      if (row.status === "pending") abandoned.push(row.article_id);
-      else done.add(row.article_id);
+    for (let i = 0; i < ids.length; i += ARM_ID_CHUNK) {
+      const existing = await db
+        .from("article_evidence")
+        .select("article_id, status")
+        .in("article_id", ids.slice(i, i + ARM_ID_CHUNK));
+      if (existing.error) throw new Error(`reading article_evidence: ${existing.error.message}`);
+      // A `pending` row is a claim some earlier run died holding. There is no
+      // timestamp on a claim — `extracted_at` is written when the work
+      // *finishes* — so age cannot be measured, and it does not have to be:
+      // this stage fires on its own cron minutes and walks its batch
+      // sequentially, so a pending row seen at the start of a run is not from
+      // this run.
+      for (const row of existing.data ?? []) {
+        if (row.status === "pending") abandoned.push(row.article_id);
+        else done.add(row.article_id);
+      }
     }
     // Reclaim before claiming. Best effort: if this fails the claim below
     // simply reports `already_claimed`, which is the behaviour we have today,
@@ -371,22 +395,16 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
       }
     }
   };
-  await readEvidence(rows);
 
-  // The done ids read just now are the window's dead head. Re-fetch the arm
-  // excluding them: all sixty slots become live candidates and the window
-  // walks backward through the touched pool instead of waiting for new
-  // arrivals to push it forward (Audit 29-B). The refetched rows' evidence is
-  // read too — a candidate at position 61 can carry a row from weeks ago — so
-  // the re-request budget below still clears the plan's 50.
-  if (priorityIds && done.size > 0) {
+  if (priorityIds) {
     try {
-      rows = await armCandidates(done);
+      rows = await armCandidates();
       await readEvidence(rows);
     } catch {
-      // The first-pass window stands: degraded reach, not a dead tick.
+      rows = [];
     }
   }
+  await readEvidence(rows);
 
   const backedOff: Candidate[] = [];
   const eligible: Candidate[] = [];
