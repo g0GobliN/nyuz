@@ -199,7 +199,6 @@ export type UserTopic = {
   keywords: string[];
   exclude_keywords: string[];
   weight: number;
-  muted: boolean;
   created_at: string;
 };
 
@@ -1141,13 +1140,7 @@ export type Database = {
       >;
       user_topics: Table<
         UserTopic,
-        | "importance"
-        | "frequency"
-        | "keywords"
-        | "exclude_keywords"
-        | "weight"
-        | "muted"
-        | "created_at"
+        "importance" | "frequency" | "keywords" | "exclude_keywords" | "weight" | "created_at"
       >;
       user_exclusions: Table<UserExclusion>;
       sources: Table<
@@ -1632,6 +1625,34 @@ export type Database = {
           kind: TopicKind;
           followed: boolean;
         }[];
+      };
+      /**
+       * The stage-5 brake (0108). `ok` when this save may run the matcher for
+       * this account, `cooling-down` when it already has inside the window.
+       * Race-safe on an advisory lock, so two concurrent saves cannot both pass.
+       */
+      claim_topic_backfill: {
+        Args: { p_user_id: string; p_cooldown_minutes?: number };
+        Returns: string;
+      };
+      /**
+       * The only writer of `muted_topics` (0109): stores or removes one muted
+       * label for an account, under the per-account cap. `ok` on success,
+       * `limit` when the account already holds 100, `invalid` for a label no
+       * topic could have.
+       */
+      save_muted_topic: {
+        Args: { p_user_id: string; p_topic: string; p_muted: boolean };
+        Returns: string;
+      };
+      /**
+       * The global minting brake (0108): how many more canonical custom topic
+       * rows may be created before the product-wide ceiling is reached. Counts
+       * `kind = 'custom'` only -- the editorial pool is human-curated.
+       */
+      topic_creation_room: {
+        Args: { p_limit?: number };
+        Returns: number;
       };
       /**
        * The source-discovery queue (0049): followed subjects, how much coverage

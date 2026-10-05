@@ -881,8 +881,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   const { data: followRows } = await db
     .from("user_topics")
     .select("topics ( label )")
-    .eq("user_id", due.user_id)
-    .eq("muted", false);
+    .eq("user_id", due.user_id);
   const followed = new Set(
     (followRows ?? [])
       .map((row) => (row.topics as { label?: string } | null)?.label)

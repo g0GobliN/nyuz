@@ -375,6 +375,7 @@ function reader(overrides: Partial<Reader> = {}): Reader {
     density: 35,
     topics: [TOPIC],
     exclusions: [],
+    mutedTopics: new Set<string>(),
     sourcePrefs: new Map(),
     ...overrides,
   };

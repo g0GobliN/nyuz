@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { keepUsableTopics } from "@/lib/coverage";
+import { keepUsableTopics, topicSaveIntent } from "@/lib/coverage";
+import { isValidExclusion, validateExclusionLabel } from "@/lib/exclusions";
 import {
   cleanTags,
   creatableFrom,
@@ -155,6 +156,42 @@ describe("terms", () => {
     expect(matchesTerms("anything at all", [])).toBe(false);
   });
 
+  it("cannot be turned into a firehose by a single stopword", () => {
+    // The fallback above is only safe for a PHRASE. For one stopword it emits
+    // that bare word as a term, and `mentions` reads a three-character term as
+    // a word PREFIX — so "the" reaches every sentence of English prose,
+    // including the `what_happened` paragraph stage 5 matches against. Measured
+    // through `decide` over a day of headlines, following "the" selected 20 of
+    // 20: a free account had bought the whole corpus with three topics.
+    for (const stopword of ["the", "and", "in", "of", "to", "on", "with", "by", "at", "for"]) {
+      expect(isValidTopic(validateTopicLabel(stopword)), stopword).toBe(false);
+      expect(isValidTopic(validateTopicLabel(`  ${stopword}  `)), stopword).toBe(false);
+    }
+
+    // The mirror image, on the "Never send me" side. `related` floors a
+    // two-character term out, but "the" is three, so it was a plain substring
+    // test over the whole signal and vetoed every event the matcher produced —
+    // a reader's next briefing came back empty with nothing to explain it.
+    for (const stopword of ["the", "and", "in", "of", "to", "with"]) {
+      expect(isValidExclusion(validateExclusionLabel(stopword)), stopword).toBe(false);
+    }
+
+    // A reader who meant "the news" is not blocked: "the" is dropped and the
+    // subject that is actually in the label is what gets stored and matched.
+    expect(topicTerms("the news")).toEqual(["news"]);
+    expect(isValidTopic(validateTopicLabel("The News")), "The News").toBe(true);
+    // "The Simpsons" is a subject, not connective tissue.
+    expect(isValidTopic(validateTopicLabel("The Simpsons")), "The Simpsons").toBe(true);
+  });
+
+  it("keeps refusing an all-stopword list through the reader's whole save", () => {
+    // The selector refuses each one individually, but a hand-made request can
+    // still name three of them at once, and they must all be refused together.
+    const { kept, refused } = keepUsableTopics(["the", "and", "in"]);
+    expect(kept).toEqual([]);
+    expect(refused.map((r) => r.reason)).toEqual(["unusable", "unusable", "unusable"]);
+  });
+
   it("gives different subjects different terms", () => {
     expect(topicTerms("China economy")).not.toEqual(topicTerms("China"));
     expect(topicTerms("US-China chip restrictions")).toEqual([
@@ -261,5 +298,55 @@ describe("shared concept tags", () => {
     expect(cleanTags(null)).toEqual([]);
     expect(cleanTags("nepal")).toEqual([]);
     expect(cleanTags([1, null, { slug: "nepal" }, "nepal"])).toEqual(["nepal"]);
+  });
+});
+
+describe("what saving a whole topic list should do", () => {
+  // `replaceTopics` used to branch on `kept.length === 0` alone, so every one of
+  // these reached the same `delete from user_topics` as an empty list -- and
+  // still answered `{ ok: true }`. A stale tab holding one mangled label, or a
+  // hand-made request, unsubscribed the reader from everything with no error
+  // and no way back.
+  const refuseAll = ["!!", "   ", "🎉", "!!!", "???"];
+  it.each([["!!"], ["🎉"], ["   "], ["!!!", "???"], ["💩"], ["the"], ["x".repeat(80)]])(
+    "refuses and changes nothing when every entry is unusable: %s",
+    (...labels) => {
+      const list = labels.flat();
+      expect(topicSaveIntent(list, keepUsableTopics(list))).toBe("refuse");
+    },
+  );
+
+  it("clears only when the reader genuinely sent an empty list", () => {
+    // Following nothing is a real state the dashboard has words for, so it must
+    // keep working: `[]` is the reader asking for it, not a failed save.
+    expect(topicSaveIntent([], keepUsableTopics([]))).toBe("clear");
+  });
+
+  it("replaces when at least one topic survives", () => {
+    // The lenient path the comment describes: one bad entry among ten must not
+    // fail the other nine, and must never delete.
+    expect(topicSaveIntent(["Nepal", "!!", "the"], keepUsableTopics(["Nepal", "!!", "the"]))).toBe(
+      "replace",
+    );
+    expect(topicSaveIntent(["Nepal"], keepUsableTopics(["Nepal"]))).toBe("replace");
+  });
+
+  it("cannot be talked into deleting by sending nothing useful twice", () => {
+    // Whitespace is what an uninitialised field serialises to, and it is the
+    // shape most likely to arrive by accident rather than on purpose.
+    for (const list of [["", ""], ["", "  ", "\n"], ["\t"], ["   ", "!!"]]) {
+      expect(topicSaveIntent(list, keepUsableTopics(list)), list.join("|")).toBe("refuse");
+    }
+  });
+
+  it("treats a stringified undefined as the subject it spells, not as nothing", () => {
+    // Worth pinning because it is the opposite of what a reader might expect:
+    // a client bug that serialised `undefined` into the array mints a real
+    // canonical topic called "undefined" rather than being refused. That is
+    // still strictly better than the alternative -- minting one junk row the
+    // daily brake counts, rather than deleting a reader's configuration -- but
+    // it is a row somebody has to clean up, so it is written down here.
+    expect(topicSaveIntent(["undefined"], keepUsableTopics(["undefined"]))).toBe("replace");
+    expect(topicSaveIntent(["null"], keepUsableTopics(["null"]))).toBe("replace");
   });
 });

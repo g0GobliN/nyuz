@@ -184,7 +184,8 @@ export type MissReason =
   | "no-topic-match"
   | "below-threshold"
   | "all-sources-muted"
-  | "excluded";
+  | "excluded"
+  | "topic-muted";
 
 export type Verdict =
   | {
@@ -278,6 +279,13 @@ export type Reader = {
   density: number;
   topics: ReaderTopic[];
   exclusions: string[];
+  /**
+   * Labels the reader muted from a story card (`muted_topics`, 0089). A veto
+   * about a SUBJECT, not a string: it fires only when the event itself is
+   * linked to the muted topic, never on free-text containment — a muted "AI"
+   * must not swallow a story that merely says "AI" in passing.
+   */
+  mutedTopics: Set<string>;
   /** source_id -> pref. Absent means `normal`. */
   sourcePrefs: Map<string, SourcePref>;
 };
@@ -330,19 +338,24 @@ export type MatchReport = {
 };
 
 /**
- * The fields a veto is allowed to see.
+ * The fields a topic's own free-text keywords may match against.
  *
  * Topic slugs and labels, the sources that reported it, and the title analysis
  * wrote. Deliberately NOT `what_happened` or `tags`: the predicate here is
  * substring containment, and over one to three sentences of prose that produces
- * vetoes nobody asked for — a reader who excluded "art" would lose every story
- * about startups. A term that appears only in the body is a passing mention
- * rather than the subject.
+ * selections nobody asked for — a reader who added the keyword "art" would get
+ * every story about startups. A term that appears only in the body is a passing
+ * mention rather than the subject.
  *
- * Selection reads more than this (see `signalOf`), and that asymmetry is
- * deliberate. Over-selecting costs one story a reader skims; over-vetoing costs
- * a story they asked for and will never know was withheld. So the wider text is
- * allowed to let something in and never to keep something out.
+ * Selection reads less than the matcher does (see `signalOf`), and that
+ * asymmetry is deliberate: over-selecting costs one story a reader skims. The
+ * VETO does not share it, because over-vetoing a story the reader excluded is
+ * a promise this product makes out loud on the topics page — "Exclusions win
+ * over topics. If a story matches both, it stays out." A veto that could not
+ * see `tags` was not true to that sentence: a story tagged `art` kept arriving
+ * to a reader who had excluded `art`, with nothing in the interface to
+ * explain it. So the veto reads the wide signal and selection keeps the narrow
+ * one.
  */
 function haystack(candidate: Candidate): string[] {
   return [
@@ -476,6 +489,15 @@ export function decide(
   // `src/lib/matching.ts` was written to fix, in its purest form.
   if (reader.topics.length === 0) return { matched: false, reason: "no-topics" };
 
+  // A card mute is the reader's answer to "never send me stories about this
+  // topic" — it outranks every topic that could select the event, so it fires
+  // before any scoring work. Exact label against the event's own topic links,
+  // never the wide signal: that scope is the ruling, and the reason the veto
+  // lives beside `no-topics` rather than beside the exclusion pass.
+  if (candidate.topics.some((t) => reader.mutedTopics.has(t.label))) {
+    return { matched: false, reason: "topic-muted" };
+  }
+
   const fields = haystack(candidate);
   const signal = signalOf(candidate);
 
@@ -517,8 +539,18 @@ export function decide(
   // ones that cleared the bar. A veto should be as easy to trigger as possible:
   // the cost of over-excluding is a story the reader asked not to see, and the
   // cost of under-excluding is a broken promise.
+  //
+  // TWO passes, and both are needed. `signal` is the wide text selection used —
+  // title, briefing paragraph, concept tags, curated labels, outlet names — so
+  // a term that selected this event can always veto it; that is what closes the
+  // case of a story whose only mention of "art" was a tag. But `related` floors
+  // out loose containment for a term under three characters and lets an exact
+  // match through first, and that exact match only ever held when the two sides
+  // were one field: excluding "AI" against the joined signal compares "ai"
+  // with a paragraph and finds neither equality nor containment. So the narrow
+  // per-field pass stays, and the wide one is added rather than substituted.
   const vetoes = [...reader.exclusions, ...selected.flatMap((t) => t.excludeKeywords)];
-  if (vetoes.some((term) => fields.some((f) => related(f, term)))) {
+  if (vetoes.some((term) => related(signal, term) || fields.some((f) => related(f, term)))) {
     return { matched: false, reason: "excluded" };
   }
 
@@ -875,6 +907,7 @@ async function matchReader(
     "below-threshold": 0,
     "all-sources-muted": 0,
     excluded: 0,
+    "topic-muted": 0,
   };
 
   const hits: { eventId: string; relevance: number; significance?: TopicSignals | undefined }[] =
@@ -1125,18 +1158,14 @@ export async function loadReaders(
   const userIds = wanted.map((r) => r.user_id);
   const topics = topicMap ?? (await topicIndex(db));
 
-  const [followed, exclusions, sourcePrefs, subs] = await Promise.all([
+  const [followed, exclusions, sourcePrefs, subs, mutedTopics] = await Promise.all([
     readUserPages(
       userIds,
       (ids, from, to) =>
         db
           .from("user_topics")
-          .select(
-            "user_id, topic_id, importance, weight, keywords, exclude_keywords, muted, created_at",
-          )
+          .select("user_id, topic_id, importance, weight, keywords, exclude_keywords, created_at")
           .in("user_id", ids)
-          // A muted topic is a reader's explicit opt-out.
-          .eq("muted", false)
           .order("user_id")
           .order("topic_id")
           .range(from, to),
@@ -1177,6 +1206,18 @@ export async function loadReaders(
           .range(from, to),
       "reading subscriptions",
     ),
+    readUserPages(
+      userIds,
+      (ids, from, to) =>
+        db
+          .from("muted_topics")
+          .select("user_id, topic")
+          .in("user_id", ids)
+          .order("user_id")
+          .order("topic")
+          .range(from, to),
+      "reading muted_topics",
+    ),
   ]);
   const planOf = new Map<string, PlanTier>(subs.map((row) => [row.user_id, row.plan] as const));
 
@@ -1190,6 +1231,7 @@ export async function loadReaders(
   const followedBy = groupByUser(followed ?? []);
   const sourcePrefsBy = groupByUser(sourcePrefs ?? []);
   const exclusionsBy = groupByUser(exclusions ?? []);
+  const mutedBy = groupByUser(mutedTopics ?? []);
 
   const readers = wanted.map((row) => {
     const plan = planOf.get(row.user_id) ?? "uno";
@@ -1247,6 +1289,7 @@ export async function loadReaders(
       }),
       exclusions: keepUsableExclusions((exclusionsBy.get(row.user_id) ?? []).map((e) => e.term))
         .kept,
+      mutedTopics: new Set((mutedBy.get(row.user_id) ?? []).map((m) => m.topic)),
       sourcePrefs: new Map(effectiveSourcePrefs),
     };
   });
@@ -1749,6 +1792,7 @@ export function describeMatch(report: MatchReport): string {
       "below-threshold": 0,
       "all-sources-muted": 0,
       excluded: 0,
+      "topic-muted": 0,
     },
   );
 

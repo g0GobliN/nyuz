@@ -119,6 +119,27 @@ describe("a failed bookmark is told, not only undone", () => {
   });
 });
 
+describe("a mute persists what the button showed", () => {
+  it("decides muted-or-not from the state snapshot before sending", () => {
+    // React 18 runs a setState updater at the next render, so a value assigned
+    // inside it is not yet visible to the statement that follows. muteTopic
+    // used to post `muted: false` on every click — the server agreed to do
+    // nothing, the feed hid the cards, and the mute was gone on the next load.
+    // Measured live in production: POST 200, table empty, reload restored the
+    // cards. The save must read `state.mutedTopics` before setState, the way
+    // toggleSaved reads `state.saved`.
+    const mute = STORE.slice(STORE.indexOf("const muteTopic"), STORE.indexOf("const reset"));
+    expect(mute).toContain("const nowMuted = !state.mutedTopics.includes(topic)");
+    expect(mute.indexOf("const nowMuted")).toBeLessThan(mute.indexOf("saveMutedTopic"));
+    expect(mute).not.toContain("let nowMuted = false");
+  });
+
+  it("sends the decision the button made", () => {
+    const mute = STORE.slice(STORE.indexOf("const muteTopic"), STORE.indexOf("const reset"));
+    expect(mute).toContain("saveMutedTopic({ data: { topic, muted: nowMuted } })");
+  });
+});
+
 describe("the shelf does not rely on that one call", () => {
   it("is fetched again every time the page opens", () => {
     // Saves also happen on other devices and in other tabs, which no

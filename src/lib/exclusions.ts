@@ -1,4 +1,5 @@
 import { isJunkSubject } from "./subject-input";
+import { isAllStopwords } from "./topics";
 
 export const MAX_EXCLUSION_LABEL = 80;
 export const MAX_EXCLUSIONS = 20;
@@ -26,6 +27,12 @@ export function validateExclusionLabel(
   if ([...label].length > MAX_EXCLUSION_LABEL) return { rejected: "too-long" };
   if ([...label].length < 2) return { rejected: "too-short" };
   if (isJunkSubject(raw)) return { rejected: "unusable" };
+  // "Never send me the" is the mirror of the topic firehose, and it is silent.
+  // `related` floors a two-character term out, but "the" is three, so it is a
+  // plain substring test over the whole signal and vetoes every event the
+  // matcher produces. The reader's next briefing is empty and the reason is
+  // never shown. A subject with no subject in it is not something to exclude.
+  if (isAllStopwords(label)) return { rejected: "unusable" };
   return { label, key: exclusionKey(label) };
 }
 

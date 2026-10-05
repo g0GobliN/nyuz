@@ -56,6 +56,28 @@ export type TopicIntake = {
 };
 
 /**
+ * What a save of a whole topic list should actually DO.
+ *
+ *   replace  bring `user_topics` in line with the list
+ *   clear    the reader asked to follow nothing, so follow nothing
+ *   refuse   the list named no usable subject, so change nothing and say so
+ *
+ * The third case is the one that used not to exist. `replaceTopics` branched on
+ * `kept.length === 0` alone, so a request whose every entry had been refused --
+ * `["!!"]`, `["   "]`, a stale tab holding one mangled label -- fell into the
+ * same arm as `[]` and deleted every follow the reader had, then answered
+ * `{ ok: true }`. A client bug destroyed a configuration with no error and no
+ * way back. Empty and unusable are different claims: one says "none of these",
+ * the other says "these are not subjects".
+ */
+export type TopicSaveIntent = "replace" | "clear" | "refuse";
+
+export function topicSaveIntent(labels: string[], intake: TopicIntake): TopicSaveIntent {
+  if (intake.kept.length > 0) return "replace";
+  return labels.length === 0 ? "clear" : "refuse";
+}
+
+/**
  * Normalises a reader's list into canonical topics.
  *
  * Order is preserved because order is the weighting the product has — the tail

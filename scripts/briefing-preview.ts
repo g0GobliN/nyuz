@@ -253,8 +253,7 @@ main(async () => {
   const { data: followRows } = await db()
     .from("user_topics")
     .select("topics ( label )")
-    .eq("user_id", userId)
-    .eq("muted", false);
+    .eq("user_id", userId);
   const followed = new Set(
     (followRows ?? [])
       .map((r) => (r.topics as { label?: string } | null)?.label)

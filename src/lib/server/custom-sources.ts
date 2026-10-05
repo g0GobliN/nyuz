@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { signedInOnly, AdminAuthError } from "@/lib/server/guard";
 import { isPublicHttpUrl } from "@/lib/net/public-url";
-import { canonicalUrl } from "@/lib/pipeline/canonical";
+import { canonicalUrl, feedUrlVariants } from "@/lib/pipeline/canonical";
 import { fetchFeed } from "@/lib/pipeline/fetch";
 import { parseFeed } from "@/lib/pipeline/feed";
 import { PLAN_LIMITS } from "@/lib/plans";
@@ -256,12 +256,22 @@ export const unfollowCustomSource = createServerFn({ method: "POST" })
 /* ---------------------------------------------------------------------- */
 
 async function findSource(db: Db, canonical: string): Promise<{ id: string; name: string } | null> {
+  // Both spellings of the same feed, not one. `canonicalUrl` strips a trailing
+  // slash and the catalogue has held the slashed form since 0006, so an exact
+  // match here meant a reader adding a feed nyuz already watches silently got a
+  // second row for it — a second crawler, and a follow on the copy rather than
+  // on the curated source. The unique constraint cannot catch that pair,
+  // because to Postgres the two strings differ. See `feedUrlVariants`.
   const { data } = await db
     .from("sources")
-    .select("id, name")
-    .eq("feed_url", canonical)
-    .maybeSingle();
-  return data ?? null;
+    .select("id, name, feed_url")
+    .in("feed_url", feedUrlVariants(canonical));
+
+  const rows = data ?? [];
+  if (rows.length === 0) return null;
+  // Canonical first when a legacy pair coexists, so every writer agrees on
+  // which row is the real one.
+  return rows.find((row) => row.feed_url === canonical) ?? rows[0] ?? null;
 }
 
 type ProbeOk = { ok: true; title: string; homepage: string | null };

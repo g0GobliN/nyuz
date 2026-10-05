@@ -557,3 +557,166 @@ describe("the alert gate and the subject history (0103)", () => {
     expect(capped.rows[0]?.n).toBe(3);
   });
 });
+
+describe("the brakes on the topic-saving path (0108)", () => {
+  async function account(): Promise<string> {
+    const { rows } = await db.query<{ id: string }>(
+      "insert into auth.users (email) values ($1) returning id",
+      [`brake-${crypto.randomUUID()}@example.com`],
+    );
+    return rows[0]!.id;
+  }
+
+  it("throttles stage 5 to one run per account per window", async () => {
+    // The brake exists because saving a topic ran the whole matcher, and
+    // add/remove/add made it spendable on demand. Whether it actually holds is
+    // a claim about two statements racing on an advisory lock, which is exactly
+    // the kind of thing a read of the file cannot establish.
+    const user = await account();
+    const call = (minutes: number) =>
+      db.query<{ result: string }>("select public.claim_topic_backfill($1, $2) as result", [
+        user,
+        minutes,
+      ]);
+
+    expect((await call(30)).rows[0]?.result).toBe("ok");
+    // Second save inside the window: refused, which is what the server acts on.
+    expect((await call(30)).rows[0]?.result).toBe("cooling-down");
+
+    // A different account is unaffected. The window is per reader, so one
+    // reader spending the brake never costs another reader their day one.
+    const other = await account();
+    const theirs = await db.query<{ result: string }>(
+      "select public.claim_topic_backfill($1, 30) as result",
+      [other],
+    );
+    expect(theirs.rows[0]?.result).toBe("ok");
+
+    // Outside the window it reopens, so a reader who adds a topic tomorrow is
+    // not left waiting for a cron they were promised would cover them.
+    await db.query(
+      "update public.topic_backfill_claims set claimed_at = now() - interval '31 minutes' where user_id = $1",
+      [user],
+    );
+    expect((await call(30)).rows[0]?.result).toBe("ok");
+
+    // A zero window disables the brake rather than refusing forever, so the
+    // behaviour is tunable without a migration.
+    expect((await call(0)).rows[0]?.result).toBe("ok");
+    expect((await call(0)).rows[0]?.result).toBe("ok");
+  });
+
+  it("bounds how many canonical custom topics can be minted at once", async () => {
+    const countCustoms = async () => {
+      const { rows } = await db.query<{ n: number }>(
+        "select count(*)::integer as n from public.topics where kind = 'custom'",
+      );
+      return rows[0]!.n;
+    };
+    const room = async (limit: number) => {
+      const { rows } = await db.query<{ room: number }>(
+        "select public.topic_creation_room($1) as room",
+        [limit],
+      );
+      return rows[0]!.room;
+    };
+
+    // Exactly at the ceiling is zero room, not one: `room` is a LIMIT, so the
+    // arithmetic has to be read as a subtraction from the real count.
+    const before = await countCustoms();
+    expect(await room(before)).toBe(0);
+    expect(await room(before + 1)).toBe(1);
+
+    // Two more custom rows consume two units of the same room.
+    for (const slug of [`brake-a-${crypto.randomUUID().slice(0, 8)}`, "brake-b"]) {
+      await db.query(
+        "insert into public.topics (slug, label, kind, terms) values ($1, 'Brake', 'custom', '{brake}')",
+        [slug],
+      );
+    }
+    expect(await countCustoms()).toBe(before + 2);
+    expect(await room(before + 2)).toBe(0);
+    expect(await room(1_000_000)).toBe(1_000_000 - (before + 2));
+
+    // Never negative. A caller clamps on `max(0, room)`, but a negative value
+    // that escaped would reach `slice(0, -n)` and behave very differently.
+    expect(await room(0)).toBe(0);
+    expect(await room(-5)).toBe(0);
+
+    // The editorial pool is not counted. It is human-curated and does not grow
+    // from anything a reader typed, so it must not consume the readers' room.
+    const seeded = await db.query<{ n: number }>(
+      "select count(*)::integer as n from public.topics where kind = 'predefined'",
+    );
+    expect(seeded.rows[0]!.n).toBeGreaterThan(0);
+    expect(await room(1_000_000)).toBe(1_000_000 - (before + 2));
+  });
+});
+
+describe("the muted-topics write path (0109) and the dropped column (0110)", () => {
+  async function account(): Promise<string> {
+    const { rows } = await db.query<{ id: string }>(
+      "insert into auth.users (email) values ($1) returning id",
+      [`mute-${crypto.randomUUID()}@example.com`],
+    );
+    return rows[0]!.id;
+  }
+
+  const save = (user: string, topic: string, muted: boolean) =>
+    db.query<{ save_muted_topic: string }>(
+      "select public.save_muted_topic($1, $2, $3) as save_muted_topic",
+      [user, topic, muted],
+    );
+
+  it("stores and removes one label, trimmed and idempotent", async () => {
+    const user = await account();
+    expect((await save(user, "  AI  ", true)).rows[0]?.save_muted_topic).toBe("ok");
+    // A second identical save is a no-op, not a second row: the (user, topic)
+    // key is the contract 0089 wrote, and the cap arithmetic counts rows.
+    expect((await save(user, "AI", true)).rows[0]?.save_muted_topic).toBe("ok");
+    const { rows } = await db.query<{ topic: string }>(
+      "select topic from public.muted_topics where user_id = $1",
+      [user],
+    );
+    expect(rows.map((r) => r.topic)).toEqual(["AI"]);
+
+    expect((await save(user, "AI", false)).rows[0]?.save_muted_topic).toBe("ok");
+    const after = await db.query<{ n: number }>(
+      "select count(*)::integer as n from public.muted_topics where user_id = $1",
+      [user],
+    );
+    expect(after.rows[0]?.n).toBe(0);
+  });
+
+  it("refuses labels no topic could have", async () => {
+    const user = await account();
+    expect((await save(user, "   ", true)).rows[0]?.save_muted_topic).toBe("invalid");
+    expect((await save(user, "x".repeat(81), true)).rows[0]?.save_muted_topic).toBe("invalid");
+  });
+
+  it("caps an account at one hundred and never traps it there", async () => {
+    const user = await account();
+    for (let i = 0; i < 100; i++) {
+      expect((await save(user, `topic ${i}`, true)).rows[0]?.save_muted_topic).toBe("ok");
+    }
+    expect((await save(user, "one too many", true)).rows[0]?.save_muted_topic).toBe("limit");
+
+    // The brake must never become a trap: unmuting still works at the cap,
+    // which is also what frees the next slot.
+    expect((await save(user, "topic 0", false)).rows[0]?.save_muted_topic).toBe("ok");
+    expect((await save(user, "one too many", true)).rows[0]?.save_muted_topic).toBe("ok");
+  });
+
+  it("leaves user_topics without a muted column for any reader to contradict", async () => {
+    // 0110 closes the state-model contradiction: loadPreferences read only
+    // unmuted rows while replaceTopics diffed all of them, so a future writer
+    // of this column would have made the next topics-page save delete the
+    // muted follow. The column is gone rather than preserved — the mute
+    // semantics live in muted_topics, with one writer.
+    const { rows } = await db.query<{ n: number }>(
+      "select count(*)::integer as n from information_schema.columns " +
+        "where table_schema = 'public' and table_name = 'user_topics' and column_name = 'muted'",
+    );
+    expect(rows[0]?.n).toBe(0);
+  });
+});

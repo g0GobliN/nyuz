@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { signedInOnly } from "@/lib/server/guard";
 import { BASE_WEIGHT, weightsFromSignals, type FeedbackVote } from "@/lib/feedback-weights";
+import { validateTopicLabel } from "@/lib/topics";
 import type { Actor } from "@/lib/server/guard";
 
 /**
@@ -251,22 +252,26 @@ export const saveMutedTopic = createServerFn({ method: "POST" })
   .handler(async ({ context, data }): Promise<{ ok: true }> => {
     const { actor } = context;
 
-    if (data.muted) {
-      const { error } = await actor.db
-        .from("muted_topics")
-        .upsert(
-          { user_id: actor.id, topic: data.topic },
-          { onConflict: "user_id,topic", ignoreDuplicates: true },
-        );
-      if (error) throw new Error(error.message);
-    } else {
-      const { error } = await actor.db
-        .from("muted_topics")
-        .delete()
-        .eq("user_id", actor.id)
-        .eq("topic", data.topic);
-      if (error) throw new Error(error.message);
-    }
+    // Only a real topic label may be stored: the veto in the matcher is exact
+    // on the label against an event's own topic links, so a string that is not
+    // a canonical label could never fire anyway — it would just consume the
+    // cap. `validateTopicLabel` also trims, which keeps the stored form the
+    // same string the cards display.
+    const validated = validateTopicLabel(data.topic);
+    if ("rejected" in validated) throw new Error("That is not a topic that can be muted.");
+
+    // The write goes through `save_muted_topic` (0109), which owns the cap and
+    // the lock, because a number here would be a display value rather than a
+    // guard. A full set refuses the save, and the client's rollback is the
+    // visible answer.
+    const { data: result, error } = await actor.db.rpc("save_muted_topic", {
+      p_user_id: actor.id,
+      p_topic: validated.label,
+      p_muted: data.muted,
+    });
+    if (error) throw new Error(error.message);
+    if (result === "limit")
+      throw new Error("You have muted a lot of topics already. Unmute one first.");
 
     return { ok: true };
   });

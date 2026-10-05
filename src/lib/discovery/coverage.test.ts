@@ -87,13 +87,19 @@ function fakeDb(seed: Seed): { db: SupabaseClient<Database>; inserts: Inserted[]
         };
       }
       if (table === "user_topics") {
+        const read = () => ({
+          order: () => ({
+            limit: async () => ({ data: seed.followed ?? [], error: null }),
+          }),
+        });
         return {
           select: () => ({
-            eq: () => ({
-              order: () => ({
-                limit: async () => ({ data: seed.followed ?? [], error: null }),
-              }),
-            }),
+            // The reader path used to filter on user_topics.muted; 0110 dropped
+            // that column, so the real chain has no `eq` any more. Both shapes
+            // are accepted here so this fake cannot be the thing that pins the
+            // old column in place.
+            eq: read,
+            ...read(),
           }),
         };
       }
@@ -266,10 +272,10 @@ describe("followedCustomTopics", () => {
     const broken = {
       from: () => ({
         select: () => ({
-          eq: () => ({
-            order: () => ({
-              limit: async () => ({ data: null, error: { message: "nope" } }),
-            }),
+          // No `eq` link any more: 0110 dropped user_topics.muted, so the real
+          // chain runs select → order → limit.
+          order: () => ({
+            limit: async () => ({ data: null, error: { message: "nope" } }),
           }),
         }),
       }),

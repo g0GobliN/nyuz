@@ -258,28 +258,35 @@ export function useFeedback() {
     });
   }, []);
 
-  const muteTopic = useCallback((topic: string) => {
-    let nowMuted = false;
+  const muteTopic = useCallback(
+    (topic: string) => {
+      // Read the current truth from the snapshot, not from inside the updater.
+      // React 18 invokes a setState updater during the next render, so a value
+      // assigned inside it is not yet visible on the line below: this used to
+      // post `muted: false` on every click, the server agreed to do nothing,
+      // and the mute looked like it worked until the next load discarded it.
+      // Measured live against production: the feed hid the cards while
+      // `muted_topics` stayed empty and a reload undid the mute.
+      const nowMuted = !state.mutedTopics.includes(topic);
 
-    setState((prev) => {
-      nowMuted = !prev.mutedTopics.includes(topic);
-      return {
+      setState((prev) => ({
         ...prev,
         mutedTopics: nowMuted
           ? [...prev.mutedTopics, topic]
           : prev.mutedTopics.filter((x) => x !== topic),
-      };
-    });
-
-    void saveMutedTopic({ data: { topic, muted: nowMuted } }).catch(() => {
-      setState((prev) => ({
-        ...prev,
-        mutedTopics: nowMuted
-          ? prev.mutedTopics.filter((x) => x !== topic)
-          : [...prev.mutedTopics, topic],
       }));
-    });
-  }, []);
+
+      void saveMutedTopic({ data: { topic, muted: nowMuted } }).catch(() => {
+        setState((prev) => ({
+          ...prev,
+          mutedTopics: nowMuted
+            ? prev.mutedTopics.filter((x) => x !== topic)
+            : [...prev.mutedTopics, topic],
+        }));
+      });
+    },
+    [state.mutedTopics],
+  );
 
   const reset = useCallback(() => {
     setState(EMPTY_FEEDBACK);

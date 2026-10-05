@@ -173,8 +173,7 @@ export async function loadCoverageReadings(
           db
             .from("user_topics")
             .select("topic_id", { count: "exact", head: true })
-            .eq("topic_id", id)
-            .eq("muted", false),
+            .eq("topic_id", id),
         ),
       ),
       db.rpc("subject_history", {
@@ -392,8 +391,7 @@ export async function followedCustomTopics(
 ): Promise<CoverageTopic[]> {
   const { data, error } = await db
     .from("user_topics")
-    .select("created_at, topic_id, muted, topics ( id, label, kind )")
-    .eq("muted", false)
+    .select("created_at, topic_id, topics ( id, label, kind )")
     .order("created_at", { ascending: false })
     .limit(options.limit ?? FOLLOW_READ_LIMIT);
 

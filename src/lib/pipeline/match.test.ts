@@ -97,6 +97,7 @@ function asReader(p: Prefs, density = 100): Reader {
         excludeKeywords: [],
       })),
     exclusions: p.exclusions.filter((t) => t.trim()),
+    mutedTopics: new Set<string>(),
     sourcePrefs: new Map(),
   };
 }
@@ -201,6 +202,7 @@ function reader(overrides: Partial<Reader> = {}): Reader {
     density: 100,
     topics: [TOPIC],
     exclusions: [],
+    mutedTopics: new Set<string>(),
     sourcePrefs: new Map(),
     ...overrides,
   };
@@ -374,6 +376,38 @@ describe("density as an importance threshold", () => {
   });
 });
 
+describe("a card mute vetoes the topic itself, and nothing wider", () => {
+  it("stops a match whose event is linked to the muted topic", () => {
+    // The reader tapped "Mute AI" on a story card and the product owes them a
+    // briefing without that subject — the feed already hides it, so a story
+    // that still arrives by email is the worst of both. Measured live before
+    // this fix: the mute never persisted at all, and even had it done so the
+    // matcher never read it.
+    expect(decide(event(9), reader({ mutedTopics: new Set(["AI"]) }))).toEqual({
+      matched: false,
+      reason: "topic-muted",
+    });
+  });
+
+  it("is exact on the topic label, not a substring veto", () => {
+    // The ruling's scope: a mute is an answer about a SUBJECT, not free text.
+    // "AI" muted must not swallow a story whose only link is another topic,
+    // and a label that merely CONTAINS the muted string is a different topic.
+    expect(decide(event(9), reader({ mutedTopics: new Set(["PAINTING"]) })).matched).toBe(true);
+    expect(decide(event(9), reader({ mutedTopics: new Set(["A"]) })).matched).toBe(true);
+  });
+
+  it("fires before scoring, so a muted topic outranks a followed one", () => {
+    // The reader follows AI and muted it later from a card; the mute is the
+    // newer promise and the veto must not depend on importance or density.
+    for (const importance of [0, 5, 10]) {
+      expect(decide(event(importance), reader({ mutedTopics: new Set(["AI"]) })).matched).toBe(
+        false,
+      );
+    }
+  });
+});
+
 describe("exclusions, which are applied last and win", () => {
   it("beats a topic the reader follows by id", () => {
     expect(decide(event(9), reader({ exclusions: ["AI"] }))).toEqual({
@@ -390,6 +424,51 @@ describe("exclusions, which are applied last and win", () => {
 
   it("does not veto on a term that appears nowhere", () => {
     expect(decide(event(9), reader({ exclusions: ["Crypto"] })).matched).toBe(true);
+  });
+
+  it("sees the concept tags, which is the text that selected the event", () => {
+    // The promise on the topics page is unconditional: "Exclusions win over
+    // topics. If a story matches both, it stays out." A custom interest is
+    // selected through `signalOf` -- title, `what_happened`, `tags`, curated
+    // labels, outlet names -- while the veto used to read only the title,
+    // labels and sources. So a story whose ONLY mention of the subject was a
+    // concept tag kept arriving to a reader who had excluded it, with nothing
+    // in the interface to explain why.
+    const tagged = event(9, {
+      title: "Weekend attendance hits a record high",
+      whatHappened: "The organisers reported their largest crowd since opening.",
+      tags: ["art"],
+    });
+
+    // It genuinely reaches the reader first: the tag is what selected it.
+    expect(decide(tagged, reader())).toEqual({
+      matched: true,
+      relevance: 9,
+      topics: ["AI"],
+    });
+    // And the exclusion the reader did type still wins.
+    expect(decide(tagged, reader({ exclusions: ["art"] }))).toEqual({
+      matched: false,
+      reason: "excluded",
+    });
+  });
+
+  it("sees the briefing paragraph too", () => {
+    // Same asymmetry, same fix. `what_happened` is model-written prose, so this
+    // is the widest the veto now reads and it is a deliberate widening: the
+    // alternative is an exclusion that quietly does not work, which is the
+    // failure the product promises it does not have.
+    const inBody = event(9, {
+      title: "Gallery reports record weekend attendance",
+      whatHappened:
+        "The exhibition of contemporary art drew its largest crowd since opening, organisers said.",
+    });
+
+    expect(decide(inBody, reader()).matched).toBe(true);
+    expect(decide(inBody, reader({ exclusions: ["art"] }))).toEqual({
+      matched: false,
+      reason: "excluded",
+    });
   });
 
   it("honours a term the reader attached to one topic", () => {

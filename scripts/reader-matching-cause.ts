@@ -324,6 +324,7 @@ main(async () => {
     "below-threshold": 3,
     excluded: 2,
     "all-sources-muted": 1,
+    "topic-muted": 1,
     "no-topic-match": 0,
     "no-topics": -1,
   };

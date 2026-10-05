@@ -64,7 +64,14 @@ function topic(overrides: Partial<ReaderTopic> = {}): ReaderTopic {
 }
 
 function reader(topics: ReaderTopic[] = [topic()]): Reader {
-  return { userId: READER, density: 30, topics, exclusions: [], sourcePrefs: new Map() };
+  return {
+    userId: READER,
+    density: 30,
+    topics,
+    exclusions: [],
+    mutedTopics: new Set<string>(),
+    sourcePrefs: new Map(),
+  };
 }
 
 /** `count` past Rust releases, as `subject_history` returns them. */

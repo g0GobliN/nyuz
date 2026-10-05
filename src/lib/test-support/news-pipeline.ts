@@ -143,7 +143,6 @@ export function newsPipelineFixture(now = new Date(), clock: FakeClock = { now }
       {
         user_id: READER_ID,
         topic_id: "t",
-        muted: false,
         importance: "notable",
         weight: 1,
         keywords: [],

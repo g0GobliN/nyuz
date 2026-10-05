@@ -492,7 +492,7 @@ export const getTopicUptake = createServerFn({ method: "GET" })
 
     const [topics, links] = await Promise.all([
       db.from("topics").select("id, slug, label"),
-      db.from("user_topics").select("topic_id").eq("muted", false).limit(50_000),
+      db.from("user_topics").select("topic_id").limit(50_000),
     ]);
 
     if (topics.error) throw new Error(`topics: ${topics.error.message}`);

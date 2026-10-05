@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { PLAN_LIMITS, PLAN_TIERS } from "@/lib/plans";
+import { canonicalUrl } from "@/lib/pipeline/canonical";
 
 /**
  * The custom-source cap exists in two places and must agree in both
@@ -75,5 +76,59 @@ describe("custom source entitlements", () => {
     // see room and both insert unless something serialises them.
     expect(MIGRATION).toContain("pg_advisory_xact_lock");
     expect(MIGRATION).toContain("'custom_source:' || p_user_id::text");
+  });
+});
+
+/**
+ * `sources.feed_url` is a lookup key, and three writers fill it.
+ *
+ * `followCustomSource` looks a submitted feed up by comparing `canonicalUrl`'s
+ * output to that column, so a writer that stores something else makes the
+ * lookup miss. The console's add form used to store the operator's keystrokes
+ * verbatim, and 21 of the 87 seeded feeds carry the trailing slash that
+ * `canonicalUrl` removes -- so a reader who copied a catalogue link got a
+ * SECOND row for a feed nyuz already watched, and the UNIQUE constraint could
+ * not catch it because the two strings genuinely differ.
+ *
+ * These assert the three writers agree, by reading them. A fourth writer added
+ * later without canonicalising is the regression this is here to catch.
+ */
+describe("every writer of sources.feed_url stores the canonical form", () => {
+  const WRITERS = [
+    "src/lib/server/custom-sources.ts",
+    "src/lib/discovery/register.ts",
+    "src/lib/server/sources.ts",
+  ];
+
+  it("all three canonicalise before inserting", () => {
+    for (const file of WRITERS) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).toMatch(/feed_url:\s*(storedUrl|canonical|feedUrl\b)/);
+      // `data.feedUrl` is what the bug looked like: the submitted string,
+      // uncanonicalised, written straight into the lookup key. Every writer must
+      // name a canonicalised local instead.
+      expect(source, file).not.toMatch(/feed_url:\s*data\.feedUrl/);
+    }
+  });
+
+  it("looks a feed up through the variants, not one spelling of it", () => {
+    for (const file of ["src/lib/server/custom-sources.ts", "src/lib/discovery/register.ts"]) {
+      expect(readFileSync(file, "utf8"), file).toContain("feedUrlVariants");
+    }
+  });
+
+  it("keeps the promise the canonicaliser makes about the two spellings", () => {
+    // The rule the whole repair rests on: canonicalising a stored feed URL
+    // changes at most its trailing slash, so the cleanup in 0107 can be done in
+    // SQL without reimplementing the canonicaliser.
+    for (const stored of [
+      "https://a16z.com/feed/",
+      "https://github.blog/feed",
+      "https://export.arxiv.org/rss/cs.AI",
+    ]) {
+      const canonical = canonicalUrl(stored);
+      expect(canonical, stored).not.toBeNull();
+      expect(canonical!.replace(/\/$/, ""), stored).toBe(stored.replace(/\/$/, ""));
+    }
   });
 });

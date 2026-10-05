@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FakeDb, asDb } from "@/lib/test-support/fake-db";
 import type { FeedFetcher } from "./feed";
+import { registerDiscoveredSource } from "./register";
 import { submitSiteSource } from "./submit";
 
 /* ---------------------------------------------------------------------- */
@@ -159,6 +160,51 @@ describe("submitSiteSource — a site that carries a feed", () => {
     expect(db.rows("source_candidates")).toHaveLength(0);
   });
 
+  it("canonicalises for a caller that skips its own canonicalisation", async () => {
+    // `registerDiscoveredSource` canonicalises the URL itself rather than
+    // trusting the caller (register.ts): both current callers pre-canonicalise,
+    // so the step is idempotent — but a third caller that skipped it would
+    // register a rival row for a feed the catalogue already holds, because the
+    // unique constraint cannot see `…/feed` and `…/feed/` as one feed.
+    const db = fakeDb();
+
+    const result = await registerDiscoveredSource(asDb(db), {
+      topicId: TOPIC.topicId,
+      topicLabel: TOPIC.topicLabel,
+      feedUrl: "https://blog.example.com/feed/",
+      name: "Blog",
+      homepage: "https://blog.example.com",
+    });
+
+    expect(result).toMatchObject({ ok: true, created: true });
+    expect(db.rows("sources")[0]).toMatchObject({
+      // canonicalUrl strips the trailing slash: stored canonical, not typed.
+      feed_url: "https://blog.example.com/feed",
+      origin: "discovered",
+    });
+  });
+
+  it("passes an unparseable address through verbatim, for lookup and insert alike", async () => {
+    // The guard's limit, pinned rather than hidden: canonicalisation cannot
+    // parse this, so the raw string is what both the lookup and the insert
+    // use. Nothing can register a RIVAL this way — a rival needs the two
+    // spellings of one real feed, and an address that cannot be parsed has
+    // only one spelling. Rejection is `submitSiteSource`'s job, and it runs
+    // before this function is ever reached in production.
+    const db = fakeDb();
+
+    const result = await registerDiscoveredSource(asDb(db), {
+      topicId: TOPIC.topicId,
+      topicLabel: TOPIC.topicLabel,
+      feedUrl: "not a url",
+      name: "Blog",
+      homepage: "",
+    });
+
+    expect(result).toMatchObject({ ok: true, created: true });
+    expect(db.rows("sources")[0]).toMatchObject({ feed_url: "not a url" });
+  });
+
   it("reuses the existing source when the feed is already collected", async () => {
     const db = fakeDb();
     const { fetcher } = fakeFetcher(replies);
@@ -205,6 +251,9 @@ describe("submitSiteSource — the retry queue", () => {
           return {
             select: () => broken.from("sources"),
             eq: () => broken.from("sources"),
+            // The lookup asks for both spellings of a feed, so the failure
+            // double has to fail that shape too or it is not testing the write.
+            in: () => broken.from("sources"),
             insert: () => broken.from("sources"),
             maybeSingle: async () => ({ data: null, error: null }),
           };

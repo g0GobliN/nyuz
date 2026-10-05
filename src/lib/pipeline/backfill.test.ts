@@ -39,6 +39,7 @@ function reader(topics: ReaderTopic[], exclusions: string[] = []): Reader {
     density: 35,
     topics,
     exclusions,
+    mutedTopics: new Set<string>(),
     sourcePrefs: new Map(),
   };
 }

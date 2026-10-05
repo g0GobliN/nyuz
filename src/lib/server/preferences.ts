@@ -4,7 +4,7 @@ import { STANDARD_DELIVERY_TIME } from "../plans";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { type Actor, signedInOnly } from "./guard";
-import { type KeptTopic, keepUsableTopics } from "@/lib/coverage";
+import { type KeptTopic, keepUsableTopics, topicSaveIntent } from "@/lib/coverage";
 import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
 import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
 import { notificationRowToPrefs, prefsToNotificationRow } from "@/lib/preferences-map";
@@ -96,7 +96,6 @@ export const loadPreferences = createServerFn({ method: "GET" })
         .from("user_topics")
         .select("created_at, topics ( label )")
         .eq("user_id", actor.id)
-        .eq("muted", false)
         .order("created_at", { ascending: true }),
       actor.db.from("user_exclusions").select("term").eq("user_id", actor.id),
       actor.db.from("subscriptions").select("plan").eq("user_id", actor.id).maybeSingle(),
@@ -219,16 +218,31 @@ export const savePreferences = createServerFn({ method: "POST" })
 
     // A newly followed subject should not sit empty until the next cron. This is
     // the FREE half of day one — `match()` over events that were analysed for
-    // somebody else — so it spends no tokens and can run every time somebody
-    // adds a topic. `onDemand: false` is what holds that line: the paid path
-    // stays reserved for a brand-new account, once, as `backfill` documents.
+    // somebody else — so it spends no tokens. `onDemand: false` is what holds
+    // that line: the paid path stays reserved for a brand-new account, once, as
+    // `backfill` documents.
+    //
+    // It also used to run on EVERY such save, which made it spendable on
+    // demand: add a topic, remove it, add it again, and stage 5 runs again each
+    // time, because `toAdd` counts a re-follow as new. Stage 5 is the only
+    // stage whose cost grows with signups and is the nearest thing in this
+    // pipeline to the Workers CPU limit, so that was shared compute one account
+    // could spend repeatedly. `claim_topic_backfill` (0108) is the brake, and it
+    // is in the database because a number in this file is a display value.
     if (followedSomethingNew) {
-      try {
-        await backfill(actor.db, { userId: actor.id, onDemand: false });
-      } catch (error) {
-        // A failed backfill costs the reader a wait until the scheduled run, and
-        // must never cost them the save that has already been written.
-        console.warn(`preferences: backfill after topic change failed: ${String(error)}`);
+      const claim = await claimBackfillSlot(actor);
+      if (claim === "ok") {
+        try {
+          await backfill(actor.db, { userId: actor.id, onDemand: false });
+        } catch (error) {
+          // A failed backfill costs the reader a wait until the scheduled run, and
+          // must never cost them the save that has already been written.
+          console.warn(`preferences: backfill after topic change failed: ${String(error)}`);
+        }
+      } else {
+        // Nothing is lost but the wait: the scheduled run covers the same
+        // reader, and the topic they just followed is already stored.
+        console.warn(`preferences: backfill for ${actor.id} not run (${claim})`);
       }
     }
 
@@ -281,6 +295,47 @@ async function replaceExclusions(actor: Actor, terms: string[]): Promise<void> {
 const DAILY_TOPIC_CREATIONS = 30;
 
 /**
+ * How many canonical custom topics may exist across the whole product.
+ *
+ * The same argument as `DAILY_TOPIC_CREATIONS`, one level up: the per-account
+ * brake bounds one reader, and this bounds the table that `match.ts`,
+ * `analyse.ts` and `classify.ts` each read whole on every run. Minting is the
+ * only thing that grows it, so minting is what this limits.
+ *
+ * Set high on purpose. It is a brake against a script, not a budget — a reader
+ * who types a subject nobody has typed before must never be refused because the
+ * table is long. Raise it by a deploy; it is a parameter, not a constant
+ * somebody has to migrate to change.
+ */
+const MAX_CUSTOM_TOPICS = 25_000;
+
+/**
+ * Whether this save may run stage 5, decided in the database.
+ *
+ * A cooldown of minutes rather than hours because the reader who adds a topic
+ * is waiting on a screen: the first add after a long gap must be immediate, and
+ * the throttle only needs to stop the repeat, not the use. Ten is comfortably
+ * longer than any honest sequence of adds.
+ */
+const BACKFILL_COOLDOWN_MINUTES = 10;
+
+async function claimBackfillSlot(actor: Actor): Promise<string> {
+  const { data, error } = await actor.db.rpc("claim_topic_backfill", {
+    p_user_id: actor.id,
+    p_cooldown_minutes: BACKFILL_COOLDOWN_MINUTES,
+  });
+  // Fail OPEN on an unreadable brake: the alternative is a database hiccup
+  // silently costing every reader their day-one backfill forever. The claim is
+  // a cost control, not a security boundary, so losing it must not lose the
+  // feature.
+  if (error) {
+    console.warn(`preferences: topic backfill brake unavailable: ${error.message}`);
+    return "ok";
+  }
+  return typeof data === "string" ? data : "ok";
+}
+
+/**
  * Brings `user_topics` in line with the list the reader is looking at.
  *
  * Topics are a SHARED table — that is the whole cost argument. Two readers who
@@ -326,6 +381,16 @@ async function replaceTopics(
   }
 
   if (kept.length === 0) {
+    // An EMPTY list is a request to follow nothing, and that is honoured. A
+    // list where EVERY entry was refused is a different claim, and deleting on
+    // that path unsubscribed the reader from everything while still answering
+    // `{ ok: true }`. `topicSaveIntent` is where that distinction lives; the
+    // refusals above already say which label broke which rule.
+    if (topicSaveIntent(labels, { kept, refused }) === "refuse") {
+      throw new PlanAccessError(
+        "None of those topics could be saved. Check the spelling and try again.",
+      );
+    }
     await db.from("user_topics").delete().eq("user_id", userId);
     return { followed: false, added: [] };
   }
@@ -358,7 +423,8 @@ async function replaceTopics(
     .map((slug) => bySlug.get(slug))
     .filter((topic): topic is KeptTopic => topic !== undefined);
 
-  const wantedIds = await resolveTopics(actor, admitted);
+  const wanted = await resolveTopics(actor, admitted);
+  const wantedIds = wanted.map((pair) => pair.id);
 
   const existingIds = new Set((existing ?? []).map((row) => row.topic_id));
 
@@ -380,18 +446,22 @@ async function replaceTopics(
     if (error) throw new PlanAccessError(error.message);
   }
 
-  // The topics this save genuinely added, for the discovery queue. `wantedIds`
-  // is aligned with `admitted`, so the identity is the index. Editorial topics
-  // are left out on purpose: the pool is mapped by hand, and its gaps are an
-  // operator's decision rather than a discovery job's.
+  // The topics this save genuinely added, for the discovery queue. Paired by
+  // slug through `wanted`, never by index: the creation brake can refuse some
+  // entries while others succeed, and an index lookup would hand one topic's
+  // label to another's row. Editorial topics are left out on purpose: the pool
+  // is mapped by hand, and its gaps are an operator's decision rather than a
+  // discovery job's.
   const addedSet = new Set(toAdd);
+  const labelBySlug = new Map(admitted.map((topic) => [topic.slug, topic.label] as const));
   const added: { id: string; label: string }[] = [];
-  admitted.forEach((topic, index) => {
-    const id = wantedIds[index];
-    if (id === undefined || !addedSet.has(id)) return;
-    if (topic.predefined) return;
-    added.push({ id, label: topic.label });
-  });
+  for (const pair of wanted) {
+    if (!addedSet.has(pair.id)) continue;
+    const label = labelBySlug.get(pair.slug);
+    if (label === undefined) continue;
+    if (bySlug.get(pair.slug)?.predefined) continue;
+    added.push({ id: pair.id, label });
+  }
 
   return { followed: toAdd.length > 0, added };
 }
@@ -404,7 +474,10 @@ async function replaceTopics(
  * creation brake below, which would penalise readers for following popular
  * subjects — the opposite of what the shared table is for.
  */
-async function resolveTopics(actor: Actor, topics: KeptTopic[]): Promise<string[]> {
+async function resolveTopics(
+  actor: Actor,
+  topics: KeptTopic[],
+): Promise<{ id: string; slug: string }[]> {
   const { db, id: userId } = actor;
   if (topics.length === 0) return [];
 
@@ -416,13 +489,23 @@ async function resolveTopics(actor: Actor, topics: KeptTopic[]): Promise<string[
 
   if (missing.length > 0) {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { count } = await db
-      .from("topics")
-      .select("id", { count: "exact", head: true })
-      .eq("created_by", userId)
-      .gte("created_at", since);
+    const [mine, { data: globalRoom }] = await Promise.all([
+      db
+        .from("topics")
+        .select("id", { count: "exact", head: true })
+        .eq("created_by", userId)
+        .gte("created_at", since),
+      db.rpc("topic_creation_room", { p_limit: MAX_CUSTOM_TOPICS }),
+    ]);
 
-    const room = Math.max(0, DAILY_TOPIC_CREATIONS - (count ?? 0));
+    const room = Math.min(
+      Math.max(0, DAILY_TOPIC_CREATIONS - (mine.count ?? 0)),
+      // A brake that cannot be read must not be treated as zero room, or an
+      // unreachable function would silently stop every reader creating a
+      // subject. Falling back to the per-account brake keeps the older,
+      // weaker behaviour instead of no behaviour at all.
+      typeof globalRoom === "number" ? Math.max(0, globalRoom) : Number.MAX_SAFE_INTEGER,
+    );
     const creatable = missing.slice(0, room);
 
     if (creatable.length < missing.length) {
@@ -458,7 +541,17 @@ async function resolveTopics(actor: Actor, topics: KeptTopic[]): Promise<string[
     }
   }
 
-  return slugs.map((slug) => idBySlug.get(slug)).filter((id): id is string => Boolean(id));
+  // Pairs, not bare ids. When the creation brake refuses some entries, the
+  // ids of the rest no longer share their positions with `topics` — an index
+  // lookup here attributed one topic's label to another's row and queued the
+  // discovery pass for the wrong subject. Keying by slug keeps every id with
+  // the label it was created from, whatever the brake refused.
+  return slugs
+    .map((slug) => {
+      const id = idBySlug.get(slug);
+      return id === undefined ? null : { id, slug };
+    })
+    .filter((pair): pair is { id: string; slug: string } => pair !== null);
 }
 
 async function planFor(actor: Actor) {

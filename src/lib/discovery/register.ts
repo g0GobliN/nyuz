@@ -43,6 +43,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { canonicalUrl, feedUrlVariants } from "@/lib/pipeline/canonical";
 import type { Database } from "@/lib/supabase/types";
 
 type Db = SupabaseClient<Database>;
@@ -76,19 +77,26 @@ export async function registerDiscoveredSource(
   db: Db,
   input: RegistrationInput,
 ): Promise<RegistrationResult> {
-  const existing = await findSource(db, input.feedUrl);
+  // Canonicalised here rather than trusted from the caller. Both current callers
+  // already pass `canonicalUrl(...)`, so this is idempotent -- but the column is
+  // a lookup key, and a third caller that skipped the step would register a
+  // rival row for a feed the catalogue already holds. 0107 is the cleanup for
+  // what is already there; this is what stops the next one arriving.
+  const feedUrl = canonicalUrl(input.feedUrl) ?? input.feedUrl;
+
+  const existing = await findSource(db, feedUrl);
   if (existing !== null) {
     await linkTopic(db, existing.id, input.topicId);
     return { ok: true, sourceId: existing.id, created: false };
   }
 
-  const name = input.name.trim().slice(0, 120) || domainOf(input.feedUrl);
+  const name = input.name.trim().slice(0, 120) || domainOf(feedUrl);
 
   const { data, error } = await db
     .from("sources")
     .insert({
       name,
-      feed_url: input.feedUrl,
+      feed_url: feedUrl,
       homepage: input.homepage,
       kind: "rss",
       // Demand coverage by construction: it exists because a followed subject
@@ -108,7 +116,7 @@ export async function registerDiscoveredSource(
     // 23505: another invocation registered the same feed first. Re-read and
     // use their row -- the loser of the race must not report a failure.
     if (error.code === "23505") {
-      const raced = await findSource(db, input.feedUrl);
+      const raced = await findSource(db, feedUrl);
       if (raced !== null) {
         await linkTopic(db, raced.id, input.topicId);
         return { ok: true, sourceId: raced.id, created: false };
@@ -131,15 +139,19 @@ export async function registerDiscoveredSource(
     action: "source.discover.register",
     target_type: "source",
     target_id: data.id,
-    meta: { topic_id: input.topicId, topic: input.topicLabel, feed_url: input.feedUrl },
+    meta: { topic_id: input.topicId, topic: input.topicLabel, feed_url: feedUrl },
   });
 
   return { ok: true, sourceId: data.id, created: true };
 }
 
 async function findSource(db: Db, feedUrl: string): Promise<{ id: string } | null> {
-  const { data } = await db.from("sources").select("id").eq("feed_url", feedUrl).maybeSingle();
-  return data ?? null;
+  // Both spellings, so a discovered feed that the catalogue already holds in
+  // the slashed form links to that row instead of registering a rival for it.
+  // Same reason as `findSource` in src/lib/server/custom-sources.ts: the unique
+  // constraint sees `…/feed` and `…/feed/` as two different feeds.
+  const { data } = await db.from("sources").select("id").in("feed_url", feedUrlVariants(feedUrl));
+  return data?.[0] ?? null;
 }
 
 /**

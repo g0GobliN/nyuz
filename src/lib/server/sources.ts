@@ -3,6 +3,7 @@ import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { adminOnly, audit, AdminAuthError } from "@/lib/server/guard";
 import { isPublicHttpUrl } from "@/lib/net/public-url";
+import { canonicalUrl } from "@/lib/pipeline/canonical";
 import type { Source, SourceKind } from "@/lib/supabase/types";
 
 /**
@@ -131,11 +132,20 @@ export const createSource = createServerFn({ method: "POST" })
   .handler(async ({ context, data }): Promise<{ ok: true; id: string }> => {
     const { actor } = context;
 
+    // Stored canonically, not as typed. Every other writer of this column
+    // canonicalises first (the reader path in custom-sources.ts, discovery in
+    // register.ts), and the column is a lookup key: an operator pasting
+    // `…/feed/` where the catalogue holds `…/feed` used to leave two rows for
+    // one feed, which the unique constraint cannot catch because the strings
+    // genuinely differ. The canonical URL still opens the feed — that is the
+    // rule canonical.ts is written against.
+    const storedUrl = canonicalUrl(data.feedUrl) ?? data.feedUrl;
+
     const { data: row, error } = await actor.db
       .from("sources")
       .insert({
         name: data.name,
-        feed_url: data.feedUrl,
+        feed_url: storedUrl,
         homepage: data.homepage && data.homepage.length > 0 ? data.homepage : null,
         kind: data.kind,
       })
@@ -160,7 +170,7 @@ export const createSource = createServerFn({ method: "POST" })
       { type: "source", id: row.id },
       {
         name: data.name,
-        feed_url: data.feedUrl,
+        feed_url: storedUrl,
         kind: data.kind,
       },
     );

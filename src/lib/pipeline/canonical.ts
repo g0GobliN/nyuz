@@ -322,6 +322,41 @@ function cleanHash(hash: string): string {
   return body.startsWith("!") || body.startsWith("/") ? `#${body}` : "";
 }
 
+/**
+ * The forms a stored `sources.feed_url` might take for one feed, canonical first.
+ *
+ * ---------------------------------------------------------------------------
+ * Why a lookup needs more than the canonical string
+ * ---------------------------------------------------------------------------
+ *
+ * `canonicalUrl` drops a trailing slash, and `followCustomSource` looks an
+ * existing source up by comparing that canonical form against the stored
+ * column. That works only while every stored value is itself canonical — and
+ * `sources` is written from three places, one of which (the console's add form,
+ * `createSource` in src/lib/server/sources.ts) stored exactly what an operator
+ * pasted until 0107 canonicalised the column.
+ *
+ * So a reader who pasted `https://a16z.com/feed/`, the form the catalogue has
+ * held since 0006, got a canonical `https://a16z.com/feed`, found nothing, and
+ * created a SECOND row for a feed nyuz already watched. The unique constraint
+ * could not catch it: to Postgres those are two different strings. The cost is
+ * a second crawler, a second backoff state and a reader following the copy
+ * rather than the curated row.
+ *
+ * Asking for both shapes is what makes the lookup correct whether or not the
+ * cleanup migration has run, and whatever order the reader pastes them in.
+ * Ordering matters: the canonical row is the one every later stage agrees on,
+ * so it wins when a legacy pair somehow coexists.
+ *
+ * The trailing slash is the only variant. Everything else `canonicalUrl`
+ * removes (tracking parameters, AMP suffixes, the default port, a trailing
+ * dot on the host) is removed identically by the writer and by this function,
+ * so those forms cannot appear in the column in the first place.
+ */
+export function feedUrlVariants(canonical: string): string[] {
+  return [canonical, `${canonical}/`];
+}
+
 /* ---------------------------------------------------------------------- */
 /* Hashing                                                                */
 /* ---------------------------------------------------------------------- */

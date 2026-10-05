@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { canonicalUrl, contentHash, normaliseTitle } from "./canonical";
+import { canonicalUrl, contentHash, feedUrlVariants, normaliseTitle } from "./canonical";
 
 describe("what it refuses", () => {
   it("returns null for anything a reader could not open", () => {
@@ -226,5 +226,37 @@ describe("contentHash", () => {
     expect(await contentHash("https://example.com/a", "bc")).not.toBe(
       await contentHash("https://example.com/ab", "c"),
     );
+  });
+});
+
+describe("the two spellings of one feed", () => {
+  // A lookup against `sources.feed_url` has to ask for both. Postgres sees
+  // `https://a16z.com/feed` and `https://a16z.com/feed/` as two different
+  // strings, so the UNIQUE constraint cannot stop a second row appearing for
+  // one feed -- and `canonicalUrl` strips the slash on the way in.
+  it("asks for the canonical form and the slashed one, canonical first", () => {
+    expect(feedUrlVariants("https://a16z.com/feed")).toEqual([
+      "https://a16z.com/feed",
+      "https://a16z.com/feed/",
+    ]);
+  });
+
+  it("catches the catalogue's own form whichever way the reader pastes it", () => {
+    const stored = "https://github.blog/feed/";
+    const canonical = canonicalUrl(stored);
+    expect(canonical).not.toBeNull();
+    // Reader copies the catalogue link: canonicalises to the unslashed form,
+    // which is the second entry of the stored form's variants.
+    expect(feedUrlVariants(canonical!).at(-1)).toBe(stored);
+    // Reader pastes it unslashed: canonical is the stored form itself.
+    expect(feedUrlVariants(stored)[0]).toBe(stored);
+  });
+
+  it("never offers a variant that canonicalUrl would produce differently", () => {
+    // Everything else the canonicaliser removes is removed identically by the
+    // writer, so those forms cannot be in the column and are not offered.
+    for (const variant of feedUrlVariants("https://example.com/feed")) {
+      expect(canonicalUrl(variant)).toBe(variant.replace(/\/$/, ""));
+    }
   });
 });

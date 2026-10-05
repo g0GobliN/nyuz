@@ -1126,7 +1126,7 @@ async function whyLinesFor(
     db.from("events").select("id, tags").in("id", ids),
     userId === null
       ? Promise.resolve({ data: null as { topics: unknown }[] | null })
-      : db.from("user_topics").select("topics ( label )").eq("user_id", userId).eq("muted", false),
+      : db.from("user_topics").select("topics ( label )").eq("user_id", userId),
   ]);
   const impactOf = new Map(
     (impacts.data ?? []).map((row) => [row.event_id, row.text ?? null] as const),
@@ -1189,7 +1189,7 @@ async function personalizationFor(
   const out = new Map<string, { heading: string; explanation: string }>();
   const [matches, followed, eventLabels] = await Promise.all([
     db.from("user_events").select("event_id").eq("user_id", userId).in("event_id", eventIds),
-    db.from("user_topics").select("topics ( label )").eq("user_id", userId).eq("muted", false),
+    db.from("user_topics").select("topics ( label )").eq("user_id", userId),
     topicsFor(db, eventIds),
   ]);
 

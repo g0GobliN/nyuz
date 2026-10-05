@@ -200,6 +200,33 @@ export function isUsableTopic(label: string): boolean {
 
 export type TopicRejection = "empty" | "too-short" | "too-long" | "unusable";
 
+/**
+ * Whether a label is made of nothing but connective words.
+ *
+ * `topicTerms` already refuses to return an empty list, and for a label of
+ * SEVERAL stopwords its fallback is the whole phrase — "the of and" becomes one
+ * term, which matches almost nothing. For a label of exactly ONE stopword the
+ * fallback is that bare word, and `mentions` reads a three-character term as a
+ * word PREFIX, so "the" reaches every sentence of English prose — including
+ * the `what_happened` paragraph stage 5 matches against.
+ *
+ * Measured over a day of headlines through `decide`: following "the" matched
+ * 20 of 20 and "and" matched 20 of 20. The matcher had turned back into "show
+ * everything", which is the one outcome `decide` refuses for a reader who
+ * follows nothing at all — a free account could buy the whole firehose with
+ * three topics and no money.
+ *
+ * So the label is refused at the door instead, and a reader who meant "the
+ * news" gets asked for a subject: `topicTerms` already drops "the", so "the
+ * news" is stored and matched as `news`.
+ */
+export function isAllStopwords(label: string): boolean {
+  const normalised = normaliseText(label);
+  if (normalised === "") return false;
+  const words = normalised.split(" ").filter(Boolean);
+  return words.length > 0 && words.every((word) => STOPWORDS.has(word));
+}
+
 export type ValidatedTopic = {
   /** What to store in `topics.label` and show the reader. */
   label: string;
@@ -223,6 +250,7 @@ export function validateTopicLabel(raw: string): ValidatedTopic | { rejected: To
   if (label === "") return { rejected: "empty" };
   if ([...label].length > MAX_TOPIC_LABEL) return { rejected: "too-long" };
   if (isJunkSubject(raw)) return { rejected: "unusable" };
+  if (isAllStopwords(label)) return { rejected: "unusable" };
 
   if (!isUsableTopic(label)) return { rejected: "unusable" };
   const slug = topicSlug(label);
