@@ -44,6 +44,8 @@ beforeAll(async () => {
     ('00000000-0000-4000-8000-000000000099','https://push.example/old-1'),
     ('00000000-0000-4000-8000-000000000099','https://push.example/old-2');`);
   await db.exec(migration("0082_launch_plan_enforcement.sql"));
+  // 0111 supersedes the 0082 keyword rule, which reserved keywords for Omni.
+  await db.exec(migration("0111_keyword_ladder.sql"));
   const demand = migration("0083_launch_source_demand.sql");
   await db.exec(demand.slice(0, demand.indexOf("create or replace function")) + "commit;");
 }, 60_000);
@@ -119,6 +121,37 @@ describe.each(Object.entries(LAUNCH_PLANS))("%s database entitlements", (plan, c
       ]),
     ).rejects.toThrow("priority source cap exceeded");
   });
+  it("enforces the shared keyword pool at the plan's cap", async () => {
+    // Prioritize and exclude share one allowance (prioritize draws first);
+    // the trigger is the last guard behind the server function's gate.
+    const user = await account(plan);
+    const row = id();
+    await db.query("insert into user_topics(user_id,topic_id) values($1,$2)", [user, row]);
+    const pool = cap.topicKeywords;
+    const half = Math.floor(pool / 2);
+    const terms = (prefix: string, n: number) =>
+      Array.from({ length: n }, (_, i) => `${prefix}${i}`);
+    await db.query(
+      "update user_topics set keywords=$3, exclude_keywords=$4 where user_id=$1 and topic_id=$2",
+      [user, row, terms("k", half), terms("x", pool - half)],
+    );
+    await expect(
+      db.query(
+        "update user_topics set keywords=array_append(keywords,'overflow') where user_id=$1 and topic_id=$2",
+        [user, row],
+      ),
+    ).rejects.toThrow("keywords per topic");
+
+    // The dial keeps its Plura+ floor even though the words opened up.
+    const dial = db.query(
+      "update user_topics set importance='only_major' where user_id=$1 and topic_id=$2",
+      [user, row],
+    );
+    if (cap.notificationControl === "basic")
+      await expect(dial).rejects.toThrow("Per-topic controls");
+    else await dial;
+  });
+
   it("enforces custom sources and rolling alert claims", async () => {
     const user = await account(plan);
     const claim = async (fn: string) =>

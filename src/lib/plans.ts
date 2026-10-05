@@ -85,6 +85,13 @@ export type PlanLimits = {
    * in a bundle a browser can read is a display value, never a guard.
    */
   customSources: number;
+  /**
+   * Per-topic keyword terms this plan may store and apply, both directions
+   * combined (prioritize + exclude share one pool, matching the topics-page
+   * counter). Enforced at save time and clipped at match time; stored rows
+   * are never truncated, so a downgrade only goes quiet, never destructive.
+   */
+  topicKeywords: number;
   retention: string;
   retentionDays: number;
   /**
@@ -298,6 +305,33 @@ export const PLAN_NAMES: Record<PlanTier, string> = {
   plura: "nyuz Plura",
   omni: "nyuz Omni",
 };
+
+/**
+ * Words currently on screen in the topic panel, both directions together —
+ * prioritize and exclude are one allowance, so the counter counts them as one.
+ */
+export function keywordPoolUsed(keywords: string, excludeKeywords: string): number {
+  return (
+    keywords.split(",").filter((s) => s.trim()).length +
+    excludeKeywords.split(",").filter((s) => s.trim()).length
+  );
+}
+
+/**
+ * The ladder the keyword panel tells — once, at the moment it matters. A
+ * reader inside their pool gets no counter at all (a cap they are not touching
+ * is noise); crossing it names what they have and what the next rung allows,
+ * one quiet step, never a popup. Omni has no next rung, so the copy just
+ * states the number.
+ */
+export function keywordCounterCopy(plan: PlanTier, used: number): string | null {
+  const cap = PLAN_LIMITS[plan].topicKeywords;
+  if (used <= cap) return null;
+  const up = nextPlanUp(plan);
+  return up
+    ? `${used} of ${cap} · ${PLAN_NAMES[up]} allows ${PLAN_LIMITS[up].topicKeywords}`
+    : `${used} of ${cap}`;
+}
 
 /**
  * Reads a stored override, ignoring anything malformed rather than throwing.

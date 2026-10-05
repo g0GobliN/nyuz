@@ -148,6 +148,7 @@ function Alerts() {
         {showHistory ? (
           <Link
             to="/dashboard/alerts/history"
+            search={{ range: "week" }}
             className="mt-5 inline-flex items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
           >
             View alert history <ArrowRight className="h-3.5 w-3.5" />

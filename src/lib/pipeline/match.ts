@@ -1168,6 +1168,9 @@ export async function loadReaders(
           .in("user_id", ids)
           .order("user_id")
           .order("topic_id")
+          // The keyword caps below slice stored arrays by position, so the
+          // array order has to be the order the terms were saved in — Postgres
+          // keeps jsonb array order, this line just makes that promise legible.
           .range(from, to),
       "reading user_topics",
     ),
@@ -1278,12 +1281,19 @@ export async function loadReaders(
             kind: topic.kind,
             terms: topic.terms,
             spec: topic.spec,
+            // The dial is a Plura+ entitlement: basic plans match on the shared
+            // importance alone. Nothing is written back — a reader who drops to
+            // a plan without the dial goes quiet, not destroyed.
             importance:
               PLAN_LIMITS[plan].notificationControl === "basic" ? "notable" : f.importance,
             weight: f.weight,
-            keywords: PLAN_LIMITS[plan].notificationControl === "advanced" ? f.keywords : [],
-            excludeKeywords:
-              PLAN_LIMITS[plan].notificationControl === "advanced" ? f.exclude_keywords : [],
+            // Keyword terms are now an every-plan entitlement, capped per plan
+            // (4/50/100, one pool across both directions). Rows keep whatever a
+            // richer plan saved: the cap is applied here, at read time, in the
+            // row's stored order — deterministic, never destructive. The combined
+            // pool mirrors the save-time counter: prioritize and exclude are one
+            // allowance.
+            ...clipKeywordPool(f.keywords, f.exclude_keywords, PLAN_LIMITS[plan].topicKeywords),
           },
         ];
       }),
@@ -1295,6 +1305,29 @@ export async function loadReaders(
   });
 
   return { readers, paused };
+}
+
+/**
+ * The per-plan keyword pool, applied at read time.
+ *
+ * Prioritize and exclude share one allowance (the save-side counter counts
+ * them together), and prioritize draws from it first — the order the panel
+ * presents them in. The slice is always a prefix of the stored arrays, so the
+ * result is deterministic and the stored rows are never rewritten: a reader
+ * who downgrades goes quiet on the extra terms, and everything returns the
+ * moment they upgrade again.
+ */
+export function clipKeywordPool(
+  keywords: string[],
+  excludeKeywords: string[],
+  cap: number,
+): { keywords: string[]; excludeKeywords: string[] } {
+  if (keywords.length + excludeKeywords.length <= cap) return { keywords, excludeKeywords };
+  const keepKeywords = Math.min(keywords.length, cap);
+  return {
+    keywords: keywords.slice(0, keepKeywords),
+    excludeKeywords: excludeKeywords.slice(0, Math.max(0, cap - keepKeywords)),
+  };
 }
 
 type IndexedTopic = {

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { FakeDb, asDb } from "@/lib/test-support/fake-db";
 
 /**
@@ -396,7 +397,7 @@ describe("the reader's source list", () => {
 
     expect(await list(db)).toMatchObject({
       plan: "omni",
-      limit: 15,
+      limit: PLAN_LIMITS.omni.customSources,
       used: 1,
       sources: [{ sourceId: SOURCE, name: "Acme Changelog", healthy: true }],
     });

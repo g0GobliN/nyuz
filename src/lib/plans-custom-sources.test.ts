@@ -28,9 +28,12 @@ describe("custom source entitlements", () => {
     expect(PLAN_LIMITS.uno.customSources).toBe(0);
   });
 
-  it("gives paid plans the caps plan2 §62 specifies", () => {
-    expect(PLAN_LIMITS.plura.customSources).toBe(5);
-    expect(PLAN_LIMITS.omni.customSources).toBe(15);
+  it("gives paid plans the caps the launch ruling specifies", () => {
+    // Audit 33: the ladder widened the caps — the follow is still one real
+    // crawler with its own schedule, so the number stays finite and the
+    // shared-crawler budget (concurrency, backoff, probes) is untouched.
+    expect(PLAN_LIMITS.plura.customSources).toBe(8);
+    expect(PLAN_LIMITS.omni.customSources).toBe(20);
   });
 
   it("keeps every tier finite, including topics", () => {

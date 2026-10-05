@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { floorFor, levelFor, thresholdFor } from "@/lib/density";
 import { matchStories } from "@/lib/matching";
-import { type Candidate, decide, type Reader, type ReaderTopic } from "@/lib/pipeline/match";
+import {
+  type Candidate,
+  clipKeywordPool,
+  decide,
+  type Reader,
+  type ReaderTopic,
+} from "@/lib/pipeline/match";
 import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
 import type { Story } from "@/lib/story";
 
@@ -405,6 +411,32 @@ describe("a card mute vetoes the topic itself, and nothing wider", () => {
         false,
       );
     }
+  });
+});
+
+describe("the per-plan keyword cap, applied at read time", () => {
+  // The entitlement is 4/50/100 combined across both directions; the reader's
+  // stored rows keep whatever a richer plan saved. clipKeywordPool must return
+  // a prefix slice in stored order — deterministic, never destructive — and
+  // prioritize wins the pool first because that is the order the panel shows.
+  it("splits a pool that exceeds the cap, prioritize first", () => {
+    const clipped = clipKeywordPool(["a1", "a2", "a3"], ["x1", "x2", "x3"], 4);
+    expect(clipped).toEqual({ keywords: ["a1", "a2", "a3"], excludeKeywords: ["x1"] });
+  });
+
+  it("gives prioritize the whole cap when it fills it alone", () => {
+    const clipped = clipKeywordPool(["a1", "a2", "a3", "a4", "a5"], ["x1"], 4);
+    expect(clipped).toEqual({ keywords: ["a1", "a2", "a3", "a4"], excludeKeywords: [] });
+  });
+
+  it("leaves a pool within its cap untouched", () => {
+    const clipped = clipKeywordPool(["a1", "a2"], ["x1"], 4);
+    expect(clipped).toEqual({ keywords: ["a1", "a2"], excludeKeywords: ["x1"] });
+  });
+
+  it("is stable when the cap equals the pool size", () => {
+    const clipped = clipKeywordPool(["a1", "a2"], ["x1", "x2"], 4);
+    expect(clipped).toEqual({ keywords: ["a1", "a2"], excludeKeywords: ["x1", "x2"] });
   });
 });
 

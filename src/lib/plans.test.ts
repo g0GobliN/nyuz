@@ -3,8 +3,36 @@ import {
   DEFAULT_ANNUAL_PRICES,
   DEFAULT_PLAN_PRICES,
   formatUsd,
+  keywordCounterCopy,
+  keywordPoolUsed,
   resolvePlanPrices,
 } from "@/lib/plans";
+
+describe("keywordCounterCopy", () => {
+  it("is silent while the reader is inside their pool", () => {
+    expect(keywordCounterCopy("uno", 4)).toBeNull();
+    expect(keywordCounterCopy("plura", 40)).toBeNull();
+    expect(keywordCounterCopy("omni", 100)).toBeNull();
+  });
+
+  it("names what the reader has and what the next rung allows", () => {
+    // The ruling's wording: one quiet step up, never a popup.
+    expect(keywordCounterCopy("uno", 5)).toBe("5 of 4 · nyuz Plura allows 50");
+    expect(keywordCounterCopy("plura", 51)).toBe("51 of 50 · nyuz Omni allows 100");
+  });
+
+  it("states the number alone at the top of the ladder", () => {
+    expect(keywordCounterCopy("omni", 101)).toBe("101 of 100");
+  });
+});
+
+describe("keywordPoolUsed", () => {
+  it("counts both directions as one pool, ignoring blanks", () => {
+    expect(keywordPoolUsed("releases, security", "rumours, pricing")).toBe(4);
+    expect(keywordPoolUsed("a, , b", "")).toBe(2);
+    expect(keywordPoolUsed("", "")).toBe(0);
+  });
+});
 
 /**
  * These figures multiply into the MRR estimate on the console overview. A
