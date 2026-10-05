@@ -80,12 +80,16 @@ main(async () => {
   say(rowLine("distinct events touched", eventsTouched.size));
   if (ages.length > 0) {
     ages.sort((a, b) => a - b);
-    say(
-      rowLine(
-        "article age min/median/max",
-        `${ages[0].toFixed(1)}h / ${ages[Math.floor(ages.length / 2)].toFixed(1)}h / ${ages.at(-1)?.toFixed(1)}h`,
-      ),
-    );
+    const min = ages[0];
+    const median = ages[Math.floor(ages.length / 2)];
+    const max = ages.at(-1);
+    if (min !== undefined && median !== undefined && max !== undefined)
+      say(
+        rowLine(
+          "article age min/median/max",
+          `${min.toFixed(1)}h / ${median.toFixed(1)}h / ${max.toFixed(1)}h`,
+        ),
+      );
   }
 
   // Fairness: the tracked cohort, matched by the event ids the membership
