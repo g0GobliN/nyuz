@@ -1,6 +1,6 @@
 {
-  "measuredAt": "2026-10-03",
-  "measuredAtCommit": "7547fc33",
+  "measuredAt": "2026-10-06",
+  "measuredAtCommit": "e4784f08",
   "note": "The floor for `npm run coverage:ratchet`. Raise it with `npm run coverage:ratchet -- --update` in the commit that adds the tests, never by hand.\n`measuredAtCommit` is the commit the measurement was taken at, so a later\ndrop can be attributed to a change rather than guessed at. Read it before\nblaming the change under review.",
   "directories": {
     "src": {
@@ -12,17 +12,17 @@
     },
     "src/components": {
       "files": 12,
-      "lines": 15.36,
-      "statements": 15.36,
-      "functions": 13.33,
-      "branches": 28.13
+      "lines": 22.62,
+      "statements": 22.62,
+      "functions": 14.71,
+      "branches": 40.82
     },
     "src/components/admin": {
-      "files": 2,
-      "lines": 0,
-      "statements": 0,
-      "functions": 0,
-      "branches": 0
+      "files": 3,
+      "lines": 9.67,
+      "statements": 9.67,
+      "functions": 17.65,
+      "branches": 80.95
     },
     "src/components/blog": {
       "files": 1,
@@ -60,11 +60,11 @@
       "branches": 0
     },
     "src/lib": {
-      "files": 66,
-      "lines": 80.75,
-      "statements": 80.75,
-      "functions": 89.86,
-      "branches": 86.35
+      "files": 68,
+      "lines": 81.18,
+      "statements": 81.18,
+      "functions": 90.58,
+      "branches": 86.64
     },
     "src/lib/ai": {
       "files": 10,
@@ -78,7 +78,7 @@
       "lines": 88.35,
       "statements": 88.35,
       "functions": 88.24,
-      "branches": 82.31
+      "branches": 82.44
     },
     "src/lib/email": {
       "files": 2,
@@ -110,10 +110,10 @@
     },
     "src/lib/pipeline": {
       "files": 41,
-      "lines": 83.41,
-      "statements": 83.41,
-      "functions": 87.09,
-      "branches": 79.5
+      "lines": 83.77,
+      "statements": 83.77,
+      "functions": 87.36,
+      "branches": 79.81
     },
     "src/lib/push": {
       "files": 3,
@@ -124,10 +124,10 @@
     },
     "src/lib/server": {
       "files": 47,
-      "lines": 21.3,
-      "statements": 21.3,
-      "functions": 43.59,
-      "branches": 69.83
+      "lines": 23.93,
+      "statements": 23.93,
+      "functions": 45.54,
+      "branches": 70.9
     },
     "src/lib/supabase": {
       "files": 3,
@@ -187,9 +187,9 @@
     }
   },
   "total": {
-    "lines": 40.43,
-    "statements": 40.43,
-    "functions": 72.55,
-    "branches": 80.88
+    "lines": 41.54,
+    "statements": 41.54,
+    "functions": 72.54,
+    "branches": 81.11
   }
 }
