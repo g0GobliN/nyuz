@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchArticlePage } from "./article-fetch";
+import { fetchArticlePage, MAX_ARTICLE_BYTES } from "./article-fetch";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -89,19 +89,47 @@ describe("fetchArticlePage", () => {
   });
 
   it("rejects a page over the size limit via content-length", async () => {
+    // Relative to the constant, not a literal: the bound moved once already
+    // (Audit 39, 1.5MB to 3MB) and a hardcoded body would have silently stopped
+    // testing the guard rather than failing loudly.
     vi.stubGlobal(
       "fetch",
       vi.fn(
         async () =>
           new Response("<html></html>", {
             status: 200,
-            headers: { "content-type": "text/html", "content-length": String(3 * 1024 * 1024) },
+            headers: {
+              "content-type": "text/html",
+              "content-length": String(MAX_ARTICLE_BYTES + 1),
+            },
           }),
       ),
     );
     const result = await fetchArticlePage("https://example.com/huge");
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/over the/);
+  });
+
+  it("accepts a page in the measured band between the old cap and the bound (Audit 39)", async () => {
+    // The fetch survey that produced the ruling measured Tom's Hardware's pages
+    // at 1.79-1.95MB with clean extraction, so a page in that band has to pass
+    // the guard: the previous 1.5MB cap is what parked 784 unattempted
+    // articles, and this pins the bound above the measured range.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("<html><body><p>Measured band page.</p></body></html>", {
+            status: 200,
+            headers: {
+              "content-type": "text/html",
+              "content-length": String(1.95 * 1024 * 1024),
+            },
+          }),
+      ),
+    );
+    const result = await fetchArticlePage("https://example.com/measured-band");
+    expect(result.ok).toBe(true);
   });
 
   it("treats a thrown network error (e.g. a timeout) as retryable", async () => {

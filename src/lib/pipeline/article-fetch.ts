@@ -19,10 +19,22 @@ import { isPublicHttpUrl } from "@/lib/net/public-url";
  * check that runs before this.
  */
 
-const ARTICLE_USER_AGENT = "nyuz/1.0 (+https://nyuz.app/legal/contact; automated evidence reader)";
+export const ARTICLE_USER_AGENT =
+  "nyuz/1.0 (+https://nyuz.app/legal/contact; automated evidence reader)";
 export const ARTICLE_FETCH_TIMEOUT_MS = 10_000;
-/** 1.5MB. An article page, not a publisher's SPA bundle or an archive dump. */
-const MAX_ARTICLE_BYTES = 1.5 * 1024 * 1024;
+/**
+ * 3MB. An article page, not a publisher's SPA bundle or an archive dump.
+ *
+ * The bound stays hard; its width was measured rather than assumed (Audit 39).
+ * Tom's Hardware served pages of 1.79-1.95MB whose text extracted cleanly at
+ * 584-1,059 words and 12 evidence units each -- the fetch survey ran the
+ * pipeline's own extractor over the family's eight newest articles and every
+ * one was rejected by the previous 1.5MB cap alone, parking 784 unattempted
+ * articles. 3MB accommodates the observed range with headroom while keeping
+ * the input finite. The justification is the sampled pages, not an assumption
+ * about what a Worker can hold.
+ */
+export const MAX_ARTICLE_BYTES = 3 * 1024 * 1024;
 /**
  * Two hops, not `fetchFeed`'s five: this stage's whole per-run subrequest
  * budget is proven safe against this constant (see `enrich.ts`'s worst-case
