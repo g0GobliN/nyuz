@@ -17,6 +17,14 @@
  *     after the probe went live, marker moves, and the tick history in that
  *     window.
  *
+ * Two counts that are not the same thing, kept apart on purpose (Audit 39
+ * ruling): "raw parked articles" is every unattempted article behind a source
+ * latch, which is a diagnostic number, and "currently recoverable work" is the
+ * part inside the scheduler's 72h freshness window. Recovery restores a source
+ * to normal selection; it does not authorize historical backfill outside that
+ * boundary, so the older band is not reader-facing unmet work and must not be
+ * reported as if it were.
+ *
  * PostgREST caps one request at 1000 rows, so every read that can exceed the
  * cap is paged explicitly. The first version of this instrument read all
  * backed-off sources in one chunked `.in()` query; the rows summed to the cap
@@ -50,6 +58,8 @@ type SourceRow = {
   enrichment_allowed: boolean | null;
   enrichment_last_success: string | null;
   enrichment_last_attempt_at: string | null;
+  /** Why the newest concluded attempt failed (Audit 40); null = none recorded. */
+  enrichment_last_failure_reason: string | null;
   robots_checked_at: string | null;
 };
 
@@ -88,7 +98,7 @@ main(async () => {
   const { data: backedOffSources, error: sourcesError } = await client
     .from("sources")
     .select(
-      "id, name, enrichment_failure_count, enrichment_allowed, enrichment_last_success, enrichment_last_attempt_at, robots_checked_at",
+      "id, name, enrichment_failure_count, enrichment_allowed, enrichment_last_success, enrichment_last_attempt_at, enrichment_last_failure_reason, robots_checked_at",
     )
     .gte("enrichment_failure_count", 5);
   if (sourcesError) throw new Error(`sources: ${sourcesError.message}`);
@@ -142,6 +152,7 @@ main(async () => {
     allowed: boolean | null;
     marker: string | null;
     clock: string | null;
+    reason: string | null;
     corpus: number;
     successes: number;
     lastSuccess: string | null;
@@ -150,6 +161,16 @@ main(async () => {
     failed: number;
     other: number;
     unattempted: number;
+    /**
+     * Where the unattempted work sits by age. Recovery returns a source to
+     * normal selection, and normal selection only takes articles the scheduler
+     * still considers fresh -- so this is what a recovered family would
+     * actually yield, not just how much is parked.
+     */
+    unattemptedWithin72h: number;
+    unattemptedWithin7d: number;
+    unattemptedWithin30d: number;
+    unattemptedOlder: number;
   };
   const profiles = new Map<string, SourceProfile>();
   for (const source of sources) {
@@ -160,6 +181,7 @@ main(async () => {
       allowed: source.enrichment_allowed,
       marker: source.enrichment_last_success,
       clock: source.enrichment_last_attempt_at,
+      reason: source.enrichment_last_failure_reason,
       corpus: 0,
       successes: 0,
       lastSuccess: null,
@@ -168,6 +190,10 @@ main(async () => {
       failed: 0,
       other: 0,
       unattempted: 0,
+      unattemptedWithin72h: 0,
+      unattemptedWithin7d: 0,
+      unattemptedWithin30d: 0,
+      unattemptedOlder: 0,
     });
   }
   for (const article of articles) {
@@ -177,6 +203,11 @@ main(async () => {
     const evidence = evidenceByArticle.get(article.id);
     if (!evidence) {
       profile.unattempted += 1;
+      const age = Date.now() - Date.parse(article.published_at);
+      if (age <= 72 * 3_600_000) profile.unattemptedWithin72h += 1;
+      else if (age <= 7 * 24 * 3_600_000) profile.unattemptedWithin7d += 1;
+      else if (age <= 30 * 24 * 3_600_000) profile.unattemptedWithin30d += 1;
+      else profile.unattemptedOlder += 1;
       continue;
     }
     profile.attempted += 1;
@@ -216,6 +247,16 @@ main(async () => {
   say(rowLine("  of those, on the marker alone", markerEligible.length));
   say(rowLine("never succeeded (stays parked)", neverSucceeded.length));
   say(rowLine("robots-refused (ineligible regardless)", refused.length));
+  heading("Why each source is parked (Audit 40 — observational)");
+  for (const source of sources) {
+    const p = profiles.get(source.id);
+    if (!p) continue;
+    say(
+      `  ${String(p.name ?? p.id.slice(0, 8))
+        .slice(0, 30)
+        .padEnd(30)} ${p.reason ?? "(no reason recorded yet)"}`,
+    );
+  }
 
   heading("Per source");
   for (const source of sources) {
@@ -330,6 +371,26 @@ main(async () => {
       cooldownOk: !withinCooldown,
     });
   }
+  heading("What a recovery would yield — unattempted work by age");
+  for (const source of sources) {
+    const p = profiles.get(source.id);
+    if (!p) continue;
+    say(
+      `  ${String(p.name ?? p.id.slice(0, 8))
+        .slice(0, 30)
+        .padEnd(
+          30,
+        )} <=72h=${String(p.unattemptedWithin72h).padStart(4)}  <=7d=${String(p.unattemptedWithin7d).padStart(4)}  <=30d=${String(p.unattemptedWithin30d).padStart(4)}  older=${String(p.unattemptedOlder).padStart(4)}`,
+    );
+  }
+  const fresh = [...profiles.values()].reduce((sum, p) => sum + p.unattemptedWithin72h, 0);
+  const total = [...profiles.values()].reduce((sum, p) => sum + p.unattempted, 0);
+  say(rowLine("currently recoverable work (<=72h)", fresh));
+  say(rowLine("raw parked articles (all ages, diagnostic)", total));
+  say(
+    `  ${Math.round((fresh / Math.max(total, 1)) * 100)}% of the parked total is work the scheduler would take; the rest is history the 72h floor already refused.`,
+  );
+
   say(rowLine("unattempted articles on eligible sources", candidates.length));
   say(rowLine("ready now (past 24h cooldown)", candidates.filter((c) => c.cooldownOk).length));
   for (const candidate of candidates.slice(0, 12)) {
@@ -420,11 +481,16 @@ main(async () => {
               allowed: s.enrichment_allowed,
               marker: s.enrichment_last_success,
               clock: s.enrichment_last_attempt_at,
+              reason: s.enrichment_last_failure_reason,
               corpus: p?.corpus ?? 0,
               successes: p?.successes ?? 0,
               lastSuccess: p?.lastSuccess ?? null,
               lastFailedAt: p?.lastFailedAt ?? null,
               unattempted: p?.unattempted ?? 0,
+              unattemptedWithin72h: p?.unattemptedWithin72h ?? 0,
+              unattemptedWithin7d: p?.unattemptedWithin7d ?? 0,
+              unattemptedWithin30d: p?.unattemptedWithin30d ?? 0,
+              unattemptedOlder: p?.unattemptedOlder ?? 0,
               parkedEvents: parkedEvents.get(s.id)?.size ?? 0,
             };
           }),

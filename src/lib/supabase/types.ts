@@ -248,6 +248,8 @@ export type Source = {
   enrichment_last_success: string | null;
   /** When this source was last attempted (0113, Audit 38). Null = no attempt recorded since the column existed, read as long idle by the probe's idle rule. */
   enrichment_last_attempt_at: string | null;
+  /** Why the newest concluded attempt failed (0114, Audit 40): fetch kind, thin_content, extraction_error, or a robots reason. Cleared on success. Observational only — no eligibility or selection reads it. */
+  enrichment_last_failure_reason: string | null;
 };
 
 export type PollingTier = "hot" | "normal" | "low" | "cold" | "paused";
@@ -1167,6 +1169,7 @@ export type Database = {
         | "enrichment_failure_count"
         | "enrichment_last_success"
         | "enrichment_last_attempt_at"
+        | "enrichment_last_failure_reason"
       >;
       article_evidence: Table<
         ArticleEvidence,

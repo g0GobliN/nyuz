@@ -799,7 +799,7 @@ async function enrichOne(
     if (!robots.allowed) {
       if (!dryRun) {
         await finish(db, article.id, "blocked", [], 0);
-        await recordSourceAttempt(db, source.id);
+        await recordSourceAttempt(db, source.id, robots.reason);
       }
       return {
         articleId: article.id,
@@ -817,7 +817,7 @@ async function enrichOne(
     if (!fetched.ok) {
       if (!dryRun) {
         await finish(db, article.id, "unavailable", [], 0);
-        await recordSourceOutcome(db, source, false);
+        await recordSourceOutcome(db, source, { ok: false, reason: fetched.kind });
       }
       return {
         articleId: article.id,
@@ -833,7 +833,7 @@ async function enrichOne(
     if (wordCount < MIN_USABLE_WORDS) {
       if (!dryRun) {
         await finish(db, article.id, "unavailable", [], wordCount);
-        await recordSourceOutcome(db, source, false);
+        await recordSourceOutcome(db, source, { ok: false, reason: "thin_content" });
       }
       return {
         articleId: article.id,
@@ -850,7 +850,7 @@ async function enrichOne(
     });
     if (!dryRun) {
       await finish(db, article.id, "enriched", units, wordCount);
-      await recordSourceOutcome(db, source, true);
+      await recordSourceOutcome(db, source, { ok: true });
     }
     return {
       articleId: article.id,
@@ -862,7 +862,9 @@ async function enrichOne(
   } catch (error) {
     if (!dryRun) {
       await finish(db, article.id, "failed", [], 0).catch(() => undefined);
-      await recordSourceOutcome(db, source, false).catch(() => undefined);
+      await recordSourceOutcome(db, source, { ok: false, reason: "extraction_error" }).catch(
+        () => undefined,
+      );
     }
     return {
       articleId: article.id,
@@ -930,32 +932,43 @@ async function sourceAllowed(
  * The source's attempt clock on its own (Audit 38), for the one concluding
  * path that does not move the counter: a robots-blocked article. Without it a
  * source whose robots answer stays ambiguous would read as idle forever and be
- * probed every PROBE_IDLE_DAYS without the clock ever moving.
+ * probed every PROBE_IDLE_DAYS without the clock ever moving. The refusal is
+ * recorded alongside it (Audit 40) so a parked source's reason is answerable
+ * without a survey against the live web.
  */
-async function recordSourceAttempt(db: Db, sourceId: string): Promise<void> {
+async function recordSourceAttempt(db: Db, sourceId: string, failureReason: string): Promise<void> {
   await db
     .from("sources")
-    .update({ enrichment_last_attempt_at: new Date().toISOString() })
+    .update({
+      enrichment_last_attempt_at: new Date().toISOString(),
+      enrichment_last_failure_reason: failureReason,
+    })
     .eq("id", sourceId);
 }
+
+/** The conclusion of one enrichment attempt, as the source row records it. */
+type SourceOutcome = { ok: true } | { ok: false; reason: string };
 
 async function recordSourceOutcome(
   db: Db,
   source: CandidateSource,
-  success: boolean,
+  outcome: SourceOutcome,
 ): Promise<void> {
   const now = new Date().toISOString();
-  if (success) {
+  if (outcome.ok) {
     // The marker must move even when the counter is already 0 — the old
     // early-return was the whole body, and a success on a healthy source
     // would never refresh its recovery signal (Audit 37). The attempt clock
     // moves with it: a source that just succeeded has not been idle (Audit 38).
+    // A cleared reason keeps the column's meaning honest: non-null always means
+    // the newest concluded attempt failed (Audit 40).
     await db
       .from("sources")
       .update({
         enrichment_failure_count: 0,
         enrichment_last_success: now,
         enrichment_last_attempt_at: now,
+        enrichment_last_failure_reason: null,
       })
       .eq("id", source.id);
     return;
@@ -963,12 +976,15 @@ async function recordSourceOutcome(
   // The clock is written on the failure path too: this is what arms the idle
   // rule for a source that has never succeeded, so a probe that fails waits
   // another PROBE_IDLE_DAYS instead of returning on the next spare tick
-  // (Audit 38).
+  // (Audit 38). The reason rides along (Audit 40): observational only, read by
+  // nothing, but it is the difference between "parked" and "parked because the
+  // origin refuses us".
   await db
     .from("sources")
     .update({
       enrichment_failure_count: source.enrichment_failure_count + 1,
       enrichment_last_attempt_at: now,
+      enrichment_last_failure_reason: outcome.reason,
     })
     .eq("id", source.id);
 }

@@ -19,6 +19,7 @@ function source(
   failureCount = 0,
   lastSuccess: string | null = null,
   lastAttempt: string | null = null,
+  lastFailureReason: string | null = null,
 ) {
   return {
     id,
@@ -27,6 +28,7 @@ function source(
     enrichment_failure_count: failureCount,
     enrichment_last_success: lastSuccess,
     enrichment_last_attempt_at: lastAttempt,
+    enrichment_last_failure_reason: lastFailureReason,
   };
 }
 
@@ -327,6 +329,10 @@ describe("enrich", () => {
     const updatedSource = db.rows("sources").find((r) => r["id"] === "s1");
     expect(updatedSource?.["enrichment_allowed"]).toBeNull();
     expect(updatedSource?.["robots_checked_at"]).toBeFalsy();
+    // The refusal is recorded on the source even though it does not move the
+    // counter (Audit 40): "parked" and "parked because robots said no" are
+    // different states to an operator staring at the console.
+    expect(updatedSource?.["enrichment_last_failure_reason"]).toBe("robots_unknown");
   });
 
   it("skips a source's articles once its enrichment failure count crosses the threshold, without fetching", async () => {
@@ -1461,6 +1467,89 @@ describe("enrich", () => {
     expect(spy).not.toHaveBeenCalled();
     expect(report.enriched).toBe(0);
     expect(report.skipped).toBe(1);
+  });
+
+  it("records why an enrichment failed on the source (Audit 40)", async () => {
+    // The counter says a source failed; the reason says how. Thin content is
+    // the case that started the question: a page that fetched fine and carried
+    // nothing worth extracting is not the same failure as an origin refusing
+    // us, and only the reason can tell them apart later.
+    const db = fixture();
+    const thinSource = source("sThin", true, 0, null, null, "http_error");
+    db.rows("sources").push(thinSource);
+    db.rows("articles").push({
+      ...article("aThin", "https://thin.example.com/story", thinSource),
+      event_id: "eThin",
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eThin",
+      matched_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(THIN_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.unavailable).toBe(1);
+    const updated = db.rows("sources").find((r) => r["id"] === "sThin");
+    expect(updated?.["enrichment_last_failure_reason"]).toBe("thin_content");
+  });
+
+  it("records the fetch kind when the page cannot be read (Audit 40)", async () => {
+    // The fetch kinds are the audit-visible difference between a guard
+    // (too_large), a wall (http_error) and a page that simply arrived thin.
+    const db = fixture();
+    const downSource = source("sDown", true, 0);
+    db.rows("sources").push(downSource);
+    db.rows("articles").push({
+      ...article("aDown", "https://down.example.com/story", downSource),
+      event_id: "eDown",
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eDown",
+      matched_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response("gone", { status: 500, headers: { "content-type": "text/html" } }),
+      ),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.unavailable).toBe(1);
+    const updated = db.rows("sources").find((r) => r["id"] === "sDown");
+    expect(updated?.["enrichment_last_failure_reason"]).toBe("http_error");
+  });
+
+  it("clears the recorded reason when an enrichment succeeds (Audit 40)", async () => {
+    const db = fixture();
+    const recovered = source("sRecovered", true, 0, null, null, "thin_content");
+    db.rows("sources").push(recovered);
+    db.rows("articles").push({
+      ...article("aOk", "https://ok.example.com/story", recovered),
+      event_id: "eOk",
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eOk",
+      matched_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    const updated = db.rows("sources").find((r) => r["id"] === "sRecovered");
+    expect(updated?.["enrichment_last_failure_reason"]).toBeNull();
   });
 
   it("arms the idle clock when a probe's attempt fails (Audit 38)", async () => {
