@@ -4,16 +4,43 @@
  *
  *   npm run test:coverage      # writes coverage/coverage-summary.json
  *   npm run coverage:ratchet   # compares it; exits non-zero on a regression
- *   npm run coverage:ratchet -- --update   # raises the floor to what was measured
+ *   npm run coverage:ratchet -- --update --from <summary.json>   # record a floor
  *
  * `--update` refuses to lower anything. The floor moving down is always a
  * deliberate act, so it needs a second flag that says so:
  *
- *   npm run coverage:ratchet -- --update --allow-lower
+ *   npm run coverage:ratchet -- --update --allow-lower --from <summary.json>
  *
  * Without that, "the floor only rises" is a property of the tool rather than a
  * promise in a comment, and a hurried `--update` after a red build cannot erase
  * the evidence of what was lost.
+ *
+ * ---------------------------------------------------------------------------
+ * Why a floor is only recorded from the runner (Audit 42)
+ *
+ * v8 reports the ranges it discovered while executing, so the measured universe
+ * is not a property of the source alone: code that did not run is reported
+ * narrower than code that did. Two machines running one commit therefore do not
+ * measure the same numbers. Measured against the runner on the same tree, a
+ * laptop disagreed on seven files, and disagreed about the denominator rather
+ * than the count -- src/lib/pipeline/digest.ts reported 376 branch ranges there
+ * and 372 here. The laptop is not reproducible against itself either: two
+ * consecutive local runs of one commit moved a group by up to 0.16pp, while the
+ * runner measured that commit identically three times, all 326 files.
+ *
+ * A floor is a promise the enforcer can keep, so it is recorded from the
+ * enforcer. `--update` refuses a local measurement for that reason; download the
+ * runner's own summary and record that (the summary is the `Keep the
+ * measurement` artifact CI uploads on every run, green or red):
+ *
+ *   gh run download <run-id> -n coverage-summary -D /tmp/ci-coverage
+ *   npm run coverage:ratchet -- --update --from /tmp/ci-coverage/coverage-summary.json
+ *
+ * Comparison keeps its teeth locally, with one difference: outside GitHub
+ * Actions a shortfall inside PORTABILITY_BAND is reported as a warning rather
+ * than a failure, because that is the width of the disagreement between two
+ * machines rather than a regression. In CI the comparison is exact, and CI is
+ * what gates the deploy.
  *
  * ---------------------------------------------------------------------------
  * Why a ratchet and not a threshold
@@ -76,9 +103,20 @@ const TOLERANCE = 0.0001;
  * so the baseline would otherwise record `/home/someone/nyuz/src/...` and fail
  * on every machine but the one that wrote it. Both sides go through this, so
  * the file on disk stays portable.
+ *
+ * A summary measured on the runner is read from its artifact (Audit 42), and
+ * there the prefix is `/home/runner/work/nyuz/nyuz`, which is not this
+ * checkout's -- `relative` would return a `../..` path and every file would
+ * land in one meaningless group, silently comparing nothing. Everything the
+ * summary can contain lives under `src/`, so the path from there is the
+ * portable form and the fallback is that.
  */
 function relativeToRepo(file) {
-  return isAbsolute(file) ? relative(process.cwd(), file) : file;
+  if (!isAbsolute(file)) return file;
+  const withinCheckout = relative(process.cwd(), file);
+  if (!withinCheckout.startsWith("..") && !isAbsolute(withinCheckout)) return withinCheckout;
+  const underSrc = file.indexOf("/src/");
+  return underSrc === -1 ? withinCheckout : file.slice(underSrc + 1);
 }
 
 function groupOf(file) {
@@ -142,17 +180,46 @@ function readJson(path) {
 }
 
 /** The measurement. Missing means the caller skipped the measuring step. */
-function readSummary() {
+function readSummary(path) {
   try {
-    return readJson(SUMMARY);
+    return readJson(path);
   } catch (error) {
     console.error(
-      `Cannot read ${SUMMARY}: ${error.message}\n` +
+      `Cannot read ${path}: ${error.message}\n` +
         "Run `npm run test:coverage` first -- the ratchet compares a measurement, it does not take one.",
     );
     process.exit(2);
   }
 }
+
+/** `--from <file>`: record a summary measured elsewhere, rather than this run's. */
+function flag(name) {
+  const index = process.argv.indexOf(name);
+  if (index === -1) return null;
+  const value = process.argv[index + 1];
+  if (!value || value.startsWith("--")) {
+    console.error(`${name} needs a file to read.`);
+    process.exit(2);
+  }
+  return value;
+}
+
+/**
+ * How far below the floor a *local* run may sit before it is a failure.
+ *
+ * Sized by Audit 42's measurements rather than chosen: two consecutive local
+ * runs of one commit differed on one file, and because the disagreement was the
+ * branch denominator rather than the count -- src/lib/discovery/feed.ts came
+ * back with 64 branch ranges and then 63 -- it moved that group by 0.223pp.
+ * Local against the runner added up to 0.10pp on a group in the same direction.
+ * 0.35pp covers the sum with a little room, and it is a quarter of the width a
+ * real regression produces: removing a test file or adding an untested module
+ * moves a group by half a point and up. CI never applies it.
+ */
+const PORTABILITY_BAND = 0.35;
+
+/** GitHub sets this in every job; a laptop never has it. */
+const runningInCi = process.env["GITHUB_ACTIONS"] === "true";
 
 /** The floor. Missing is expected exactly once, on the run that creates it. */
 function readBaselineOrEmpty() {
@@ -165,7 +232,29 @@ function readBaselineOrEmpty() {
 
 const update = process.argv.includes("--update");
 const allowLower = process.argv.includes("--allow-lower");
-const summary = readSummary();
+const fromPath = flag("--from");
+
+/**
+ * The floor is recorded from the environment that enforces it. A local
+ * measurement is refused because it is not reproducible -- see the header.
+ * Checked before the summary is read, so the refusal is the message the caller
+ * needs rather than a missing-file error from a run that was never allowed.
+ */
+if (update && !fromPath && !runningInCi) {
+  console.error(
+    "Refusing to record the floor from this machine's measurement.\n\n" +
+      "v8's reported universe depends on what executed, so a local run and the\n" +
+      "runner disagree on the same commit and a local run disagrees with itself.\n" +
+      "Download the runner's summary and record that:\n\n" +
+      "  gh run download <run-id> -n coverage-summary -D /tmp/ci-coverage\n" +
+      "  npm run coverage:ratchet -- --update --from /tmp/ci-coverage/coverage-summary.json\n\n" +
+      "Check out the commit the run measured first, so `measuredAtCommit` names\n" +
+      "the tree the floor is a floor for.\n",
+  );
+  process.exit(2);
+}
+
+const summary = readSummary(fromPath ?? SUMMARY);
 const measured = { directories: groupTotals(summary), total: totalsOf(summary) };
 
 if (update) {
@@ -212,6 +301,9 @@ if (update) {
   const baseline = {
     measuredAt: new Date().toISOString().slice(0, 10),
     measuredAtCommit: commitAtRecord(),
+    // Where the numbers came from, so a later reader can tell a floor taken on
+    // the runner from one imported from an artifact by hand.
+    measuredIn: runningInCi ? "github-actions" : "external-measurement",
     note:
       "The floor for `npm run coverage:ratchet`. Raise it with " +
       "`npm run coverage:ratchet -- --update` in the commit that adds the tests, " +
@@ -267,12 +359,18 @@ if (!baseline) {
 }
 
 const regressions = [];
+const portabilityWarnings = [];
 
 function compare(scope, metric, now, floor) {
   if (floor === undefined || floor === null) return;
-  if (now + TOLERANCE < floor) {
-    regressions.push({ scope, metric, now, floor, delta: round(now - floor) });
-  }
+  const gap = floor - now;
+  if (gap <= TOLERANCE) return;
+  // In CI the floor came from this same environment, so any gap is a
+  // regression. Off it, the floor came from the runner and a small gap is the
+  // width of the disagreement between two machines.
+  const entry = { scope, metric, now, floor, delta: round(now - floor) };
+  if (gap <= PORTABILITY_BAND + TOLERANCE && !runningInCi) portabilityWarnings.push(entry);
+  else regressions.push(entry);
 }
 
 for (const [group, values] of Object.entries(measured.directories)) {
@@ -348,7 +446,8 @@ if (stepSummary) {
       "```",
       "",
       "A number in brackets is the change from the committed floor.",
-      "`npm run coverage:ratchet -- --update` raises it, in the commit that adds the tests.",
+      "The floor is recorded from the runner: `gh run download <run-id> -n coverage-summary`, then",
+      "`npm run coverage:ratchet -- --update --from <summary.json>`. See the Audit 42 note in scripts/coverage-ratchet.mjs.",
       "",
     ].join("\n"),
     { flag: "a" },
@@ -365,6 +464,20 @@ if (regressions.length > 0) {
       "deliberately with `npm run coverage:ratchet -- --update` and say why in the commit.",
   );
   process.exit(1);
+}
+
+if (portabilityWarnings.length > 0) {
+  // Reported, never silent: a reader should know the local run sits under the
+  // runner's floor and by how much, even when the gap is machine disagreement.
+  console.log(
+    `Within the ${PORTABILITY_BAND}pp portability band (this machine against the runner):\n`,
+  );
+  for (const w of portabilityWarnings) {
+    console.log(
+      `  ${w.scope}: ${w.metric} ${w.floor.toFixed(2)} -> ${w.now.toFixed(2)} (${w.delta.toFixed(2)})`,
+    );
+  }
+  console.log("");
 }
 
 console.log("No regression against the committed floor.");

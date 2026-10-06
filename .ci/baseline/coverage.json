@@ -1,7 +1,7 @@
 {
   "measuredAt": "2026-10-03",
   "measuredAtCommit": "7547fc33",
-  "note": "The floor for `npm run coverage:ratchet`. Raise it with `npm run coverage:ratchet -- --update` in the commit that adds the tests, never by hand.\n`measuredAtCommit` is the commit the measurement was taken at, so a later\ndrop can be attributed to a change rather than guessed at. Read it before\nblaming the change under review.",
+  "note": "The floor for `npm run coverage:ratchet`. Raise it with `npm run coverage:ratchet -- --update --from <summary.json>`, in the commit that adds the tests and against the runner's own summary (gh run download <run-id> -n coverage-summary); a local measurement is refused because v8's reported range set depends on the machine. Never by hand.\n`measuredAtCommit` is the commit the measurement was taken at, so a later\ndrop can be attributed to a change rather than guessed at. Read it before\nblaming the change under review.\nOutside GitHub Actions a shortfall inside the 0.35pp portability band is reported\nas a warning rather than a failure; CI compares exactly.",
   "directories": {
     "src": {
       "files": 3,
