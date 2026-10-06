@@ -35,6 +35,7 @@ const source = (over: Partial<Source> = {}): Source => ({
   enrichment_allowed: null,
   robots_checked_at: null,
   enrichment_failure_count: 0,
+  enrichment_last_success: null,
   ...over,
 });
 

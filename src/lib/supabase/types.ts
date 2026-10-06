@@ -244,6 +244,8 @@ export type Source = {
   enrichment_allowed: boolean | null;
   robots_checked_at: string | null;
   enrichment_failure_count: number;
+  /** Newest confirmed successful enrichment ever (0112). Null = never succeeded; the recovery probe parks those permanently. */
+  enrichment_last_success: string | null;
 };
 
 export type PollingTier = "hot" | "normal" | "low" | "cold" | "paused";
@@ -1161,6 +1163,7 @@ export type Database = {
         | "enrichment_allowed"
         | "robots_checked_at"
         | "enrichment_failure_count"
+        | "enrichment_last_success"
       >;
       article_evidence: Table<
         ArticleEvidence,

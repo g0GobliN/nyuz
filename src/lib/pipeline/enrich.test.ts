@@ -13,14 +13,26 @@ const ARTICLE_HTML = `<html><body><article>
 
 const THIN_HTML = `<html><body><p>Please log in to continue reading this article.</p></body></html>`;
 
-function source(id: string, allowed: boolean | null = true, failureCount = 0) {
+function source(
+  id: string,
+  allowed: boolean | null = true,
+  failureCount = 0,
+  lastSuccess: string | null = null,
+) {
   return {
     id,
     homepage: "https://example.com",
     enrichment_allowed: allowed,
     enrichment_failure_count: failureCount,
+    enrichment_last_success: lastSuccess,
   };
 }
+
+// Audit 37: the marker stands for "enriched at least once, ever". Thirteen
+// days mirrors the measured llama.cpp case -- a success the old gate's 7-day
+// window could no longer see, while fresh unattempted articles waited behind
+// the latch.
+const LATCHED_SUCCESS = new Date(Date.now() - 13 * 24 * 3600e3).toISOString();
 
 function article(id: string, url: string, src: ReturnType<typeof source>) {
   return {
@@ -1141,7 +1153,7 @@ describe("enrich", () => {
     // flows through `enrichOne`, so the success resets the counter and the
     // source re-enters the normal pool with no duplicate reset logic.
     const db = fixture();
-    const probeSource = source("sProbe", true, 5);
+    const probeSource = source("sProbe", true, 5, LATCHED_SUCCESS);
     db.rows("sources").push(probeSource);
     db.rows("articles").push(
       article("aYoung", "https://young.example.com/story", source("sYoung", true)),
@@ -1209,9 +1221,13 @@ describe("enrich", () => {
     // The probe takes the source's only unattempted article -- the history
     // rows are already finished and are the recovery signal, not the work.
     expect(fetched.some((u) => u.includes("probe.example.com/story"))).toBe(true);
-    // The success resets the parked source through the existing path.
+    // The success resets the parked source through the existing path, and
+    // Audit 37's marker moves with it -- the recovery signal is refreshed by
+    // the very success it enabled.
     const updated = db.rows("sources").find((r) => r["id"] === "sProbe");
     expect(updated?.["enrichment_failure_count"]).toBe(0);
+    expect(updated?.["enrichment_last_success"]).not.toBeNull();
+    expect(updated?.["enrichment_last_success"]).not.toBe(LATCHED_SUCCESS);
   });
 
   it("never spends a normal slot on the probe", async () => {
@@ -1219,7 +1235,7 @@ describe("enrich", () => {
     // normal candidate needs it: recovery work may not displace productive
     // work, so the probe must not fire and the parked source stays parked.
     const db = fixture();
-    const probeSource = source("sProbe", true, 5);
+    const probeSource = source("sProbe", true, 5, LATCHED_SUCCESS);
     db.rows("sources").push(probeSource);
     db.rows("articles").push(
       article("aYoung", "https://young.example.com/story", source("sYoung", true)),
@@ -1265,7 +1281,7 @@ describe("enrich", () => {
     // and a limit of three mean no slot went spare, so the ready-to-recover
     // parked source behind them must not be touched either.
     const db = fixture();
-    const probeSource = source("sProbe", true, 5);
+    const probeSource = source("sProbe", true, 5, LATCHED_SUCCESS);
     db.rows("sources").push(probeSource);
     for (const [id, hoursAgo] of [
       ["aN1", 6],
@@ -1351,7 +1367,7 @@ describe("enrich", () => {
     // slot stays idle. The cooldown is derived from the newest failed or
     // unavailable evidence row -- no schema column records it.
     const db = fixture();
-    const probeSource = source("sProbe", true, 5);
+    const probeSource = source("sProbe", true, 5, LATCHED_SUCCESS);
     db.rows("sources").push(probeSource);
     db.rows("articles").push(
       {
@@ -1416,7 +1432,7 @@ describe("enrich", () => {
     // probe's history read is the third `articles` select -- after the arm
     // read and the recency fallback -- so that is the one the hook refuses.
     const db = fixture();
-    const probeSource = source("sProbe", true, 5);
+    const probeSource = source("sProbe", true, 5, LATCHED_SUCCESS);
     db.rows("sources").push(probeSource);
     db.rows("articles").push(
       {
@@ -1469,7 +1485,7 @@ describe("enrich", () => {
     // every attempt; the probe holds itself to the same 72h floor rather than
     // spending recovery slots re-proving that old pages are old.
     const db = fixture();
-    const probeSource = source("sProbe", true, 5);
+    const probeSource = source("sProbe", true, 5, LATCHED_SUCCESS);
     db.rows("sources").push(probeSource);
     db.rows("articles").push(
       {
@@ -1504,5 +1520,211 @@ describe("enrich", () => {
     expect(spy).not.toHaveBeenCalled();
     expect(report.enriched).toBe(0);
     expect(report.skipped).toBe(1);
+  });
+
+  it("probes a source whose only success is older than the history window (Audit 37)", async () => {
+    // The shipped gate derived "lifetime success" from the probe's own 7-day
+    // read, which silently re-latched the only historically productive
+    // latched source: its newest success sat 13 days back -- outside the
+    // window, invisible to the gate. Eligibility now reads the source-side
+    // marker, so a success older than the window still opens the probe.
+    const db = fixture();
+    const probeSource = source("sProbe", true, 5, LATCHED_SUCCESS);
+    db.rows("sources").push(probeSource);
+    db.rows("articles").push(
+      {
+        ...article("aProbe", "https://probe.example.com/story", probeSource),
+        event_id: "eProbe",
+        published_at: new Date(Date.now() - 10 * 3600e3).toISOString(),
+      },
+      {
+        ...article("aHistoryOk", "https://probe.example.com/older", probeSource),
+        event_id: "eProbe",
+        published_at: LATCHED_SUCCESS,
+        article_evidence: {
+          status: "enriched",
+          extracted_at: LATCHED_SUCCESS,
+        },
+      },
+    );
+    db.rows("article_evidence").push({
+      article_id: "aHistoryOk",
+      status: "enriched",
+      evidence: [],
+      source_word_count: 120,
+      attempts: 1,
+      extracted_at: LATCHED_SUCCESS,
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        fetched.push(typeof input === "string" ? input : input.toString());
+        return html(ARTICLE_HTML);
+      }),
+    );
+
+    const report = await enrich(asDb(db), { limit: 2 });
+
+    // The parked source's history row is done work; the fresh unattempted
+    // article is the probe's, fired on the marker alone.
+    expect(report.enriched).toBe(1);
+    expect(fetched.some((u) => u.includes("probe.example.com/story"))).toBe(true);
+    const updated = db.rows("sources").find((r) => r["id"] === "sProbe");
+    expect(updated?.["enrichment_failure_count"]).toBe(0);
+    expect(updated?.["enrichment_last_success"]).not.toBe(LATCHED_SUCCESS);
+  });
+
+  it("refreshes the marker when a healthy source succeeds (Audit 37)", async () => {
+    // The marker write used to sit behind recordSourceOutcome's early return:
+    // a success on a source whose counter was already 0 would never have
+    // moved it, and the recovery signal would have gone stale.
+    const db = fixture();
+    const okSource = source("sOk", true, 0, LATCHED_SUCCESS);
+    db.rows("sources").push(okSource);
+    db.rows("articles").push({
+      ...article("aOk", "https://ok.example.com/story", okSource),
+      event_id: "eOk",
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eOk",
+      matched_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    const updated = db.rows("sources").find((r) => r["id"] === "sOk");
+    expect(updated?.["enrichment_failure_count"]).toBe(0);
+    expect(updated?.["enrichment_last_success"]).not.toBe(LATCHED_SUCCESS);
+  });
+
+  it("does not move the marker when an enrichment fails (Audit 37)", async () => {
+    // Thin content increments the counter and must leave the success marker
+    // exactly where it was: only success writes recovery state.
+    const db = fixture();
+    const thinSource = source("sThin", true, 0, LATCHED_SUCCESS);
+    db.rows("sources").push(thinSource);
+    db.rows("articles").push({
+      ...article("aThin", "https://thin.example.com/story", thinSource),
+      event_id: "eThin",
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eThin",
+      matched_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(THIN_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.unavailable).toBe(1);
+    const updated = db.rows("sources").find((r) => r["id"] === "sThin");
+    expect(updated?.["enrichment_failure_count"]).toBe(1);
+    expect(updated?.["enrichment_last_success"]).toBe(LATCHED_SUCCESS);
+  });
+
+  it("gates eligibility on the marker alone, even when the window shows a success", async () => {
+    // Post-0112 the history read feeds the cooldown only. A source whose
+    // marker never got written stays parked even if its window happens to
+    // contain an enriched row -- the gate must not silently fall back to
+    // re-deriving lifetime success from a bounded read (the defect Audit 37
+    // removes).
+    const db = fixture();
+    const probeSource = source("sProbe", true, 5);
+    db.rows("sources").push(probeSource);
+    db.rows("articles").push(
+      {
+        ...article("aProbe", "https://probe.example.com/story", probeSource),
+        event_id: "eProbe",
+      },
+      {
+        ...article("aHistoryOk", "https://probe.example.com/older", probeSource),
+        event_id: "eProbe",
+        published_at: new Date(Date.now() - 2 * 24 * 3600e3).toISOString(),
+        article_evidence: {
+          status: "enriched",
+          extracted_at: new Date(Date.now() - 2 * 24 * 3600e3).toISOString(),
+        },
+      },
+    );
+    db.rows("article_evidence").push({
+      article_id: "aHistoryOk",
+      status: "enriched",
+      evidence: [],
+      source_word_count: 120,
+      attempts: 1,
+      extracted_at: new Date(Date.now() - 2 * 24 * 3600e3).toISOString(),
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    const spy = vi.fn(async () => html(ARTICLE_HTML));
+    vi.stubGlobal("fetch", spy);
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(report.enriched).toBe(0);
+  });
+
+  it("reads the probe history to its end, past the server's per-request row cap", async () => {
+    // PostgREST answers a single request with at most 1000 rows; the Audit 37
+    // investigation's own census was silently truncated by exactly that cap.
+    // The probe's cooldown read paginates, so a failure on the second page
+    // still holds the source inside its cooldown: 500 window rows fill the
+    // first page and the freshest failure sits on page two.
+    const db = fixture();
+    const probeSource = source("sProbe", true, 5, LATCHED_SUCCESS);
+    db.rows("sources").push(probeSource);
+    db.rows("articles").push({
+      ...article("aProbe", "https://probe.example.com/story", probeSource),
+      event_id: "eProbe",
+      published_at: new Date(Date.now() - 10 * 3600e3).toISOString(),
+    });
+    // History rows carry no event_id: they stay out of the reader-visible arm
+    // (which is exactly where a latched source's history lives) while the
+    // probe read still walks them.
+    for (let i = 0; i < 500; i += 1) {
+      db.rows("articles").push({
+        ...article(`aPad${i}`, `https://probe.example.com/pad-${i}`, probeSource),
+        published_at: new Date(Date.now() - 3 * 24 * 3600e3).toISOString(),
+      });
+    }
+    db.rows("articles").push({
+      ...article("aRecentFail", "https://probe.example.com/recent-fail", probeSource),
+      published_at: new Date(Date.now() - 3 * 24 * 3600e3).toISOString(),
+      article_evidence: {
+        status: "failed",
+        extracted_at: new Date(Date.now() - 2 * 3600e3).toISOString(),
+      },
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    const spy = vi.fn(async () => html(ARTICLE_HTML));
+    vi.stubGlobal("fetch", spy);
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(report.enriched).toBe(0);
   });
 });

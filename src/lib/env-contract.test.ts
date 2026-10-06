@@ -55,6 +55,9 @@ const ALLOWLIST = new Map<string, string>([
   // Sizes the sample one audit script takes. An operator knob for a one-off
   // report, not part of running the app, so it stays out of the app's example.
   ["SAMPLE", "operator knob for scripts/cluster-audit.ts, default 400"],
+  // Ambient OS home; audit scripts default their artifact output paths under
+  // ~/.nyuz-artifacts with it. Supplied by every shell, never configured.
+  ["HOME", "ambient OS home, artifact-path default for scripts/audit37-investigation.ts"],
 ]);
 
 /** Directories that hold nothing but tests and setup. */

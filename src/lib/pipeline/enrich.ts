@@ -158,12 +158,19 @@ const ENRICHMENT_FAILURE_THRESHOLD = 5;
  */
 const PROBE_COOLDOWN_HOURS = 24;
 /**
- * How far back the probe's history read looks. A source quiet longer than
- * this window is past any cooldown that matters — "no failure seen in seven
- * days" is a strictly stronger answer than "cooldown elapsed" — so a bounded
- * read loses nothing while never becoming a scan.
+ * How far back the probe's cooldown read looks: failures older than this
+ * window are past any cooldown that matters, so the read stays bounded while
+ * "no failure seen in seven days" remains a strictly stronger answer than
+ * "cooldown elapsed". The window carries no semantic weight beyond the
+ * cooldown — eligibility's lifetime-success signal lives on the source row
+ * itself (`enrichment_last_success`, Audit 37) — and the read paginates to
+ * its end so a large corpus cannot silently truncate the failures it does
+ * return (PostgREST caps a single request at 1000 rows; the Audit 37
+ * investigation was itself caught by that cap).
  */
 const PROBE_HISTORY_DAYS = 7;
+/** Rows per page of the probe's history read (one request caps at 1000). */
+const PROBE_HISTORY_PAGE = 500;
 /**
  * The oldest article a probe will offer. The normal scheduler refuses work
  * this old for measured reasons (Audit 33: the starved band yielded zero
@@ -179,6 +186,8 @@ type CandidateSource = {
   homepage: string | null;
   enrichment_allowed: boolean | null;
   enrichment_failure_count: number;
+  /** Newest successful enrichment ever (Audit 37); null = never succeeded. */
+  enrichment_last_success: string | null;
 };
 
 type Candidate = {
@@ -326,7 +335,7 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
     const q = db
       .from("articles")
       .select(
-        "id, title, url, published_at, sources ( id, name, homepage, enrichment_allowed, enrichment_failure_count )",
+        "id, title, url, published_at, sources ( id, name, homepage, enrichment_allowed, enrichment_failure_count, enrichment_last_success )",
       )
       .not("event_id", "is", null)
       .not("url", "is", null)
@@ -597,7 +606,6 @@ function interleaveBands(eligible: Candidate[], limit: number, now: Date): Candi
 type ProbeHistoryRow = {
   id: string;
   source_id: string | null;
-  event_id: string | null;
   published_at: string;
   article_evidence: { status: string | null; extracted_at: string | null } | null;
 };
@@ -605,18 +613,22 @@ type ProbeHistoryRow = {
 /**
  * The one candidate a spare-capacity tick may probe, or null.
  *
- * Eligibility follows the ruling: the source must be backed off AND have at
- * least one lifetime enrichment success (a never-succeeded source stays
- * parked), the source's newest failed attempt must be older than the cooldown,
- * and the article itself must be unattempted and young enough to be worth
- * extracting (see `PROBE_MAX_ARTICLE_AGE_HOURS`). One chunked read answers
- * everything: lifetime success, last failure, and the unattempted pool, from
+ * Eligibility follows the Audit 36/37 rulings: the source must be backed off
+ * AND have demonstrated a lifetime enrichment success — read from the
+ * source's own `enrichment_last_success` marker, so eligibility survives the
+ * bounded history window (a success-published-within-7-days predicate
+ * silently re-latched the only historically productive latched source;
+ * Audit 37) — and the source's newest failed attempt must be older than the
+ * cooldown, and the article itself must be unattempted and young enough to be
+ * worth extracting (see `PROBE_MAX_ARTICLE_AGE_HOURS`).
+ *
+ * One paginated read answers the rest: the cooldown signal (newest
+ * failed/unavailable `extracted_at`) and the unattempted pool, from
  * `article_evidence(status, extracted_at)` nested on `articles` — the column
  * is the table's primary key, so the embed is one-to-one and returns a single
- * row or null. The history is matched to its source through the row's own
- * `source_id`, not through the arm: a source's successes usually sit on events
- * no reader currently sees, so they are precisely the rows the arm does not
- * hold.
+ * row or null. Pages are read until the source's window is exhausted; a
+ * single request is capped by PostgREST at 1000 rows, and a truncated read
+ * would both hide fresh failures from the cooldown and lie about the pool.
  */
 async function selectProbeCandidate(
   db: Db,
@@ -636,21 +648,28 @@ async function selectProbeCandidate(
     ];
     const rows: ProbeHistoryRow[] = [];
     for (let i = 0; i < sourceIds.length; i += ARM_ID_CHUNK) {
-      const { data, error } = await db
-        .from("articles")
-        .select("id, source_id, event_id, published_at, article_evidence(status, extracted_at)")
-        .gte("published_at", cutoff)
-        .in("source_id", sourceIds.slice(i, i + ARM_ID_CHUNK));
-      if (error) return null;
-      rows.push(...((data ?? []) as unknown as ProbeHistoryRow[]));
+      // Paginate to the end of the window: the first page caps at 1000 rows
+      // server-side, and a truncated history would misread the cooldown.
+      for (let offset = 0; ; offset += PROBE_HISTORY_PAGE) {
+        const { data, error } = await db
+          .from("articles")
+          .select("id, source_id, published_at, article_evidence(status, extracted_at)")
+          .gte("published_at", cutoff)
+          .in("source_id", sourceIds.slice(i, i + ARM_ID_CHUNK))
+          .order("id", { ascending: true })
+          .range(offset, offset + PROBE_HISTORY_PAGE - 1);
+        if (error) return null;
+        const page = (data ?? []) as unknown as ProbeHistoryRow[];
+        rows.push(...page);
+        if (page.length < PROBE_HISTORY_PAGE) break;
+      }
     }
 
     const newestFailure = new Map<string, string>();
-    const successes = new Set<string>();
     const unattempted: ProbeHistoryRow[] = [];
     for (const row of rows) {
       // The history is matched to its source through the row's own source_id,
-      // not through the arm: a source's successes usually sit on events no
+      // not through the arm: a source's failures usually sit on events no
       // reader currently sees, so they are precisely the rows the arm does
       // not hold.
       const sourceId = row.source_id;
@@ -660,9 +679,7 @@ async function selectProbeCandidate(
         unattempted.push(row);
         continue;
       }
-      if (evidence.status === "enriched") {
-        successes.add(sourceId);
-      } else if (evidence.status === "failed" || evidence.status === "unavailable") {
+      if (evidence.status === "failed" || evidence.status === "unavailable") {
         const at = evidence.extracted_at;
         if (at) {
           const prior = newestFailure.get(sourceId);
@@ -679,7 +696,10 @@ async function selectProbeCandidate(
       // finish one article after another without ever moving the counter, so
       // the slot would be spent re-proving a known boundary every spare tick.
       if (article.sources.enrichment_allowed === false) return false;
-      if (!successes.has(article.sources.id)) return false;
+      // Lifetime productivity is state on the source row: a marker means the
+      // source has enriched at least once, ever — a never-succeeded source
+      // stays parked no matter how idle the tick is (Audit 37).
+      if (!article.sources.enrichment_last_success) return false;
       const lastFailure = newestFailure.get(article.sources.id);
       if (lastFailure && Date.parse(lastFailure) > cooldownCutoff) return false;
       return true;
@@ -878,8 +898,16 @@ async function recordSourceOutcome(
   success: boolean,
 ): Promise<void> {
   if (success) {
-    if (source.enrichment_failure_count === 0) return;
-    await db.from("sources").update({ enrichment_failure_count: 0 }).eq("id", source.id);
+    // The marker must move even when the counter is already 0 — the old
+    // early-return was the whole body, and a success on a healthy source
+    // would never refresh its recovery signal (Audit 37).
+    await db
+      .from("sources")
+      .update({
+        enrichment_failure_count: 0,
+        enrichment_last_success: new Date().toISOString(),
+      })
+      .eq("id", source.id);
     return;
   }
   await db
