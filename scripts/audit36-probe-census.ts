@@ -320,6 +320,32 @@ main(async () => {
     return { startedAt: r.started_at, processed: r.processed ?? 0, selected: considered - skipped };
   });
   const full = selected.filter((r) => r.selected >= ENRICH_LIMIT);
+  // The arbiter's question for the observation: not "does spare capacity ever
+  // exist" but what shape its gaps have. A probe-eligible source waits for the
+  // next tick that leaves a slot unused, so the interval between spare ticks is
+  // the wait, and the longest interval is the worst case a newly eligible
+  // source faces. Ticks arrive newest-first; every computation here walks them
+  // oldest-first so "since the previous spare tick" means what it says.
+  const chronological = [...selected].reverse();
+  const spareTicks = chronological.filter((r) => r.selected < ENRICH_LIMIT);
+  const spareGapsMs: number[] = [];
+  for (let i = 1; i < spareTicks.length; i += 1) {
+    const previous = spareTicks[i - 1];
+    const current = spareTicks[i];
+    if (!previous || !current) continue;
+    spareGapsMs.push(Date.parse(current.startedAt) - Date.parse(previous.startedAt));
+  }
+  let longestFullRun = 0;
+  let currentRun = 0;
+  for (const tick of chronological) {
+    if (tick.selected < ENRICH_LIMIT) {
+      currentRun = 0;
+      continue;
+    }
+    currentRun += 1;
+    if (currentRun > longestFullRun) longestFullRun = currentRun;
+  }
+
   say(rowLine("recent enrich ticks read", enrichRuns.length));
   say(rowLine(`ticks at full ${ENRICH_LIMIT}-slot selection`, full.length));
   say(rowLine("spare-capacity ticks (would open a probe slot)", selected.length - full.length));
@@ -332,6 +358,25 @@ main(async () => {
       )
       .join("\n  ")}`,
   );
+
+  heading('Spare-capacity gaps — what "eventually" means for a probe');
+  const hours = (ms: number): string => `${(ms / 3_600_000).toFixed(1)}h`;
+  const sortedGaps = [...spareGapsMs].sort((a, b) => a - b);
+  const median = sortedGaps[Math.floor(sortedGaps.length / 2)];
+  say(rowLine("spare ticks in the read", `${spareTicks.length} of ${chronological.length}`));
+  say(rowLine("longest run of full ticks", longestFullRun));
+  if (sortedGaps.length > 0) {
+    say(rowLine("gap between spare ticks — median", hours(median ?? 0)));
+    say(
+      rowLine("gap between spare ticks — longest", hours(sortedGaps[sortedGaps.length - 1] ?? 0)),
+    );
+    const bucket = (limitMs: number): number => spareGapsMs.filter((ms) => ms <= limitMs).length;
+    say(
+      `  gaps: <=15m ${bucket(15 * 60_000)}  <=1h ${bucket(3_600_000)}  <=6h ${bucket(6 * 3_600_000)}  <=24h ${bucket(24 * 3_600_000)}  >24h ${spareGapsMs.length - bucket(24 * 3_600_000)}`,
+    );
+  } else {
+    say("  no two spare ticks in the read: every interval is a starvation interval");
+  }
 
   // ---------------------------------------------------------------------------
   // 3. Probe candidates under the current rule
@@ -460,6 +505,21 @@ main(async () => {
     say(rowLine("ticks in the window", windowRuns.length));
     say(rowLine("  at full selection (no probe slot)", windowFull.length));
     say(rowLine("  spare-capacity (probe could fire)", windowRuns.length - windowFull.length));
+    // The wait a source faces after becoming eligible: anchored at `since`, the
+    // first tick that left a slot unused. None yet is a real answer and is
+    // reported as one — it means every tick since the anchor was full.
+    const firstSpare = [...windowRuns].reverse().find((r) => r.selected < ENRICH_LIMIT);
+    if (firstSpare) {
+      const waitMs = Date.parse(firstSpare.startedAt) - sinceMs;
+      say(
+        rowLine(
+          "first spare tick after the anchor",
+          `${(waitMs / 3_600_000).toFixed(1)}h (${firstSpare.startedAt.slice(5, 16).replace("T", " ")}Z)`,
+        ),
+      );
+    } else {
+      say(rowLine("first spare tick after the anchor", "none yet — every tick was full"));
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -505,6 +565,10 @@ main(async () => {
           })),
           fullUtilizationTicks: full.length,
           spareCapacityTicks: selected.length - full.length,
+          longestFullRun,
+          spareGapMedianHours: sortedGaps.length > 0 ? (median ?? 0) / 3_600_000 : null,
+          spareGapLongestHours:
+            sortedGaps.length > 0 ? (sortedGaps[sortedGaps.length - 1] ?? 0) / 3_600_000 : null,
           probeCandidates: candidates,
           windowAttempts: windowAttempts.map((a) => ({
             sourceId: a.sourceId,
