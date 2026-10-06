@@ -179,6 +179,23 @@ const PROBE_HISTORY_PAGE = 500;
  * capacity.
  */
 const PROBE_MAX_ARTICLE_AGE_HOURS = 72;
+/**
+ * Days a backed-off source with no lifetime success must sit idle before the
+ * probe may try it (Audit 38).
+ *
+ * Five failures say enrichment is unreliable right now, not that the feed can
+ * never be enriched. The Audit 38 census measured four latched families with
+ * no lifetime success holding 1,023 unattempted articles that no code path
+ * could ever retry — normal selection refuses a latched source before any
+ * attempt, and the probe required a lifetime success. The clock is the source
+ * row's own `enrichment_last_attempt_at`, never `article_evidence`: some
+ * failure paths move the counter without writing an evidence row, so evidence
+ * is not a complete attempt log, and reading it as one is the same
+ * bounded-read mistake Audit 37 corrected. Fourteen days is twice the probe's
+ * history window: long enough that a broken feed is not poked repeatedly,
+ * short enough that a feed fixed after a bad fortnight returns without a human.
+ */
+const PROBE_IDLE_DAYS = 14;
 
 type CandidateSource = {
   id: string;
@@ -188,6 +205,11 @@ type CandidateSource = {
   enrichment_failure_count: number;
   /** Newest successful enrichment ever (Audit 37); null = never succeeded. */
   enrichment_last_success: string | null;
+  /**
+   * When the source was last attempted (Audit 38); null means no attempt is
+   * recorded since the column existed, which the idle rule reads as long idle.
+   */
+  enrichment_last_attempt_at: string | null;
 };
 
 type Candidate = {
@@ -335,7 +357,7 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
     const q = db
       .from("articles")
       .select(
-        "id, title, url, published_at, sources ( id, name, homepage, enrichment_allowed, enrichment_failure_count, enrichment_last_success )",
+        "id, title, url, published_at, sources ( id, name, homepage, enrichment_allowed, enrichment_failure_count, enrichment_last_success, enrichment_last_attempt_at )",
       )
       .not("event_id", "is", null)
       .not("url", "is", null)
@@ -495,10 +517,11 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
   // failures stays parked even after its feed recovers. The arbiter's ruling
   // on the fix: recovery work may consume idle capacity, but it may never
   // compete with productive work. So the probe runs only when normal selection
-  // left slots unused, takes at most one of them per tick, and considers only
-  // sources with a lifetime enrichment success — a source that never enriched
-  // one article keeps its park (Tom's Hardware and OpenAI, per the pre-change
-  // census). A successful probe flows through `enrichOne` like any other
+  // left slots unused, takes at most one of them per tick, and treats a source
+  // as recoverable on either of two signals: a lifetime enrichment success, or
+  // PROBE_IDLE_DAYS without an attempt even though it has never succeeded
+  // (Audit 38 — a feed the pipeline could not parse today is not a verdict on
+  // the feed). A successful probe flows through `enrichOne` like any other
   // attempt, so `recordSourceOutcome(..., true)` resets the counter and the
   // source re-enters the normal pool with no duplicate reset logic.
   if (!options.articleId && todo.length < limit && backedOff.length > 0) {
@@ -613,14 +636,15 @@ type ProbeHistoryRow = {
 /**
  * The one candidate a spare-capacity tick may probe, or null.
  *
- * Eligibility follows the Audit 36/37 rulings: the source must be backed off
- * AND have demonstrated a lifetime enrichment success — read from the
- * source's own `enrichment_last_success` marker, so eligibility survives the
- * bounded history window (a success-published-within-7-days predicate
- * silently re-latched the only historically productive latched source;
- * Audit 37) — and the source's newest failed attempt must be older than the
- * cooldown, and the article itself must be unattempted and young enough to be
- * worth extracting (see `PROBE_MAX_ARTICLE_AGE_HOURS`).
+ * Eligibility follows the Audit 36/37/38 rulings: the source must be backed
+ * off AND recoverable, which means either a lifetime enrichment success — read
+ * from the source's own `enrichment_last_success` marker, so eligibility
+ * survives the bounded history window (a success-published-within-7-days
+ * predicate silently re-latched the only historically productive latched
+ * source; Audit 37) — or an attempt older than PROBE_IDLE_DAYS for a source
+ * that has never succeeded (Audit 38). The source's newest failed attempt must
+ * also be older than the cooldown, and the article itself must be unattempted
+ * and young enough to be worth extracting (see `PROBE_MAX_ARTICLE_AGE_HOURS`).
  *
  * One paginated read answers the rest: the cooldown signal (newest
  * failed/unavailable `extracted_at`) and the unattempted pool, from
@@ -690,6 +714,7 @@ async function selectProbeCandidate(
 
     const cooldownCutoff = new Date(now.getTime() - PROBE_COOLDOWN_HOURS * 3_600_000).getTime();
     const ageCutoff = now.getTime() - PROBE_MAX_ARTICLE_AGE_HOURS * 3_600_000;
+    const idleCutoff = now.getTime() - PROBE_IDLE_DAYS * 24 * 3_600_000;
     const readySources = backedOff.filter((article) => {
       if (!article.sources) return false;
       // robots.txt already refused this source: a probe would claim, block and
@@ -697,9 +722,15 @@ async function selectProbeCandidate(
       // the slot would be spent re-proving a known boundary every spare tick.
       if (article.sources.enrichment_allowed === false) return false;
       // Lifetime productivity is state on the source row: a marker means the
-      // source has enriched at least once, ever — a never-succeeded source
-      // stays parked no matter how idle the tick is (Audit 37).
-      if (!article.sources.enrichment_last_success) return false;
+      // source has enriched at least once, ever (Audit 37). A source that has
+      // never succeeded is recoverable only after PROBE_IDLE_DAYS without an
+      // attempt (Audit 38), read from the source's own clock rather than from
+      // evidence — evidence misses the failure paths that write no row. One
+      // success is what un-latches it for good.
+      const succeeded = article.sources.enrichment_last_success !== null;
+      const lastAttempt = article.sources.enrichment_last_attempt_at;
+      const idle = lastAttempt === null || Date.parse(lastAttempt) <= idleCutoff;
+      if (!succeeded && !idle) return false;
       const lastFailure = newestFailure.get(article.sources.id);
       if (lastFailure && Date.parse(lastFailure) > cooldownCutoff) return false;
       return true;
@@ -766,7 +797,10 @@ async function enrichOne(
 
     const robots = await sourceAllowed(db, source, article.url, dryRun, robotsCache);
     if (!robots.allowed) {
-      if (!dryRun) await finish(db, article.id, "blocked", [], 0);
+      if (!dryRun) {
+        await finish(db, article.id, "blocked", [], 0);
+        await recordSourceAttempt(db, source.id);
+      }
       return {
         articleId: article.id,
         decision: "blocked",
@@ -892,27 +926,50 @@ async function sourceAllowed(
   return result;
 }
 
+/**
+ * The source's attempt clock on its own (Audit 38), for the one concluding
+ * path that does not move the counter: a robots-blocked article. Without it a
+ * source whose robots answer stays ambiguous would read as idle forever and be
+ * probed every PROBE_IDLE_DAYS without the clock ever moving.
+ */
+async function recordSourceAttempt(db: Db, sourceId: string): Promise<void> {
+  await db
+    .from("sources")
+    .update({ enrichment_last_attempt_at: new Date().toISOString() })
+    .eq("id", sourceId);
+}
+
 async function recordSourceOutcome(
   db: Db,
   source: CandidateSource,
   success: boolean,
 ): Promise<void> {
+  const now = new Date().toISOString();
   if (success) {
     // The marker must move even when the counter is already 0 — the old
     // early-return was the whole body, and a success on a healthy source
-    // would never refresh its recovery signal (Audit 37).
+    // would never refresh its recovery signal (Audit 37). The attempt clock
+    // moves with it: a source that just succeeded has not been idle (Audit 38).
     await db
       .from("sources")
       .update({
         enrichment_failure_count: 0,
-        enrichment_last_success: new Date().toISOString(),
+        enrichment_last_success: now,
+        enrichment_last_attempt_at: now,
       })
       .eq("id", source.id);
     return;
   }
+  // The clock is written on the failure path too: this is what arms the idle
+  // rule for a source that has never succeeded, so a probe that fails waits
+  // another PROBE_IDLE_DAYS instead of returning on the next spare tick
+  // (Audit 38).
   await db
     .from("sources")
-    .update({ enrichment_failure_count: source.enrichment_failure_count + 1 })
+    .update({
+      enrichment_failure_count: source.enrichment_failure_count + 1,
+      enrichment_last_attempt_at: now,
+    })
     .eq("id", source.id);
 }
 

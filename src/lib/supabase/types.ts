@@ -246,6 +246,8 @@ export type Source = {
   enrichment_failure_count: number;
   /** Newest confirmed successful enrichment ever (0112). Null = never succeeded; the recovery probe parks those permanently. */
   enrichment_last_success: string | null;
+  /** When this source was last attempted (0113, Audit 38). Null = no attempt recorded since the column existed, read as long idle by the probe's idle rule. */
+  enrichment_last_attempt_at: string | null;
 };
 
 export type PollingTier = "hot" | "normal" | "low" | "cold" | "paused";
@@ -1164,6 +1166,7 @@ export type Database = {
         | "robots_checked_at"
         | "enrichment_failure_count"
         | "enrichment_last_success"
+        | "enrichment_last_attempt_at"
       >;
       article_evidence: Table<
         ArticleEvidence,

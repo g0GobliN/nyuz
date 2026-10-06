@@ -1,19 +1,27 @@
 /**
- * Audit 36 — pre-change census for the spare-capacity recovery probe.
+ * Audit 36 — spare-capacity recovery probe census.
  *
  * The arbiter approved a conditional probe: when a tick's normal candidate
  * selection uses fewer than ENRICH_LIMIT slots, at most one parked article may
- * be attempted, and only from a source with `enrichment_failure_count >= 5`
- * AND a lifetime enrichment success. This census measures, before any code
- * changes:
- *   - the backed-off sources (failure_count >= 5), split by lifetime success;
+ * be attempted, and only from a source that has enriched at least once ever
+ * (`sources.enrichment_last_success`, Audit 37), is not robots-refused, and
+ * whose newest recorded failure is past the 24h cooldown. This instrument
+ * measures:
+ *   - the backed-off sources (failure_count >= 5), split by eligibility;
  *   - events and articles parked behind each, and their evidence status;
- *   - the last failed attempt per source (the cooldown signal the probe will
- *     derive from article_evidence.extracted_at of failed rows);
- *   - normal per-tick utilization from pipeline_runs: how often the last
- *     ENRICH_LIMIT-firing ticks actually used their slots, i.e. how often the
- *     probe would even have fired;
- *   - the probe candidates that WOULD have fired under the ruling's rule.
+ *   - the newest failed attempt per source (the cooldown signal the probe
+ *     derives from article_evidence.extracted_at);
+ *   - per-tick utilization from pipeline_runs: how often recent enrich ticks
+ *     used all three slots, i.e. how often a probe slot could even open;
+ *   - with `--since <iso>`, the observation window: attempts that appear
+ *     after the probe went live, marker moves, and the tick history in that
+ *     window.
+ *
+ * PostgREST caps one request at 1000 rows, so every read that can exceed the
+ * cap is paged explicitly. The first version of this instrument read all
+ * backed-off sources in one chunked `.in()` query; the rows summed to the cap
+ * exactly and the last source was silently truncated, which produced a wrong
+ * census and a wrong report. Pages stay well under the cap.
  *
  * SELECT only, service-role client. Node 22 or later.
  */
@@ -21,19 +29,39 @@
 import { writeFileSync } from "node:fs";
 import { db, heading, main, row as rowLine, say } from "./lib/db.ts";
 
+/** Rows per request. Half the server's 1000-row cap, so a lowered cap still pages. */
+const PAGE = 500;
+
+/** Mirrors PROBE_HISTORY_DAYS in src/lib/pipeline/enrich.ts. */
+const PROBE_HISTORY_DAYS = 7;
+/** Mirrors PROBE_COOLDOWN_HOURS in src/lib/pipeline/enrich.ts. */
+const PROBE_COOLDOWN_HOURS = 24;
+/** Mirrors PROBE_MAX_ARTICLE_AGE_HOURS in src/lib/pipeline/enrich.ts. */
+const PROBE_MAX_ARTICLE_AGE_HOURS = 72;
+/** Mirrors PROBE_IDLE_DAYS in src/lib/pipeline/enrich.ts (Audit 38). */
+const PROBE_IDLE_DAYS = 14;
+/** Mirrors ENRICH_LIMIT in src/lib/pipeline/enrich.ts. */
+const ENRICH_LIMIT = 3;
+
+type SourceRow = {
+  id: string;
+  name: string | null;
+  enrichment_failure_count: number;
+  enrichment_allowed: boolean | null;
+  enrichment_last_success: string | null;
+  enrichment_last_attempt_at: string | null;
+  robots_checked_at: string | null;
+};
+
 type ArticleRow = {
   id: string;
+  sourceId: string;
   event_id: string | null;
   title: string | null;
   published_at: string;
-  sources: { id: string; name: string | null; enrichment_failure_count: number } | null;
 };
 
-type EvidenceRow = {
-  article_id: string;
-  status: string | null;
-  extracted_at: string | null;
-};
+type Evidence = { status: string | null; extracted_at: string | null };
 
 type EnrichRunRow = {
   started_at: string;
@@ -49,48 +77,60 @@ main(async () => {
     return index >= 0 ? args[index + 1] : undefined;
   };
   const out = argOf("--out");
+  const since = argOf("--since") ?? null;
   const client = db();
 
-  heading("Audit 36 — spare-capacity probe: pre-change census");
+  heading("Audit 36 — spare-capacity probe: census");
 
   // ---------------------------------------------------------------------------
-  // 1. Backed-off sources, split by lifetime success
+  // 1. Backed-off sources, split by eligibility
   // ---------------------------------------------------------------------------
   const { data: backedOffSources, error: sourcesError } = await client
     .from("sources")
-    .select("id, name, enrichment_failure_count, enrichment_allowed, robots_checked_at")
+    .select(
+      "id, name, enrichment_failure_count, enrichment_allowed, enrichment_last_success, enrichment_last_attempt_at, robots_checked_at",
+    )
     .gte("enrichment_failure_count", 5);
   if (sourcesError) throw new Error(`sources: ${sourcesError.message}`);
-  const sources = backedOffSources ?? [];
-  const sourceIds = sources.map((s) => s.id);
+  const sources = (backedOffSources ?? []) as SourceRow[];
   say(rowLine("backed-off sources (failures >= 5)", sources.length));
 
-  // Every article in the corpus per backed-off source, with its evidence
-  // outcome and the timestamps the cooldown will be derived from. One chunked
-  // read over articles with the evidence outcome nested.
+  // Every article per backed-off source, paged to the end of the source. The
+  // nested evidence embed is one-to-one (article_id is that table's primary
+  // key), so a row means the article has been attempted exactly once.
   const articles: ArticleRow[] = [];
-  const evidenceByArticle = new Map<string, EvidenceRow>();
-  for (let i = 0; i < sourceIds.length; i += 200) {
-    const chunk = sourceIds.slice(i, i + 200);
-    if (chunk.length === 0) continue;
-    const { data, error } = await client
-      .from("articles")
-      .select(
-        "id, event_id, title, published_at, sources(id, name, enrichment_failure_count), article_evidence(status, extracted_at)",
-      )
-      .in("source_id", chunk);
-    if (error) throw new Error(`articles: ${error.message}`);
-    for (const raw of data ?? []) {
-      const row = raw as unknown as ArticleRow & { article_evidence: EvidenceRow | null };
-      articles.push({
-        id: row.id,
-        event_id: row.event_id,
-        title: row.title,
-        published_at: row.published_at,
-        sources: row.sources,
-      });
-      if (row.article_evidence) evidenceByArticle.set(row.id, row.article_evidence);
+  const evidenceByArticle = new Map<string, Evidence>();
+  const readSourceArticles = async (sourceId: string): Promise<ArticleRow[]> => {
+    const rows: ArticleRow[] = [];
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await client
+        .from("articles")
+        .select("id, event_id, title, published_at, article_evidence(status, extracted_at)")
+        .eq("source_id", sourceId)
+        .order("id", { ascending: true })
+        .range(offset, offset + PAGE - 1);
+      if (error) throw new Error(`articles(${sourceId}): ${error.message}`);
+      const page = (data ?? []) as unknown as (Omit<ArticleRow, "sourceId"> & {
+        article_evidence: Evidence | null;
+      })[];
+      for (const raw of page) {
+        rows.push({
+          id: raw.id,
+          sourceId,
+          event_id: raw.event_id,
+          title: raw.title,
+          published_at: raw.published_at,
+        });
+        if (raw.article_evidence) evidenceByArticle.set(raw.id, raw.article_evidence);
+      }
+      if (page.length < PAGE) break;
     }
+    return rows;
+  };
+
+  for (const source of sources) {
+    const rows = await readSourceArticles(source.id);
+    articles.push(...rows);
   }
   say(rowLine("articles across those sources", articles.length));
 
@@ -100,6 +140,8 @@ main(async () => {
     name: string | null;
     failures: number;
     allowed: boolean | null;
+    marker: string | null;
+    clock: string | null;
     corpus: number;
     successes: number;
     lastSuccess: string | null;
@@ -116,6 +158,8 @@ main(async () => {
       name: source.name,
       failures: source.enrichment_failure_count,
       allowed: source.enrichment_allowed,
+      marker: source.enrichment_last_success,
+      clock: source.enrichment_last_attempt_at,
       corpus: 0,
       successes: 0,
       lastSuccess: null,
@@ -127,9 +171,7 @@ main(async () => {
     });
   }
   for (const article of articles) {
-    const sid = article.sources?.id;
-    if (!sid) continue;
-    const profile = profiles.get(sid);
+    const profile = profiles.get(article.sourceId);
     if (!profile) continue;
     profile.corpus += 1;
     const evidence = evidenceByArticle.get(article.id);
@@ -153,10 +195,27 @@ main(async () => {
     }
   }
 
-  const recoverable = sources.filter((s) => (profiles.get(s.id)?.successes ?? 0) > 0);
+  // Eligibility is the Audit 37/38 rule: lifetime success is state on the
+  // source row, and a source that has never succeeded is recoverable only
+  // after PROBE_IDLE_DAYS without an attempt — also read from the source row,
+  // never inferred from evidence, which is not a complete attempt log.
+  const idleCutoff = Date.now() - PROBE_IDLE_DAYS * 24 * 3_600_000;
+  const idleEnough = (s: SourceRow): boolean => {
+    const clock = s.enrichment_last_attempt_at;
+    return clock === null || Date.parse(clock) <= idleCutoff;
+  };
+  const eligible = sources.filter(
+    (s) => s.enrichment_allowed !== false && (s.enrichment_last_success !== null || idleEnough(s)),
+  );
+  const markerEligible = sources.filter(
+    (s) => s.enrichment_last_success !== null && s.enrichment_allowed !== false,
+  );
   const neverSucceeded = sources.filter((s) => (profiles.get(s.id)?.successes ?? 0) === 0);
-  say(rowLine("with lifetime success (probe-eligible)", recoverable.length));
+  const refused = sources.filter((s) => s.enrichment_allowed === false);
+  say(rowLine("probe-eligible (marker or 14d idle)", eligible.length));
+  say(rowLine("  of those, on the marker alone", markerEligible.length));
   say(rowLine("never succeeded (stays parked)", neverSucceeded.length));
+  say(rowLine("robots-refused (ineligible regardless)", refused.length));
 
   heading("Per source");
   for (const source of sources) {
@@ -167,43 +226,62 @@ main(async () => {
         .slice(0, 34)
         .padEnd(
           34,
-        )} failures=${String(p.failures).padStart(3)}  corpus=${String(p.corpus).padStart(4)}  successes=${String(p.successes).padStart(3)}  lastSuccess=${(p.lastSuccess ?? "never").slice(0, 16).padEnd(16)}  lastFailed=${(p.lastFailedAt ?? "—").slice(0, 16).padEnd(16)}  unattempted=${String(p.unattempted).padStart(3)}`,
+        )} failures=${String(p.failures).padStart(3)}  corpus=${String(p.corpus).padStart(4)}  successes=${String(p.successes).padStart(3)}  marker=${(p.marker ?? "NULL").slice(0, 16).padEnd(16)}  clock=${(p.clock ?? "NULL").slice(0, 16).padEnd(16)}  unattempted=${String(p.unattempted).padStart(3)}`,
     );
   }
 
   // Events parked behind each backed-off source (what a probe could unlock).
   const parkedEvents = new Map<string, Set<string>>();
   for (const article of articles) {
-    const sid = article.sources?.id;
     const eventId = article.event_id;
-    if (!sid || !eventId) continue;
-    (parkedEvents.get(sid) ?? parkedEvents.set(sid, new Set()).get(sid)!).add(eventId);
+    if (!eventId) continue;
+    (
+      parkedEvents.get(article.sourceId) ??
+      parkedEvents.set(article.sourceId, new Set()).get(article.sourceId)!
+    ).add(eventId);
   }
 
   // ---------------------------------------------------------------------------
-  // 2. Normal per-tick utilization from pipeline_runs (recent enrich ticks)
+  // 2. Per-tick utilization from pipeline_runs
   // ---------------------------------------------------------------------------
   // `considered - skipped` is the tick's normal selection size: `considered`
   // counts selected + backed-off rows, `skipped` the backed-off ones. Using
   // `processed` (successes) instead would conflate "selected three, one failed"
   // with "selected two" — the probe gate is about selection, not success.
-  const { data: runs, error: runsError } = await client
-    .from("pipeline_runs")
-    .select("started_at, considered, processed, skipped")
-    .eq("stage", "enrich")
-    .order("started_at", { ascending: false })
-    .limit(40);
-  if (runsError) throw new Error(`pipeline_runs: ${runsError.message}`);
-  const enrichRuns = (runs ?? []) as EnrichRunRow[];
+  //
+  // Enrichment fires six times an hour, so the read pages back to `since` when
+  // a window is given and stops at 40 ticks otherwise; a single 1000-row page
+  // would cover only a few days and a window could silently lose its tail.
+  const enrichRuns: EnrichRunRow[] = [];
+  const runFloor = since ? Date.parse(since) : null;
+  /** Without a window the read stops at 40 ticks; with one it pages to the floor. */
+  const pageEnd = (offset: number): number =>
+    runFloor === null ? Math.min(offset + PAGE, 40) - 1 : offset + PAGE - 1;
+  for (let offset = 0; ; offset += PAGE) {
+    const end = pageEnd(offset);
+    if (end < offset) break;
+    const { data, error } = await client
+      .from("pipeline_runs")
+      .select("started_at, considered, processed, skipped")
+      .eq("stage", "enrich")
+      .order("started_at", { ascending: false })
+      .range(offset, end);
+    if (error) throw new Error(`pipeline_runs: ${error.message}`);
+    const page = (data ?? []) as EnrichRunRow[];
+    enrichRuns.push(...page);
+    if (page.length < end - offset + 1) break;
+    if (runFloor !== null && Date.parse(page[page.length - 1]?.started_at ?? "") < runFloor) break;
+    if (runFloor === null) break;
+  }
   const selected = enrichRuns.map((r) => {
     const skipped = r.skipped ?? 0;
     const considered = r.considered ?? 0;
     return { startedAt: r.started_at, processed: r.processed ?? 0, selected: considered - skipped };
   });
-  const full = selected.filter((r) => r.selected >= 3);
+  const full = selected.filter((r) => r.selected >= ENRICH_LIMIT);
   say(rowLine("recent enrich ticks read", enrichRuns.length));
-  say(rowLine("ticks at full 3-slot selection", full.length));
-  say(rowLine("spare-capacity ticks (would open a probe slot)", enrichRuns.length - full.length));
+  say(rowLine(`ticks at full ${ENRICH_LIMIT}-slot selection`, full.length));
+  say(rowLine("spare-capacity ticks (would open a probe slot)", selected.length - full.length));
   say(
     `  ${selected
       .slice(0, 12)
@@ -215,11 +293,13 @@ main(async () => {
   );
 
   // ---------------------------------------------------------------------------
-  // 3. The probe candidates that WOULD have fired, had the probe existed
+  // 3. Probe candidates under the current rule
   // ---------------------------------------------------------------------------
-  heading("Probe candidates under the ruling's rule");
-  const COOLDOWN_HOURS = 24;
-  const cooldownCutoff = Date.now() - COOLDOWN_HOURS * 3_600_000;
+  heading("Probe candidates under the current rule");
+  const now = Date.now();
+  const cooldownCutoff = now - PROBE_COOLDOWN_HOURS * 3_600_000;
+  const ageCutoff = now - PROBE_MAX_ARTICLE_AGE_HOURS * 3_600_000;
+  const eligibleIds = new Set(eligible.map((s) => s.id));
   const candidates: {
     source: string;
     articleId: string;
@@ -230,18 +310,18 @@ main(async () => {
     cooldownOk: boolean;
   }[] = [];
   for (const article of articles) {
-    const sid = article.sources?.id;
-    if (!sid) continue;
-    const profile = profiles.get(sid);
-    // Historical-success gate mirrors the probe: never-succeeded stays parked.
-    if (!profile || profile.successes === 0) continue;
+    const profile = profiles.get(article.sourceId);
+    if (!profile || !eligibleIds.has(article.sourceId)) continue;
     // Articles already finished (any status) are not probe candidates — the
     // probe picks work the tick refused but that has no evidence row yet.
     if (evidenceByArticle.has(article.id)) continue;
+    // The probe's own read only looks back PROBE_HISTORY_DAYS and then requires
+    // the article to be young enough to be worth extracting.
+    if (Date.parse(article.published_at) < ageCutoff) continue;
     const withinCooldown =
       profile.lastFailedAt !== null && Date.parse(profile.lastFailedAt) > cooldownCutoff;
     candidates.push({
-      source: profile.name ?? sid.slice(0, 8),
+      source: profile.name ?? article.sourceId.slice(0, 8),
       articleId: article.id,
       event: article.event_id,
       title: article.title ?? "(untitled)",
@@ -250,12 +330,75 @@ main(async () => {
       cooldownOk: !withinCooldown,
     });
   }
-  say(rowLine("unattempted articles on recoverable sources", candidates.length));
+  say(rowLine("unattempted articles on eligible sources", candidates.length));
   say(rowLine("ready now (past 24h cooldown)", candidates.filter((c) => c.cooldownOk).length));
   for (const candidate of candidates.slice(0, 12)) {
     say(
       `  ${candidate.source.slice(0, 24).padEnd(24)} cooldown=${candidate.cooldownOk ? "ready" : "wait "}  ${candidate.title.slice(0, 56)}`,
     );
+  }
+  say(
+    "  a probe also needs its source to reach the tick's selection (a skipped, backed-off row) and a spare slot in that tick",
+  );
+
+  // ---------------------------------------------------------------------------
+  // 4. Observation window, when one is given
+  // ---------------------------------------------------------------------------
+  type WindowAttempt = { status: string | null; extracted_at: string | null; sourceId: string };
+  let windowAttempts: WindowAttempt[] = [];
+  if (since) {
+    const sinceMs = Date.parse(since);
+    windowAttempts = articles
+      .map((article) => ({
+        evidence: evidenceByArticle.get(article.id),
+        sourceId: article.sourceId,
+      }))
+      .filter((row): row is { evidence: Evidence; sourceId: string } => !!row.evidence)
+      .map((row) => ({
+        status: row.evidence.status,
+        extracted_at: row.evidence.extracted_at,
+        sourceId: row.sourceId,
+      }))
+      .filter((row) => row.extracted_at !== null && Date.parse(row.extracted_at) >= sinceMs);
+
+    heading(`Since ${since}`);
+    // A latched source is refused by normal selection, so any attempt on it
+    // after the probe shipped is a probe firing. Attempts that fail on a path
+    // writing no evidence row (a robots refusal) leave no trace here; the
+    // failure counter is the only signal, so it is printed for diffing.
+    say(rowLine("attempts recorded in the window", windowAttempts.length));
+    say(
+      rowLine(
+        "  of those, enriched (recoveries)",
+        windowAttempts.filter((a) => a.status === "enriched").length,
+      ),
+    );
+    say(
+      rowLine(
+        "  of those, failed/unavailable",
+        windowAttempts.filter((a) => a.status === "failed" || a.status === "unavailable").length,
+      ),
+    );
+    for (const source of sources) {
+      const mine = windowAttempts.filter((a) => a.sourceId === source.id);
+      const p = profiles.get(source.id);
+      const markerMoved =
+        p?.marker != null && Date.parse(p.marker) >= Date.parse(since) ? " marker-refreshed" : "";
+      if (mine.length > 0 || markerMoved) {
+        say(
+          `  ${String(p?.name ?? source.id)
+            .slice(0, 30)
+            .padEnd(
+              30,
+            )} attempts=${String(mine.length).padStart(3)}  failures=${String(p?.failures ?? 0).padStart(3)}${markerMoved}`,
+        );
+      }
+    }
+    const windowRuns = selected.filter((r) => Date.parse(r.startedAt) >= sinceMs);
+    const windowFull = windowRuns.filter((r) => r.selected >= ENRICH_LIMIT);
+    say(rowLine("ticks in the window", windowRuns.length));
+    say(rowLine("  at full selection (no probe slot)", windowFull.length));
+    say(rowLine("  spare-capacity (probe could fire)", windowRuns.length - windowFull.length));
   }
 
   // ---------------------------------------------------------------------------
@@ -267,6 +410,7 @@ main(async () => {
       `${JSON.stringify(
         {
           takenAt: new Date().toISOString(),
+          since,
           backedOffSources: sources.map((s) => {
             const p = profiles.get(s.id);
             return {
@@ -274,6 +418,8 @@ main(async () => {
               name: s.name,
               failures: s.enrichment_failure_count,
               allowed: s.enrichment_allowed,
+              marker: s.enrichment_last_success,
+              clock: s.enrichment_last_attempt_at,
               corpus: p?.corpus ?? 0,
               successes: p?.successes ?? 0,
               lastSuccess: p?.lastSuccess ?? null,
@@ -282,16 +428,23 @@ main(async () => {
               parkedEvents: parkedEvents.get(s.id)?.size ?? 0,
             };
           }),
-          recoverableSources: recoverable.length,
+          eligibleSources: eligible.length,
+          markerEligibleSources: markerEligible.length,
           neverSucceededSources: neverSucceeded.length,
+          refusedSources: refused.length,
           recentTicks: selected.map((r) => ({
             startedAt: r.startedAt,
             selected: r.selected,
             enriched: r.processed,
           })),
           fullUtilizationTicks: full.length,
-          spareCapacityTicks: enrichRuns.length - full.length,
+          spareCapacityTicks: selected.length - full.length,
           probeCandidates: candidates,
+          windowAttempts: windowAttempts.map((a) => ({
+            sourceId: a.sourceId,
+            status: a.status,
+            extractedAt: a.extracted_at,
+          })),
         },
         null,
         1,

@@ -18,6 +18,7 @@ function source(
   allowed: boolean | null = true,
   failureCount = 0,
   lastSuccess: string | null = null,
+  lastAttempt: string | null = null,
 ) {
   return {
     id,
@@ -25,6 +26,7 @@ function source(
     enrichment_allowed: allowed,
     enrichment_failure_count: failureCount,
     enrichment_last_success: lastSuccess,
+    enrichment_last_attempt_at: lastAttempt,
   };
 }
 
@@ -33,6 +35,12 @@ function source(
 // window could no longer see, while fresh unattempted articles waited behind
 // the latch.
 const LATCHED_SUCCESS = new Date(Date.now() - 13 * 24 * 3600e3).toISOString();
+
+// Audit 38: a backed-off source with no lifetime success is probe-eligible only
+// after fourteen days without an attempt, read from the source's own clock.
+// Fifteen days is past that window; two days is plainly inside it.
+const IDLE_ATTEMPT = new Date(Date.now() - 15 * 24 * 3600e3).toISOString();
+const RECENT_ATTEMPT = new Date(Date.now() - 2 * 24 * 3600e3).toISOString();
 
 function article(id: string, url: string, src: ReturnType<typeof source>) {
   return {
@@ -322,8 +330,13 @@ describe("enrich", () => {
   });
 
   it("skips a source's articles once its enrichment failure count crosses the threshold, without fetching", async () => {
+    // The attempt clock is recent so this stays a test of the latch alone: an
+    // idle never-succeeded source is now recoverable by design (Audit 38), and
+    // the probe firing on it would otherwise mask what the threshold does.
     const db = fixture();
-    db.rows("articles").push(article("a1", "https://example.com/story", source("s1", true, 5)));
+    db.rows("articles").push(
+      article("a1", "https://example.com/story", source("s1", true, 5, null, RECENT_ATTEMPT)),
+    );
     const spy = vi.fn(async () => html(ARTICLE_HTML));
     vi.stubGlobal("fetch", spy);
 
@@ -1334,13 +1347,13 @@ describe("enrich", () => {
     expect(fetched.some((u) => u.includes("probe.example.com"))).toBe(false);
   });
 
-  it("never probes a source with no lifetime enrichment success", async () => {
-    // The arbiter's gate: a source that has never enriched one article keeps
-    // its park no matter how much capacity is idle -- a probe there is a
-    // gamble the history has already lost (Tom's Hardware: 519 articles, zero
-    // successes). With no spare-capacity-eligible source, nothing fetches.
+  it("keeps a never-succeeded source parked while its attempt clock is recent (Audit 38)", async () => {
+    // Five failures say enrichment is unreliable right now, not that the feed
+    // is unusable; Audit 38 lets such a source return after fourteen idle days.
+    // A source attempted two days ago has not waited, so the spare slot stays
+    // idle rather than gambling on a feed that just failed.
     const db = fixture();
-    const deadSource = source("sDead", true, 5);
+    const deadSource = source("sDead", true, 5, null, RECENT_ATTEMPT);
     db.rows("sources").push(deadSource);
     db.rows("articles").push({
       ...article("aProbe", "https://dead.example.com/story", deadSource),
@@ -1359,6 +1372,125 @@ describe("enrich", () => {
     expect(spy).not.toHaveBeenCalled();
     expect(report.enriched).toBe(0);
     expect(report.skipped).toBe(1);
+  });
+
+  it("probes a never-succeeded source once it has been idle past the window (Audit 38)", async () => {
+    // The Audit 38 census measured four latched families holding 1,023
+    // unattempted articles that no code path could ever retry. Idle beyond the
+    // window opens the probe for one article; the success resets the counter
+    // and writes the marker, so the source re-enters normal selection.
+    const db = fixture();
+    const deadSource = source("sDead", true, 5, null, IDLE_ATTEMPT);
+    db.rows("sources").push(deadSource);
+    db.rows("articles").push({
+      ...article("aProbe", "https://dead.example.com/story", deadSource),
+      event_id: "eProbe",
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        fetched.push(typeof input === "string" ? input : input.toString());
+        return html(ARTICLE_HTML);
+      }),
+    );
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(report.enriched).toBe(1);
+    expect(fetched.some((u) => u.includes("dead.example.com/story"))).toBe(true);
+    const updated = db.rows("sources").find((r) => r["id"] === "sDead");
+    expect(updated?.["enrichment_failure_count"]).toBe(0);
+    expect(updated?.["enrichment_last_success"]).not.toBeNull();
+    // The attempt clock moves with the success: this source is not idle now.
+    expect(updated?.["enrichment_last_attempt_at"]).not.toBe(IDLE_ATTEMPT);
+  });
+
+  it("reads a missing attempt clock as long idle (Audit 38)", async () => {
+    // 0113 adds the column with no backfill on purpose: the sources parked the
+    // longest have no recorded attempt at all, and NULL is read as long idle so
+    // they get one bounded probe instead of another fortnight of nothing.
+    const db = fixture();
+    const deadSource = source("sDead", true, 5);
+    db.rows("sources").push(deadSource);
+    db.rows("articles").push({
+      ...article("aProbe", "https://dead.example.com/story", deadSource),
+      event_id: "eProbe",
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(ARTICLE_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(report.enriched).toBe(1);
+  });
+
+  it("still refuses a robots-refused source however idle it has been (Audit 38)", async () => {
+    // enrichment_allowed = false is a boundary the source itself declared: a
+    // probe there would claim, block and finish one article after another
+    // without ever moving the counter.
+    const db = fixture();
+    const refusedSource = source("sRefused", false, 5, null, IDLE_ATTEMPT);
+    db.rows("sources").push(refusedSource);
+    db.rows("articles").push({
+      ...article("aProbe", "https://refused.example.com/story", refusedSource),
+      event_id: "eProbe",
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    const spy = vi.fn(async () => html(ARTICLE_HTML));
+    vi.stubGlobal("fetch", spy);
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(report.enriched).toBe(0);
+    expect(report.skipped).toBe(1);
+  });
+
+  it("arms the idle clock when a probe's attempt fails (Audit 38)", async () => {
+    // Moving the clock onto the source row is the point: a probe that fails
+    // waits another fourteen days instead of returning on the next spare tick,
+    // and the failure path is the one that has to write it.
+    const db = fixture();
+    const deadSource = source("sDead", true, 5, null, IDLE_ATTEMPT);
+    db.rows("sources").push(deadSource);
+    db.rows("articles").push({
+      ...article("aProbe", "https://dead.example.com/story", deadSource),
+      event_id: "eProbe",
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eProbe",
+      matched_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(THIN_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 3 });
+
+    expect(report.unavailable).toBe(1);
+    const updated = db.rows("sources").find((r) => r["id"] === "sDead");
+    expect(updated?.["enrichment_failure_count"]).toBe(6);
+    expect(updated?.["enrichment_last_attempt_at"]).not.toBe(IDLE_ATTEMPT);
+    expect(updated?.["enrichment_last_success"]).toBeNull();
   });
 
   it("waits out the cooldown before probing the same source again", async () => {
@@ -1642,9 +1774,11 @@ describe("enrich", () => {
     // marker never got written stays parked even if its window happens to
     // contain an enriched row -- the gate must not silently fall back to
     // re-deriving lifetime success from a bounded read (the defect Audit 37
-    // removes).
+    // removes). The attempt clock is recent so that Audit 38's idle branch,
+    // which is a separate ruled signal, cannot rescue the source either: the
+    // only way into the probe here would be a marker, and this source has none.
     const db = fixture();
-    const probeSource = source("sProbe", true, 5);
+    const probeSource = source("sProbe", true, 5, null, RECENT_ATTEMPT);
     db.rows("sources").push(probeSource);
     db.rows("articles").push(
       {
