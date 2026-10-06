@@ -2,6 +2,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import { DeliveryHealth } from "@/components/admin/delivery-health";
 import {
   ConsoleHeader,
   ErrorNote,
@@ -321,6 +322,7 @@ function Delivery({ data }: { data: OperationsDiagnostics }) {
   const d = data.delivery;
   return (
     <Panel title="Delivery diagnostics" note={d.scope}>
+      <DeliveryHealth rows={d.health} />
       <StatGrid>
         <Stat label="Briefings generated" value={formatNumber(d.briefings.generated)} />
         <Stat

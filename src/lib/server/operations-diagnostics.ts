@@ -142,6 +142,8 @@ export type DeliveryDiagnostics = {
     { queued: number; sent: number; failed: number; bounced: number; successRate: number | null }
   >;
   failureGroups: DeliveryFailureGroup[];
+  /** Per-channel verdicts, so a dead channel is a status rather than a count (Audit 41). */
+  health: DeliveryChannelHealth[];
   briefings: {
     generated: number;
     ready: number;
@@ -151,6 +153,124 @@ export type DeliveryDiagnostics = {
     oldestReady: string | null;
   };
 };
+
+/**
+ * A channel's delivery health (Audit 41).
+ *
+ * The outage this exists for: every email delivery failed with a terminal
+ * provider error for six weeks while this console showed nothing but counts
+ * nobody opened. The signal that would have caught it is not "some failures"
+ * — it is "a failure with no retry scheduled" or "nothing succeeded in the
+ * recent window at all", which are the two conditions that read as failing
+ * here. Counts alone cannot tell a channel that is limping from a channel that
+ * is dead.
+ */
+export type DeliveryChannelHealth = {
+  channel: string;
+  verdict: "failing" | "degraded" | "ok" | "idle";
+  /** The slice the verdict reads: the last 24 hours. */
+  recent: { attempts: number; sent: number; failed: number };
+  /**
+   * Resolved attempts only -- sent or failed. A row still queued is in flight,
+   * and counting it here would make `successRate`'s denominator disagree with
+   * the number the console prints beside it.
+   */
+  attempts: number;
+  sent: number;
+  failed: number;
+  /** Share of resolved attempts that were sent. `byChannel` reports the same ratio. */
+  successRate: number | null;
+  /** Failures with no retry scheduled: they will never be attempted again. */
+  latestTerminalError: string | null;
+  latestTerminalAt: string | null;
+  lastSuccessAt: string | null;
+  lastAttemptAt: string | null;
+};
+
+/** How far back the verdict looks. */
+const DELIVERY_HEALTH_WINDOW_MS = 24 * 3_600_000;
+/**
+ * Failure share at which a live channel stops reading as healthy. Inclusive on
+ * purpose: a quarter of recent attempts failing is already a channel to open.
+ */
+const DELIVERY_DEGRADED_RATE = 0.25;
+
+export function deliveryHealthOf(
+  rows: {
+    channel: string;
+    status: string;
+    last_error: string | null;
+    created_at: string;
+    attempts: number;
+    next_attempt_at: string | null;
+  }[],
+  now: Date,
+): DeliveryChannelHealth[] {
+  const byChannel = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const list = byChannel.get(row.channel);
+    if (list) list.push(row);
+    else byChannel.set(row.channel, [row]);
+  }
+  const cutoff = now.getTime() - DELIVERY_HEALTH_WINDOW_MS;
+  const health: DeliveryChannelHealth[] = [];
+  for (const [channel, channelRows] of byChannel) {
+    const isFailure = (row: { status: string }): boolean =>
+      row.status === "failed" || row.status === "bounced";
+    // A failure is terminal when nothing will retry it. `next_attempt_at` is
+    // the scheduler's own answer to that question, so an outage that reads as
+    // "attempts=1, no retry" is visible here without this code deciding what
+    // retry policy should be.
+    const isTerminal = (row: { status: string; next_attempt_at: string | null }): boolean =>
+      row.status === "failed" && row.next_attempt_at === null;
+
+    const recent = channelRows.filter((row) => Date.parse(row.created_at) >= cutoff);
+    const recentSent = recent.filter((row) => row.status === "sent").length;
+    const recentFailed = recent.filter(isFailure).length;
+    const recentTerminal = recent.filter(isTerminal).length;
+
+    const sent = channelRows.filter((row) => row.status === "sent").length;
+    const failed = channelRows.filter(isFailure).length;
+    const attempted = sent + failed;
+    const latestTerminal = channelRows
+      .filter(isTerminal)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))[0];
+    const lastSuccessAt = channelRows
+      .filter((row) => row.status === "sent")
+      .map((row) => row.created_at)
+      .sort()
+      .at(-1);
+    const lastAttemptAt = channelRows
+      .map((row) => row.created_at)
+      .sort()
+      .at(-1);
+
+    let verdict: DeliveryChannelHealth["verdict"];
+    if (recent.length === 0) verdict = "idle";
+    else if (recentTerminal > 0 || (recentFailed > 0 && recentSent === 0)) verdict = "failing";
+    else if (recentFailed / recent.length >= DELIVERY_DEGRADED_RATE) verdict = "degraded";
+    else verdict = "ok";
+
+    health.push({
+      channel,
+      verdict,
+      recent: {
+        attempts: recentSent + recentFailed,
+        sent: recentSent,
+        failed: recentFailed,
+      },
+      attempts: attempted,
+      sent,
+      failed,
+      successRate: attempted ? sent / attempted : null,
+      latestTerminalError: latestTerminal?.last_error ?? null,
+      latestTerminalAt: latestTerminal?.created_at ?? null,
+      lastSuccessAt: lastSuccessAt ?? null,
+      lastAttemptAt: lastAttemptAt ?? null,
+    });
+  }
+  return health.sort((a, b) => a.channel.localeCompare(b.channel));
+}
 
 export type FailureGroup = {
   stage: string;
@@ -452,7 +572,9 @@ export const getOperationsDiagnostics = createServerFn({ method: "GET" })
         .limit(500),
       db
         .from("deliveries")
-        .select("id, digest_id, channel, status, last_error, created_at, delivered_at")
+        .select(
+          "id, digest_id, channel, status, last_error, created_at, delivered_at, attempts, next_attempt_at",
+        )
         .gte("created_at", since30)
         .order("created_at", { ascending: false })
         .limit(10_000),
@@ -848,6 +970,7 @@ export const getOperationsDiagnostics = createServerFn({ method: "GET" })
       delivery: {
         scope: "Delivery and briefing rows created in the last 30 days",
         byChannel,
+        health: deliveryHealthOf(deliveries.data ?? [], new Date()),
         failureGroups: [...deliveryGroups.values()].sort((a, b) => b.count - a.count),
         briefings: {
           generated: briefingRows.filter((row) => row.generated_at !== null).length,
