@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/supabase/types";
+import { countOrThrow } from "@/lib/supabase/count";
 
 type Db = SupabaseClient<Database>;
 
@@ -55,8 +56,8 @@ export async function expireStaleWork(
       finishedAt: new Date().toISOString(),
       limit,
       dryRun: true,
-      expiredBriefings: briefings.count ?? 0,
-      expiredDeliveries: deliveries.count ?? 0,
+      expiredBriefings: countOrThrow("stale briefings", briefings),
+      expiredDeliveries: countOrThrow("stale deliveries", deliveries),
       detail: "dry run; no rows were changed",
     };
   }

@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { adminOnly, audit, AdminAuthError } from "@/lib/server/guard";
+import { countOrThrow } from "@/lib/supabase/count";
 import { signupRateLimit } from "@/lib/server/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ACCESS_DEFAULT, accessSchema, parseSetting, type Access } from "@/lib/site-content";
@@ -76,9 +77,15 @@ export const getSignupState = createServerFn({ method: "GET" }).handler(
         return { open: true, reason: "open", waitlistOpen: access.waitlistOpen };
       }
 
-      // `head: true` asks Postgres for the count and none of the rows.
-      const { count } = await db.from("profiles").select("id", { count: "exact", head: true });
-      const full = (count ?? 0) >= access.userLimit;
+      // `head: true` asks Postgres for the count and none of the rows. An
+      // unreadable count throws into the catch below, which is the launch
+      // gate's written-down answer: a gate that cannot be read opens, because
+      // locking every reader out on a failed read is the worse failure. That
+      // decision lives there, not in a substituted zero here.
+      const { count, error } = await db
+        .from("profiles")
+        .select("id", { count: "exact", head: true });
+      const full = countOrThrow("profiles", { count, error }) >= access.userLimit;
       return {
         open: !full,
         reason: full ? "full" : "open",

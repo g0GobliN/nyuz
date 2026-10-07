@@ -6,6 +6,7 @@ import { scoreRelatedEvent } from "@/lib/related-events";
 import { rankEventTopics } from "@/lib/pipeline/topic-assign";
 import { reasonFor } from "@/lib/pipeline/inclusion";
 import { signedInOnly } from "./guard";
+import { countOrThrow } from "@/lib/supabase/count";
 import { backfill, WINDOW_HOURS } from "@/lib/pipeline/backfill";
 import { nextSlot } from "@/lib/pipeline/schedule";
 import { PLAN_LIMITS, STANDARD_DELIVERY_TIME, clipLabels } from "@/lib/plans";
@@ -791,12 +792,18 @@ export const setSourcePref = createServerFn({ method: "POST" })
       const plan = await planOf(context.actor.db, context.actor.id);
       const cap = PLAN_LIMITS[plan]?.prioritySources ?? PLAN_LIMITS.uno.prioritySources;
       if (Number.isFinite(cap)) {
-        const { count } = await context.actor.db
+        const { count, error } = await context.actor.db
           .from("user_source_prefs")
           .select("source_id", { count: "exact", head: true })
           .eq("user_id", context.actor.id)
           .eq("pref", "priority");
-        if ((count ?? 0) >= cap) return { ok: false, reason: "plan" };
+        // The database also refuses an over-cap save by raising
+        // `priority source cap exceeded`, so this is a fast path rather than
+        // the guard. It still may not read an unreadable count as room to
+        // spare; if this throws, the upsert below is still the authority.
+        if (countOrThrow("priority sources", { count, error }) >= cap) {
+          return { ok: false, reason: "plan" };
+        }
       }
     }
     const { error } = await context.actor.db.from("user_source_prefs").upsert({

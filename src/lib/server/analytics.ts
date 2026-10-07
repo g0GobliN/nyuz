@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { adminOnly } from "@/lib/server/guard";
 import { resolvePlanPrices } from "@/lib/plans";
 import { activeCutoff } from "@/lib/pipeline/freshness";
+import { type CountProbe, readCount } from "@/lib/supabase/count";
 import type {
   DailyCount,
   Database,
@@ -24,8 +25,6 @@ import type {
  * refunds, or failed charges.
  */
 
-type Counter = { count: number | null; error: { message: string } | null };
-
 async function countRows(
   db: SupabaseClient<Database>,
   table: keyof Database["public"]["Tables"],
@@ -33,9 +32,10 @@ async function countRows(
 ): Promise<number> {
   const base = db.from(table).select("*", { count: "exact", head: true });
   const query = refine ? refine(base as never) : base;
-  const { count, error } = (await query) as unknown as Counter;
-  if (error) throw new Error(`count(${table}): ${error.message}`);
-  return count ?? 0;
+  // No `?? 0` here, ever: a missing relation answers a `head: true` count as
+  // an empty success, so an unreadable count must fail rather than read as
+  // zero. See `readCount`.
+  return readCount(table, query as unknown as PromiseLike<CountProbe>);
 }
 
 function daysAgo(n: number): string {

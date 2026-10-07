@@ -53,6 +53,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
+import { countOrThrow } from "@/lib/supabase/count";
 import {
   classifyCoverage,
   coverageSignalsFrom,
@@ -203,6 +204,12 @@ export async function loadCoverageReadings(
       for (const id of ids) if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
       return counts;
     };
+    // A follower count that could not be read is not a topic nobody follows:
+    // this function's contract is a whole answer or none, because a partial
+    // one mixes the demand reading with the shipped rule behind it. A count
+    // that failed its own read already threw out of the loop above; a count
+    // that came back as no count does the same here.
+    const demand = followers.map((result) => countOrThrow("topic followers", result));
     const mapped = tally((links.data ?? []).map((row) => row.topic_id));
     const open = tally((trials.data ?? []).map((row) => row.first_topic_id));
 
@@ -213,7 +220,7 @@ export async function loadCoverageReadings(
         classifyCoverage(
           coverageSignalsFrom({
             topicId,
-            demandUsers: followers[index]?.count ?? 0,
+            demandUsers: demand[index] ?? 0,
             eventTimes: times.get(topicId) ?? [],
             mappedSources: mapped.get(topicId) ?? 0,
             openTrials: open.get(topicId) ?? 0,

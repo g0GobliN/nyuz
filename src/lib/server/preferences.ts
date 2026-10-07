@@ -15,6 +15,7 @@ import {
   isValidExclusion,
 } from "@/lib/exclusions";
 import { MAX_TOPIC_LABEL } from "@/lib/topics";
+import { countOrZero } from "@/lib/supabase/count";
 import { isSupportedTimezone } from "@/lib/timezones";
 import { backfill } from "@/lib/pipeline/backfill";
 import { queueDiscoverySafely } from "@/lib/discovery/coverage";
@@ -499,7 +500,7 @@ async function resolveTopics(
     ]);
 
     const room = Math.min(
-      Math.max(0, DAILY_TOPIC_CREATIONS - (mine.count ?? 0)),
+      Math.max(0, DAILY_TOPIC_CREATIONS - countOrZero("subjects created today", mine)),
       // A brake that cannot be read must not be treated as zero room, or an
       // unreachable function would silently stop every reader creating a
       // subject. Falling back to the per-account brake keeps the older,

@@ -3,6 +3,7 @@ import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { adminOnly, audit, superadminOnly, AdminAuthError, type Actor } from "@/lib/server/guard";
+import { countOrThrow } from "@/lib/supabase/count";
 import { PLAN_TIERS } from "@/lib/plans";
 import type { AdminRole, Database, PlanTier } from "@/lib/supabase/types";
 
@@ -220,8 +221,11 @@ async function countFor(
     .from(table)
     .select("*", { count: "exact", head: true })
     .eq("user_id", userId);
-  if (error) throw new AdminAuthError(`count(${table}): ${error.message}`, 500);
-  return count ?? 0;
+  try {
+    return countOrThrow(`count(${table})`, { count, error });
+  } catch (cause) {
+    throw new AdminAuthError((cause as Error).message, 500);
+  }
 }
 
 /** Reads a user's current role directly, bypassing the stitched list. */
@@ -348,8 +352,15 @@ export const setUserRole = createServerFn({ method: "POST" })
         .select("*", { count: "exact", head: true })
         .eq("role", "superadmin")
         .neq("user_id", data.userId);
-      if (error) throw new AdminAuthError(`Role check: ${error.message}`, 500);
-      if ((count ?? 0) === 0) {
+      // Read the count, and refuse on a count that could not be read: the
+      // floor is only safe to lower on a number the server really sent.
+      let others: number;
+      try {
+        others = countOrThrow("other superadmins", { count, error });
+      } catch (cause) {
+        throw new AdminAuthError(`Role check: ${(cause as Error).message}`, 500);
+      }
+      if (others === 0) {
         throw new AdminAuthError("Refusing to remove the last superadmin.", 400);
       }
     }

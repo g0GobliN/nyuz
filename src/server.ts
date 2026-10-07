@@ -6,6 +6,7 @@ import { handleStripeWebhook, type WebhookEnv } from "./lib/server/stripe/webhoo
 import { handleTelegramWebhook, type TelegramWebhookEnv } from "./lib/server/telegram/webhook";
 import { verifyUnsubscribeToken, type UnsubscribeEnv } from "./lib/server/email/unsubscribe";
 import { createAdminClient, type ServerEnv } from "./lib/supabase/admin";
+import { countOrThrow } from "./lib/supabase/count";
 import { handleSitemap, type SitemapEnv } from "./lib/server/sitemap";
 import { envValue } from "./lib/runtime-env";
 import type { DeliveryChannel } from "./lib/supabase/types";
@@ -108,7 +109,7 @@ async function handleHealth(request: Request, env?: HealthEnv): Promise<Response
   if (!expected || supplied !== expected) return new Response("Not found", { status: 404 });
 
   const db = createAdminClient(env);
-  const [{ data, error }, { count: failedDeliveries, error: deliveryError }] = await Promise.all([
+  const [{ data, error }, { count: failed, error: deliveryError }] = await Promise.all([
     db
       .from("ops_status")
       .select("key, status, detail, updated_at")
@@ -118,14 +119,23 @@ async function handleHealth(request: Request, env?: HealthEnv): Promise<Response
   if (error) return Response.json({ ok: false, error: error.message }, { status: 503 });
   if (deliveryError)
     return Response.json({ ok: false, error: deliveryError.message }, { status: 503 });
+  // This endpoint is the production health signal, so it may not read a count
+  // it could not take as "no failures": a missing relation used to answer
+  // exactly this query as an empty success, and the dashboard stayed green.
+  let failedDeliveries: number;
+  try {
+    failedDeliveries = countOrThrow("failed deliveries", { count: failed, error: null });
+  } catch (cause) {
+    return Response.json({ ok: false, error: (cause as Error).message }, { status: 503 });
+  }
   const heartbeat = data?.find((row) => row.key === "cron:heartbeat");
   const stale = !heartbeat || Date.parse(heartbeat.updated_at) < Date.now() - 45 * 60_000;
   const unhealthy = (data ?? []).some(
     (row) => row.status !== "healthy" && row.key !== "delivery:failure",
   );
-  const ok = !stale && !unhealthy && (failedDeliveries ?? 0) === 0;
+  const ok = !stale && !unhealthy && failedDeliveries === 0;
   return Response.json(
-    { ok, heartbeat_stale: stale, failed_deliveries: failedDeliveries ?? 0, statuses: data ?? [] },
+    { ok, heartbeat_stale: stale, failed_deliveries: failedDeliveries, statuses: data ?? [] },
     { status: ok ? 200 : 503, headers: { "cache-control": "no-store" } },
   );
 }

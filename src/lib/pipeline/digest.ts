@@ -39,6 +39,7 @@ import {
 } from "./duplicates";
 import { capitalised } from "./news-signals";
 import type { SecretBag } from "@/lib/ai/config";
+import { countOrThrow } from "@/lib/supabase/count";
 import { capFor } from "@/lib/density";
 import { reasonFor } from "./inclusion";
 import { assessReadiness } from "./readiness";
@@ -1436,17 +1437,18 @@ export async function deliveryTargets(
   db: Db,
   userId: string,
 ): Promise<{ telegram: boolean; push: boolean }> {
-  const [{ data: telegram }, { count: pushCount }] = await Promise.all([
+  const [{ data: telegram }, pushCountProbe] = await Promise.all([
     db.from("telegram_accounts").select("chat_id").eq("user_id", userId).maybeSingle(),
     db
       .from("push_subscriptions")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId),
   ]);
+  const pushCount = countOrThrow("push subscriptions", pushCountProbe);
   const plan = await planFor(db, userId);
   return {
     telegram: PLAN_LIMITS[plan].telegram && Boolean(telegram?.chat_id),
-    push: (pushCount ?? 0) > 0,
+    push: pushCount > 0,
   };
 }
 
@@ -1648,12 +1650,15 @@ async function sendOne(
   if (result.ok) {
     await markDelivery(db, row.id, attempts, "sent", null, now);
     if (digestRow.status === "ready") {
-      const { count } = await db
+      const { count, error } = await db
         .from("deliveries")
         .select("id", { count: "exact", head: true })
         .eq("digest_id", row.digest_id)
         .eq("status", "queued");
-      if ((count ?? 0) === 0) {
+      // A digest is marked sent only on a count the server really sent. This
+      // used to read an unreadable count as "nothing left to deliver", which
+      // marks the digest sent while deliveries are still queued.
+      if (countOrThrow("queued deliveries", { count, error }) === 0) {
         await db.from("digests").update({ status: "sent" }).eq("digest_id", row.digest_id);
       }
     }

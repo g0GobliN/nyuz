@@ -3,6 +3,7 @@ import { parseInput } from "@/lib/server/validate";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { adminOnly, audit, superadminOnly, AdminAuthError } from "@/lib/server/guard";
+import { countOrThrow } from "@/lib/supabase/count";
 import {
   ANNOUNCEMENT_DEFAULT,
   FOOTER_DEFAULT,
@@ -483,7 +484,10 @@ export const listAudit = createServerFn({ method: "GET" })
         meta: r.meta,
         createdAt: r.created_at,
       })),
-      total: count ?? 0,
+      // The audit log is already a failure surface: the line above throws on
+      // an unreadable read, and a total of zero on a page full of rows is the
+      // kind of number an operator would believe.
+      total: countOrThrow("admin audit log", { count, error }),
       page: data.page,
       pageSize: data.pageSize,
     };

@@ -4,6 +4,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { getCookie, getRequestProtocol, setCookie } from "@tanstack/react-start/server";
 import { z } from "zod";
 import { signedInOnly } from "@/lib/server/guard";
+import { countOrThrow } from "@/lib/supabase/count";
 import { registerThisDevice } from "@/lib/server/devices";
 import { DEVICE_COOKIE, deviceCookieAttributes } from "@/lib/device-anchor";
 import { pushConfigured, vapidPublicKey } from "./send";
@@ -46,14 +47,14 @@ export const getPushStatus = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<PushStatus> => {
     const configured = pushConfigured();
     const publicKey = vapidPublicKey();
-    const { count } = await context.actor.db
+    const { count, error } = await context.actor.db
       .from("push_subscriptions")
       .select("id", { count: "exact", head: true })
       .eq("user_id", context.actor.id);
     return {
       configured: configured && Boolean(publicKey),
       publicKey,
-      count: count ?? 0,
+      count: countOrThrow("push subscriptions", { count, error }),
     };
   });
 
@@ -93,14 +94,14 @@ export const savePushSubscription = createServerFn({ method: "POST" })
       { onConflict: "user_id,install_id" },
     );
     if (error) throw new PlanAccessError(error.message);
-    const { count } = await context.actor.db
+    const unread = await context.actor.db
       .from("push_subscriptions")
       .select("id", { count: "exact", head: true })
       .eq("user_id", context.actor.id);
     return {
       configured: true,
       publicKey: vapidPublicKey(),
-      count: count ?? 1,
+      count: countOrThrow("push subscriptions", unread),
     };
   });
 
@@ -124,9 +125,9 @@ export const deletePushSubscription = createServerFn({ method: "POST" })
       .delete()
       .eq("user_id", context.actor.id)
       .eq("endpoint", data.endpoint);
-    const { count } = await context.actor.db
+    const { count, error } = await context.actor.db
       .from("push_subscriptions")
       .select("id", { count: "exact", head: true })
       .eq("user_id", context.actor.id);
-    return { ok: true, count: count ?? 0 };
+    return { ok: true, count: countOrThrow("push subscriptions", { count, error }) };
   });

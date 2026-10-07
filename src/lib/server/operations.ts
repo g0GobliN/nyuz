@@ -3,6 +3,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { adminOnly } from "@/lib/server/guard";
+import { countOrThrow } from "@/lib/supabase/count";
 import type { Database, Json } from "@/lib/supabase/types";
 import { INGEST_CRON, STAGES_CRON, DIGEST_CRON, DORMANT_CRON } from "@/lib/pipeline/cron";
 import { activeCutoff } from "@/lib/pipeline/freshness";
@@ -145,9 +146,10 @@ function isoAgo(ms: number): string {
 }
 
 async function count(query: PromiseLike<CountResult>): Promise<number> {
-  const result = await query;
-  if (result.error) throw new Error(result.error.message);
-  return result.count ?? 0;
+  // Every reading on this page, through the same seam, and none of them may
+  // read an unreadable count as zero: this is the operator's whole view of
+  // the pipeline, and a screen of zeros is indistinguishable from a quiet one.
+  return countOrThrow("operations", await query);
 }
 
 async function oldest(

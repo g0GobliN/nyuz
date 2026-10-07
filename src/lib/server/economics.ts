@@ -14,6 +14,7 @@ import {
 
 import { envValue } from "@/lib/runtime-env";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { countOrThrow } from "@/lib/supabase/count";
 import type { Database, EconomicsManualCost, EconomicsSnapshot, PlanTier } from "@/lib/supabase/types";
 
 const periodInput = z.object({ days: z.number().int().min(1).max(365) });
@@ -417,7 +418,7 @@ export const getEconomicsOverview = createServerFn({ method: "GET" })
       contributionUsd: null,
       providers: [...providerMap.entries()].map(([provider, value]) => ({ provider, services: value.services.size, latestSync: value.latestSync, actualJpy: value.hasJpy ? value.jpy : null, statuses: [...value.statuses], scope: value.scope, usage: value.usage })),
       usage: {
-        activeUsers: activeFreeCount.count ?? 0,
+        activeUsers: countOrThrow("active free users", activeFreeCount),
         briefingsGenerated: digests.count ?? null,
         articlesIngested: articles.count ?? null,
         eventsCreated: events.count ?? null,
@@ -433,7 +434,7 @@ export const getEconomicsOverview = createServerFn({ method: "GET" })
           };
         })(),
       },
-      users: { freeTotal: Math.max((profileCount.count ?? 0) - paid.plura - paid.omni, 0), activeFree: Math.max((activeFreeCount.count ?? 0) - paid.plura - paid.omni, 0), freeAiUsd, freeAiStatus: ai.rows.some((row) => row.plan === "uno") ? "allocated" : "unavailable", freeCost: { computeJpy: null, databaseJpy: null, storageJpy: null, egressJpy: null, emailJpy: null, aiUsd: freeAiUsd, totalJpy: null, status: "incomplete" }, paid, plans },
+      users: { freeTotal: Math.max(countOrThrow("profiles", profileCount) - paid.plura - paid.omni, 0), activeFree: Math.max(countOrThrow("active free users", activeFreeCount) - paid.plura - paid.omni, 0), freeAiUsd, freeAiStatus: ai.rows.some((row) => row.plan === "uno") ? "allocated" : "unavailable", freeCost: { computeJpy: null, databaseJpy: null, storageJpy: null, egressJpy: null, emailJpy: null, aiUsd: freeAiUsd, totalJpy: null, status: "incomplete" }, paid, plans },
       ai: { killSwitchOn: flags.data?.enabled === true, calls: ai.rows.length, tokens: tokenTelemetryObserved ? tokens : null, pricedCalls },
       warnings: [
         ...warnings,
