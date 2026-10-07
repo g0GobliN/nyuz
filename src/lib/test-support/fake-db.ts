@@ -407,16 +407,22 @@ class FakeQuery implements PromiseLike<{
 
     if (this.mode.kind === "upsert") {
       const { onConflict, ignoreDuplicates } = this.mode;
+      // `on conflict do nothing` returns only the rows actually inserted, and
+      // ingest's retitle detection depends on exactly that (Audit 49). A plain
+      // upsert returns every row it touched.
+      const inserted: Row[] = [];
       for (const incoming of this.mode.rows) {
         const existing = rows.find((row) =>
           onConflict.every((key) => String(row[key]) === String(incoming[key])),
         );
         if (!existing) {
           this.insertId(incoming);
-          rows.push({ ...incoming });
+          const copy = { ...incoming };
+          rows.push(copy);
+          inserted.push(copy);
         } else if (!ignoreDuplicates) Object.assign(existing, incoming);
       }
-      return { data: this.mode.rows, error: null };
+      return { data: ignoreDuplicates ? inserted : this.mode.rows, error: null };
     }
 
     if (this.mode.kind === "update") {

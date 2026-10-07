@@ -192,7 +192,13 @@ export type SourceOutcome = {
   /** Items with no usable URL or title, or older than the window. */
   dropped: number;
   inserted: number;
-  /** Already stored, and the publisher has since changed the headline. */
+  /**
+   * Always zero since Audit 49. Retitles are applied once per tick for every
+   * source's rows together, and `update_retitled_articles` returns a single
+   * count, so there is nothing exact to attribute back to one source. The
+   * tick total lives on `IngestReport.retitled`. Kept on the type so existing
+   * readers keep compiling.
+   */
   retitled: number;
   failureCount: number;
   disabled: boolean;
@@ -230,8 +236,19 @@ export async function ingest(db: Db, options: IngestOptions = {}): Promise<Inges
   const backedOff = new Set(due);
   const skipped = all.filter((source) => !wanted.includes(source));
 
-  const outcomes = await mapLimit(window, options.concurrency ?? CONCURRENCY, (source) =>
+  const ones = await mapLimit(window, options.concurrency ?? CONCURRENCY, (source) =>
     runOne(db, source, now, options),
+  );
+  const outcomes = ones.map((one) => one.outcome);
+
+  // Headline updates are the tick's work, not each source's: one RPC for every
+  // source's already-stored rows instead of one per source (Audit 49 — the
+  // Free Worker budget). Every source's upsert and bookkeeping above already
+  // ran, so a retitle refusal costs headline updates and nothing else; the
+  // next tick re-offers the same rows and heals itself.
+  const retitled = await applyTickRetitles(
+    db,
+    ones.flatMap((one) => one.pendingRetitles),
   );
 
   const waiting: SourceOutcome[] = wanted
@@ -275,7 +292,9 @@ export async function ingest(db: Db, options: IngestOptions = {}): Promise<Inges
     considered: all.length,
     attempted: outcomes.length,
     inserted: sum(reported, (o) => o.inserted),
-    retitled: sum(reported, (o) => o.retitled),
+    // Tick-level count from `applyTickRetitles`, not a sum: per-source
+    // retitles are no longer attributed (see `SourceOutcome.retitled`).
+    retitled,
     failed: reported.filter((o) => o.state === "failed").length,
     disabled: reported.filter((o) => o.disabled).length,
     skippedNoDemand: unwanted.length,
@@ -445,7 +464,7 @@ async function runOne(
   source: Source,
   now: Date,
   options: IngestOptions,
-): Promise<SourceOutcome> {
+): Promise<{ outcome: SourceOutcome; pendingRetitles: ArticleRow[] }> {
   const base = {
     sourceId: source.id,
     name: source.name,
@@ -465,7 +484,10 @@ async function runOne(
 
     if (!response.ok) {
       const failure = await recordFailure(db, source, response.reason, now, options);
-      return { ...base, ...failure, state: "failed", detail: response.reason };
+      return {
+        outcome: { ...base, ...failure, state: "failed", detail: response.reason },
+        pendingRetitles: [],
+      };
     }
 
     const feed = parseFeed(response.body);
@@ -478,10 +500,13 @@ async function runOne(
       if (today !== undefined && feed.skipDays.includes(today)) {
         const note = await recordSuccess(db, source, now, options);
         return {
-          ...base,
-          failureCount: 0,
-          state: "quiet",
-          detail: note ?? `no entries, skipDays: ${today}`,
+          outcome: {
+            ...base,
+            failureCount: 0,
+            state: "quiet",
+            detail: note ?? `no entries, skipDays: ${today}`,
+          },
+          pendingRetitles: [],
         };
       }
 
@@ -494,7 +519,10 @@ async function runOne(
         : `${feed.format} feed with no entries${feed.dropped > 0 ? `, ${feed.dropped} unusable` : ""}`;
 
       const failure = await recordFailure(db, source, reason, now, options);
-      return { ...base, ...failure, state: "failed", detail: reason, dropped: feed.dropped };
+      return {
+        outcome: { ...base, ...failure, state: "failed", detail: reason, dropped: feed.dropped },
+        pendingRetitles: [],
+      };
     }
 
     const rows = await toRows(feed.items, source.id, now, options.maxAgeDays ?? MAX_AGE_DAYS);
@@ -506,32 +534,43 @@ async function runOne(
       // "11 storable" read as a contradiction. The caller is responsible for
       // saying it was a dry run; `ingest` is not going to lie about the count.
       return {
-        ...base,
-        failureCount: 0,
-        state: rows.length > 0 ? "ingested" : "unchanged",
-        seen: feed.items.length,
-        dropped,
-        inserted: rows.length,
-        detail: `${feed.format}, ${feed.items.length} items`,
+        outcome: {
+          ...base,
+          failureCount: 0,
+          state: rows.length > 0 ? "ingested" : "unchanged",
+          seen: feed.items.length,
+          dropped,
+          inserted: rows.length,
+          detail: `${feed.format}, ${feed.items.length} items`,
+        },
+        pendingRetitles: [],
       };
     }
 
-    const written = await store(db, rows);
+    const written = await storeNew(db, rows);
     // Only a genuinely new article counts as new content. A re-read that
     // inserts nothing means the source has not published since last time,
     // which is exactly the signal the cadence decay in
     // `recompute_polling_tiers` reads.
     const note = await recordSuccess(db, source, now, options, written.inserted > 0);
 
+    // `retitled` stays zero here by design: headline updates are applied once
+    // per tick in `ingest()` and counted on the report, because the RPC
+    // returns one count for every source's rows (Audit 49). `state` therefore
+    // reads inserts only — a source whose rows only changed headlines reports
+    // "unchanged", which is true of what it collected.
     return {
-      ...base,
-      failureCount: 0,
-      state: written.inserted > 0 || written.retitled > 0 ? "ingested" : "unchanged",
-      seen: feed.items.length,
-      dropped,
-      inserted: written.inserted,
-      retitled: written.retitled,
-      detail: note ?? `${feed.format}, ${feed.items.length} items`,
+      outcome: {
+        ...base,
+        failureCount: 0,
+        state: written.inserted > 0 ? "ingested" : "unchanged",
+        seen: feed.items.length,
+        dropped,
+        inserted: written.inserted,
+        retitled: 0,
+        detail: note ?? `${feed.format}, ${feed.items.length} items`,
+      },
+      pendingRetitles: written.existing,
     };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
@@ -540,14 +579,17 @@ async function runOne(
     // for this run, but the failure count and the backoff are untouched — the feed
     // did nothing wrong and must not be switched off for our network.
     if (error instanceof StorageError) {
-      return { ...base, state: "failed", detail: reason };
+      return { outcome: { ...base, state: "failed", detail: reason }, pendingRetitles: [] };
     }
 
     const failure = await recordFailure(db, source, reason, now, options).catch(() => ({
       failureCount: source.failure_count + 1,
       disabled: false,
     }));
-    return { ...base, ...failure, state: "failed", detail: reason };
+    return {
+      outcome: { ...base, ...failure, state: "failed", detail: reason },
+      pendingRetitles: [],
+    };
   }
 }
 
@@ -626,9 +668,12 @@ async function toRows(
 /** Rows written at once. Comfortably under any statement or payload limit. */
 const BATCH = 200;
 
-async function store(db: Db, rows: ArticleRow[]): Promise<{ inserted: number; retitled: number }> {
+async function storeNew(
+  db: Db,
+  rows: ArticleRow[],
+): Promise<{ inserted: number; existing: ArticleRow[] }> {
   let inserted = 0;
-  let retitled = 0;
+  const existing: ArticleRow[] = [];
 
   for (let i = 0; i < rows.length; i += BATCH) {
     const batch = rows.slice(i, i + BATCH);
@@ -650,15 +695,45 @@ async function store(db: Db, rows: ArticleRow[]): Promise<{ inserted: number; re
     const newUrls = new Set((data ?? []).map((row) => row.url));
     inserted += newUrls.size;
 
-    const existing = batch.filter((row) => !newUrls.has(row.url));
-    retitled += await updateRetitled(db, existing);
+    // Already-stored rows are not this source's to update: they join the
+    // tick's retitle batch in `ingest()` (Audit 49), one RPC for every
+    // source instead of one per source.
+    existing.push(...batch.filter((row) => !newUrls.has(row.url)));
   }
 
-  return { inserted, retitled };
+  return { inserted, existing };
+}
+
+/**
+ * The tick's headline updates, in as few RPCs as the payload cap allows.
+ *
+ * One call for every source's already-stored rows rather than one per source
+ * (Audit 49): at SCHEDULED_LIMIT=12 the per-source fan-out cost ~12
+ * subrequests and pushed the normal demand-gated tick from ~43 to ~55, past
+ * the Free Worker's 50-subrequest ceiling. The payload, the SQL guards
+ * (`event_id is null`, hash distinct) and the counted rows are unchanged —
+ * only the call site moved, so row-level behaviour is identical.
+ *
+ * Isolation is preserved by position. This runs after every source's upsert
+ * and bookkeeping, and a refusal here is caught and deferred — the next tick
+ * re-offers the same rows — rather than failing any source.
+ */
+async function applyTickRetitles(db: Db, rows: ArticleRow[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  try {
+    return await updateRetitled(db, rows);
+  } catch (error) {
+    console.warn(
+      `applying tick retitles: ${error instanceof Error ? error.message : String(error)} — deferred to next tick`,
+    );
+    return 0;
+  }
 }
 
 /**
  * Articles already stored whose headline the publisher has since changed.
+ *
+ * Called once per tick by `applyTickRetitles`, never per source.
  *
  * This is the one thing `content_hash` does that the unique URL does not: it says
  * whether a row that already exists still matches what the feed is serving. A

@@ -9,7 +9,9 @@
  * that a `npm run pipeline` does not, and the two that bite are:
  *
  *   - **Subrequests.** Every `fetch` counts, and so does every PostgREST call.
- *     The cap is 50 per invocation on the free plan and 1000 on paid. A full run
+ *     The cap is 50 per invocation on the free plan and 10,000 on paid
+ *     (Cloudflare changelog 2026-02-11; configurable higher via
+ *     `limits.subrequests`). A full run
  *     over 64 sources is roughly 64 feed fetches plus three or four database
  *     calls each — comfortably past 50, comfortably under 1000.
  *   - **Wall clock.** Generous for cron (unlike a request), but not unlimited.
