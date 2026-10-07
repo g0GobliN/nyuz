@@ -78,7 +78,25 @@ type EnrichRunRow = {
   considered: number | null;
   processed: number | null;
   skipped: number | null;
+  /** Free-form Json: `metrics_recorded`, and Audit 43's probe decision. */
+  reason_counts: unknown;
 };
+
+/** The probe decision a tick recorded (Audit 43), or null on older rows. */
+type ProbeRecord = { decision: string; articleId: string | null; sourceId: string | null };
+
+function probeOf(reasonCounts: unknown): ProbeRecord | null {
+  if (typeof reasonCounts !== "object" || reasonCounts === null) return null;
+  const record = reasonCounts as Record<string, unknown>;
+  if (typeof record["probe"] !== "string") return null;
+  const field = (key: string): string | null =>
+    typeof record[key] === "string" ? (record[key] as string) : null;
+  return {
+    decision: record["probe"] as string,
+    articleId: field("probe_article_id"),
+    sourceId: field("probe_source_id"),
+  };
+}
 
 main(async () => {
   const args = process.argv.slice(2);
@@ -303,7 +321,7 @@ main(async () => {
     if (end < offset) break;
     const { data, error } = await client
       .from("pipeline_runs")
-      .select("started_at, considered, processed, skipped")
+      .select("started_at, considered, processed, skipped, reason_counts")
       .eq("stage", "enrich")
       .order("started_at", { ascending: false })
       .range(offset, end);
@@ -317,15 +335,20 @@ main(async () => {
   const selected = enrichRuns.map((r) => {
     const skipped = r.skipped ?? 0;
     const considered = r.considered ?? 0;
-    return { startedAt: r.started_at, processed: r.processed ?? 0, selected: considered - skipped };
+    return {
+      startedAt: r.started_at,
+      processed: r.processed ?? 0,
+      selected: considered - skipped,
+      probe: probeOf(r.reason_counts),
+    };
   });
   const full = selected.filter((r) => r.selected >= ENRICH_LIMIT);
-  // The arbiter's question for the observation: not "does spare capacity ever
-  // exist" but what shape its gaps have. A probe-eligible source waits for the
-  // next tick that leaves a slot unused, so the interval between spare ticks is
-  // the wait, and the longest interval is the worst case a newly eligible
-  // source faces. Ticks arrive newest-first; every computation here walks them
-  // oldest-first so "since the previous spare tick" means what it says.
+  // `selected` is `considered - skipped`, which is `todo.length - todoSkips`:
+  // `considered` counts the backed-off rows too and `skipped` counts them
+  // first, so a full tick that lost one article to a pre-attempt skip reads
+  // exactly like a spare slot. Where a tick recorded its probe decision (Audit
+  // 43) that decision is the answer; for older rows the gap shape below is an
+  // upper bound on the wait, never proof that a slot was offered.
   const chronological = [...selected].reverse();
   const spareTicks = chronological.filter((r) => r.selected < ENRICH_LIMIT);
   const spareGapsMs: number[] = [];
@@ -347,19 +370,24 @@ main(async () => {
   }
 
   say(rowLine("recent enrich ticks read", enrichRuns.length));
-  say(rowLine(`ticks at full ${ENRICH_LIMIT}-slot selection`, full.length));
-  say(rowLine("spare-capacity ticks (would open a probe slot)", selected.length - full.length));
+  say(rowLine(`ticks at full ${ENRICH_LIMIT}-slot selection (proxy)`, full.length));
+  say(rowLine("spare-capacity ticks (proxy, not the gate)", selected.length - full.length));
   say(
     `  ${selected
       .slice(0, 12)
       .map(
         (r) =>
-          `${r.startedAt.slice(5, 16).replace("T", " ")}Z selected=${String(r.selected)} enriched=${String(r.processed)}`,
+          `${r.startedAt.slice(5, 16).replace("T", " ")}Z selected=${String(r.selected)} enriched=${String(r.processed)} probe=${r.probe?.decision ?? "unrecorded"}`,
       )
       .join("\n  ")}`,
   );
 
-  heading('Spare-capacity gaps — what "eventually" means for a probe');
+  heading("Spare-capacity gaps — legacy proxy only, not the probe gate");
+  // Audit 43: `selected` is `todo.length - todoSkips`, so these gaps bound the
+  // wait from above; only a recorded decision proves a slot was offered.
+  say(
+    "  `considered - skipped` counts a full tick that lost one article to a pre-attempt skip as spare",
+  );
   const hours = (ms: number): string => `${(ms / 3_600_000).toFixed(1)}h`;
   const sortedGaps = [...spareGapsMs].sort((a, b) => a - b);
   const median = sortedGaps[Math.floor(sortedGaps.length / 2)];
@@ -452,6 +480,16 @@ main(async () => {
   // ---------------------------------------------------------------------------
   type WindowAttempt = { status: string | null; extracted_at: string | null; sourceId: string };
   let windowAttempts: WindowAttempt[] = [];
+  /** Audit 43's tally: the gate's answer per tick, for the report. */
+  type WindowProbe = {
+    ticks: number;
+    recorded: number;
+    gateClosed: number;
+    noCandidate: number;
+    fired: number;
+    firedWork: { startedAt: string; articleId: string | null; sourceId: string | null }[];
+  };
+  let windowProbe: WindowProbe | null = null;
   if (since) {
     const sinceMs = Date.parse(since);
     windowAttempts = articles
@@ -501,24 +539,41 @@ main(async () => {
       }
     }
     const windowRuns = selected.filter((r) => Date.parse(r.startedAt) >= sinceMs);
-    const windowFull = windowRuns.filter((r) => r.selected >= ENRICH_LIMIT);
+    const windowProbed = windowRuns.filter((r) => r.probe !== null);
+    const decisionCount = (decision: string): number =>
+      windowProbed.filter((r) => r.probe?.decision === decision).length;
     say(rowLine("ticks in the window", windowRuns.length));
-    say(rowLine("  at full selection (no probe slot)", windowFull.length));
-    say(rowLine("  spare-capacity (probe could fire)", windowRuns.length - windowFull.length));
-    // The wait a source faces after becoming eligible: anchored at `since`, the
-    // first tick that left a slot unused. None yet is a real answer and is
-    // reported as one — it means every tick since the anchor was full.
-    const firstSpare = [...windowRuns].reverse().find((r) => r.selected < ENRICH_LIMIT);
-    if (firstSpare) {
-      const waitMs = Date.parse(firstSpare.startedAt) - sinceMs;
+    // Audit 43 replaced the proxy that used to sit here: the recorded decision
+    // is the only datum that can say whether the gate opened, so it is the only
+    // one this section reports. Ticks recorded before it landed are counted
+    // separately rather than inferred.
+    say(rowLine("  with a recorded probe decision", windowProbed.length));
+    say(rowLine("  gate_closed (no slot went spare)", decisionCount("gate_closed")));
+    say(rowLine("  no_candidate (gate open, nothing eligible)", decisionCount("no_candidate")));
+    say(rowLine("  fired (probe took a slot)", decisionCount("fired")));
+    windowProbe = {
+      ticks: windowRuns.length,
+      recorded: windowProbed.length,
+      gateClosed: decisionCount("gate_closed"),
+      noCandidate: decisionCount("no_candidate"),
+      fired: decisionCount("fired"),
+      firedWork: windowProbed
+        .filter((r) => r.probe?.decision === "fired")
+        .map((r) => ({
+          startedAt: r.startedAt,
+          articleId: r.probe?.articleId ?? null,
+          sourceId: r.probe?.sourceId ?? null,
+        })),
+    };
+    for (const work of windowProbe.firedWork) {
       say(
-        rowLine(
-          "first spare tick after the anchor",
-          `${(waitMs / 3_600_000).toFixed(1)}h (${firstSpare.startedAt.slice(5, 16).replace("T", " ")}Z)`,
-        ),
+        `  fired ${work.startedAt.slice(5, 16).replace("T", " ")}Z  article=${work.articleId ?? "?"}  source=${work.sourceId ?? "?"}`,
       );
-    } else {
-      say(rowLine("first spare tick after the anchor", "none yet — every tick was full"));
+    }
+    if (windowProbe.ticks > windowProbe.recorded) {
+      say(
+        `  ${windowProbe.ticks - windowProbe.recorded} tick${windowProbe.ticks - windowProbe.recorded === 1 ? "" : "s"} predate the recorded decision — their capacity cannot be read from the run row at all`,
+      );
     }
   }
 
@@ -562,6 +617,7 @@ main(async () => {
             startedAt: r.startedAt,
             selected: r.selected,
             enriched: r.processed,
+            probe: r.probe,
           })),
           fullUtilizationTicks: full.length,
           spareCapacityTicks: selected.length - full.length,
@@ -575,6 +631,7 @@ main(async () => {
             status: a.status,
             extractedAt: a.extracted_at,
           })),
+          windowProbe,
         },
         null,
         1,

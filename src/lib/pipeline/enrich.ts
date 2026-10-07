@@ -107,8 +107,50 @@ export type EnrichReport = {
   evidenceUnits: number;
   /** Per-reason tally across every outcome -- the breakdown a go/no-go review needs. */
   reasons: Partial<Record<OutcomeReason, number>>;
+  /** What the spare-capacity recovery probe did (Audit 43). */
+  probe: ProbeDecision;
   outcomes: ArticleOutcome[];
 };
+
+/**
+ * What the spare-capacity recovery probe did on this tick (Audit 43).
+ *
+ * The gate is `todo.length < limit && backedOff.length > 0`, and that condition
+ * is invisible in the tick's counters: `considered - skipped` equals
+ * `todo.length - todoSkips`, because `considered` counts the backed-off rows
+ * too and `skipped` counts them first. A full tick whose selection lost one
+ * article to a pre-attempt skip therefore reports exactly the numbers a spare
+ * tick reports (measured: Audit 43), so whether the probe was ever given a slot
+ * cannot be inferred from the run row. The arbiter's ruling: record the
+ * decision instead.
+ *
+ * `gate_closed`  no slot went spare — or a manual single-article run, which
+ *                never probes.
+ * `no_candidate` the gate opened and `selectProbeCandidate` found nothing: no
+ *                source passed the cooldown/idle/robots filters, no unattempted
+ *                article was young enough, or the history read failed (recovery
+ *                work never costs the tick, so a failed read looks like this).
+ * `fired`        the probe took the spare slot; the ids name the work it took.
+ */
+export type ProbeDecision =
+  | { decision: "gate_closed" }
+  | { decision: "no_candidate" }
+  | { decision: "fired"; articleId: string; sourceId: string | null };
+
+/**
+ * The probe decision as `pipeline_runs.reason_counts` records it.
+ *
+ * Flat keys, because that column is read in SQL: `reason_counts->>'probe'`
+ * answers "did the gate open", and the paired ids answer "on what".
+ */
+export function probeRunFields(probe: ProbeDecision): Record<string, string> {
+  if (probe.decision !== "fired") return { probe: probe.decision };
+  return {
+    probe: "fired",
+    probe_article_id: probe.articleId,
+    ...(probe.sourceId ? { probe_source_id: probe.sourceId } : {}),
+  };
+}
 
 /**
  * Articles enriched per tick. See the worst-case accounting above -- this
@@ -243,6 +285,7 @@ function emptyReport(now: Date): EnrichReport {
     skipped: 0,
     evidenceUnits: 0,
     reasons: {},
+    probe: { decision: "gate_closed" },
     outcomes: [],
   };
 }
@@ -524,14 +567,26 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
   // the feed). A successful probe flows through `enrichOne` like any other
   // attempt, so `recordSourceOutcome(..., true)` resets the counter and the
   // source re-enters the normal pool with no duplicate reset logic.
+  // The decision is recorded rather than left to be inferred (Audit 43): the
+  // run row cannot tell a spare slot from a full selection that lost one
+  // article to a pre-attempt skip, so "did the recovery probe ever fire" has no
+  // answer without this field.
+  let probe: ProbeDecision = { decision: "gate_closed" };
   if (!options.articleId && todo.length < limit && backedOff.length > 0) {
-    const probe = await selectProbeCandidate(db, backedOff, limit - todo.length, now);
-    if (probe) {
-      todo.push(probe);
+    const candidate = await selectProbeCandidate(db, backedOff, limit - todo.length, now);
+    if (candidate) {
+      probe = {
+        decision: "fired",
+        articleId: candidate.id,
+        sourceId: candidate.sources?.id ?? null,
+      };
+      todo.push(candidate);
       // The probed article leaves the backoff tally: it is this tick's work
       // now, and reporting it as both skipped and enriched would double-count
       // it in the go/no-go breakdown.
-      backedOff.splice(backedOff.indexOf(probe), 1);
+      backedOff.splice(backedOff.indexOf(candidate), 1);
+    } else {
+      probe = { decision: "no_candidate" };
     }
   }
 
@@ -566,6 +621,7 @@ export async function enrich(db: Db, options: EnrichOptions = {}): Promise<Enric
     skipped: outcomes.filter((o) => o.decision === "skipped").length,
     evidenceUnits: outcomes.reduce((n, o) => n + o.evidenceUnits, 0),
     reasons,
+    probe,
     outcomes,
   };
 }
@@ -1013,10 +1069,17 @@ export function describeEnrich(report: EnrichReport): string {
     .filter(([reason]) => reason !== "success")
     .map(([reason, count]) => `${String(reason)}=${count}`)
     .join(" ");
+  // The probe's decision rides the log line too (Audit 43), so `wrangler tail`
+  // answers the same question the run row does.
+  const probeSummary =
+    report.probe.decision === "fired"
+      ? `probe fired: ${report.probe.articleId}`
+      : `probe: ${report.probe.decision}`;
   return (
     `enrich: ${report.enriched} enriched, ${report.blocked} blocked, ${report.unavailable} unavailable, ` +
     `${report.failed} failed, ${report.skipped} skipped, ${report.considered} considered ` +
     `(${report.evidenceUnits} evidence units)` +
-    (reasonSummary ? ` [${reasonSummary}]` : "")
+    (reasonSummary ? ` [${reasonSummary}]` : "") +
+    ` [${probeSummary}]`
   );
 }

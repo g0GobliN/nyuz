@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FakeDb, asDb } from "@/lib/test-support/fake-db";
-import { enrich } from "./enrich";
+import { enrich, probeRunFields } from "./enrich";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -81,6 +81,29 @@ describe("enrich", () => {
 
     expect(report.considered).toBe(0);
     expect(spy).not.toHaveBeenCalled();
+    // A stopped stage has no probe slot to report (Audit 43).
+    expect(report.probe).toEqual({ decision: "gate_closed" });
+  });
+
+  it("records the probe's decision in the flat shape the run row carries (Audit 43)", () => {
+    // The run row cannot infer the gate: `considered - skipped` is
+    // `todo.length - todoSkips`, so a full tick with one pre-attempt skip reads
+    // exactly like a spare slot. `reason_counts` is read in SQL, so the keys
+    // stay flat — `reason_counts->>'probe'` is the answer to "did the gate
+    // open".
+    expect(probeRunFields({ decision: "gate_closed" })).toEqual({ probe: "gate_closed" });
+    expect(probeRunFields({ decision: "no_candidate" })).toEqual({ probe: "no_candidate" });
+    expect(probeRunFields({ decision: "fired", articleId: "aProbe", sourceId: "sProbe" })).toEqual({
+      probe: "fired",
+      probe_article_id: "aProbe",
+      probe_source_id: "sProbe",
+    });
+    // A fired probe whose source embed came back null records the work it took
+    // without inventing a source id it does not have.
+    expect(probeRunFields({ decision: "fired", articleId: "aProbe", sourceId: null })).toEqual({
+      probe: "fired",
+      probe_article_id: "aProbe",
+    });
   });
 
   it("enriches an eligible article and stores only structured evidence, never raw HTML", async () => {
@@ -1237,6 +1260,9 @@ describe("enrich", () => {
     const report = await enrich(asDb(db), { limit: 2 });
 
     expect(report.enriched).toBe(2);
+    // Audit 43: the recorded decision names the work the probe took, so the
+    // next observation reads the probe's behaviour instead of inferring it.
+    expect(report.probe).toEqual({ decision: "fired", articleId: "aProbe", sourceId: "sProbe" });
     // The probe takes the source's only unattempted article -- the history
     // rows are already finished and are the recovery signal, not the work.
     expect(fetched.some((u) => u.includes("probe.example.com/story"))).toBe(true);
@@ -1289,6 +1315,8 @@ describe("enrich", () => {
 
     expect(report.enriched).toBe(1);
     expect(fetched.some((u) => u.includes("probe.example.com"))).toBe(false);
+    // The normal candidate used the only slot, so the gate never opened.
+    expect(report.probe).toEqual({ decision: "gate_closed" });
     expect(db.rows("sources").find((r) => r["id"] === "sProbe")?.["enrichment_failure_count"]).toBe(
       5,
     );
@@ -1351,6 +1379,8 @@ describe("enrich", () => {
 
     expect(report.enriched).toBe(3);
     expect(fetched.some((u) => u.includes("probe.example.com"))).toBe(false);
+    // Four candidates filled the three slots: a full tick, not a spare one.
+    expect(report.probe).toEqual({ decision: "gate_closed" });
   });
 
   it("keeps a never-succeeded source parked while its attempt clock is recent (Audit 38)", async () => {
@@ -1378,6 +1408,10 @@ describe("enrich", () => {
     expect(spy).not.toHaveBeenCalled();
     expect(report.enriched).toBe(0);
     expect(report.skipped).toBe(1);
+    // The gate opened — nothing filled the spare slot — and the only backed-off
+    // source was inside its cooldown, so the probe had no candidate: the state
+    // Audit 43 separates from a tick that never asked.
+    expect(report.probe).toEqual({ decision: "no_candidate" });
   });
 
   it("probes a never-succeeded source once it has been idle past the window (Audit 38)", async () => {
@@ -1409,6 +1443,7 @@ describe("enrich", () => {
     const report = await enrich(asDb(db), { limit: 3 });
 
     expect(report.enriched).toBe(1);
+    expect(report.probe).toEqual({ decision: "fired", articleId: "aProbe", sourceId: "sDead" });
     expect(fetched.some((u) => u.includes("dead.example.com/story"))).toBe(true);
     const updated = db.rows("sources").find((r) => r["id"] === "sDead");
     expect(updated?.["enrichment_failure_count"]).toBe(0);

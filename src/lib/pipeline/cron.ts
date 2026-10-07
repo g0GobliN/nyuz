@@ -58,7 +58,13 @@ import { describeDiscovery, discover, type DiscoveryReport } from "@/lib/discove
 import { describeDormant, dormant, type DormantReport } from "./dormant";
 import { ingest, type IngestReport } from "./ingest";
 import { describeMatch, match, type MatchReport } from "./match";
-import { describeEnrich, enrich, type EnrichReport } from "./enrich";
+import {
+  describeEnrich,
+  enrich,
+  probeRunFields,
+  type EnrichReport,
+  type ProbeDecision,
+} from "./enrich";
 import { describeImpacts, writeImpacts, type ImpactReport } from "./impacts";
 
 /**
@@ -438,6 +444,12 @@ async function recordScheduled(
       const metricsRecorded = ["considered", "processed", "skipped", "failed"].filter(
         (metric) => typeof report[metric] === "number",
       );
+      // Audit 43: the enrich tick's probe decision belongs to the run record.
+      // `reason_counts` is free-form Json, so it rides the existing column with
+      // no migration, and the tick — not a production survey — becomes the
+      // evidence of whether the recovery probe was ever given a slot. Only
+      // enrich reports one; every other stage contributes nothing here.
+      const probe = report["probe"] as ProbeDecision | undefined;
       await createAdminClient(env)
         .from("pipeline_runs")
         .insert({
@@ -450,7 +462,10 @@ async function recordScheduled(
           processed,
           skipped,
           failed,
-          reason_counts: { metrics_recorded: metricsRecorded },
+          reason_counts: {
+            metrics_recorded: metricsRecorded,
+            ...(probe ? probeRunFields(probe) : {}),
+          },
         });
     }
     return result;
