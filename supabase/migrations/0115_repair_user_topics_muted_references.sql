@@ -34,6 +34,17 @@
 -- the guard this migration should have needed to exist first.
 --
 -- ---------------------------------------------------------------------------
+-- CORRECTED BEFORE FIRST APPLICATION
+-- ---------------------------------------------------------------------------
+--
+-- The first attempt to apply this file failed at `pending_events_with_demand`
+-- with 42P01, because the live project does not have `active_custom_sources`.
+-- The file now creates it first (section 0) and recreates the rest unchanged;
+-- nothing else was edited. It has never been applied to any database, which is
+-- why it is corrected here rather than superseded by a second file: the operator
+-- needs one paste that works.
+--
+-- ---------------------------------------------------------------------------
 -- WHY REMOVING THE PREDICATE IS A REPAIR AND NOT A BEHAVIOUR CHANGE
 -- ---------------------------------------------------------------------------
 --
@@ -68,6 +79,40 @@
 -- the standing order. Every signature and return type is unchanged, which is
 -- what makes `create or replace` safe here; owner and grants survive it, so no
 -- re-grant is needed. Safe to re-run.
+
+-- ---------------------------------------------------------------------------
+-- 0. The view the functions below read, which the live project lost
+-- ---------------------------------------------------------------------------
+--
+-- `pending_events_with_demand`, `priority_articles_to_cluster` and
+-- `briefing_readiness` read `public.active_custom_sources`, and 0083 creates it.
+-- The live project does not have it, which is why the first attempt to apply
+-- this file stopped inside `pending_events_with_demand` with
+--
+--   ERROR: 42P01: relation "public.active_custom_sources" does not exist
+--
+-- A `language sql` body is validated when it is created, so a missing relation
+-- is a hard error there and not a silent one; the plpgsql objects earlier in
+-- this file were recreated successfully and would have failed at run time.
+--
+-- The definition is 0083's, verbatim, because the chain is the only record of
+-- what the object was meant to be and nothing in the chain drops it: the live
+-- copy was lost outside the migration history, which this file cannot explain
+-- and does not pretend to. The guard in `schema-migrations.test.ts` cannot see
+-- this class of drift either -- it applies the chain, and the chain creates the
+-- view -- which is exactly what its own caveat warns about: "A green run says
+-- the files agree with each other, never that they agree with what is
+-- deployed." `npm run verify:live` is the tool for that half.
+
+create or replace view public.active_custom_sources as
+select user_id,source_id,active,created_at,updated_at from (
+  select u.*, row_number() over(partition by u.user_id order by u.created_at,u.source_id) as position,
+    (public.launch_plan(coalesce(s.plan::text,'uno'))->>'customSources')::integer as cap
+  from public.user_custom_sources u left join public.subscriptions s on s.user_id=u.user_id
+  where u.active=true
+) ranked where position <= cap;
+revoke all on public.active_custom_sources from public,anon,authenticated;
+grant select on public.active_custom_sources to service_role;
 
 create or replace function public.enforce_topic_cap()
 returns trigger
