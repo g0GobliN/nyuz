@@ -42,14 +42,30 @@ export type PipelineTable = (typeof PIPELINE_TABLES)[number];
 /**
  * `select count(*)`, as close as PostgREST gets to it.
  *
- * `head: true` sends no rows back — the count arrives in the Content-Range
- * header, so counting three million articles costs one round trip and no
- * payload.
+ * The count arrives in the Content-Range header, so this is one round trip and
+ * at most one row of payload. `head: true` was the obvious way to ask for that
+ * and it is deliberately not used, because it makes a *missing relation*
+ * indistinguishable from an empty one: a HEAD response has no body, so
+ * `postgrest-js` cannot read the 404 PostgREST sent, and `res.text()` comes
+ * back `""`. Its error branch then sees `status === 404 && body === ""` and
+ * rewrites the whole thing as `{ status: 204, count: null, error: null }` — a
+ * success. Measured against the live project:
+ *
+ *   ops_status             status 200 count 16   error null
+ *   sources (no rows)      status 200 count 0    error null
+ *   missing relation       status 204 count null error null    <- was "0"
+ *   missing column         status 400 count null error ""      <- message lost
+ *
+ * So `head: true` both hides a missing table behind a zero and throws away the
+ * real message on a missing column. Without it the server's own error survives,
+ * and `n === null` on a successful response means one of those two happened.
+ * `limit(1)` keeps the payload bounded.
  */
 export async function count(table: PipelineTable): Promise<number> {
-  const { count: n, error } = await db().from(table).select("*", { count: "exact", head: true });
+  const { count: n, error } = await db().from(table).select("*", { count: "exact" }).limit(1);
   if (error) throw new Error(`count(${table}): ${error.message}`);
-  return n ?? 0;
+  if (n === null) throw new Error(`count(${table}): the server returned no count`);
+  return n;
 }
 
 /* ---------------------------------------------------------------------- */

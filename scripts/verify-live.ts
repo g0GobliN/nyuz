@@ -74,9 +74,35 @@ main(async () => {
     ["ops_status", "0045"],
   ] as const;
 
+  // Views get their own list because `from()` overloads tables and views
+  // separately: one array holding both narrows to neither. They are listed
+  // here at all because the live project lost `active_custom_sources` without
+  // anything noticing — it is read from SQL, never from TypeScript, so no
+  // build step could have caught it. `0115` then failed on `42P01` inside
+  // `pending_events_with_demand` until the view was recreated. The chain test
+  // in `schema-migrations.test.ts` is structurally blind to this: it applies
+  // the chain, and the chain makes the view. This is the only check that asks
+  // the deployed database.
+  const views = [
+    ["briefing_timing", "0077"],
+    ["active_custom_sources", "0083"],
+  ] as const;
+
+  // This loop used to ask with `head: true`, which made it green for objects
+  // that do not exist. `postgrest-js` cannot read the body of a HEAD response,
+  // so PostgREST's 404 arrives as `body === ""` and its error branch rewrites
+  // that as `{ status: 204, count: null, error: null }` — a pass. Measured
+  // against the live project on 2026-10-07, `active_custom_sources` did not
+  // exist and this check reported `PASS`, while `curl -I` on the same URL
+  // returned a 404 naming the missing table. One real row is enough, and the
+  // server's own message survives.
   for (const [table, migration] of tables) {
-    const { error } = await db().from(table).select("*", { count: "exact", head: true });
+    const { error } = await db().from(table).select("*").limit(1);
     check(`${migration} — ${table} exists`, !error, error?.message ?? "");
+  }
+  for (const [view, migration] of views) {
+    const { error } = await db().from(view).select("*").limit(1);
+    check(`${migration} — ${view} exists`, !error, error?.message ?? "");
   }
 
   const columns: [string, string, string][] = [
@@ -113,6 +139,19 @@ main(async () => {
     ["release_ai_reservation", { p_id: NIL_UUID }, "0045"],
     ["claim_subscription_checkout", { p_user_id: NIL_UUID }, "0045"],
     ["claim_delivery", { p_id: NIL_UUID, p_lease_minutes: 10 }, "0045"],
+    // Seven more members of the same surface, each labelled with the
+    // migration that introduced it. All seven read `user_topics.muted`, which
+    // 0110 dropped without touching them, so until 0115 is applied every one
+    // of them fails with `42703 column ut.muted does not exist` — a `stable`
+    // `language sql` body is planned when it is *called*, which is why the
+    // chain test never saw it. All seven are read-only.
+    ["briefing_readiness", {}, "0075"],
+    ["priority_articles_to_cluster", { p_limit: 1 }, "0075"],
+    ["admin_source_demand", {}, "0020"],
+    ["admin_topic_demand", { p_days: 1 }, "0049"],
+    ["search_topics", { p_user_id: NIL_UUID, p_query: "ai", p_limit: 5 }, "0049"],
+    ["event_has_demand", { p_event_id: NIL_UUID }, "0068"],
+    ["reader_sources", { p_user_id: NIL_UUID, p_limit: 1, p_offset: 0 }, "0039"],
   ];
   for (const [fn, args, migration] of rpcs) {
     const { error } = await db().rpc(fn as "refresh_source_demand", args as never);

@@ -1454,6 +1454,21 @@ export type Database = {
     };
     Views: {
       /**
+       * The plan-allowed slice of `user_custom_sources` (0083): one row per
+       * saved source, ranked per account and cut at the plan's `customSources`
+       * allowance. Service role only. Nothing in TypeScript reads it —
+       * `refresh_source_demand`, `pending_events_with_demand`,
+       * `priority_articles_to_cluster` and `briefing_readiness` read it from
+       * SQL — which is why it could go missing from the live project and from
+       * this file at the same time without anything failing at build time.
+       * Declaring it here is what lets `scripts/verify-live.ts` ask the
+       * deployed database whether it is really there.
+       */
+      active_custom_sources: {
+        Row: UserCustomSource;
+        Relationships: [];
+      };
+      /**
        * The briefing timing contract (0077): what the reader was promised, every
        * step taken to honour it, and the lateness that resulted. Service role
        * only — read by `npm run briefing:timing`.
