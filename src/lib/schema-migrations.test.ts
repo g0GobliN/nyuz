@@ -720,3 +720,93 @@ describe("the muted-topics write path (0109) and the dropped column (0110)", () 
     expect(rows[0]?.n).toBe(0);
   });
 });
+
+describe("the callable surface the application depends on (0115)", () => {
+  /*
+   * Applying the chain above proves the schema these files describe. It does
+   * not prove that schema can be used. `create function` parses a `language
+   * sql` body and plans it at first use, and a plpgsql `new.<field>` resolves
+   * when the trigger fires, so a chain can be green while a function is dead.
+   *
+   * That is exactly how 0110 shipped. It dropped `user_topics.muted` and
+   * updated every TypeScript read site, and nine live functions plus the
+   * `user_topics` cap trigger went on naming the column. The suite stayed
+   * green; the first real call in production raised 42703, and the trigger
+   * raised `record "new" has no field "muted"` on every topic follow.
+   *
+   * So after the chain, call the surface. Not every function in the database —
+   * the objects the application can actually reach, with the smallest inputs
+   * that exercise their bodies. A reintroduced reference to a dropped column
+   * fails here, where it costs a test run, instead of in production.
+   */
+  async function account(): Promise<string> {
+    const { rows } = await db.query<{ id: string }>(
+      "insert into auth.users (email) values ($1) returning id",
+      [`callable-${crypto.randomUUID()}@example.com`],
+    );
+    return rows[0]!.id;
+  }
+
+  it("calls every application-callable function without an error", async () => {
+    const user = await account();
+    const { rows: topics } = await db.query<{ id: string }>(
+      "select id from public.topics order by id limit 1",
+    );
+    const topic = topics[0]!.id;
+
+    // Every one of these is reached from `src/`: `briefing_readiness` and the
+    // heartbeats from the scheduled handler, `refresh_source_demand` and
+    // `priority_articles_to_cluster` from the ingest and cluster stages,
+    // `reader_sources` and `search_topics` from the dashboard, the two admin
+    // demand readers from the console, and the last two from the freshness
+    // helpers. A call that only needs a body to plan is enough.
+    const calls: [string, string, unknown[]][] = [
+      ["briefing_readiness", "select * from public.briefing_readiness()", []],
+      ["refresh_source_demand", "select public.refresh_source_demand()", []],
+      ["pending_events_with_demand", "select * from public.pending_events_with_demand(1)", []],
+      ["priority_articles_to_cluster", "select * from public.priority_articles_to_cluster(1)", []],
+      ["event_has_demand", "select public.event_has_demand($1)", [topic]],
+      ["admin_source_demand", "select * from public.admin_source_demand()", []],
+      ["admin_topic_demand", "select * from public.admin_topic_demand(1)", []],
+      ["reader_sources", "select * from public.reader_sources($1, 1, 0)", [user]],
+      ["search_topics", "select * from public.search_topics($1, 'ai', 5)", [user]],
+    ];
+
+    const broken: string[] = [];
+    for (const [name, sql, params] of calls) {
+      try {
+        await db.query(sql, params);
+      } catch (error) {
+        broken.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
+  it("follows a topic through the user_topics cap trigger", async () => {
+    // The function calls above cannot see the trigger, and the trigger was the
+    // worst of 0110's leftovers: it fires on every insert, so a reference to
+    // the dropped column there broke following a topic outright. Insert and
+    // update a real row, which is the only way to run it.
+    const user = await account();
+    const { rows: topics } = await db.query<{ id: string }>(
+      "select id from public.topics order by id limit 1",
+    );
+    const topic = topics[0]!.id;
+
+    await db.query("insert into public.user_topics (user_id, topic_id) values ($1, $2)", [
+      user,
+      topic,
+    ]);
+    await db.query(
+      "update public.user_topics set weight = 2 where user_id = $1 and topic_id = $2",
+      [user, topic],
+    );
+
+    const { rows } = await db.query<{ n: number }>(
+      "select count(*)::integer as n from public.user_topics where user_id = $1",
+      [user],
+    );
+    expect(rows[0]?.n).toBe(1);
+  });
+});
