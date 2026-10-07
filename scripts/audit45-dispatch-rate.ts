@@ -51,10 +51,18 @@ const PAGE = 500;
 /** Days of `pipeline_runs` history the tables summarise. */
 const DEFAULT_DAYS = 14;
 
+/**
+ * Rows recorded before Audit 47 have a `finished_at` by construction -- the
+ * record was only ever written after the work -- so "unfinished" can only mean
+ * anything for runs recorded since. Anything older has `status: "healthy"` and
+ * a finish time, and the counts below are bounded to the recent side.
+ */
 type RunRow = {
   stage: string | null;
   trigger: string | null;
   started_at: string;
+  finished_at: string | null;
+  status: string | null;
 };
 
 function argOf(name: string): string | undefined {
@@ -161,7 +169,7 @@ main(async () => {
   for (let offset = 0; ; offset += PAGE) {
     const { data, error } = await client
       .from("pipeline_runs")
-      .select("stage, trigger, started_at")
+      .select("stage, trigger, started_at, finished_at, status")
       .gte("started_at", since)
       .order("started_at", { ascending: true })
       .range(offset, offset + PAGE - 1);
@@ -191,6 +199,37 @@ main(async () => {
   }
   const unknown = stageCounts.get("unknown") ?? 0;
   say(rowLine("stage=unknown (the catch wrote it)", unknown));
+
+  // ---------------------------------------------------------------------------
+  // Opened but never closed (Audit 47)
+  // ---------------------------------------------------------------------------
+  // `recordRunLifecycle` writes the receipt before the work and closes it after,
+  // so a run that dies mid-invocation -- the subrequest budget is what kills it
+  // -- keeps a row with `status: "running"` and no `finished_at`. That is the
+  // measurement this instrument could not make before: an unfinished row is a
+  // dispatched invocation that ran out of budget, which is exactly the case
+  // "cannot be separated" used to cover.
+  heading("Opened but never closed (only meaningful since Audit 47 deployed)");
+  const unfinished = new Map<string, number>();
+  const opened = new Map<string, number>();
+  for (const run of runs) {
+    const stage = run.stage ?? "?";
+    opened.set(stage, (opened.get(stage) ?? 0) + 1);
+    if (run.status === "running" || run.finished_at === null) {
+      unfinished.set(stage, (unfinished.get(stage) ?? 0) + 1);
+    }
+  }
+  const neverClosed = [...unfinished.values()].reduce((a, b) => a + b, 0);
+  if (neverClosed === 0) {
+    say(
+      "  none: every recorded run has a closing write (expected until the deploy, then per stage below)",
+    );
+  }
+  for (const [stage, n] of [...unfinished.entries()].sort((a, b) => b[1] - a[1])) {
+    say(
+      `  ${stage.padEnd(22)} ${String(n).padStart(5)} of ${String(opened.get(stage) ?? 0).padEnd(5)} runs  ${((n / (opened.get(stage) ?? 1)) * 100).toFixed(1)}% ran out of budget`,
+    );
+  }
   const unaccounted = [...stageCounts.entries()].filter(
     ([stage]) => !expected.has(stage) && stage !== "unknown",
   );
@@ -323,11 +362,15 @@ main(async () => {
 
   heading("What these numbers can and cannot separate");
   say(
-    "  cannot: never dispatched, dispatched then killed before its first write, dispatched and coalesced",
+    "  cannot: never dispatched, dispatched and coalesced — from the rows alone, both leave the same nothing,",
   );
   say(
-    "  — all three leave the same nothing in pipeline_runs, and ops_status keeps only the latest write.",
+    "  and ops_status keeps only the latest write. Since Audit 47 a run that starts and dies is visible as an",
   );
+  say(
+    '  unfinished row, so "dispatched then killed before its record" is no longer in this list; only the',
+  );
+  say("  unobservable distinction between a dispatch never sent and one coalesced away remains.");
   say(
     "  can: scattered single lost minutes versus contiguous blocked windows; a stage that never loses a",
   );
@@ -355,6 +398,7 @@ main(async () => {
             [...stageCounts.entries()].map(([s, n]) => [s, n / days]),
           ),
           unknownRuns: unknown,
+          unfinishedRuns: Object.fromEntries(unfinished),
           lostSlotMinutes: missing.length,
           longestContiguousLostRun: longestRun,
           hoursWithEverySlot: full.length,

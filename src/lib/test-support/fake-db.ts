@@ -44,6 +44,17 @@ type Hooks = {
    * Return an error message, or null/undefined to let the select succeed.
    */
   failSelect?: (table: string) => string | null | undefined;
+  /**
+   * Makes a table's write fail the way Postgres does — `{ data: null, error }`
+   * back to the caller, not a throw — so code that writes and must survive the
+   * write being refused can be exercised. The subrequest-budget failure is the
+   * production case: a run's bookkeeping is what a spent budget kills first.
+   * Return an error message, or null/undefined to let the write through.
+   */
+  failWrite?: (
+    table: string,
+    mode: "insert" | "upsert" | "update" | "delete",
+  ) => string | null | undefined;
 };
 
 export type RpcHandler = (args: Record<string, unknown>) => unknown;
@@ -382,6 +393,11 @@ class FakeQuery implements PromiseLike<{
     count?: number;
   }> {
     const rows = this.db.rows(this.table);
+
+    if (this.mode.kind !== "select") {
+      const failure = this.db.hooks.failWrite?.(this.table, this.mode.kind);
+      if (failure) return { data: null, error: { message: failure } };
+    }
 
     if (this.mode.kind === "insert") {
       for (const row of this.mode.rows) this.insertId(row);

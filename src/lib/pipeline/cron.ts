@@ -40,7 +40,9 @@
  * rather than a trigger there is no room for.
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient, type ServerEnv } from "@/lib/supabase/admin";
+import type { Database, Json, PipelineRun } from "@/lib/supabase/types";
 import type { EmailEnv } from "@/lib/server/email/send";
 import type { TelegramEnv } from "@/lib/server/telegram/send";
 import type { PushEnv } from "@/lib/server/push/send";
@@ -417,12 +419,103 @@ async function reapStaleReservations(env: Env): Promise<void> {
   }
 }
 
-async function recordScheduled(
-  env: Env,
+type Db = SupabaseClient<Database>;
+
+/** The columns a closing write fills in. */
+type RunClose = {
+  stage: string;
+  finished_at: string;
+  status: PipelineRun["status"];
+  considered?: number;
+  processed?: number;
+  skipped?: number;
+  failed?: number;
+  reason_counts?: Json;
+};
+
+/**
+ * The run's receipt, opened before the work rather than written after it.
+ *
+ * Audit 47. `pipeline_runs` is the only record that a stage ran, and it used to
+ * be written last -- after the fetches, the model calls and the heartbeat. A
+ * stage that exhausts its subrequest budget mid-run then lost the record of the
+ * run it had just done: the heartbeat failed loudly in the log ("recording ops
+ * status cron:heartbeat: Error: Too many subrequests by single Worker
+ * invocation") while this insert failed silently, because nobody read its
+ * result. The ledger that produced looked like a scheduler skipping a quarter of
+ * its slots: Audit 45 counted the crons firing on ~100% of their expected slots
+ * through the failing RPCs of the stages themselves, against 16% of ingest runs
+ * having a row to show for it.
+ *
+ * So the row opens as `status: "running"` with a null `finished_at`, and a
+ * closing update records what the run did. A run that dies keeps its row, and an
+ * unfinished row is worth having: it is the measurement of how often a stage
+ * runs out of budget, which is exactly what was invisible before. 0092 already
+ * allows this shape -- `status in ('running', ...)` and a nullable
+ * `finished_at` -- so no migration goes with it.
+ *
+ * Writing the receipt is observability, never a failure. Every error here is
+ * logged and swallowed: a ledger write must not turn a completed run into a
+ * failed stage, and the callers' own error handling is unchanged.
+ */
+export async function recordRunLifecycle(
+  db: Db,
   cron: string,
+  plannedStage: string,
   task: () => Promise<ScheduledResult>,
 ): Promise<ScheduledResult> {
   const startedAt = new Date();
+  const trigger = cron === DIGEST_CRON ? "cron:digest" : "cron:stages";
+
+  /**
+   * Open the receipt.
+   *
+   * A client that *throws* is as possible as one that returns an error -- a
+   * reset connection, a DNS failure -- and neither may reach the caller, so the
+   * call is wrapped here as well as inspected.
+   */
+  const openRun = async (): Promise<string | null> => {
+    try {
+      const { data, error } = await db
+        .from("pipeline_runs")
+        .insert({
+          stage: plannedStage,
+          trigger,
+          started_at: startedAt.toISOString(),
+          finished_at: null,
+          status: "running",
+        })
+        .select("id")
+        .maybeSingle();
+      if (error) console.error(`opening pipeline run ${plannedStage}: ${error.message}`);
+      return (data as { id: string } | null)?.id ?? null;
+    } catch (error) {
+      console.error(
+        `opening pipeline run ${plannedStage}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
+  };
+  const runId = await openRun();
+
+  /** Close the row this invocation opened, or write one if it never opened. */
+  const close = async (patch: RunClose): Promise<void> => {
+    try {
+      const { error } = runId
+        ? await db.from("pipeline_runs").update(patch).eq("id", runId)
+        : await db.from("pipeline_runs").insert({
+            trigger,
+            started_at: startedAt.toISOString(),
+            ...patch,
+          });
+      if (error) console.error(`closing pipeline run ${plannedStage}: ${error.message}`);
+    } catch (error) {
+      console.error(
+        `closing pipeline run ${plannedStage}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  };
+
   try {
     const result = await task();
     if (result.stage !== "idle" && result.stage !== "unknown") {
@@ -450,45 +543,60 @@ async function recordScheduled(
       // evidence of whether the recovery probe was ever given a slot. Only
       // enrich reports one; every other stage contributes nothing here.
       const probe = report["probe"] as ProbeDecision | undefined;
-      await createAdminClient(env)
-        .from("pipeline_runs")
-        .insert({
-          stage: result.stage,
-          trigger: cron === DIGEST_CRON ? "cron:digest" : "cron:stages",
-          started_at: startedAt.toISOString(),
-          finished_at: new Date().toISOString(),
-          status: failed > 0 ? "error" : skipped > 0 ? "warning" : "healthy",
-          considered,
-          processed,
-          skipped,
-          failed,
-          reason_counts: {
-            metrics_recorded: metricsRecorded,
-            ...(probe ? probeRunFields(probe) : {}),
-          },
-        });
+      await close({
+        // The stage the run turned out to be, which is not always the one it
+        // was planned as: a `DIGEST_CRON` invocation reports `digest` here and
+        // its sending half reports `delivery`.
+        stage: result.stage,
+        finished_at: new Date().toISOString(),
+        status: failed > 0 ? "error" : skipped > 0 ? "warning" : "healthy",
+        considered,
+        processed,
+        skipped,
+        failed,
+        reason_counts: {
+          metrics_recorded: metricsRecorded,
+          ...(probe ? probeRunFields(probe) : {}),
+        },
+      });
+    } else if (runId) {
+      // Unreachable for a registered cron -- `runScheduled` answers `idle` and
+      // `unknown` before it records anything -- but if it ever happens, the row
+      // is closed with the truth rather than left open forever.
+      await close({
+        stage: plannedStage,
+        finished_at: new Date().toISOString(),
+        status: "healthy",
+        reason_counts: { metrics_recorded: [], note: result.stage },
+      });
     }
     return result;
   } catch (error) {
-    await createAdminClient(env)
-      .from("pipeline_runs")
-      .insert({
-        stage: "unknown",
-        trigger: cron,
-        started_at: startedAt.toISOString(),
-        finished_at: new Date().toISOString(),
-        status: "error",
-        considered: 0,
-        processed: 0,
-        skipped: 0,
-        failed: 1,
-        reason_counts: {
-          metrics_recorded: ["failed"],
-          error: error instanceof Error ? error.message.slice(0, 240) : "unknown",
-        },
-      });
+    await close({
+      stage: plannedStage,
+      finished_at: new Date().toISOString(),
+      status: "error",
+      considered: 0,
+      processed: 0,
+      skipped: 0,
+      failed: 1,
+      reason_counts: {
+        metrics_recorded: ["failed"],
+        error: error instanceof Error ? error.message.slice(0, 240) : "unknown",
+      },
+    });
     throw error;
   }
+}
+
+/** The receipt's caller: every schedule that has a stage to record. */
+async function recordScheduled(
+  env: Env,
+  cron: string,
+  plannedStage: string,
+  task: () => Promise<ScheduledResult>,
+): Promise<ScheduledResult> {
+  return recordRunLifecycle(createAdminClient(env), cron, plannedStage, task);
 }
 
 async function runShared(stage: SharedStage, env: Env): Promise<ScheduledResult> {
@@ -516,17 +624,17 @@ export async function runScheduled(
   cron: string,
   scheduledFor: Date = new Date(),
 ): Promise<ScheduledResult> {
-  if (cron === INGEST_CRON) return recordScheduled(env, cron, () => runIngest(env));
+  if (cron === INGEST_CRON) return recordScheduled(env, cron, "ingest", () => runIngest(env));
   // `runDigest` delivers as well as generates. Every minute is a generation
   // pass so bounded batches drain a busy deadline queue continuously.
   if (cron === DIGEST_CRON) {
-    return recordScheduled(env, cron, () => runDigest(env));
+    return recordScheduled(env, cron, "digest", () => runDigest(env));
   }
 
   if (cron === STAGES_CRON) {
     const stage = stageForMinute(scheduledFor);
     if (!stage) return { stage: "idle", cron, minute: scheduledFor.getUTCMinutes() };
-    return recordScheduled(env, cron, () => runShared(stage, env));
+    return recordScheduled(env, cron, stage, () => runShared(stage, env));
   }
 
   // The per-stage schedules are no longer registered triggers, but they stay
@@ -534,14 +642,15 @@ export async function runScheduled(
   // rather than depend on the minute the operator happened to run it.
   if (cron === CLUSTER_CRON || cron === ANALYSE_CRON) {
     await reapStaleReservations(env);
-    return recordScheduled(env, cron, () =>
+    const stage = cron === CLUSTER_CRON ? "cluster" : "analyse";
+    return recordScheduled(env, cron, stage, () =>
       cron === CLUSTER_CRON ? runCluster(env) : runAnalyse(env),
     );
   }
-  if (cron === CLASSIFY_CRON) return recordScheduled(env, cron, () => runClassify(env));
-  if (cron === IMPACT_CRON) return recordScheduled(env, cron, () => runImpact(env));
-  if (cron === MATCH_CRON) return recordScheduled(env, cron, () => runMatch(env));
-  if (cron === DORMANT_CRON) return recordScheduled(env, cron, () => runDormant(env));
+  if (cron === CLASSIFY_CRON) return recordScheduled(env, cron, "classify", () => runClassify(env));
+  if (cron === IMPACT_CRON) return recordScheduled(env, cron, "impact", () => runImpact(env));
+  if (cron === MATCH_CRON) return recordScheduled(env, cron, "match", () => runMatch(env));
+  if (cron === DORMANT_CRON) return recordScheduled(env, cron, "dormant", () => runDormant(env));
 
   return { stage: "unknown", cron };
 }
