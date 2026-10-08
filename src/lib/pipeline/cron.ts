@@ -74,13 +74,15 @@ import { describeImpacts, writeImpacts, type ImpactReport } from "./impacts";
 /**
  * Feeds read per scheduled invocation.
  *
- * 12 rather than 64 for the Free Worker subrequest budget above. A normal
- * successful feed costs the external fetch, an article write and a source
- * update; twelve leaves room for the source-list query and failure/audit paths.
- * Raising it is a decision
+ * 8 rather than 64 for the Free Worker subrequest budget above (Audit 49
+ * follow-up: the batched retitle tick still sat at ~47 base with 12, so the
+ * arbiter approved 12 → 8 for ~12 subrequests of margin against
+ * redirect/retry variance). A normal successful feed costs the external
+ * fetch, an article write and a source update; eight leaves room for the
+ * source-list query and failure/audit paths. Raising it is a decision
  * about the Cloudflare plan, not about the pipeline.
  */
-const SCHEDULED_LIMIT = 12;
+const SCHEDULED_LIMIT = 8;
 
 /** Free clustering remains bounded by the worker's subrequest limit. */
 const CLUSTER_LIMIT = 12;
