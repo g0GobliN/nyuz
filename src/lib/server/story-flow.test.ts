@@ -35,7 +35,7 @@ vi.mock("@tanstack/react-start", () => ({
     return builder;
   },
 }));
-import { loadHomeFeed, loadStory, startFirstBriefing } from "./briefing";
+import { loadDigestStories, loadHomeFeed, loadStory, startFirstBriefing } from "./briefing";
 import { composeArticle } from "@/lib/editorial";
 import type { Story } from "@/lib/story";
 /**
@@ -259,6 +259,43 @@ describe("reader flows never buy background synthesis", () => {
     expect(feed.source).toBe("matches");
     expect(feed.digestStatus).toBe("skipped");
     expect(feed.stories.map((s) => s.id)).toContain(EVENT_ID);
+  });
+
+  it("keeps a stored significance line and retires the archived filler shapes", async () => {
+    // The archive is what the email said, so a real line survives verbatim —
+    // but the follow fallback and the subject line are shapes the ladder
+    // stopped writing on 2026-10-08 (inclusion.ts). An older briefing holding
+    // one gets the ladder's own answer instead, even when that answer is
+    // nothing at all.
+    const db = bundledDb();
+    seedPendingNews(db);
+    await run(startFirstBriefing, db);
+    const digestId = db.rows("digests")[0]!["digest_id"] as string;
+    const eventId = db.rows("user_events")[0]!["event_id"] as string;
+    const item: Record<string, unknown> = {
+      digest_id: digestId,
+      event_id: eventId,
+      position: 0,
+      why_it_matters: "",
+    };
+    db.rows("digest_items").push(item);
+
+    item["why_it_matters"] = "It moves the deadline the whole industry is working to.";
+    const kept = (await run(loadDigestStories, db, { digestId })) as Story[];
+    expect(kept[0]?.why).toBe("It moves the deadline the whole industry is working to.");
+
+    for (const retired of [
+      "You follow OpenAI.",
+      "This is a funding story from The Register.",
+      "A funding and cybersecurity story from The Register, in your OpenAI topics.",
+    ]) {
+      item["why_it_matters"] = retired;
+      const recomputed = (await run(loadDigestStories, db, { digestId })) as Story[];
+      expect(recomputed[0]?.why).not.toBe(retired);
+      // The fixture's event has one publisher and no figure, before or after —
+      // so the honest answer is an empty line, not a replacement filler.
+      expect(recomputed[0]?.why).toBe("");
+    }
   });
 
   it("still shows the quiet-day empty state when nothing matched since the skip", async () => {

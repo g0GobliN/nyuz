@@ -24,6 +24,7 @@ type Brief = {
   eventId: string;
   title: string;
   whatHappened: string | null;
+  beforeState: string | null;
   afterState: string | null;
   sourceCount: number;
   topics: string[];
@@ -194,6 +195,7 @@ main(async () => {
         eventId: row3.eventId,
         title: event.title,
         whatHappened: event.what_happened,
+        beforeState: (event as { before_state?: string | null }).before_state ?? null,
         afterState: (event as { after_state?: string | null }).after_state ?? null,
         sourceCount:
           (event as { publisher_count?: number }).publisher_count ||
@@ -248,18 +250,9 @@ main(async () => {
   if (ready.length > cap) ready.splice(cap);
 
   heading(`Ships (${ready.length})`);
-  // The same follow set generation feeds to the ladder: the final rung, and
-  // the tie the subject rung claims — never the first thing a card says.
-  const { data: followRows } = await db()
-    .from("user_topics")
-    .select("topics ( label )")
-    .eq("user_id", userId);
-  const followed = new Set(
-    (followRows ?? [])
-      .map((r) => (r.topics as { label?: string } | null)?.label)
-      .filter((label): label is string => Boolean(label))
-      .map((label) => label.toLowerCase()),
-  );
+  // The ladder reads the event's own stored fields only — no reader inputs,
+  // since 2026-10-08 (inclusion.ts). What this prints is what generation
+  // would store, for this reader's pool.
   let multi = 0;
   let withLine = 0;
   const rungs = new Map<string, number>();
@@ -267,14 +260,11 @@ main(async () => {
   for (const brief of ready) {
     const why = reasonFor({
       storedImpact: brief.storedImpact,
+      beforeState: brief.beforeState,
       afterState: brief.afterState,
       sourceCount: brief.sourceCount,
-      topics: brief.topics,
-      outlet: brief.outlet,
       title: brief.title,
       whatHappened: brief.whatHappened,
-      tags: brief.tags,
-      followed,
     });
     const text = why.text;
     rungs.set(why.source, (rungs.get(why.source) ?? 0) + 1);

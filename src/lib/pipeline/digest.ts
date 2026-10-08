@@ -876,23 +876,10 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   const impacts = await completedImpacts(db, ready);
 
   const stored = new Map(impacts.map((item) => [item.eventId, item.text] as const));
-  // The reader's own follow labels, for the final rung: when nothing about the
-  // *story* explains its presence, the honest line is about the *reader*. Fetched
-  // once per digest; an empty set on failure just leaves those stories silent.
-  const { data: followRows } = await db
-    .from("user_topics")
-    .select("topics ( label )")
-    .eq("user_id", due.user_id);
-  const followed = new Set(
-    (followRows ?? [])
-      .map((row) => (row.topics as { label?: string } | null)?.label)
-      .filter((label): label is string => Boolean(label))
-      .map((label) => label.toLowerCase()),
-  );
-  // The whole ladder from one call: story-specific rungs first (figure,
-  // subject), the follow line only as the final rung — see inclusion.ts. The
-  // follow set fetched above rides along so a card with a story-specific line
-  // never falls back to repeating "You follow X." underneath it.
+  // The whole ladder from one call, over the event's own stored fields — see
+  // inclusion.ts for the contract. No reader-specific inputs: a significance
+  // line states a fact about the story, and the reader's own follow graph is
+  // rendered separately, under `personalizationFor`.
   const byImpact = new Map(
     ready.map((brief) => {
       const reason = reasonFor({
@@ -900,12 +887,8 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
         beforeState: brief.beforeState,
         afterState: brief.afterState,
         sourceCount: brief.sourceCount,
-        topics: brief.topics,
-        outlet: brief.outlet,
         title: brief.title,
         whatHappened: brief.whatHappened,
-        tags: brief.tags,
-        followed,
       });
       return [brief.eventId, reason.text] as const;
     }),

@@ -19,14 +19,26 @@
  * $0.06 in the eleven days to 2026-09-12.
  *
  * ---------------------------------------------------------------------------
+ * The contract (set by the quality arbiter, 2026-10-08)
+ * ---------------------------------------------------------------------------
+ *
+ *   specific deterministic significance → useful provenance → nothing
+ *
+ * Every line states the strongest truthful thing this event's own stored
+ * fields support, or the line is empty. An empty line is honest and every
+ * template already renders around it; a generic one is filler, and the
+ * arbiter scored filler as the defect that cost the briefing its top marks.
+ *
+ * ---------------------------------------------------------------------------
  * The ladder
  * ---------------------------------------------------------------------------
  *
- * Ordered by how much it tells the reader, not by how easy it is to produce:
+ * Two bands, in order, then silence. Within a band, order is by how much the
+ * rung says about *this* story, not by how easy it is to produce:
  *
  *   1. **The stored shared impact.** Written by analysis, already paid for, and
  *      genuinely about consequence. Nothing beats it and nothing here touches
- *      it — `reasonFor` is only consulted when it is absent.
+ *      it — the rest of the ladder is only consulted when it is absent.
  *   2. **The change.** Before-state plus after-state as one sentence — "what
  *      changed" is a concrete development, and both halves are stored fields.
  *      Fires only when both are usable prose and differ from each other; the
@@ -34,26 +46,18 @@
  *   3. **The after state.** "What is true now that was not before" is the
  *      literal question `why_it_matters` asks, and analysis already extracted
  *      it into its own column. Source-derived, no inference.
- *   4. **A coverage sentence.** How many independent outlets carried it and
- *      which of the reader's interests it landed in. True, and it answers
- *      "why am I seeing this" even when it cannot answer "why does it matter".
- *      Multi-source only — see below.
- *   5. **The figure.** A number the story itself names — a money amount, a
- *      CVE, a headcount — restated as a sentence. Regex over the event's own
+ *   4. **The figure.** A number the story itself names — a money amount, a CVE,
+ *      a headcount — restated as a sentence. Regex over the event's own
  *      headline and briefing paragraph: if the text does not contain it, the
  *      rung cannot claim it.
- *   6. **The subject.** `events.tags` (0049) says what concrete kind of thing
- *      happened — an acquisition, a layoff, a fine — up to two kinds, with
- *      the single outlet as an attribution slot. Deliberately NOT tied to the
- *      reader's topics: kind-plus-topics slot-fill ("A funding story in your
- *      AI topic") repeats across cards sharing a topic, so the follow fact
- *      lives only in rung 7 and the subject line stays story facts.
- *   7. **The follow graph.** "You follow X." — honest, but the least
- *      story-specific thing that can be said, which is why it now sits last
- *      instead of being every card's line. Consumers pass `followed` and get
- *      the whole ladder from one call; without it, this rung is skipped.
- *   8. **Nothing.** An empty string, which `digest_items.why_it_matters`
- *      already defaults to and every template already renders around.
+ *   5. **The coverage count.** How many independent outlets carried it.
+ *      Multi-source only, because "one publisher" is the absence of a fact.
+ *      This is the provenance band: weaker than a fact about the story, and
+ *      stronger than silence, because the count varies story to story.
+ *   6. **Nothing.** An empty string, which `digest_items.why_it_matters`
+ *      already defaults to and every template already renders around — the
+ *      email drops the whole line, the card falls back to the reader's own
+ *      follow explanation under its own heading.
  *
  * A final gate blanks any rung whose normalized text equals the briefing
  * paragraph it would sit beside: a why-line that restates `what_happened`
@@ -61,44 +65,53 @@
  * the rung above produced it honestly.
  *
  * ---------------------------------------------------------------------------
- * Why rungs 4 and 5 exist
+ * What is no longer here, and why
  * ---------------------------------------------------------------------------
  *
- * On 2026-10-01 all twenty-five single-source cards without a stored impact
- * read "You follow X." — one sentence repeated under unrelated stories,
- * differentiated only by its topic list. Story-specific beats reader-generic:
- * a figure or a subject varies with the story, so the briefing reads like twenty-
- * five reasons rather than one reason twenty-five times. Both rungs state only
- * what the event's own stored fields contain — a regex match or a tag row —
- * so neither can invent consequence. When neither is available the ladder still
- * falls all the way to rung 7 rather than repeating itself, because an empty
- * line is honest and a repeated one is not.
+ * Two rungs were deleted on 2026-10-08, after the arbiter's ruling on the
+ * deterministic contract:
+ *
+ *   - the **subject** line — `events.tags` restated as "This is a funding
+ *     story from The Register." The ruling: it *"prefers nothing over exposing
+ *     'This is a cybersecurity story from The Register.' as though that were
+ *     genuinely answering 'why it matters'"*, and a generic sentence whose only
+ *     purpose is to fill the visual slot is *"preferably absent"*.
+ *   - the **follow** line — "You follow AI." Reader-generic, the same sentence
+ *     under every card in a topic, and on 2026-10-01 it was every card's line.
+ *     The reader's own follow graph is still rendered — under the honest
+ *     heading "Why you're seeing this", by `personalizationFor` on the server
+ *     and `becauseYouFollow` on the client — which is where the arbiter put
+ *     provenance: the metadata band, not this slot.
+ *
+ * The inputs went with them. `events.tags`, the reader's topic labels and the
+ * single outlet are no longer read: every remaining rung states a fact about
+ * the story, which is what makes the line differ per card rather than per
+ * template. That also removes two per-card queries from the read path.
  *
  * ---------------------------------------------------------------------------
- * Why rung 3 stays silent on single-source stories
+ * Why rung 5 survived the purge
  * ---------------------------------------------------------------------------
  *
- * Rung 3 is only worth printing when it says something about *this* story.
- * The multi-source count does: "Three publishers reported this" is a fact
- * about the coverage that varies story to story. The single-source line did
- * not, even after it named the outlet — on 2026-09-30 all twenty-five lines
- * read "So far only X has reported this, in ...", differentiated without
- * being different. The outlet is already on screen (card header, source
- * count, source rail), so the sentence added repetition, not information.
- * Single-source stories fall through to the story-specific rungs instead.
+ * The count is a fact about the coverage that varies story to story — three
+ * publishers is a different claim from five — so it differentiates the
+ * briefing rather than repeating across it. On 2026-09-30 the single-source
+ * version of this line did repeat ("So far only X has reported this", twenty-
+ * five times), and the outlet it named was already on screen. Single-source
+ * stories therefore fall through it to silence, and the line is never tied to
+ * the reader's topics, which is the slot-fill the arbiter rejected.
  *
  * ---------------------------------------------------------------------------
  * Why it has to be a sentence
  * ---------------------------------------------------------------------------
  *
- * The email prints `Why it matters: ${why}` (email/templates.ts:392). A
- * metadata chip — "5 sources · Cybersecurity" — would be correct and read like
- * a bug in that position. So every rung is written as prose, and anything that
- * cannot be said as a sentence is left to the final rung rather than forced.
+ * The email prints `Why you're seeing this: ${why}` (email/templates.ts:392)
+ * and drops the whole block when `why` is empty. A metadata chip — "5 sources
+ * · Cybersecurity" — would be correct and read like a bug in that position. So
+ * every rung is written as prose, and anything that cannot be said as a
+ * sentence is left to the final rung rather than forced.
  *
- * Never invents consequence. Rungs 3–5 state only counts, labels and numbers
- * that are facts about the coverage; none of them tells the reader what to
- * conclude.
+ * Never invents consequence. Rungs 2–5 state only developments, counts and
+ * numbers that the event's own stored fields contain.
  */
 
 const NUMBER_WORDS = [
@@ -120,12 +133,6 @@ function count(value: number): string {
   return NUMBER_WORDS[value] ?? String(value);
 }
 
-function listOf(labels: string[]): string {
-  if (labels.length === 1) return labels[0] ?? "";
-  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
-  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
-}
-
 /** Trimmed, and rejected outright if it is not usable prose. */
 function sentence(value: string | null | undefined): string | null {
   const text = (value ?? "").replace(/\s+/gu, " ").trim();
@@ -144,37 +151,16 @@ export type InclusionInput = {
   afterState?: string | null;
   /** Independent outlets on the event. */
   sourceCount: number;
-  /** The reader's topic labels this event matched. */
-  topics: string[];
-  /**
-   * The outlet that carried it, when exactly one did and its name is known.
-   *
-   * The subject rung uses it as an attribution slot — `A funding story from
-   * X, in your AI topic.` — where it separates stories whose kind and topics
-   * coincide. Never the whole line: the header documents why an
-   * outlet-only sentence was rejected. Pass null rather than guessing — a
-   * wrong name is worse than no line.
-   */
-  outlet?: string | null;
   /** `events.title` — the figure rung searches it before the paragraph. */
   title?: string | null;
   /** `events.what_happened`, the shared briefing paragraph. */
   whatHappened?: string | null;
-  /** `events.tags` — the concrete kind of thing that happened (0049). */
-  tags?: readonly string[] | null;
-  /**
-   * The reader's followed topic labels, lowercased — enables the subject
-   * rung's tie and the follow rung. Omit when the caller has no session and
-   * will apply `followedLine` itself; the ladder then skips rung 6.
-   */
-  followed?: ReadonlySet<string> | null;
 };
 
 export type InclusionReason = {
   text: string;
   /** Which rung produced it, for the pipeline report and for tests. */
-  source:
-    "stored" | "change" | "after-state" | "coverage" | "figure" | "subject" | "follow" | "none";
+  source: "stored" | "change" | "after-state" | "figure" | "coverage" | "none";
 };
 
 /**
@@ -207,27 +193,6 @@ export type InclusionReason = {
   const strip = (text: string): string => text.replace(/[.?!]+$/u, "");
   const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1);
   return `Was ${lowerFirst(strip(was))}; now ${lowerFirst(strip(now))}.`;
-}
-
-/**
- * Rung 6 — the reader's own follow graph.
- *
- * The honest answer to "why am I seeing this" when nothing *about the story*
- * can be said: the event matched a topic the reader follows. A fact about this
- * reader rather than filler, but the least story-specific line in the ladder —
- * on 2026-10-01 it was every card's line — so `reasonFor` consults it only
- * after the figure and subject rungs have had their say. `digest` passes the
- * follow set it already fetched; the read path passes its own.
- */
-export function followedLine(
-  topics: readonly string[],
-  followedLabels: ReadonlySet<string>,
-): string {
-  const overlap = topics.filter(
-    (label) => label.trim().length > 0 && followedLabels.has(label.toLowerCase()),
-  );
-  if (overlap.length === 0) return "";
-  return `You follow ${listOf(overlap)}.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -286,64 +251,6 @@ function figureLine(
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Rung 5 — what kind of story this is, tied to what the reader follows
-// ---------------------------------------------------------------------------
-
-/**
- * `events.tags` (0049) are lowercase concept labels from `assignTags` — the
- * concrete kind of thing that happened, not a category claim. Each glosses to
- * a stem that stays grammatical in a list: "layoffs" and "regulation" need one
- * because "a layoffs story" and "a regulation story" are not English, and the
- * article follows the first stem ("an acquisition and funding story").
- */
-const SUBJECT_STEMS: Record<string, string> = {
-  funding: "funding",
-  cybersecurity: "cybersecurity",
-  layoffs: "layoff",
-  regulation: "regulatory",
-  "product launch": "product launch",
-  partnership: "partnership",
-  acquisition: "acquisition",
-  research: "research",
-  controversy: "controversy",
-  expansion: "expansion",
-};
-
-function subjectLine(
-  tags: readonly string[] | null | undefined,
-  outlet: string | null | undefined,
-): string | null {
-  // Up to two kinds: a second tag is what tells two stories in the same
-  // subject apart ("product launch, research" vs "product launch"), and past
-  // two the line becomes the tag list the email heading cannot carry.
-  const kinds: string[] = [];
-  for (const raw of tags ?? []) {
-    const value = raw.trim().toLowerCase();
-    if (!Object.hasOwn(SUBJECT_STEMS, value) || kinds.includes(value)) continue;
-    kinds.push(value);
-    if (kinds.length === 2) break;
-  }
-  const stems = kinds.flatMap((kind) => {
-    const stem = SUBJECT_STEMS[kind];
-    return stem === undefined ? [] : [stem];
-  });
-  const first = stems[0];
-  if (first === undefined) return null;
-  const article = /^[aeiou]/u.test(first) ? "an" : "a";
-  const subject = `${article} ${stems.join(" and ")} story`;
-  // The attribution slot: single-source stories always have one, and its name
-  // varies where kind and topics coincide. It is furniture on screen already,
-  // so it is one qualifier inside a sentence about the story — never the
-  // sentence itself, which is the line the header documents as rejected.
-  // No topics tail: kind-plus-topics slot-fill repeats across every card
-  // sharing a topic, so the follow fact lives only in the follow rung and
-  // this line stays story facts (kind + outlet).
-  const name = (outlet ?? "").trim();
-  const credited = name === "" ? "" : ` from ${name}`;
-  return `This is ${subject}${credited}.`;
-}
-
 export function reasonFor(input: InclusionInput): InclusionReason {
   const candidates: InclusionReason[] = [];
 
@@ -356,28 +263,16 @@ export function reasonFor(input: InclusionInput): InclusionReason {
   const after = sentence(input.afterState);
   if (after) candidates.push({ text: after, source: "after-state" });
 
-  const topics = input.topics.filter((label) => label.trim().length > 0).slice(0, 3);
-  if (input.sourceCount >= 2) {
-    const outlets = `${count(input.sourceCount)} publisher${input.sourceCount === 1 ? "" : "s"} reported this`;
-    candidates.push({
-      text: topics.length > 0 ? `${outlets}, in ${listOf(topics)}.` : `${outlets}.`,
-      source: "coverage",
-    });
-  }
-
-  // The single-source rungs the coverage count used to end at. Both are
-  // facts about this story that vary story to story — a number the text names
-  // or a tag the event carries — so neither repeats across a briefing the way
-  // "So far only X has reported this" and "You follow X." each did.
   const figure = figureLine(input.title, input.whatHappened);
   if (figure !== null) candidates.push({ text: figure, source: "figure" });
 
-  const subject = subjectLine(input.tags, input.outlet);
-  if (subject !== null) candidates.push({ text: subject, source: "subject" });
-
-  if (input.followed) {
-    const follow = followedLine(input.topics, input.followed);
-    if (follow !== "") candidates.push({ text: follow, source: "follow" });
+  // The provenance band. Multi-source only: "One publisher reported this" is
+  // the absence of a fact, and the outlet count already sits on the card.
+  if (input.sourceCount >= 2) {
+    candidates.push({
+      text: `${count(input.sourceCount)} publishers reported this.`,
+      source: "coverage",
+    });
   }
 
   // The why-vs-what gate: a line that restates the briefing paragraph it
@@ -391,7 +286,7 @@ export function reasonFor(input: InclusionInput): InclusionReason {
     return candidate;
   }
 
-  // Nothing story-specific and no follow to name. An empty line is honest
-  // and a repeated one is not.
+  // Nothing story-specific to say. An empty line is honest and the templates
+  // render around it; a generic one would fail the rubric's filler gate.
   return { text: "", source: "none" };
 }
