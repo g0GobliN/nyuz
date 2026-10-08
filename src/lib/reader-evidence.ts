@@ -460,6 +460,16 @@ const PUBLISHER_FURNITURE = new RegExp(
     String.raw`\bCover more ground by making connections\b`,
     String.raw`\bdiscovering what['’]s next in the startup ecosystem\b`,
     String.raw`\bGo deeper with\b`,
+    // The same outlet's pitch in its other wording, and its byline bio. Both
+    // reached a reader on 2026-10-08 inside a keyboard review: the promo blurb
+    // ("Go beyond the headlines with expert reporting on the hardware industry.
+    // Unlock exclusive tools and insights for enthusiasts who want more.") and
+    // the analyst's masthead line, where the beat name is a comma-separated
+    // list rather than the outlet, so the Premium rules above cannot see it.
+    String.raw`\bGo beyond the headlines\b`,
+    String.raw`\bUnlock exclusive\b`,
+    String.raw`\bfor enthusiasts who want more\b`,
+    String.raw`\bcovers everything that has to do with\b`,
     String.raw`\bTH Premium\b`,
     String.raw`\bTom['’]s Hardware Premium\b`,
     String.raw`\bat [A-Z][\w'’.]*(?:\s+[A-Z][\w'’.]*){0,3} Premium\b`,

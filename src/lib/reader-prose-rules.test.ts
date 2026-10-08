@@ -100,6 +100,35 @@ describe("publisher furniture never becomes an article sentence", () => {
     }
   });
 
+  it("refuses a promo blurb and a beat-list byline", () => {
+    // The 2026-10-08 read: a keyboard review carried the outlet's own pitch
+    // ("Go beyond the headlines ... Unlock exclusive tools and insights for
+    // enthusiasts who want more.") and the analyst's masthead line, whose beat
+    // is a comma-separated list ("As the Senior Analyst, Graphics at Tom's
+    // Hardware, Jeff Kampman covers everything that has to do with graphics
+    // cards, gaming performance, and more."). Both are sentences; neither is
+    // about the story.
+    for (const text of [
+      "Go beyond the headlines with expert reporting on the hardware industry.",
+      "Unlock exclusive tools and insights for enthusiasts who want more.",
+      "As the Senior Analyst, Graphics at Tom's Hardware, Jeff Kampman covers everything that has to do with graphics cards, gaming performance, and more.",
+    ]) {
+      expect(publisherFurniture(text), text).toBe(true);
+      expect(unitTextRejection(text, false), text).toBe("editorial_noise");
+      expect(editorialNoise(text), text).toBe(true);
+    }
+    // Decoys: the same story's own reporting keeps every sentence, including
+    // the one that names the reviewer, because a name is not a bio.
+    for (const text of [
+      "A stack of noise-shaping and noise-reducing materials inside, including a cotton layer and a hefty silicone foundation.",
+      "Jeff Kampman said the outer plastic shell feels a bit cut-rate.",
+      "The update unlocks exclusive features for existing subscribers.",
+    ]) {
+      expect(publisherFurniture(text), text).toBe(false);
+      expect(editorialNoise(text), text).toBe(false);
+    }
+  });
+
   it("refuses the publication pointing the reader at itself", () => {
     // The feed appends this after its own truncation ellipsis, so the reader was
     // told to go and buy the article. The outlet is the variable tail, so the

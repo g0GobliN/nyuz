@@ -142,6 +142,67 @@ describe("reasonFor", () => {
     expect(reason.text).toBe("The story carries a $50m figure.");
   });
 
+  it("refuses a price tag as a figure", () => {
+    // The 2026-10-08 ruling: money is claimed only when the sentence says what
+    // the money is doing. All three titles below were live in the pool that
+    // day, and a price is not significance.
+    for (const reason of [
+      reasonFor({
+        sourceCount: 1,
+        title: "The first Nvidia RTX Spark laptops cost up to $7,000",
+        whatHappened:
+          "They are designed to compete with high-end MacBook Pros — and they have prices to match.",
+      }),
+      reasonFor({
+        sourceCount: 1,
+        title:
+          "Pre-orders are live on Nvidia RTX Spark devices, secure the Surface Laptop Ultra here — starting at $2,599",
+        whatHappened:
+          "Best Buy has a limited lineup, ranging from the Asus ProArt P14 with 24GB of memory for $2,599 up to the Surface Laptop Ultra with 48GB of memory for $3,999.",
+      }),
+      reasonFor({
+        sourceCount: 1,
+        title: "The Pixel Watch 5 is a better value at $65 off",
+        whatHappened:
+          "The watch is discounted by $60 during the October sale, with the 41mm on sale for $334.99.",
+      }),
+    ]) {
+      expect(reason).toEqual({ text: "", source: "none" });
+    }
+  });
+
+  it("claims money at stake, and reads purpose in the same sentence only", () => {
+    // Three live shapes that must survive the narrowing, plus the scoping rule:
+    // a raise elsewhere in the paragraph does not make a title's price tag
+    // claimable, and the paragraph's own purpose-bearing money is then used.
+    expect(
+      reasonFor({
+        sourceCount: 1,
+        title: "Robot data startup Mecka AI nabs $60M from Sequoia",
+      }).text,
+    ).toBe("The story carries a $60M figure.");
+    expect(
+      reasonFor({
+        sourceCount: 1,
+        title: "Mecka AI nears $500M valuation in Sequoia-led deal",
+      }).text,
+    ).toBe("The story carries a $500M figure.");
+    expect(
+      reasonFor({
+        sourceCount: 1,
+        title: "AI could upend food delivery",
+        whatHappened:
+          "DoorDash processed 970 million orders this quarter and generated $4.5 billion in revenue.",
+      }).text,
+    ).toBe("The story carries a $4.5 billion figure.");
+    const scoped = reasonFor({
+      sourceCount: 1,
+      title: "The first RTX Spark laptops cost up to $7,000",
+      whatHappened: "The chipmaker raised $1.2 billion to build them.",
+    });
+    expect(scoped.text).toBe("The story carries a $1.2 billion figure.");
+  });
+
   it("puts a fact about the story above the publisher count", () => {
     // Band order, not rung order: a figure is significance, the count is
     // provenance, so a well-covered story with a real number prints the number.

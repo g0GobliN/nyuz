@@ -46,10 +46,12 @@
  *   3. **The after state.** "What is true now that was not before" is the
  *      literal question `why_it_matters` asks, and analysis already extracted
  *      it into its own column. Source-derived, no inference.
- *   4. **The figure.** A number the story itself names — a money amount, a CVE,
+ *   4. **The figure.** A number the story itself names — money at stake, a CVE,
  *      a headcount — restated as a sentence. Regex over the event's own
  *      headline and briefing paragraph: if the text does not contain it, the
- *      rung cannot claim it.
+ *      rung cannot claim it. Money is claimed only when the same sentence says
+ *      what the money is doing (see `MONEY_AT_STAKE`): a price tag is not
+ *      significance, and the arbiter ruled it out on 2026-10-08.
  *   5. **The coverage count.** How many independent outlets carried it.
  *      Multi-source only, because "one publisher" is the absence of a fact.
  *      This is the provenance band: weaker than a fact about the story, and
@@ -206,6 +208,30 @@ export type InclusionReason = {
  * carry `lastIndex` between cards.
  */
 const MONEY = /[$€£]\s?\d[\d,]*(?:\.\d+)?\s?(?:trillion|billion|million|thousand|bn|mn|[kmb]\b)?/iu;
+/**
+ * What the money is doing, in the sentence that names it.
+ *
+ * The 2026-10-08 ruling: a product price is not significance, so the rung
+ * claims money only when the same sentence says what the money is — a raise, a
+ * valuation, a deal, a fine, a settlement, damages, an award, capital spent or
+ * earned. Measured against the live pool that day: "nabs $60M" (Sequoia), "$500M
+ * valuation", and "$4.5 billion in revenue" survive; "laptops cost up to
+ * $7,000", "starting at $2,599" and "$65 off" fall through to silence, which
+ * the arbiter prefers to a price dressed as a reason.
+ *
+ * Scoped to one sentence on purpose, so a raise mentioned elsewhere in the
+ * paragraph cannot make a price tag claimable — and a sentence that names no
+ * purpose at all ("a $50 million contract" does, "it was $50 million" does not)
+ * stays silent rather than guessing.
+ */
+// Two verbs are deliberately not here, because the live sentences that prompted
+// the ruling contain them as something else: "secure" is the imperative in a
+// shop's own pitch ("secure the Surface Laptop Ultra ... starting at $2,599")
+// where "secures"/"secured" is the funding verb, and bare "buy" is the retailer
+// in "Best Buy has a limited lineup ... for $2,599" where "buys"/"bought" is
+// the acquisition verb.
+const MONEY_AT_STAKE =
+  /\b(?:raise[sd]?|raising|funding|round|seed|series\s[a-e]\b|valuation|valued|nabs?|lands?|secures|secured|closes|closed|scores?|pays|paid|payout|backed|invest(?:s|ed|ment)|buys|bought|acquires?|acquired|acquisition|merger|merges?|deal|contract|award(?:ed)?|fine[sd]?|penalt(?:y|ies)|settles?|settled|settlement|damages|lawsuit|subsidy|revenue|profit|loss(?:es)?|spending|budget|worth)\b/i;
 const CVE = /\bCVE-\d{4}-\d{4,7}\b/iu;
 /**
  * The noun must sit directly after the number, optionally with a magnitude:
@@ -215,6 +241,19 @@ const CVE = /\bCVE-\d{4}-\d{4,7}\b/iu;
  */
 const COUNT =
   /\b(\d[\d,.]*(?:\s*(?:thousand|million|billion))?)\s+(jobs|positions|employees|workers|users|customers|members|subscribers|readers|downloads)\b/iu;
+
+/** The sentence the match sits in, terminators included. */
+function sentenceAround(text: string, index: number, length: number): string {
+  const before = text.slice(0, index);
+  const after = text.slice(index + length);
+  const start =
+    Math.max(before.lastIndexOf("."), before.lastIndexOf("!"), before.lastIndexOf("?")) + 1;
+  const stops = [after.indexOf("."), after.indexOf("!"), after.indexOf("?")].filter(
+    (stop) => stop >= 0,
+  );
+  const end = stops.length === 0 ? text.length : index + length + Math.min(...stops) + 1;
+  return text.slice(start, end);
+}
 
 function moneyFigure(text: string): string | null {
   const match = MONEY.exec(text);
@@ -229,6 +268,10 @@ function moneyFigure(text: string): string | null {
     const bare = Number(raw.replace(/,/gu, "").replace(/[^\d.]/gu, ""));
     if (!Number.isFinite(bare) || bare < 1000) return null;
   }
+  // Money at stake only. The sentence has to say what the money is doing; a
+  // figure with no purpose in its own sentence is a price or a trivia, and
+  // silence is the better answer for both.
+  if (!MONEY_AT_STAKE.test(sentenceAround(text, match.index, match[0].length))) return null;
   return raw;
 }
 
