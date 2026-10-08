@@ -1162,6 +1162,7 @@ async function whyLinesFor(
       s.sources === 1 && s.sourceList.length > 0 && s.org !== "Unattributed" ? s.org : null;
     const line = reasonFor({
       storedImpact: impactOf.get(s.id) ?? null,
+      beforeState: s.before || null,
       afterState: s.after || null,
       sourceCount: s.sources,
       topics: s.topics,

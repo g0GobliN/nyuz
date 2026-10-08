@@ -897,6 +897,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     ready.map((brief) => {
       const reason = reasonFor({
         storedImpact: stored.get(brief.eventId) ?? null,
+        beforeState: brief.beforeState,
         afterState: brief.afterState,
         sourceCount: brief.sourceCount,
         topics: brief.topics,
@@ -911,9 +912,15 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   );
 
   const unexplained = ready.filter((brief) => !stored.get(brief.eventId)).length;
+  // Thin-brief materiality, recorded not acted on: how many cards carry no
+  // story-specific line. The classification (sufficient / thin / empty) rides
+  // the digest row so the honesty-bar presentation can be measured against
+  // real counts before it changes what sends.
+  const bare = ready.filter((brief) => (byImpact.get(brief.eventId) ?? "") === "").length;
   const enrichment =
     unexplained > 0
-      ? `${unexplained} story${unexplained === 1 ? "" : "s"} using a derived inclusion line`
+      ? `${unexplained} story${unexplained === 1 ? "" : "s"} using a derived inclusion line` +
+        (bare > 0 ? `, ${bare} without a specific line` : "")
       : null;
 
   if (options.dryRun === true) {

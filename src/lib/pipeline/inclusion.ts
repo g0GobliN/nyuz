@@ -27,29 +27,38 @@
  *   1. **The stored shared impact.** Written by analysis, already paid for, and
  *      genuinely about consequence. Nothing beats it and nothing here touches
  *      it — `reasonFor` is only consulted when it is absent.
- *   2. **The after state.** "What is true now that was not before" is the
+ *   2. **The change.** Before-state plus after-state as one sentence — "what
+ *      changed" is a concrete development, and both halves are stored fields.
+ *      Fires only when both are usable prose and differ from each other; the
+ *      after-state-alone rung below covers a story whose before is missing.
+ *   3. **The after state.** "What is true now that was not before" is the
  *      literal question `why_it_matters` asks, and analysis already extracted
  *      it into its own column. Source-derived, no inference.
- *   3. **A coverage sentence.** How many independent outlets carried it and
+ *   4. **A coverage sentence.** How many independent outlets carried it and
  *      which of the reader's interests it landed in. True, and it answers
  *      "why am I seeing this" even when it cannot answer "why does it matter".
  *      Multi-source only — see below.
- *   4. **The figure.** A number the story itself names — a money amount, a
+ *   5. **The figure.** A number the story itself names — a money amount, a
  *      CVE, a headcount — restated as a sentence. Regex over the event's own
  *      headline and briefing paragraph: if the text does not contain it, the
  *      rung cannot claim it.
- *   5. **The subject.** `events.tags` (0049) says what concrete kind of thing
- *      happened — an acquisition, a layoff, a fine — up to two kinds, tied to
- *      the reader's own followed topics when they overlap, so "An acquisition
- *      story in your AI topic." is per-story *and* per-reader. The single
- *      outlet joins as an attribution slot where kind and topics coincide;
- *      it is a qualifier in the sentence, never the sentence itself.
- *   6. **The follow graph.** "You follow X." — honest, but the least
+ *   6. **The subject.** `events.tags` (0049) says what concrete kind of thing
+ *      happened — an acquisition, a layoff, a fine — up to two kinds, with
+ *      the single outlet as an attribution slot. Deliberately NOT tied to the
+ *      reader's topics: kind-plus-topics slot-fill ("A funding story in your
+ *      AI topic") repeats across cards sharing a topic, so the follow fact
+ *      lives only in rung 7 and the subject line stays story facts.
+ *   7. **The follow graph.** "You follow X." — honest, but the least
  *      story-specific thing that can be said, which is why it now sits last
  *      instead of being every card's line. Consumers pass `followed` and get
  *      the whole ladder from one call; without it, this rung is skipped.
- *   7. **Nothing.** An empty string, which `digest_items.why_it_matters`
+ *   8. **Nothing.** An empty string, which `digest_items.why_it_matters`
  *      already defaults to and every template already renders around.
+ *
+ * A final gate blanks any rung whose normalized text equals the briefing
+ * paragraph it would sit beside: a why-line that restates `what_happened`
+ * verbatim (modulo case/punctuation/whitespace) fails the rubric even when
+ * the rung above produced it honestly.
  *
  * ---------------------------------------------------------------------------
  * Why rungs 4 and 5 exist
@@ -130,6 +139,8 @@ function sentence(value: string | null | undefined): string | null {
 export type InclusionInput = {
   /** `event_impacts.text`, when analysis already produced one. */
   storedImpact?: string | null;
+  /** `events.before_state` — feeds the change rung together with afterState. */
+  beforeState?: string | null;
   afterState?: string | null;
   /** Independent outlets on the event. */
   sourceCount: number;
@@ -162,8 +173,41 @@ export type InclusionInput = {
 export type InclusionReason = {
   text: string;
   /** Which rung produced it, for the pipeline report and for tests. */
-  source: "stored" | "after-state" | "coverage" | "figure" | "subject" | "follow" | "none";
+  source:
+    "stored" | "change" | "after-state" | "coverage" | "figure" | "subject" | "follow" | "none";
 };
+
+/**
+ * Normalized comparison for the why-vs-what gate: case, punctuation and
+ * whitespace collapse, so trivial restatements fail exactly like verbatim
+ * copies. Semantic restatement is out of scope — the gate catches copies,
+ * manual sampling catches the rest.
+ */ export function normalizeForCompare(value: string | null | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+/**
+ * Rung 2 — the before/after pair as one development.
+ *
+ * Both halves must be usable prose on their own (via `sentence`) and must
+ * differ from each other once normalized — a before that merely repeats the
+ * after is one fact, and the after-state rung below already says it.
+ */ function changeLine(
+  before: string | null | undefined,
+  after: string | null | undefined,
+): string | null {
+  const was = sentence(before);
+  const now = sentence(after);
+  if (!was || !now) return null;
+  if (normalizeForCompare(was) === normalizeForCompare(now)) return null;
+  const strip = (text: string): string => text.replace(/[.?!]+$/u, "");
+  const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1);
+  return `Was ${lowerFirst(strip(was))}; now ${lowerFirst(strip(now))}.`;
+}
 
 /**
  * Rung 6 — the reader's own follow graph.
@@ -268,8 +312,6 @@ const SUBJECT_STEMS: Record<string, string> = {
 
 function subjectLine(
   tags: readonly string[] | null | undefined,
-  topics: readonly string[],
-  followed: ReadonlySet<string> | null | undefined,
   outlet: string | null | undefined,
 ): string | null {
   // Up to two kinds: a second tag is what tells two stories in the same
@@ -294,40 +336,33 @@ function subjectLine(
   // varies where kind and topics coincide. It is furniture on screen already,
   // so it is one qualifier inside a sentence about the story — never the
   // sentence itself, which is the line the header documents as rejected.
+  // No topics tail: kind-plus-topics slot-fill repeats across every card
+  // sharing a topic, so the follow fact lives only in the follow rung and
+  // this line stays story facts (kind + outlet).
   const name = (outlet ?? "").trim();
   const credited = name === "" ? "" : ` from ${name}`;
-
-  // The tie is a claim about *this* reader, so it only fires on the labels
-  // they actually follow — the same test `followedLine` applies. Two at most:
-  // the clause is a qualifier, not a topic list.
-  const overlap = (followed ? topics : []).filter(
-    (label) => label.trim().length > 0 && followed?.has(label.toLowerCase()) === true,
-  );
-  if (overlap.length === 0) {
-    return `This is ${subject}${credited}.`;
-  }
-
-  const picks = overlap.slice(0, 2);
-  const head = subject.charAt(0).toUpperCase() + subject.slice(1);
-  const topicsWord = picks.length === 1 ? "topic" : "topics";
-  const attribution = credited === "" ? "" : `${credited},`;
-  return `${head}${attribution} in your ${listOf(picks)} ${topicsWord}.`;
+  return `This is ${subject}${credited}.`;
 }
 
 export function reasonFor(input: InclusionInput): InclusionReason {
+  const candidates: InclusionReason[] = [];
+
   const stored = sentence(input.storedImpact);
-  if (stored) return { text: stored, source: "stored" };
+  if (stored) candidates.push({ text: stored, source: "stored" });
+
+  const change = changeLine(input.beforeState, input.afterState);
+  if (change !== null) candidates.push({ text: change, source: "change" });
 
   const after = sentence(input.afterState);
-  if (after) return { text: after, source: "after-state" };
+  if (after) candidates.push({ text: after, source: "after-state" });
 
   const topics = input.topics.filter((label) => label.trim().length > 0).slice(0, 3);
   if (input.sourceCount >= 2) {
     const outlets = `${count(input.sourceCount)} publisher${input.sourceCount === 1 ? "" : "s"} reported this`;
-    return {
+    candidates.push({
       text: topics.length > 0 ? `${outlets}, in ${listOf(topics)}.` : `${outlets}.`,
       source: "coverage",
-    };
+    });
   }
 
   // The single-source rungs the coverage count used to end at. Both are
@@ -335,14 +370,25 @@ export function reasonFor(input: InclusionInput): InclusionReason {
   // or a tag the event carries — so neither repeats across a briefing the way
   // "So far only X has reported this" and "You follow X." each did.
   const figure = figureLine(input.title, input.whatHappened);
-  if (figure !== null) return { text: figure, source: "figure" };
+  if (figure !== null) candidates.push({ text: figure, source: "figure" });
 
-  const subject = subjectLine(input.tags, input.topics, input.followed, input.outlet);
-  if (subject !== null) return { text: subject, source: "subject" };
+  const subject = subjectLine(input.tags, input.outlet);
+  if (subject !== null) candidates.push({ text: subject, source: "subject" });
 
   if (input.followed) {
     const follow = followedLine(input.topics, input.followed);
-    if (follow !== "") return { text: follow, source: "follow" };
+    if (follow !== "") candidates.push({ text: follow, source: "follow" });
+  }
+
+  // The why-vs-what gate: a line that restates the briefing paragraph it
+  // sits beside fails the rubric even when its rung produced it honestly.
+  // Normalized (not semantic) — exact and trivial copies fail here, deeper
+  // restatement is for manual sampling.
+  const normalizedWhat = normalizeForCompare(input.whatHappened);
+  for (const candidate of candidates) {
+    if (normalizedWhat === "") return candidate;
+    if (normalizeForCompare(candidate.text) === normalizedWhat) continue;
+    return candidate;
   }
 
   // Nothing story-specific and no follow to name. An empty line is honest

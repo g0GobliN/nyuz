@@ -141,7 +141,7 @@ describe("reasonFor", () => {
       followed: new Set(["ai"]),
     });
     expect(reason.source).toBe("subject");
-    expect(reason.text).toBe("An acquisition and funding story in your AI topic.");
+    expect(reason.text).toBe("This is an acquisition and funding story.");
   });
 
   it("names the subject without the tie when the reader follows nothing in it", () => {
@@ -169,9 +169,57 @@ describe("reasonFor", () => {
     };
     const one = reasonFor({ ...shared, tags: ["product launch"] });
     const two = reasonFor({ ...shared, tags: ["product launch", "research"] });
-    expect(one.text).toBe("A product launch story from The Verge, in your AI topic.");
-    expect(two.text).toBe("A product launch and research story from The Verge, in your AI topic.");
+    expect(one.text).toBe("This is a product launch story from The Verge.");
+    expect(two.text).toBe("This is a product launch and research story from The Verge.");
     expect(one.text).not.toBe(two.text);
+  });
+
+  it("states the before/after pair as one development", () => {
+    const reason = reasonFor({
+      sourceCount: 1,
+      topics: ["AI"],
+      beforeState: "The tool blocked known attack patterns.",
+      afterState: "The tool now stops zero-day attacks automatically.",
+      whatHappened: "A vendor released a new version of its security tool.",
+    });
+    expect(reason.source).toBe("change");
+    expect(reason.text).toBe(
+      "Was the tool blocked known attack patterns; now the tool now stops zero-day attacks automatically.",
+    );
+  });
+
+  it("skips the change rung when before merely repeats after", () => {
+    const reason = reasonFor({
+      sourceCount: 1,
+      topics: ["AI"],
+      beforeState: "The tool stops attacks.",
+      afterState: "The tool stops attacks!",
+      whatHappened: "THE TOOL STOPS ATTACKS???",
+      tags: ["research"],
+    });
+    expect(reason.source).toBe("subject");
+  });
+
+  it("blanks a why-line that restates the briefing paragraph", () => {
+    const reason = reasonFor({
+      sourceCount: 1,
+      topics: ["AI"],
+      afterState: "Attackers hijacked top-level domains.",
+      whatHappened: "attackers hijacked top-level domains!!",
+    });
+    expect(reason.text).toBe("");
+    expect(reason.source).toBe("none");
+  });
+
+  it("falls to the next rung past a duplicated line, not to nothing", () => {
+    const reason = reasonFor({
+      sourceCount: 1,
+      topics: ["AI"],
+      afterState: "The consortium paid \u20ac450 million for the unit.",
+      whatHappened: "The consortium paid \u20ac450 million for the unit",
+      title: "Group pays \u20ac450 million for unit",
+    });
+    expect(reason.source).toBe("figure");
   });
 
   it("credits the single outlet as a qualifier, never as the whole line", () => {
