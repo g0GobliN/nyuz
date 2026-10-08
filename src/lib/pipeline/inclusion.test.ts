@@ -174,6 +174,30 @@ describe("reasonFor", () => {
     expect(one.text).not.toBe(two.text);
   });
 
+  it("does not read an 'm' word after a bare amount as a magnitude", () => {
+    // Real defect from the live dashboard: "$65 mechanical keyboard" produced
+    // "The story carries a $65 m figure." because `[kmb]` consumed the "m" of
+    // "mechanical". A bare amount under 1000 is not a usable figure anyway, so
+    // the rung must decline rather than print a nonsense unit.
+    const reason = reasonFor({
+      sourceCount: 1,
+      topics: ["AI"],
+      title: "I bought this cheap $65 mechanical keyboard blind",
+      whatHappened: "The Aula F75 Pro is feature packed.",
+      tags: ["research"],
+    });
+    expect(reason.text).toBe("This is a research story.");
+  });
+
+  it("still reads a real magnitude abbreviation", () => {
+    const reason = reasonFor({
+      sourceCount: 1,
+      topics: ["AI"],
+      whatHappened: "The watchdog fined the broker $50m for the breach.",
+    });
+    expect(reason.text).toBe("The story carries a $50m figure.");
+  });
+
   it("states the before/after pair as one development", () => {
     const reason = reasonFor({
       sourceCount: 1,

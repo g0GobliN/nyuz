@@ -240,7 +240,7 @@ export function followedLine(
  * nonsense without it. No `g` flag: `exec` on a shared regex would otherwise
  * carry `lastIndex` between cards.
  */
-const MONEY = /[$€£]\s?\d[\d,]*(?:\.\d+)?\s?(?:trillion|billion|million|thousand|bn|mn|[kmb])?/iu;
+const MONEY = /[$€£]\s?\d[\d,]*(?:\.\d+)?\s?(?:trillion|billion|million|thousand|bn|mn|[kmb]\b)?/iu;
 const CVE = /\bCVE-\d{4}-\d{4,7}\b/iu;
 /**
  * The noun must sit directly after the number, optionally with a magnitude:
