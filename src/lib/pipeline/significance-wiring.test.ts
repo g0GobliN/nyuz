@@ -238,22 +238,10 @@ function stageDb(options: { flag?: boolean; history?: SubjectHistoryRow[] } = {}
         last_material_change_at: null,
       },
     ],
-    event_topics: [{ event_id: EVENT, topic_id: RUST }],
-    // `match` refuses an event with no live article: a story with no coverage
-    // has no sources to open and nothing to compose from, so it cannot reach a
-    // reader. This fixture is about significance rather than clustering, and it
-    // gets the one article that makes its event a story at all.
-    articles: [
-      {
-        id: "99999999-9999-4999-9999-999999999999",
-        event_id: EVENT,
-        source_id: null,
-        title: candidate().title,
-        url: "https://blog.rust-lang.org/2026/09/rc1.html",
-        published_at: new Date(NOW.getTime() - 3_600_000).toISOString(),
-      },
-    ],
-    sources: [],
+    // Candidates arrive through `match_candidate_bundle` (0116), not through
+    // chunked link reads: the stub below carries the one linked, article-backed
+    // row this fixture is about. The `events` row stays because the alert path
+    // loads event bodies for sending.
     feature_flags: [
       { key: "subject_significance_enabled", enabled: options.flag ?? false },
       { key: "breaking_alerts", enabled: true },
@@ -264,6 +252,27 @@ function stageDb(options: { flag?: boolean; history?: SubjectHistoryRow[] } = {}
   });
   db.rpcs["subject_history"] = () => options.history ?? releases(5);
   db.rpcs["create_alert_delivery"] = () => "ok:alert-1";
+  // The bundle carries what the events table holds: tests below mutate that
+  // row (importance 8 to force an alert) and the bundle must follow, exactly
+  // as the old chunked reads did.
+  db.rpcs["match_candidate_bundle"] = () => [
+    {
+      id: EVENT,
+      title: candidate().title,
+      what_happened: candidate().whatHappened,
+      importance: (db.rows("events")[0]?.["importance"] as number) ?? 2,
+      novelty: (db.rows("events")[0]?.["novelty"] as number) ?? 1,
+      tags: [],
+      analysed_at: NOW.toISOString(),
+      first_seen_at: new Date(NOW.getTime() - 3_600_000).toISOString(),
+      material_revision: 0,
+      material_occurrence_at: null,
+      last_material_change_at: null,
+      topics: [{ id: RUST, slug: "rust", label: "Rust" }],
+      sources: [],
+      has_articles: true,
+    },
+  ];
   return db;
 }
 

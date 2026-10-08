@@ -40,7 +40,66 @@ const T0 = new Date("2026-09-18T09:00:00Z"); // the story breaks
  * article is what moves the coverage clock -- the production semantics.
  */
 function fixture(clock: FakeClock) {
-  return newsPipelineFixture(clock.now, clock);
+  const db = newsPipelineFixture(clock.now, clock);
+  // Candidates arrive through `match_candidate_bundle` (0116): the RPC's
+  // lanes and link rules evaluated over the live tables, so later cycles see
+  // revisions and attachments exactly as the chunked reads did.
+  db.rpcs["match_candidate_bundle"] = () => bundleRows(db);
+  return db;
+}
+
+function bundleRows(db: FakeDb): Record<string, unknown>[] {
+  // A fixed wide window: every event these cases create is in scope, so the
+  // lanes select on status/analysis/revision exactly as production does.
+  const windowSince = "2020-01-01T00:00:00.000Z";
+  const inWindow = (ts: unknown): boolean => typeof ts === "string" && ts >= windowSince;
+  const laneA = db
+    .rows("events")
+    .filter(
+      (e) => e["analysed_at"] != null && e["status"] === "complete" && inWindow(e["first_seen_at"]),
+    );
+  const laneB = db
+    .rows("events")
+    .filter(
+      (e) =>
+        e["analysed_at"] != null &&
+        e["status"] === "complete" &&
+        (e["material_revision"] as number) > 0 &&
+        inWindow(e["material_occurrence_at"]),
+    );
+  const merged = new Map<string, Record<string, unknown>>();
+  for (const e of [...laneA, ...laneB]) merged.set(e["id"] as string, e as Record<string, unknown>);
+  const topicById = new Map(db.rows("topics").map((t) => [t["id"] as string, t]));
+  const sourceById = new Map(db.rows("sources").map((s) => [s["id"] as string, s]));
+  return [...merged.values()].map((e) => ({
+    id: e["id"],
+    title: e["title"],
+    what_happened: e["what_happened"],
+    importance: e["importance"],
+    novelty: e["novelty"],
+    tags: e["tags"] ?? [],
+    analysed_at: e["analysed_at"],
+    first_seen_at: e["first_seen_at"],
+    material_revision: e["material_revision"] ?? 0,
+    material_occurrence_at: e["material_occurrence_at"] ?? null,
+    last_material_change_at: e["last_material_change_at"] ?? null,
+    topics: db
+      .rows("event_topics")
+      .filter((l) => l["event_id"] === e["id"])
+      .flatMap((l) => {
+        const t = topicById.get(l["topic_id"] as string);
+        return t ? [{ id: t["id"], slug: t["slug"], label: t["label"] }] : [];
+      }),
+    sources: db
+      .rows("articles")
+      .filter((a) => a["event_id"] === e["id"])
+      .flatMap((a) => {
+        if (a["source_id"] === null) return [];
+        const s = sourceById.get(a["source_id"] as string);
+        return s ? [{ id: s["id"], name: s["name"] }] : [];
+      }),
+    has_articles: db.rows("articles").some((a) => a["event_id"] === e["id"]),
+  }));
 }
 
 /**

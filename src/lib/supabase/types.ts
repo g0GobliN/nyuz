@@ -1916,6 +1916,26 @@ export type Database = {
         };
         Returns: string;
       };
+      /** One match run's candidate events with topic/source links, built server-side (0116). */
+      match_candidate_bundle: {
+        Args: { p_window_since: string; p_fetch_limit: number };
+        Returns: {
+          id: string;
+          title: string;
+          what_happened: string;
+          importance: number;
+          novelty: number;
+          tags: string[];
+          analysed_at: string | null;
+          first_seen_at: string;
+          material_revision: number;
+          material_occurrence_at: string | null;
+          last_material_change_at: string | null;
+          topics: Json;
+          sources: Json;
+          has_articles: boolean;
+        }[];
+      };
       /** Each topic's most recent complete events, for the significance baseline (0103). */
       subject_history: {
         Args: { p_topic_ids: string[]; p_since: string; p_per_topic: number };

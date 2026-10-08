@@ -38,6 +38,70 @@ vi.mock("@tanstack/react-start", () => ({
 import { loadHomeFeed, loadStory, startFirstBriefing } from "./briefing";
 import { composeArticle } from "@/lib/editorial";
 import type { Story } from "@/lib/story";
+/**
+ * The test double for `match_candidate_bundle` (0116): the RPC's lanes and
+ * link rules evaluated over the fixture's live tables, so reader flows that
+ * match (first briefing, backfill, fresh-match verdicts) see the candidates
+ * the chunked reads used to assemble.
+ */
+function bundleRows(db: FakeDb): Record<string, unknown>[] {
+  const windowSince = "2020-01-01T00:00:00.000Z";
+  const inWindow = (ts: unknown): boolean => typeof ts === "string" && ts >= windowSince;
+  const laneA = db
+    .rows("events")
+    .filter(
+      (e) => e["analysed_at"] != null && e["status"] === "complete" && inWindow(e["first_seen_at"]),
+    );
+  const laneB = db
+    .rows("events")
+    .filter(
+      (e) =>
+        e["analysed_at"] != null &&
+        e["status"] === "complete" &&
+        (e["material_revision"] as number) > 0 &&
+        inWindow(e["material_occurrence_at"]),
+    );
+  const merged = new Map<string, Record<string, unknown>>();
+  for (const e of [...laneA, ...laneB]) merged.set(e["id"] as string, e as Record<string, unknown>);
+  const topicById = new Map(db.rows("topics").map((t) => [t["id"] as string, t]));
+  const sourceById = new Map(db.rows("sources").map((s) => [s["id"] as string, s]));
+  return [...merged.values()].map((e) => ({
+    id: e["id"],
+    title: e["title"],
+    what_happened: e["what_happened"],
+    importance: e["importance"],
+    novelty: e["novelty"],
+    tags: e["tags"] ?? [],
+    analysed_at: e["analysed_at"],
+    first_seen_at: e["first_seen_at"],
+    material_revision: e["material_revision"] ?? 0,
+    material_occurrence_at: e["material_occurrence_at"] ?? null,
+    last_material_change_at: e["last_material_change_at"] ?? null,
+    topics: db
+      .rows("event_topics")
+      .filter((l) => l["event_id"] === e["id"])
+      .flatMap((l) => {
+        const t = topicById.get(l["topic_id"] as string);
+        return t ? [{ id: t["id"], slug: t["slug"], label: t["label"] }] : [];
+      }),
+    sources: db
+      .rows("articles")
+      .filter((a) => a["event_id"] === e["id"])
+      .flatMap((a) => {
+        if (a["source_id"] === null) return [];
+        const s = sourceById.get(a["source_id"] as string);
+        return s ? [{ id: s["id"], name: s["name"] }] : [];
+      }),
+    has_articles: db.rows("articles").some((a) => a["event_id"] === e["id"]),
+  }));
+}
+
+/** The pipeline fixture with the bundle seam attached. */
+function bundledDb(...args: Parameters<typeof newsPipelineFixture>): FakeDb {
+  const db = newsPipelineFixture(...args);
+  db.rpcs["match_candidate_bundle"] = () => bundleRows(db);
+  return db;
+}
 const run = async (fn: unknown, db: FakeDb, data?: unknown) => {
   const result = await (fn as (input: unknown) => Promise<unknown>)({
     context: { actor: { id: READER_ID, db: asDb(db) } },
@@ -49,14 +113,14 @@ const run = async (fn: unknown, db: FakeDb, data?: unknown) => {
 };
 describe("reader flows never buy background synthesis", () => {
   it("new reader preferences -> first briefing -> deterministic backfill invokes no provider", async () => {
-    const db = newsPipelineFixture();
+    const db = bundledDb();
     seedPendingNews(db);
     expect(await run(startFirstBriefing, db)).toMatchObject({ analysed: 1, matched: 1 });
     expect(db.rows("events")[0]?.["status"]).toBe("complete");
     expect(paid).not.toHaveBeenCalled();
   });
   it("story hydration returns source-backed content without querying stored AI prose", async () => {
-    const db = newsPipelineFixture();
+    const db = bundledDb();
     seedPendingNews(db);
     await run(startFirstBriefing, db);
     const loaded = await run(loadStory, db, { id: EVENT_ID });
@@ -69,7 +133,7 @@ describe("reader flows never buy background synthesis", () => {
     expect(paid).not.toHaveBeenCalled();
   });
   it("never returns generated-understanding cache content", async () => {
-    const db = newsPipelineFixture();
+    const db = bundledDb();
     seedPendingNews(db);
     await run(startFirstBriefing, db);
     db.rows("event_understanding").push({
@@ -96,7 +160,7 @@ describe("reader flows never buy background synthesis", () => {
   });
 
   it("hydrates a full briefing without running article-level evidence selection", async () => {
-    const db = newsPipelineFixture();
+    const db = bundledDb();
     const now = new Date().toISOString();
     db.rows("digests")[0]!["status"] = "ready";
     db.rows("digests")[0]!["item_count"] = 25;
@@ -174,7 +238,7 @@ describe("reader flows never buy background synthesis", () => {
     // traced live: match.ts wrote the user_events row correctly, but the
     // homepage kept showing "nothing matched" because the most recent
     // resolved digest was `skipped` from before this match existed.
-    const db = newsPipelineFixture();
+    const db = bundledDb();
     seedPendingNews(db);
     expect(await run(startFirstBriefing, db)).toMatchObject({ analysed: 1, matched: 1 });
 
@@ -198,7 +262,7 @@ describe("reader flows never buy background synthesis", () => {
   });
 
   it("still shows the quiet-day empty state when nothing matched since the skip", async () => {
-    const db = newsPipelineFixture();
+    const db = bundledDb();
     seedPendingNews(db);
     await run(startFirstBriefing, db);
 
@@ -221,7 +285,7 @@ describe("reader flows never buy background synthesis", () => {
 describe("Read never depends on a live AI call", () => {
   it("renders a substantial deterministic article when AI is completely unavailable", async () => {
     paid.mockClear();
-    const db = newsPipelineFixture();
+    const db = bundledDb();
     seedPendingNews(db);
     db.rows("articles").push({
       id: "a2",
@@ -252,7 +316,7 @@ describe("Read never depends on a live AI call", () => {
   });
 
   it("attaches prior coverage that shares the story's actor and figure", async () => {
-    const db = newsPipelineFixture();
+    const db = bundledDb();
     seedPendingNews(db);
     // The background rule requires the same actor *and* the same figure: two
     // OpenAI stories with no shared number cannot be told apart from two
@@ -289,7 +353,7 @@ describe("Read never depends on a live AI call", () => {
   });
 
   it("does not attach related coverage when no other event shares a topic", async () => {
-    const db = newsPipelineFixture();
+    const db = bundledDb();
     seedPendingNews(db);
     await run(startFirstBriefing, db);
 

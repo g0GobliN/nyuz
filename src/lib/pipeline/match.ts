@@ -687,7 +687,7 @@ export async function match(db: Db, options: MatchOptions = {}): Promise<MatchRe
   // the significance baselines all resolve topics from this one map.
   const topics = await topicIndex(db);
   const readers = await loadReaders(db, options, topics);
-  const candidates = await loadCandidates(db, options, topics);
+  const candidates = await loadCandidates(db, options);
 
   // Interest-conditional admission, if it is on. The flag is read once per run
   // and fails closed; the baselines are built once per run and shared by every
@@ -1614,9 +1614,17 @@ type CandidateEventRow = {
   last_material_change_at: string | null;
 };
 
-/** The fields every candidate query reads. */
-const CANDIDATE_COLUMNS =
-  "id, title, what_happened, importance, novelty, tags, analysed_at, first_seen_at, material_revision, material_occurrence_at, last_material_change_at";
+/**
+ * One row of `match_candidate_bundle` (0116): the event plus its links.
+ *
+ * The `topics`/`sources` shapes are `CandidateTopic`/`CandidateSource`
+ * verbatim, so the mapping below is a field rename rather than a transform.
+ */
+type BundleRow = CandidateEventRow & {
+  topics: CandidateTopic[];
+  sources: CandidateSource[];
+  has_articles: boolean;
+};
 
 /**
  * When a candidate actually happened, for ordering and for freshness.
@@ -1632,11 +1640,12 @@ function effectiveAt(event: CandidateEventRow): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function loadCandidates(
-  db: Db,
-  options: MatchOptions,
-  topics: Map<string, IndexedTopic>,
-): Promise<Candidate[]> {
+/**
+ * Exported for the 0116 differential test, which runs this against the
+ * pre-bundle implementation over the same tables and requires identical
+ * candidates. Nothing else imports it; `match` is the only caller.
+ */
+export async function loadCandidates(db: Db, options: MatchOptions): Promise<Candidate[]> {
   const now = options.now ?? new Date();
   const limit = options.limit ?? CANDIDATES;
 
@@ -1656,39 +1665,18 @@ async function loadCandidates(
   // as fresh news.
   const windowSince = new Date(now.getTime() - MAX_WEEKLY_AGE_HOURS * 3_600_000).toISOString();
   const fetchLimit = options.sinceHours === undefined ? limit : limit * 3;
-  const base = () =>
-    db
-      .from("events")
-      .select(CANDIDATE_COLUMNS)
-      .not("analysed_at", "is", null)
-      .eq("status", "complete");
 
-  // Two lanes, merged, rather than one predicate over a coalesce: PostgREST
-  // cannot express `coalesce(a, b) >= x`, and splitting it keeps each filter on a
-  // column that is always populated -- `first_seen_at` is not null, and a
-  // materially revised event always has an occurrence clock (the revision is
-  // what wrote it). An event that has never been revised and is older than the
-  // window is genuinely outside every cadence, so it is not a candidate.
-  const [byFirstSeen, byOccurrence] = await Promise.all([
-    base()
-      .gte("first_seen_at", windowSince)
-      .order("first_seen_at", { ascending: false })
-      .limit(fetchLimit),
-    base()
-      .gt("material_revision", 0)
-      .gte("material_occurrence_at", windowSince)
-      .order("material_occurrence_at", { ascending: false })
-      .limit(fetchLimit),
-  ]);
-  if (byFirstSeen.error) throw new Error(`reading events: ${byFirstSeen.error.message}`);
-  if (byOccurrence.error) throw new Error(`reading revised events: ${byOccurrence.error.message}`);
-
-  const merged = new Map<string, CandidateEventRow>();
-  for (const event of (byFirstSeen.data ?? []) as CandidateEventRow[]) merged.set(event.id, event);
-  for (const event of (byOccurrence.data ?? []) as CandidateEventRow[]) {
-    if (!merged.has(event.id)) merged.set(event.id, event);
-  }
-  let rows = [...merged.values()];
+  // One call, not ~23 reads. `match_candidate_bundle` (0116) runs the two
+  // lanes above plus the topic/source joins server-side and returns the same
+  // bundle the chunked reads assembled: same lane predicates, same per-lane
+  // limit, same link rules. Everything below -- the recency filter, the
+  // ordering, the cap, the article gate -- is unchanged.
+  const { data, error } = await db.rpc("match_candidate_bundle", {
+    p_window_since: windowSince,
+    p_fetch_limit: fetchLimit,
+  });
+  if (error) throw new Error(`reading candidate bundle: ${error.message}`);
+  let rows = (data ?? []) as BundleRow[];
 
   // "Established within N hours": analysed then for an event that has never
   // been revised, discovered then for one that has. Applied in memory because it
@@ -1712,66 +1700,12 @@ async function loadCandidates(
 
   if (events.length === 0) return [];
 
-  const eventIds = events.map((e) => e.id);
-  const sources = await sourceIndex(db);
-
-  const eventTopics = new Map<string, CandidateTopic[]>();
-  const eventSources = new Map<string, CandidateSource[]>();
-  /**
-   * Events that still have at least one live article.
-   *
-   * An event whose articles have all moved elsewhere — which is what merging
-   * two outlets' coverage of one story does to the loser — or lost them to
-   * retention has no reporting behind it: its story page would have no sources
-   * to open, no evidence to compose from, and its stored summary would be
-   * describing coverage nyuz no longer holds. It stays in the database with its
-   * analysis so a briefing already sent still renders, but it must not reach a
-   * reader who has not seen it, so it is not a candidate.
-   */
-  const withArticles = new Set<string>();
-
-  for (const chunk of chunked(eventIds, IN_CHUNK)) {
-    const { data: links, error: linkError } = await db
-      .from("event_topics")
-      .select("event_id, topic_id")
-      .in("event_id", chunk);
-    if (linkError) throw new Error(`reading event_topics: ${linkError.message}`);
-
-    for (const link of links ?? []) {
-      const topic = topics.get(link.topic_id);
-      if (!topic) continue;
-      const list = eventTopics.get(link.event_id) ?? [];
-      list.push({ id: link.topic_id, slug: topic.slug, label: topic.label });
-      eventTopics.set(link.event_id, list);
-    }
-
-    const { data: articles, error: articleError } = await db
-      .from("articles")
-      .select("event_id, source_id")
-      .in("event_id", chunk);
-    if (articleError) throw new Error(`reading articles: ${articleError.message}`);
-
-    for (const article of articles ?? []) {
-      // Counted before the source checks below: an event's articles can all
-      // have unknown sources and it still has reporting behind it. What makes an
-      // event unmatched is having no articles at all.
-      if (article.event_id !== null) withArticles.add(article.event_id);
-      if (article.event_id === null || article.source_id === null) continue;
-      const source = sources.get(article.source_id);
-      if (!source) continue;
-      const list = eventSources.get(article.event_id) ?? [];
-      // One source can report an event twice. Muting and priority are decisions
-      // about the source, so the duplicate would change nothing but is dropped
-      // to keep the report readable.
-      if (!list.some((s) => s.id === article.source_id)) {
-        list.push({ id: article.source_id, name: source });
-      }
-      eventSources.set(article.event_id, list);
-    }
-  }
-
+  // The article gate: an event whose articles have all moved elsewhere or
+  // been lost to retention has no reporting behind it and must not reach a
+  // reader who has not seen it. The bundle carries this as `has_articles`
+  // (any article row counts, even a source-less one); the rule is unchanged.
   return events
-    .filter((event) => withArticles.has(event.id))
+    .filter((event) => event.has_articles)
     .map((event) => ({
       eventId: event.id,
       title: event.title,
@@ -1785,17 +1719,9 @@ async function loadCandidates(
       // their title and briefing paragraph rather than being re-analysed, which
       // would cost the corpus twice to populate a matching aid.
       tags: event.tags,
-      topics: eventTopics.get(event.id) ?? [],
-      sources: eventSources.get(event.id) ?? [],
+      topics: event.topics ?? [],
+      sources: event.sources ?? [],
     }));
-}
-
-async function sourceIndex(db: Db): Promise<Map<string, string>> {
-  const data = await readPages(
-    (from, to) => db.from("sources").select("id, name").order("id").range(from, to),
-    "reading sources",
-  );
-  return new Map(data.map((s) => [s.id, s.name] as const));
 }
 
 function chunked<T>(items: T[], size: number): T[][] {

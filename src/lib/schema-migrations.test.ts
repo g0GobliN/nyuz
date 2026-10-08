@@ -810,3 +810,183 @@ describe("the callable surface the application depends on (0115)", () => {
     expect(rows[0]?.n).toBe(1);
   });
 });
+
+describe("the match candidate bundle (0116)", () => {
+  const WINDOW = "now() - interval '14 days'";
+  let topic: string;
+  let source: string;
+
+  async function mkTopic(slug: string): Promise<string> {
+    const { rows } = await db.query<{ id: string }>(
+      `insert into public.topics (slug, label, kind, terms)
+       values ($1, $2, 'custom', '{politics}') returning id`,
+      [slug, slug],
+    );
+    return rows[0]!.id;
+  }
+
+  async function mkSource(name: string): Promise<string> {
+    const { rows } = await db.query<{ id: string }>(
+      `insert into public.sources (name, feed_url) values ($1, $2) returning id`,
+      [name, `https://bundle-${crypto.randomUUID()}.example.com/feed`],
+    );
+    return rows[0]!.id;
+  }
+
+  async function mkEvent(input: {
+    title: string;
+    status?: string;
+    firstSeenHoursAgo?: number | null;
+    analysed?: boolean;
+    revision?: number;
+    occurrenceHoursAgo?: number | null;
+  }): Promise<string> {
+    const { rows } = await db.query<{ id: string }>(
+      `insert into public.events
+         (title, status, first_seen_at, analysed_at, material_revision, material_occurrence_at)
+       values ($1, $2::event_status,
+               now() - make_interval(0, 0, 0, 0, $3::integer, 0, 0),
+               case when $4::boolean then now() else null end,
+               coalesce($5::integer, 0),
+               case when $6::integer is null then null
+                    else now() - make_interval(0, 0, 0, 0, $6::integer, 0, 0) end)
+       returning id`,
+      [
+        input.title,
+        input.status ?? "complete",
+        input.firstSeenHoursAgo ?? 1,
+        input.analysed ?? true,
+        input.revision ?? 0,
+        input.occurrenceHoursAgo ?? null,
+      ],
+    );
+    return rows[0]!.id;
+  }
+
+  async function link(eventId: string): Promise<void> {
+    await db.query("insert into public.event_topics (event_id, topic_id) values ($1, $2)", [
+      eventId,
+      topic,
+    ]);
+  }
+
+  async function article(eventId: string, withSource: boolean): Promise<void> {
+    await db.query(
+      `insert into public.articles (source_id, event_id, url, title, content_hash)
+       values ($1, $2, $3, $4, $5)`,
+      [
+        withSource ? source : null,
+        eventId,
+        `https://bundle-${crypto.randomUUID()}.example.com/story`,
+        "story",
+        crypto.randomUUID(),
+      ],
+    );
+  }
+
+  type BundleRow = {
+    id: string;
+    title: string;
+    topics: unknown;
+    sources: unknown;
+    has_articles: boolean;
+  };
+
+  /** The pre-0116 lane predicates, transcribed as the equivalence oracle. */
+  async function legacyLaneIds(fetchLimit: number): Promise<string[]> {
+    const { rows } = await db.query<{ id: string }>(
+      `(select id from public.events
+         where analysed_at is not null and status = 'complete'
+           and first_seen_at >= ${WINDOW}
+         order by first_seen_at desc limit $1)
+       union
+       (select id from public.events
+         where analysed_at is not null and status = 'complete'
+           and material_revision > 0 and material_occurrence_at >= ${WINDOW}
+         order by material_occurrence_at desc limit $1)`,
+      [fetchLimit],
+    );
+    return rows.map((r) => r.id).sort();
+  }
+
+  async function bundle(fetchLimit: number): Promise<BundleRow[]> {
+    const { rows } = await db.query<BundleRow>(
+      `select * from public.match_candidate_bundle(${WINDOW}, $1)`,
+      [fetchLimit],
+    );
+    return rows;
+  }
+
+  function asJson(value: unknown): unknown {
+    return typeof value === "string" ? JSON.parse(value) : value;
+  }
+
+  beforeAll(async () => {
+    topic = await mkTopic(`bundle-${crypto.randomUUID().slice(0, 8)}`);
+    source = await mkSource("Bundle Gazette");
+  });
+
+  it("returns the union of the two lanes with links and the article gate", async () => {
+    const tag = crypto.randomUUID().slice(0, 8);
+    // Lane A, linked + sourced.
+    const laneA = await mkEvent({ title: `a-${tag}`, firstSeenHoursAgo: 24 });
+    await link(laneA);
+    await article(laneA, true);
+    // Lane A, source-less article, no topics: reporting without attribution.
+    const sourceless = await mkEvent({
+      title: `s-${tag}`,
+      firstSeenHoursAgo: 48,
+      revision: 2,
+      occurrenceHoursAgo: 48,
+    });
+    await article(sourceless, false);
+    // Lane B only: first seen outside the window, revised inside it, no articles.
+    const laneB = await mkEvent({
+      title: `b-${tag}`,
+      firstSeenHoursAgo: 30 * 24,
+      revision: 1,
+      occurrenceHoursAgo: 12,
+    });
+    // Neither lane: old and never revised.
+    await mkEvent({ title: `old-${tag}`, firstSeenHoursAgo: 30 * 24 });
+    // Wrong status, in window.
+    await mkEvent({ title: `pending-${tag}`, status: "pending", firstSeenHoursAgo: 1 });
+    // Never analysed, in window.
+    await mkEvent({ title: `raw-${tag}`, analysed: false, firstSeenHoursAgo: 1 });
+    // In lane A but article-less: returned so the caller can gate it.
+    const bare = await mkEvent({ title: `bare-${tag}`, firstSeenHoursAgo: 2 });
+
+    const rows = await bundle(1000);
+    const ids = rows.map((r) => r.id).sort();
+    // Other blocks seed their own events into the same scratch database, so
+    // this asserts containment for ours plus exact agreement with the oracle.
+    expect(ids).toEqual(expect.arrayContaining([laneA, sourceless, laneB, bare]));
+    // The oracle agrees: the RPC is the old predicates, not a reinterpretation.
+    expect(ids).toEqual(await legacyLaneIds(1000));
+
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(asJson(byId.get(laneA)!.topics)).toEqual([
+      { id: topic, slug: expect.any(String), label: expect.any(String) },
+    ]);
+    expect(asJson(byId.get(laneA)!.sources)).toEqual([{ id: source, name: "Bundle Gazette" }]);
+    expect(byId.get(laneA)!.has_articles).toBe(true);
+    expect(asJson(byId.get(sourceless)!.topics)).toEqual([]);
+    expect(asJson(byId.get(sourceless)!.sources)).toEqual([]);
+    expect(byId.get(sourceless)!.has_articles).toBe(true);
+    expect(byId.get(laneB)!.has_articles).toBe(false);
+    expect(byId.get(bare)!.has_articles).toBe(false);
+  });
+
+  it("applies each lane's own limit before merging", async () => {
+    // Latest first_seen in the window and latest occurrence decide, per lane.
+    const rows = await bundle(1);
+    const ids = rows.map((r) => r.id).sort();
+    expect(ids).toEqual(await legacyLaneIds(1));
+    expect(ids.length).toBeLessThanOrEqual(2);
+  });
+
+  it("survives an absurd fetch limit without truncating a normal page", async () => {
+    const rows = await bundle(100_000);
+    expect(rows.map((r) => r.id).sort()).toEqual(await legacyLaneIds(100_000));
+  });
+});
