@@ -684,21 +684,12 @@ type EventBrief = {
    */
   sourceCount: number;
   /**
-   * That outlet's name, when exactly one carried the story.
-   *
-   * `sourceCount` can only say "one"; the inclusion line needs to say *who*,
-   * because a single-source story with nothing else to say is otherwise
-   * described by the reader's own topic labels — the same sentence for every
-   * story in that topic. Null when more than one outlet carried it or the name
-   * is unknown, which is what drops the line rather than repeating it.
+   * `sources.kind` for every feed behind the story, for the readiness gate's
+   * primary-source rung. A single-source `research` or `github` item is not a
+   * briefing candidate (operator decision, 2026-10-08); it still reaches the
+   * feed and history.
    */
-  outlet: string | null;
-  /**
-   * `events.tags` — the concrete kind of thing that happened (0049). Feeds the
-   * inclusion ladder's subject rung; empty for events analysed before 0049,
-   * which then fall through to the follow rung as they always did.
-   */
-  tags: string[];
+  sourceKinds: string[];
   /**
    * The story's own source evidence, exactly as the Read composer receives it.
    *
@@ -820,6 +811,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
       whatHappened: brief.whatHappened,
       sourceCount: brief.sourceCount,
       sources: brief.sources,
+      sourceKinds: brief.sourceKinds,
     });
     if (verdict.ready) ready.push(brief);
     else withheld.push({ eventId: brief.eventId, kind: verdict.kind });
@@ -1337,7 +1329,7 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   // outlet's worth of corroboration, and the inclusion line says "independent".
   const { data: coverage, error: coverageError } = await db
     .from("articles")
-    .select("id, event_id, source_id, title, excerpt, sources ( name )")
+    .select("id, event_id, source_id, title, excerpt, sources ( name, kind )")
     .in("event_id", ids);
   if (coverageError) throw new Error(`reading coverage: ${coverageError.message}`);
 
@@ -1351,12 +1343,22 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   // inclusion line has to be able to say who has a single-source story, or it
   // falls back to the reader's topics and repeats itself. Collected separately
   // so the count keeps counting ids exactly as it did.
-  const outletNames = new Map<string, Set<string>>();
+  // The feeds behind the story, by `sources.kind`, for the readiness gate's
+  // primary-source rung: a single-source preprint or code release is not a
+  // briefing item (operator decision, 2026-10-08).
+  const kinds = new Map<string, Set<string>>();
   for (const row of coverage ?? []) {
     if (!row.event_id) continue;
     const seen = outlets.get(row.event_id) ?? new Set<string>();
     seen.add(row.source_id ?? "unknown");
     outlets.set(row.event_id, seen);
+
+    const kind = (row.sources as { kind?: string } | null)?.kind;
+    if (kind) {
+      const kindsHere = kinds.get(row.event_id) ?? new Set<string>();
+      kindsHere.add(kind);
+      kinds.set(row.event_id, kindsHere);
+    }
 
     // The reader's evidence for this story, in the shape `selectReaderEvidence`
     // expects. The gate reads the same list the composer will, so a story is
@@ -1368,20 +1370,12 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
       ...(row.excerpt ? { excerpt: row.excerpt } : {}),
     });
     evidence.set(row.event_id, sourceList);
-
-    const name = (row.sources as { name?: string } | null)?.name;
-    if (!name) continue;
-    const named = outletNames.get(row.event_id) ?? new Set<string>();
-    named.add(name);
-    outletNames.set(row.event_id, named);
   }
 
   const byId = new Map((data ?? []).map((e) => [e.id, e] as const));
   return picked.flatMap((row) => {
     const event = byId.get(row.eventId);
     if (!event) return [];
-    // One outlet and one name for it, or nothing to name.
-    const named = outletNames.get(row.eventId);
     return [
       {
         eventId: row.eventId,
@@ -1393,9 +1387,8 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
         novelty: event.novelty,
         topics: topics.get(row.eventId) ?? [],
         sourceCount: event.publisher_count || outlets.get(row.eventId)?.size || 0,
-        outlet: named && named.size === 1 ? ([...named][0] ?? null) : null,
-        tags: event.tags ?? [],
         sources: evidence.get(row.eventId) ?? [],
+        sourceKinds: [...(kinds.get(row.eventId) ?? [])],
         relevance: row.relevance,
         matchedAt: row.matchedAt,
       },

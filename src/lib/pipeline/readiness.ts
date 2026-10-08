@@ -42,6 +42,7 @@ export type ArtifactKind =
   | "commerce"
   | "marketing"
   | "quote"
+  | "primary-source"
   | "unbriefable";
 
 export type ReadinessVerdict =
@@ -152,10 +153,38 @@ const COMMERCE_URGENCY =
  */
 const MIN_BODY_FACTS = 2;
 
+/**
+ * Feeds that publish their own material rather than reporting on someone
+ * else's: preprints and code releases. A single-source item from one of these
+ * is a primary document, not a briefing story — and the ladder cannot write a
+ * significance line for an abstract that states no development, which is why
+ * 23 of 25 items on 2026-10-08 resolved to silence.
+ *
+ * `sources.kind` decides this, not the outlet's name: the enum already
+ * separates `research` and `github` from `news`, `company_blog` and the
+ * catch-all `rss`. A vendor blog is not in the class on purpose — its posts
+ * are announcements the product does brief (Microsoft Research, 2026-10-07),
+ * and the marketing shapes above already handle the ones that are adverts.
+ */
+const PRIMARY_SOURCE_KINDS: ReadonlySet<string> = new Set(["research", "github"]);
+
 export function assessReadiness(input: {
   title: string;
   whatHappened: string | null | undefined;
   sourceCount?: number;
+  /**
+   * Every feed this event came from, by `sources.kind`.
+   *
+   * The operator's decision of 2026-10-08: a briefing does not carry a
+   * single-source preprint or code release. Those items keep their place in
+   * the dashboard feed and in history — they are still collected, matched and
+   * readable — they just stop being briefing candidates until a second outlet
+   * corroborates them, at which point they are news like anything else.
+   *
+   * Omitted by callers that have not loaded coverage; the rung is skipped
+   * rather than guessed at, exactly like the briefability rung below.
+   */
+  sourceKinds?: readonly string[] | undefined;
   /**
    * The story's own source evidence, as the composer will receive it.
    *
@@ -204,6 +233,21 @@ export function assessReadiness(input: {
 
   if (QUOTE_TITLE.test(title)) {
     return { ready: false, kind: "quote", reason: "title announces a quotation, not an event" };
+  }
+
+  // Primary-source material on its own is not a briefing story. Corroboration
+  // overrides: the same preprint covered by a second outlet is news about it.
+  if (
+    input.sourceKinds !== undefined &&
+    input.sourceKinds.length > 0 &&
+    (input.sourceCount ?? 1) < 2 &&
+    input.sourceKinds.every((kind) => PRIMARY_SOURCE_KINDS.has(kind))
+  ) {
+    return {
+      ready: false,
+      kind: "primary-source",
+      reason: `single-source ${input.sourceKinds.join("/")} item`,
+    };
   }
 
   // Corroboration vetoes both: a promotion or a first-party post that other

@@ -28,8 +28,7 @@ type Brief = {
   afterState: string | null;
   sourceCount: number;
   topics: string[];
-  outlet: string | null;
-  tags: string[];
+  sourceKinds: string[];
   eventAt: string | null;
   storedImpact: string | null;
   relevance: number;
@@ -154,7 +153,10 @@ main(async () => {
         )
         .in("id", ids),
       db().from("event_topics").select("event_id, topics ( label )").in("event_id", ids),
-      db().from("articles").select("event_id, source_id, sources ( name )").in("event_id", ids),
+      db()
+        .from("articles")
+        .select("event_id, source_id, sources ( name, kind )")
+        .in("event_id", ids),
       db()
         .from("event_impacts")
         .select("event_id, status, text")
@@ -170,17 +172,17 @@ main(async () => {
     topicsOf.set(link.event_id, [...(topicsOf.get(link.event_id) ?? []), label]);
   }
   const outletsOf = new Map<string, Set<string>>();
-  const outletNamesOf = new Map<string, Set<string>>();
+  const kindsOf = new Map<string, Set<string>>();
   for (const art of coverage ?? []) {
     if (!art.event_id) continue;
     const seen = outletsOf.get(art.event_id) ?? new Set<string>();
     seen.add(art.source_id ?? "unknown");
     outletsOf.set(art.event_id, seen);
-    const name = (art.sources as { name?: string } | null)?.name;
-    if (!name) continue;
-    const named = outletNamesOf.get(art.event_id) ?? new Set<string>();
-    named.add(name);
-    outletNamesOf.set(art.event_id, named);
+    const kind = (art.sources as { kind?: string } | null)?.kind;
+    if (!kind) continue;
+    const kinds = kindsOf.get(art.event_id) ?? new Set<string>();
+    kinds.add(kind);
+    kindsOf.set(art.event_id, kinds);
   }
   const impactOf = new Map(
     (impacts ?? []).map((i) => [i.event_id, (i as { text?: string | null }).text ?? null]),
@@ -189,7 +191,6 @@ main(async () => {
   const allBriefs: Brief[] = picked.flatMap((row3) => {
     const event = byId.get(row3.eventId);
     if (!event) return [];
-    const named = outletNamesOf.get(row3.eventId);
     return [
       {
         eventId: row3.eventId,
@@ -202,8 +203,7 @@ main(async () => {
           outletsOf.get(row3.eventId)?.size ||
           0,
         topics: topicsOf.get(row3.eventId) ?? [],
-        outlet: named && named.size === 1 ? ([...named][0] ?? null) : null,
-        tags: (event as { tags?: string[] }).tags ?? [],
+        sourceKinds: [...(kindsOf.get(row3.eventId) ?? [])],
         eventAt: (event as { first_seen_at?: string }).first_seen_at ?? null,
         storedImpact: impactOf.get(row3.eventId) ?? null,
         relevance: row3.relevance,
@@ -243,6 +243,7 @@ main(async () => {
       title: brief.title,
       whatHappened: brief.whatHappened,
       sourceCount: brief.sourceCount,
+      sourceKinds: brief.sourceKinds,
     });
     if (verdict.ready) ready.push(brief);
     else withheld.push({ brief, kind: verdict.kind });

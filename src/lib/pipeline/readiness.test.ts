@@ -70,6 +70,72 @@ describe("assessReadiness", () => {
     ).toEqual({ ready: false, kind: "commit-message", reason: expect.any(String) });
   });
 
+  it("drops a single-source preprint or code release from the briefing", () => {
+    // Operator decision, 2026-10-08: six of the day's twenty-five shippable
+    // items were single-source arXiv preprints and one was a GitHub release.
+    // They stay in the feed and in history; they stop being briefing items.
+    for (const item of [
+      {
+        title: "RAISED: Self-Distillation for Robustness to Prompt Injection in LLM Agents",
+        whatHappened:
+          "Prompt injection defenses degrade when an agent is fine-tuned on its own outputs.",
+        sourceKinds: ["research"],
+      },
+      {
+        title: "b11488: model : add LiquidAI/d1-omni-600M decision model (#30114)",
+        whatHappened: "Adds a new omni model entry to the supported model list.",
+        sourceKinds: ["github"],
+      },
+    ]) {
+      const verdict = assessReadiness({ ...item, sourceCount: 1 });
+      expect(verdict.ready, item.title).toBe(false);
+      if (!verdict.ready) expect(verdict.kind, item.title).toBe("primary-source");
+    }
+  });
+
+  it("keeps primary-source material once a second outlet corroborates it", () => {
+    // The same rules as every other shape: the class is not a veto on the
+    // subject, only on the lone document. And a news feed is never the class,
+    // whatever the title looks like.
+    expect(
+      assessReadiness({
+        title: "RAISED: Self-Distillation for Robustness to Prompt Injection in LLM Agents",
+        whatHappened:
+          "Prompt injection defenses degrade when an agent is fine-tuned on its own outputs.",
+        sourceCount: 2,
+        sourceKinds: ["research"],
+      }).ready,
+    ).toBe(true);
+    expect(
+      assessReadiness({
+        title: "arXiv preprint on prompt-injection defenses draws scrutiny",
+        whatHappened: "Researchers questioned the benchmark after the paper circulated this week.",
+        sourceCount: 1,
+        sourceKinds: ["news", "research"],
+      }).ready,
+    ).toBe(true);
+    expect(
+      assessReadiness({
+        title: "Hugging Face ships a smaller vision encoder for on-device use",
+        whatHappened: "The model runs inside a browser tab without a server round trip.",
+        sourceCount: 1,
+        sourceKinds: ["company_blog"],
+      }).ready,
+    ).toBe(true);
+  });
+
+  it("skips the primary-source rung when the caller has not loaded feeds", () => {
+    // Same contract as the briefability rung: absent input skips the rung
+    // rather than guessing at it.
+    expect(
+      assessReadiness({
+        title: "Training Advisors for LLM Agents from Task Outcomes",
+        whatHappened: "The method trains a smaller advisor model against task outcomes.",
+        sourceCount: 1,
+      }).ready,
+    ).toBe(true);
+  });
+
   it("drops the byline standing in for a summary", () => {
     expect(
       assessReadiness({
