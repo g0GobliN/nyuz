@@ -150,6 +150,14 @@ function sentence(value: string | null | undefined): string | null {
 export type InclusionInput = {
   /** `event_impacts.text`, when analysis already produced one. */
   storedImpact?: string | null;
+  /**
+   * The story's own stored article evidence (0090) — the short facts the
+   * enrichment stage extracted from the articles' own pages. The callers pass
+   * it as the composer's own source list, unfiltered; the why-vs-what gate at
+   * the bottom of the ladder is what stops a line restating the paragraph it
+   * sits beside. Never generated here.
+   */
+  evidence?: readonly string[] | undefined;
   /** `events.before_state` — feeds the change rung together with afterState. */
   beforeState?: string | null;
   afterState?: string | null;
@@ -164,7 +172,7 @@ export type InclusionInput = {
 export type InclusionReason = {
   text: string;
   /** Which rung produced it, for the pipeline report and for tests. */
-  source: "stored" | "change" | "after-state" | "figure" | "coverage" | "none";
+  source: "stored" | "change" | "after-state" | "consequence" | "figure" | "coverage" | "none";
 };
 
 /**
@@ -244,6 +252,75 @@ const CVE = /\bCVE-\d{4}-\d{4,7}\b/iu;
 const COUNT =
   /\b(\d[\d,.]*(?:\s*(?:thousand|million|billion))?)\s+(jobs|positions|employees|workers|users|customers|members|subscribers|readers|downloads)\b/iu;
 
+// ---------------------------------------------------------------------------
+// Rung 4a — a money consequence the story's own text states
+// ---------------------------------------------------------------------------
+
+/**
+ * What the money is doing, when the story's outcome turns on it.
+ *
+ * The figure rung reads the *headline* for money with a purpose. This one reads
+ * the article's own stored evidence (0090) for money attached to a consequence —
+ * damages, a fine, a settlement, an award, restitution, a forfeited amount — the
+ * shape a briefing can carry from the body when the headline names no number.
+ *
+ * Narrow on purpose. Measured on the 2026-10-09 pool with a looser rule (any
+ * sentence with a date, an amount or an outcome verb) the yield was 21 of 60
+ * events at roughly a third precision: it printed tournament heritage, collected-
+ * quotation metadata, speculation and vendor truisms. Restricted to money the
+ * story's outcome turns on, two of sixty events qualify and both are defensible.
+ * Two lines is the honest price of not printing eighteen misleading ones.
+ */
+const CONSEQUENCE =
+  /\b(damages|fines?|fined|penalt(?:y|ies)|restitution|settlements?|settled|awards?|awarded|judgment|judgement|forfeit(?:ed|ure)?|refund(?:ed)?|liable|payout)\b/i;
+
+/** A clause that opens on a connective is a fragment the split created. */
+const FRAGMENT =
+  /^(?:and|but|or|which|that|while|although|though|because|so|then|also|still|however|whereas)\b/i;
+
+/**
+ * The clause the money sits in, cut from the sentence around it.
+ *
+ * Every word stays the article's: the text is sliced at the nearest comma,
+ * semicolon, colon or dash on each side of the match, so nothing is paraphrased
+ * and nothing is added but the full stop. A clause left too short to be a
+ * statement, or one that starts mid-thought, is refused — silence beats a
+ * fragment under a heading that promises a reason.
+ */
+function consequenceClause(text: string): string | null {
+  const money = MONEY.exec(text);
+  if (!money) return null;
+  const index = money.index;
+  const before = text.slice(0, index);
+  const after = text.slice(index + money[0].length);
+  // Sentence terminators are breaks too, on both sides: a clause must not run
+  // into the next sentence ("Damages of $250 million. The filing was made ..."
+  // is two statements) and must not be inherited from the one before it.
+  const breaks = [",", ";", ":", ".", "!", "?", "\u2014", " \u2013 "];
+  const start = Math.max(...breaks.map((mark) => before.lastIndexOf(mark))) + 1;
+  const stops = breaks.map((mark) => after.indexOf(mark)).filter((stop) => stop >= 0);
+  const end = stops.length === 0 ? text.length : index + money[0].length + Math.min(...stops);
+  const clause = sentence(text.slice(start, end));
+  if (clause === null) return null;
+  if (clause.split(/\s+/u).length < 5) return null;
+  if (FRAGMENT.test(clause)) return null;
+  if (!CONSEQUENCE.test(clause)) return null;
+  // The split can leave the clause opening on a lowercase word; the card prints
+  // a sentence, so raise the first letter. Nothing else about it is rewritten.
+  return clause.charAt(0) === clause.charAt(0).toLowerCase()
+    ? `${clause.charAt(0).toUpperCase()}${clause.slice(1)}`
+    : clause;
+}
+
+/** The first stored-evidence clause that states a money consequence. */
+function consequenceLine(evidence: readonly string[] | undefined): string | null {
+  for (const unit of evidence ?? []) {
+    const clause = consequenceClause(unit);
+    if (clause !== null) return clause;
+  }
+  return null;
+}
+
 /** The sentence the match sits in, terminators included. */
 function sentenceAround(text: string, index: number, length: number): string {
   const before = text.slice(0, index);
@@ -307,6 +384,12 @@ export function reasonFor(input: InclusionInput): InclusionReason {
 
   const after = sentence(input.afterState);
   if (after) candidates.push({ text: after, source: "after-state" });
+
+  // A consequence outranks a bare figure: "asks for damages of more than $250
+  // million" says what is at stake, where "carries a $250 million figure" says
+  // only that a number exists.
+  const consequence = consequenceLine(input.evidence);
+  if (consequence !== null) candidates.push({ text: consequence, source: "consequence" });
 
   const figure = figureLine(input.title, input.whatHappened);
   if (figure !== null) candidates.push({ text: figure, source: "figure" });

@@ -285,4 +285,78 @@ describe("reasonFor", () => {
     });
     expect(reason).toEqual({ text: "", source: "none" });
   });
+
+  /**
+   * The money-consequence rung, 2026-10-09: the story's own stored evidence
+   * (0090) is the only source left that is free and story-specific, and it is
+   * read narrowly. A looser rule was measured that day and rejected — it bought
+   * coverage with heritage, speculation and vendor truisms.
+   */
+  it("prints a money consequence the story's own evidence states", () => {
+    const reason = reasonFor({
+      sourceCount: 1,
+      title: "USA Today becomes the latest publisher to sue OpenAI",
+      evidence: [
+        "In a filing on Thursday, the publisher asks for damages of more than $250 million, alleging OpenAI's unauthorized use of its content.",
+      ],
+    });
+    expect(reason.source).toBe("consequence");
+    expect(reason.text).toBe("The publisher asks for damages of more than $250 million.");
+  });
+
+  it("refuses evidence that is not about money at stake", () => {
+    // A date, an outcome verb or a count is not enough on its own; the loose
+    // rule printed these and every one of them was filler.
+    const reason = reasonFor({
+      sourceCount: 1,
+      title: "Sydney festival 2027: 11 international dance works to headline",
+      evidence: [
+        "Launched by the Sydney Opera House in 2009, it ran for four years and featured superstars such as Akram Khan.",
+        "Tickets for the 2027 programme go on sale in February.",
+      ],
+    });
+    expect(reason).toEqual({ text: "", source: "none" });
+  });
+
+  it("refuses a money clause that the split left as a fragment", () => {
+    // "And the publisher asks ..." and a bare "Damages of more than $250
+    // million" both read as debris under a heading that promises a reason.
+    const fragment = reasonFor({
+      sourceCount: 1,
+      title: "Publisher sues over training data",
+      evidence: ["and the publisher asks for damages of more than $250 million in the filing."],
+    });
+    expect(fragment.text).toBe("");
+
+    const bare = reasonFor({
+      sourceCount: 1,
+      title: "Publisher sues over training data",
+      evidence: ["Damages of $250 million. The filing was made on Thursday in New York."],
+    });
+    expect(bare.text).toBe("");
+  });
+
+  it("never lets a consequence outrank the stored impact, and still gates what", () => {
+    const stored = reasonFor({
+      storedImpact: "It sets the price every model builder now has to pay for news.",
+      sourceCount: 1,
+      title: "Publisher sues over training data",
+      evidence: ["The publisher asks for damages of more than $250 million."],
+    });
+    expect(stored.source).toBe("stored");
+
+    // The why-vs-what gate applies here exactly as it does to every other rung:
+    // a clause that restates the briefing paragraph is dropped. What follows is
+    // the figure rung's own line about the same number — a different claim said
+    // a different way, which the gate admits by design (it refuses copies, not
+    // subjects; deeper restatement is what manual sampling is for).
+    const restated = reasonFor({
+      sourceCount: 1,
+      title: "Publisher sues over training data",
+      whatHappened: "The publisher asks for damages of more than $250 million.",
+      evidence: ["The publisher asks for damages of more than $250 million."],
+    });
+    expect(restated.source).toBe("figure");
+    expect(restated.text).toBe("The story carries a $250 million figure.");
+  });
 });

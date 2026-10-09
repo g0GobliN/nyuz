@@ -29,6 +29,8 @@ type Brief = {
   sourceCount: number;
   topics: string[];
   sourceKinds: string[];
+  /** Stored article-page evidence (0090) for the ladder's consequence rung. */
+  evidence: string[];
   eventAt: string | null;
   storedImpact: string | null;
   relevance: number;
@@ -155,7 +157,7 @@ main(async () => {
       db().from("event_topics").select("event_id, topics ( label )").in("event_id", ids),
       db()
         .from("articles")
-        .select("event_id, source_id, sources ( name, kind )")
+        .select("id, event_id, source_id, sources ( name, kind )")
         .in("event_id", ids),
       db()
         .from("event_impacts")
@@ -163,6 +165,34 @@ main(async () => {
         .in("event_id", ids)
         .eq("status", "complete"),
     ]);
+
+  // The same 0090 read generation makes, so this preview prints the lines the
+  // briefing will actually store rather than the ones it would print with the
+  // consequence rung blind.
+  const unitTexts = new Map<string, string[]>();
+  {
+    const articleIds = (coverage ?? []).flatMap((art) => (art.id ? [art.id] : []));
+    for (let from = 0; from < articleIds.length; from += 150) {
+      const { data: units } = await db()
+        .from("article_evidence")
+        .select("article_id, evidence")
+        .in("article_id", articleIds.slice(from, from + 150))
+        .eq("status", "enriched");
+      for (const unit of units ?? []) {
+        const texts = (Array.isArray(unit.evidence) ? unit.evidence : [])
+          .map((item) => (item as { text?: unknown }).text)
+          .filter((text): text is string => typeof text === "string" && text.trim() !== "");
+        if (texts.length > 0) unitTexts.set(unit.article_id, texts);
+      }
+    }
+  }
+  const evidenceOf = new Map<string, string[]>();
+  for (const art of coverage ?? []) {
+    if (!art.event_id) continue;
+    const texts = unitTexts.get(art.id ?? "");
+    if (texts === undefined) continue;
+    evidenceOf.set(art.event_id, [...(evidenceOf.get(art.event_id) ?? []), ...texts]);
+  }
 
   const byId = new Map((events ?? []).map((e) => [e.id, e]));
   const topicsOf = new Map<string, string[]>();
@@ -204,6 +234,7 @@ main(async () => {
           0,
         topics: topicsOf.get(row3.eventId) ?? [],
         sourceKinds: [...(kindsOf.get(row3.eventId) ?? [])],
+        evidence: evidenceOf.get(row3.eventId) ?? [],
         eventAt: (event as { first_seen_at?: string }).first_seen_at ?? null,
         storedImpact: impactOf.get(row3.eventId) ?? null,
         relevance: row3.relevance,
@@ -264,6 +295,7 @@ main(async () => {
       beforeState: brief.beforeState,
       afterState: brief.afterState,
       sourceCount: brief.sourceCount,
+      evidence: brief.evidence,
       title: brief.title,
       whatHappened: brief.whatHappened,
     });

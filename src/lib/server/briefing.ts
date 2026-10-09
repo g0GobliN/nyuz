@@ -1158,11 +1158,19 @@ async function whyLinesFor(
       out.set(s.id, stored);
       continue;
     }
+    // The story's own article-page evidence, already on the hydrated story
+    // because the Read page renders it — the consequence rung reads the same
+    // material the article does, so the line and the body agree about what the
+    // source says. No extra query: absence costs a rung, never the page.
+    const evidence = s.sourceList.flatMap(
+      (source) => source.enrichedEvidence?.map((unit) => unit.text) ?? [],
+    );
     const line = reasonFor({
       storedImpact: impactOf.get(s.id) ?? null,
       beforeState: s.before || null,
       afterState: s.after || null,
       sourceCount: s.sources,
+      evidence,
       title: s.title,
       whatHappened: s.what,
     }).text;

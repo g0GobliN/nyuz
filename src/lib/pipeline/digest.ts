@@ -691,6 +691,15 @@ type EventBrief = {
    */
   sourceKinds: string[];
   /**
+   * The story's own stored article evidence (0090): the short facts the
+   * enrichment stage extracted from the articles' own pages. Read for the
+   * inclusion ladder's consequence rung (inclusion.ts) — the only free,
+   * story-specific material left that the readiness gate has not already
+   * spent — and never generated here. Empty for most stories, because the
+   * stage is bounded and only touches articles a reader can reach.
+   */
+  evidence: string[];
+  /**
    * The story's own source evidence, exactly as the Read composer receives it.
    *
    * Carried so the readiness gate can apply the briefability contract at
@@ -879,6 +888,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
         beforeState: brief.beforeState,
         afterState: brief.afterState,
         sourceCount: brief.sourceCount,
+        evidence: brief.evidence,
         title: brief.title,
         whatHappened: brief.whatHappened,
       });
@@ -1302,6 +1312,17 @@ async function alreadyBriefed(db: Db, userId: string): Promise<Map<string, numbe
   return found;
 }
 
+/**
+ * Article ids per `.in()` on `article_evidence`.
+ *
+ * A briefing's picked set is small, but each event carries several articles and
+ * one `id` is 36 characters, so the whole set in a single filter string starts
+ * approaching the request-URL limit at exactly the moment the briefing is
+ * longest. Chunking keeps the read one round trip per briefing in practice
+ * (most windows fit in one) without a failure mode at the top of the cap.
+ */
+const EVIDENCE_ARTICLE_CHUNK = 150;
+
 async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   const ids = picked.map((p) => p.eventId);
   const { data, error } = await db
@@ -1347,8 +1368,34 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   // primary-source rung: a single-source preprint or code release is not a
   // briefing item (operator decision, 2026-10-08).
   const kinds = new Map<string, Set<string>>();
+  // The article-page evidence (0090) behind those same rows, keyed by article
+  // and folded onto the event below. The inclusion ladder's consequence rung
+  // reads it and nothing else does — no model, no cost, and the same table the
+  // Read page's composer selects from, so the line and the article agree about
+  // what the story says.
+  const unitTexts = new Map<string, string[]>();
+  const articleIds = (coverage ?? []).flatMap((row) => (row.id ? [row.id] : []));
+  for (let from = 0; from < articleIds.length; from += EVIDENCE_ARTICLE_CHUNK) {
+    const { data: units, error: evidenceError } = await db
+      .from("article_evidence")
+      .select("article_id, evidence")
+      .in("article_id", articleIds.slice(from, from + EVIDENCE_ARTICLE_CHUNK))
+      .eq("status", "enriched");
+    if (evidenceError) throw new Error(`reading article evidence: ${evidenceError.message}`);
+    for (const unit of units ?? []) {
+      const texts = (Array.isArray(unit.evidence) ? unit.evidence : [])
+        .map((item) => (item as { text?: unknown }).text)
+        .filter((text): text is string => typeof text === "string" && text.trim() !== "");
+      if (texts.length > 0) unitTexts.set(unit.article_id, texts);
+    }
+  }
+  const storyEvidence = new Map<string, string[]>();
   for (const row of coverage ?? []) {
     if (!row.event_id) continue;
+    const texts = unitTexts.get(row.id ?? "");
+    if (texts !== undefined) {
+      storyEvidence.set(row.event_id, [...(storyEvidence.get(row.event_id) ?? []), ...texts]);
+    }
     const seen = outlets.get(row.event_id) ?? new Set<string>();
     seen.add(row.source_id ?? "unknown");
     outlets.set(row.event_id, seen);
@@ -1388,6 +1435,7 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
         topics: topics.get(row.eventId) ?? [],
         sourceCount: event.publisher_count || outlets.get(row.eventId)?.size || 0,
         sources: evidence.get(row.eventId) ?? [],
+        evidence: storyEvidence.get(row.eventId) ?? [],
         sourceKinds: [...(kinds.get(row.eventId) ?? [])],
         relevance: row.relevance,
         matchedAt: row.matchedAt,

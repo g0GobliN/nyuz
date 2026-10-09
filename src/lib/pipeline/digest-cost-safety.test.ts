@@ -211,6 +211,32 @@ describe("shared explanations are read, never bought by a briefing", () => {
     expect(spy.impactCalls).toBe(0);
   });
 
+  it("derives a money consequence from the story's own stored evidence", async () => {
+    // 0090's evidence is the one free, story-specific source left for the
+    // inclusion ladder, and this is the whole path: the article's own stored
+    // sentence, selected deterministically at generation time, stored on the
+    // item, with nothing bought at either former paid boundary.
+    const { spy, digest } = await withDoubles();
+    const db = new FakeDb(tables({ impact: null }));
+    db.rows("article_evidence").push({
+      article_id: "article-1",
+      status: "enriched",
+      evidence: [
+        {
+          kind: "fact",
+          text: "In a filing on Thursday, the publisher asks for damages of more than $250 million, alleging unauthorized use of its content.",
+        },
+      ],
+    });
+
+    await run(db, digest);
+
+    expect(spy.impactCalls).toBe(0);
+    expect(db.rows("digest_items")[0]?.["why_it_matters"]).toBe(
+      "The publisher asks for damages of more than $250 million.",
+    );
+  });
+
   it("derives a factual line when the shared impact is missing", async () => {
     const { spy, digest } = await withDoubles();
     const db = new FakeDb(tables({ impact: null }));
