@@ -1,7 +1,8 @@
 {
-  "measuredAt": "2026-10-03",
-  "measuredAtCommit": "7547fc33",
-  "note": "The floor for `npm run coverage:ratchet`. Raise it with `npm run coverage:ratchet -- --update --from <summary.json>`, in the commit that adds the tests and against the runner's own summary (gh run download <run-id> -n coverage-summary); a local measurement is refused because v8's reported range set depends on the machine. Never by hand.\n`measuredAtCommit` is the commit the measurement was taken at, so a later\ndrop can be attributed to a change rather than guessed at. Read it before\nblaming the change under review.\nOutside GitHub Actions a shortfall inside the 0.35pp portability band is reported\nas a warning rather than a failure; CI compares exactly.",
+  "measuredAt": "2026-10-09",
+  "measuredAtCommit": "896080a6",
+  "measuredIn": "external-measurement",
+  "note": "The floor for `npm run coverage:ratchet`. Raise it with `npm run coverage:ratchet -- --update` in the commit that adds the tests, never by hand.\n`measuredAtCommit` is the commit the measurement was taken at, so a later\ndrop can be attributed to a change rather than guessed at. Read it before\nblaming the change under review.",
   "directories": {
     "src": {
       "files": 3,
@@ -12,17 +13,17 @@
     },
     "src/components": {
       "files": 12,
-      "lines": 15.36,
-      "statements": 15.36,
-      "functions": 13.33,
-      "branches": 28.13
+      "lines": 29.2,
+      "statements": 29.2,
+      "functions": 17.65,
+      "branches": 45.61
     },
     "src/components/admin": {
-      "files": 2,
-      "lines": 0,
-      "statements": 0,
-      "functions": 0,
-      "branches": 0
+      "files": 3,
+      "lines": 9.67,
+      "statements": 9.67,
+      "functions": 17.65,
+      "branches": 80.95
     },
     "src/components/blog": {
       "files": 1,
@@ -33,17 +34,17 @@
     },
     "src/components/dashboard": {
       "files": 13,
-      "lines": 13,
-      "statements": 13,
-      "functions": 15.38,
-      "branches": 77.42
+      "lines": 26.31,
+      "statements": 26.31,
+      "functions": 18.75,
+      "branches": 89.47
     },
     "src/components/landing": {
       "files": 9,
-      "lines": 1.22,
-      "statements": 1.22,
-      "functions": 0,
-      "branches": 0
+      "lines": 2.1,
+      "statements": 2.1,
+      "functions": 8.33,
+      "branches": 8.33
     },
     "src/components/ui": {
       "files": 46,
@@ -60,11 +61,11 @@
       "branches": 0
     },
     "src/lib": {
-      "files": 66,
-      "lines": 80.75,
-      "statements": 80.75,
-      "functions": 89.86,
-      "branches": 86.35
+      "files": 68,
+      "lines": 85.67,
+      "statements": 85.67,
+      "functions": 90.4,
+      "branches": 86.62
     },
     "src/lib/ai": {
       "files": 10,
@@ -75,10 +76,10 @@
     },
     "src/lib/discovery": {
       "files": 7,
-      "lines": 88.35,
-      "statements": 88.35,
+      "lines": 88.37,
+      "statements": 88.37,
       "functions": 88.24,
-      "branches": 82.31
+      "branches": 82.44
     },
     "src/lib/email": {
       "files": 2,
@@ -110,10 +111,10 @@
     },
     "src/lib/pipeline": {
       "files": 41,
-      "lines": 83.41,
-      "statements": 83.41,
-      "functions": 87.09,
-      "branches": 79.5
+      "lines": 84.43,
+      "statements": 84.43,
+      "functions": 87.76,
+      "branches": 80.1
     },
     "src/lib/push": {
       "files": 3,
@@ -124,17 +125,17 @@
     },
     "src/lib/server": {
       "files": 47,
-      "lines": 21.3,
-      "statements": 21.3,
-      "functions": 43.59,
-      "branches": 69.83
+      "lines": 23.93,
+      "statements": 23.93,
+      "functions": 46.08,
+      "branches": 72.04
     },
     "src/lib/supabase": {
-      "files": 3,
-      "lines": 20.93,
-      "statements": 20.93,
-      "functions": 25,
-      "branches": 50
+      "files": 4,
+      "lines": 48.48,
+      "statements": 48.48,
+      "functions": 62.5,
+      "branches": 92.86
     },
     "src/lib/telegram": {
       "files": 1,
@@ -187,9 +188,9 @@
     }
   },
   "total": {
-    "lines": 40.43,
-    "statements": 40.43,
-    "functions": 72.54,
-    "branches": 80.88
+    "lines": 42.91,
+    "statements": 42.91,
+    "functions": 72.77,
+    "branches": 81.39
   }
 }
