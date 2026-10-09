@@ -86,24 +86,30 @@ export function StoryCard({
         </p>
       ) : null}
 
-      {because || story.why ? (
+      {/*
+        Two different statements used to share one slot. `story.why` is the
+        briefing's significance line — a fact about the story — and prints
+        under its own heading. `because` is provenance: the reader's own follow
+        graph, which says why the card is here, never why it matters. The
+        arbiter's ruling of 2026-10-09 keeps both but forbids either wearing
+        the other's heading: a card with no significance line stays silent in
+        that slot, and the follow note is not a substitute for it. Printing
+        both is safe now that the server's line is never itself a follow line.
+      */}
+      {story.why.trim() ? (
         <div className="mt-4 rounded-2xl bg-surface-2 p-4">
           <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-            Why you're seeing this
+            Why it matters
           </p>
-          <p className="mt-2 text-[13.5px] leading-relaxed">
-            {/*
-              One sentence, not two. `because` is the client-side fallback for
-              feeds that carry no stored why-line; `story.why` is the server's.
-              Since the server began storing the follow line at generation time
-              the two are usually the same sentence, and printing both rendered
-              "You follow AI and OpenAI. You follow AI and OpenAI." — the same
-              claim in two join styles. The client fallback fires only when the
-              server had nothing to say.
-            */}
-            {story.why.trim() ? story.why : because}
-          </p>
+          <p className="mt-2 text-[13.5px] leading-relaxed">{story.why}</p>
         </div>
+      ) : null}
+
+      {because ? (
+        <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
+          <span className="font-medium">Why you're seeing this · </span>
+          {because}
+        </p>
       ) : null}
 
       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px] text-muted-foreground">

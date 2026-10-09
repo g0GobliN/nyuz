@@ -389,7 +389,7 @@ function storyText(item: BriefingItem): string {
     item.title,
     "",
     ...grafs,
-    ...(why ? ["", `Why you're seeing this: ${why}`] : []),
+    ...(why ? ["", `Why it matters: ${why}`] : []),
     "",
     `Read on nyuz: ${item.href}`,
   ].join("\n");

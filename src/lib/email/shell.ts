@@ -137,7 +137,7 @@ export function storyBrief(input: {
         <tr>
           <td style="width:3px;background:${PALETTE.signal};font-size:0;line-height:0;">&nbsp;</td>
           <td style="padding:2px 0 2px 12px;">
-            <p style="margin:0 0 4px;font-family:${FONT};font-size:10px;font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:${PALETTE.signal};">Why you're seeing this</p>
+            <p style="margin:0 0 4px;font-family:${FONT};font-size:10px;font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:${PALETTE.signal};">Why it matters</p>
             <p style="margin:0;font-family:${SERIF};font-size:14.5px;line-height:1.5;color:${PALETTE.ink};">${escapeHtml(input.why)}</p>
           </td>
         </tr>

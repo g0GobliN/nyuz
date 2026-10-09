@@ -106,11 +106,13 @@
  * Why it has to be a sentence
  * ---------------------------------------------------------------------------
  *
- * The email prints `Why you're seeing this: ${why}` (email/templates.ts:392)
- * and drops the whole block when `why` is empty. A metadata chip — "5 sources
- * · Cybersecurity" — would be correct and read like a bug in that position. So
- * every rung is written as prose, and anything that cannot be said as a
- * sentence is left to the final rung rather than forced.
+ * The email prints `Why it matters: ${why}` (email/templates.ts:392) and drops
+ * the whole block when `why` is empty — never filling the significance slot
+ * with provenance, which prints under its own heading (arbiter, 2026-10-09).
+ * A metadata chip — "5 sources · Cybersecurity" — would be correct and read
+ * like a bug in that position. So every rung is written as prose, and anything
+ * that cannot be said as a sentence is left to the final rung rather than
+ * forced.
  *
  * Never invents consequence. Rungs 2–5 state only developments, counts and
  * numbers that the event's own stored fields contain.

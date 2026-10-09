@@ -63,18 +63,23 @@ export function BriefingPreview({
               <p className="mt-2 text-[13.5px] leading-relaxed text-muted-foreground">{s.what}</p>
             )}
             {/*
-              The why-line renders only when there is one. A story with no stored
-              impact, no after-state and no personalization used to print the
-              heading, the separator and then nothing — which reads as a bug
-              because the layout is one. The heading is the container; the
-              sentence is the content; no content, no container.
+              Significance and provenance are different claims and print under
+              different headings (arbiter, 2026-10-09): `why` is the briefing's
+              fact about the story, `personalization` is the reader's own
+              follow graph. Either renders alone or both together, and neither
+              prints an empty heading — the heading is the container, the
+              sentence is the content.
             */}
-            {(s.why ?? "").trim().length > 0 || s.personalization ? (
+            {(s.why ?? "").trim().length > 0 ? (
               <p className="mt-3 text-[13px] leading-relaxed">
-                <span className="font-medium">Why you're seeing this · </span>
-                <span className="text-muted-foreground">
-                  {s.why ?? s.personalization?.explanation}
-                </span>
+                <span className="font-medium">Why it matters · </span>
+                <span className="text-muted-foreground">{s.why}</span>
+              </p>
+            ) : null}
+            {s.personalization ? (
+              <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+                <span className="font-medium">{s.personalization.heading} · </span>
+                {s.personalization.explanation}
               </p>
             ) : null}
             {/*
