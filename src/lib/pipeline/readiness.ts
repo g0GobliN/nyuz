@@ -123,18 +123,83 @@ const NEWS_VERB =
 /** A price promotion. Requires money and a sales verb. */
 const COMMERCE_TITLE = /\$\s*[\d,]+(?:\.\d{2})?/;
 
+/**
+ * What the money is doing, in a sales verb. `deal` and `deals` are deliberately
+ * not here: they are promo nouns, not verbs, and the 2026-10-09 ruling is that
+ * no single generic noun rejects on its own — "TSMC taps GlobalFoundries to
+ * bolster US silicon interposer production in $2B deal" is news, and the
+ * Newegg shape this rung exists for still rejects on "grab this" alone.
+ */
 const COMMERCE_VERBS =
-  /(?:grab this|save(?:ing)? you|right now|% off|\bdeal\b|\bdeals\b|on sale|price drop|lowest price)/i;
+  /(?:grab this|save(?:ing)? you|right now|% off|on sale|price drop|lowest price)/i;
 
 /**
  * A promotion that forgot its price. "The best early October Prime Day deals
  * happening now" shipped on 2026-09-30 with no dollar figure in the headline,
  * so the money rule above never saw it — it needs a promo noun and a clock.
+ *
+ * `sale` is the singular event noun ("Black Friday sale"); `sales` is not in
+ * the class on purpose, because that is the word revenue reporting wears
+ * ("Prime Day sales top $14B") and dropping that story would be the gate's
+ * worse failure.
  */
-const COMMERCE_PROMO = /\b(?:deals?|coupons?|discounts?)\b/i;
+const COMMERCE_PROMO = /\b(?:deals?|sale|discounts?|coupons?|promos?|promotions?)\b/i;
 
 const COMMERCE_URGENCY =
   /(?:happening now|right now|ends? (?:today|tonight)|today only|\d+% off|save \$?\d)/i;
+
+/**
+ * Comparative shopping copy: a ranking of things to buy.
+ *
+ * Present alongside any second commerce signal — a shopping event, a promo
+ * noun, a unit price — it marks the post as a shop's list. Alone, "the
+ * cheapest way to run a 70B model" is a comparison in a reported story and
+ * ships; the arbiter's ruling of 2026-10-09 is that no single signal rejects.
+ */
+const COMMERCE_COMPARATIVE =
+  /\b(?:cheapest|lowest price|best (?:price|value|deal)|biggest discount)\b|\bsav(?:e|ing) \d+%/i;
+
+/**
+ * A shopping calendar: the days a shop invents. Not evidence by itself —
+ * "Amazon sued over Prime Day discounts" is news about the event — but with a
+ * promo noun it is the event's own listing, which is why 2026-10-09's "Best
+ * 4TB SSD deals for Prime Day" is refused by the pair below.
+ */
+const COMMERCE_EVENT = /\b(?:prime day|black friday|cyber monday)\b/i;
+
+/**
+ * Whether a news verb governs the shopping event — the event is what the act
+ * happened to, so the title is reporting on the promotion rather than being
+ * one. Position matters: exempting on any news verb anywhere let "The Best
+ * Early Amazon Prime Day Deals 2026: WIRED-Tested Picks to Shop Now" through
+ * on the word "Picks" (measured on the 2026-10-09 pool), while the event
+ * itself is the object in "Amazon sued over Prime Day discounts".
+ */
+function eventIsWhatHappenedTo(title: string): boolean {
+  const event = COMMERCE_EVENT.exec(title);
+  if (event === null) return false;
+  return NEWS_VERB.test(title.slice(0, event.index));
+}
+
+/**
+ * A shelf banner: availability itself announced as the news.
+ *
+ * "Pre-orders are live … starting at $2,599" (The Verge and Tom's Hardware,
+ * 2026-10-09) shipped because the money rung above pairs a price with a sales
+ * verb, and the shop's verb here — "secure", "starting at" — is deliberately
+ * absent from that list: it is the shop's own pitch, not an event.
+ */
+const COMMERCE_SHELF = /\bpre-?orders? (?:are |is )?(?:live|open)\b|\bstarting at \$/i;
+
+/**
+ * A price in the forms a listing quotes: dollars, a rate per unit, or a
+ * percentage. The same day's Prime Day post priced its subject "10 cents per
+ * gigabyte" — a rate, not an amount — so the dollar figure above never saw
+ * it. This shape only rejects in combination with a signal above, never on
+ * its own.
+ */
+const COMMERCE_PRICE =
+  /\bper\s+(?:gb|tb|gigabyte|terabyte|unit)\b|\b\d+(?:\.\d+)?\s*cents?\s+per\b|\b\d+(?:\.\d+)?\s*%/i;
 
 /**
  * Facts a story needs before the composer has a body to publish.
@@ -229,6 +294,37 @@ export function assessReadiness(input: {
 
   if (COMMERCE_PROMO.test(title) && COMMERCE_URGENCY.test(title)) {
     return { ready: false, kind: "commerce", reason: "title is a sale with a clock on it" };
+  }
+
+  // The 2026-10-09 sample carried two shopping posts the rungs above miss,
+  // because neither paired a dollar amount with a sales verb. Each new rung
+  // requires a combination — a comparative claim or a shelf signal plus one
+  // more commerce fact — so a reported price cut, a review, and a comparison
+  // piece all keep shipping. The NEWS_VERB exemption is what separates "the
+  // shelf is open" from "a product event happened": the arbiter's keep case
+  // "Nvidia RTX Spark launches with a $2,599 price" carries the verb and the
+  // listing's "Pre-orders are live … starting at $2,599" does not.
+  if (
+    !NEWS_VERB.test(title) &&
+    COMMERCE_COMPARATIVE.test(title) &&
+    (COMMERCE_EVENT.test(title) ||
+      COMMERCE_SHELF.test(title) ||
+      COMMERCE_PROMO.test(title) ||
+      COMMERCE_PRICE.test(title))
+  ) {
+    return { ready: false, kind: "commerce", reason: "title ranks products by price" };
+  }
+
+  if (COMMERCE_EVENT.test(title) && COMMERCE_PROMO.test(title) && !eventIsWhatHappenedTo(title)) {
+    return { ready: false, kind: "commerce", reason: "title is a shopping-event listing" };
+  }
+
+  if (
+    !NEWS_VERB.test(title) &&
+    COMMERCE_SHELF.test(title) &&
+    (COMMERCE_TITLE.test(title) || COMMERCE_PRICE.test(title))
+  ) {
+    return { ready: false, kind: "commerce", reason: "title is a shop shelf with a price on it" };
   }
 
   if (QUOTE_TITLE.test(title)) {

@@ -201,6 +201,15 @@ describe("assessReadiness", () => {
         whatHappened: "Salesforce has won a contract worth up to £2.4 billion including VAT.",
       }),
     ).toEqual({ ready: true });
+    // 2026-10-09: `deal` sat in COMMERCE_VERBS, so money plus that one noun
+    // refused this real acquisition report. The arbiter's ruling the same day:
+    // no single generic noun rejects an article — the combination does.
+    expect(
+      assessReadiness({
+        title: "TSMC taps GlobalFoundries to bolster US silicon interposer production in $2B deal",
+        whatHappened: "The companies said the agreement expands domestic packaging capacity.",
+      }),
+    ).toEqual({ ready: true });
   });
 
   it("keeps ordinary reporting", () => {
@@ -219,6 +228,88 @@ describe("assessReadiness", () => {
         whatHappened: "Discounts on laptops, headphones and smart home gear are live for October.",
       }),
     ).toEqual({ ready: false, kind: "commerce", reason: expect.any(String) });
+  });
+
+  it("drops the 2026-10-09 shopping pair, which carry no sales verb", () => {
+    // Both shipped in the 07:30 JST briefing of 2026-10-09. The first prices
+    // its subject as a rate ("10 cents per gigabyte") instead of an amount;
+    // the second is a shop's shelf banner whose verbs — "secure", "starting
+    // at" — were deliberately kept out of COMMERCE_VERBS. Each is refused by
+    // a combination, not by any single word in it.
+    expect(
+      assessReadiness({
+        title: "This is the cheapest 4TB SSD for Prime Day at only 10 cents per gigabyte",
+        whatHappened:
+          "The Teamgroup T-Force G50 Evo is a 4 TB drive with a PCIe 4.0 NVMe interface.",
+      }),
+    ).toEqual({ ready: false, kind: "commerce", reason: expect.any(String) });
+    expect(
+      assessReadiness({
+        title:
+          "Pre-orders are live on Nvidia RTX Spark devices, secure the Surface Laptop Ultra or other RTX Spark laptops here — starting at $2,599",
+        whatHappened: "Best Buy has a limited lineup of devices to start.",
+      }),
+    ).toEqual({ ready: false, kind: "commerce", reason: expect.any(String) });
+  });
+
+  it("drops shopping-event listings without touching the event reported as news", () => {
+    for (const title of [
+      "Best 4TB SSD deals for Prime Day",
+      "The cheapest RTX Spark deal you can buy today",
+      "Save 40% on every AI subscription this week",
+    ]) {
+      const verdict = assessReadiness({ title, whatHappened: "Prices are live for the week." });
+      expect(verdict.ready, title).toBe(false);
+      if (!verdict.ready) expect(verdict.kind, title).toBe("commerce");
+    }
+
+    // The arbiter's keep cases from the same 2026-10-09 ruling, quoted: a
+    // launch and a reported price cut are news, and the combinations above
+    // only reject when the shelf is the subject, not when a product event is.
+    for (const title of [
+      "Nvidia RTX Spark launches with a $2,599 price",
+      "The company cuts the RTX Spark price to $2,599",
+      "Review: the $2,599 RTX Spark delivers on its promises",
+    ]) {
+      expect(
+        assessReadiness({ title, whatHappened: "The device ships this month." }).ready,
+        title,
+      ).toBe(true);
+    }
+
+    // A promotion someone else is reporting is news about the promotion; the
+    // news verb is what separates the two.
+    expect(
+      assessReadiness({
+        title: "Amazon sued over Prime Day discounts",
+        whatHappened: "A consumer group filed the suit in Washington state court.",
+      }).ready,
+    ).toBe(true);
+
+    // The same shape, and the 2026-10-09 pool measured it both ways: the act
+    // leads in the news title, while the shopping list's only news word —
+    // "Picks" — sits in its trailer, so the event stays the listing's subject.
+    expect(
+      assessReadiness({
+        title: "The Best Early Amazon Prime Day Deals 2026: WIRED-Tested Picks to Shop Now",
+        whatHappened: "Our editors found the best discounts on laptops and headphones.",
+      }).ready,
+    ).toBe(false);
+
+    // A comparison that is not shopping keeps its place, and a revenue story
+    // wears "sales" — which the promo class deliberately excludes.
+    expect(
+      assessReadiness({
+        title: "The cheapest way to run a 70B model on one GPU",
+        whatHappened: "Benchmarks compare quantised inference across three accelerators.",
+      }).ready,
+    ).toBe(true);
+    expect(
+      assessReadiness({
+        title: "Prime Day sales top $14B as shoppers front-load holiday spend",
+        whatHappened: "Adobe said online spending rose 8.4% over the two-day event.",
+      }).ready,
+    ).toBe(true);
   });
 
   it("drops a title that announces a quotation instead of an event", () => {
