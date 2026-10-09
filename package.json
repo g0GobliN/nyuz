@@ -28,6 +28,7 @@
     "db:status": "node --env-file=.env scripts/tsrun.mjs scripts/db-status.ts",
     "billing:check": "node --env-file=.env scripts/tsrun.mjs scripts/check-billing.ts",
     "briefing:timing": "node --env-file=.env scripts/tsrun.mjs scripts/briefing-timing.ts",
+    "briefing:checkpoint": "node --env-file=.env scripts/tsrun.mjs scripts/briefing-checkpoint.ts",
     "verify:v2": "node --env-file=.env scripts/tsrun.mjs scripts/verify-v2.ts",
     "verify:live": "node --env-file=.env scripts/tsrun.mjs scripts/verify-live.ts",
     "db:seed": "node --env-file=.env scripts/tsrun.mjs scripts/apply-seed.ts",
