@@ -103,4 +103,29 @@ describe("StoryCard — significance vs provenance", () => {
     expect(downvoted).toContain("1 event");
     expect(downvoted).not.toContain("Mute ");
   });
+
+  /**
+   * Two sources answer the same question and they are not equivalent. The
+   * server's answer comes from the reader's real follow graph — the event
+   * reached them through their own subscriptions — so it wins over the client's
+   * guess from the topics attached to the card.
+   */
+  it("prefers the server's provenance over the client's guess from topics", () => {
+    const follow = { heading: "Why you're seeing this", explanation: "You follow OpenAI." };
+
+    const both = render(
+      { ...base, why: "Analysts expect a pricing change.", personalization: follow },
+      ["AI", "NVIDIA"],
+    );
+    expect(both).toContain("You follow OpenAI.");
+    expect(both).not.toContain("You follow AI and NVIDIA.");
+    expect(both).toContain("Why it matters");
+
+    // Same answer with no client topics at all: the note still arrives, because
+    // it never depended on them.
+    const alone = render({ ...base, why: "", personalization: follow });
+    expect(alone).toContain("Why you're seeing this · ");
+    expect(alone).toContain("You follow OpenAI.");
+    expect(alone).not.toContain("Why it matters");
+  });
 });

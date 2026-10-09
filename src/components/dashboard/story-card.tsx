@@ -46,7 +46,12 @@ export function StoryCard({
   const vote = feedback.votes[story.id];
   const saved = feedback.saved.includes(story.id);
   const primaryTopic = story.topics[0];
+  // The server's own answer wins: `personalizationFor` computes it from the
+  // reader's real follow graph and only when the event reached them through
+  // their own subscriptions. `because` is the client fallback for the same
+  // question, from the reader's chosen topics — never a significance claim.
   const because = becauseYouFollow(matched);
+  const provenance = story.personalization?.explanation ?? because;
 
   return (
     <article className="reveal rounded-3xl border border-hairline bg-surface p-6 sm:p-7">
@@ -105,10 +110,10 @@ export function StoryCard({
         </div>
       ) : null}
 
-      {because ? (
+      {provenance ? (
         <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
           <span className="font-medium">Why you're seeing this · </span>
-          {because}
+          {provenance}
         </p>
       ) : null}
 

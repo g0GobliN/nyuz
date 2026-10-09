@@ -960,25 +960,43 @@ async function storiesFromDigest(db: Db, digestId: string): Promise<Story[]> {
       : new Map<string, { heading: string; explanation: string }>(),
     whyLinesFor(db, stories, why),
   ]);
-  return stories.map((s) => {
-    const line = (lines.get(s.id) ?? "").trim();
-    const fallback = personalization.get(s.id);
-    // The card renders the follow explanation (`personalization`) *and* the
-    // why-line (`why`) side by side. When the line IS the follow explanation —
-    // the rung the ladder fell back to — attaching both prints
-    // the same sentence twice, once per join style. The follow explanation is
-    // carried by `why` alone in that case, and `personalization` only rides
-    // along when it says something the stored line does not.
-    if (line) {
-      const same =
-        fallback !== undefined &&
-        fallback.explanation.replace(/[^a-z]/gi, "").toLowerCase() ===
-          line.replace(/[^a-z]/gi, "").toLowerCase();
-      return { ...s, why: line, ...(fallback && !same ? { personalization: fallback } : {}) };
-    }
-    if (fallback) return { ...s, why: fallback.explanation };
-    return { ...s, why: "" };
-  });
+  return stories.map((s) =>
+    withWhyAndProvenance(s, lines.get(s.id) ?? "", personalization.get(s.id)),
+  );
+}
+
+/**
+ * Significance and provenance, kept apart — the arbiter's ruling of 2026-10-09.
+ *
+ * `why` carries what the briefing said about the story and nothing else: an
+ * empty significance slot stays empty. The reader's own follow graph rides as
+ * `personalization`, which the card prints under its own heading. Folding the
+ * follow explanation into `why` when the ladder was silent put provenance under
+ * the significance heading the moment the card split the two apart — found live
+ * on the 2026-10-09 sample.
+ *
+ * A stored line that *is* the follow explanation — every briefing generated
+ * before the follow rung was deleted on 2026-10-08 has one — is provenance too,
+ * whatever column it was written to. It moves to `personalization` and leaves
+ * the significance slot silent, so the heading claim is true on old briefings
+ * as well as new ones. Equality is exact after case and punctuation collapse:
+ * the ladder's rungs state figures, changes and coverage counts, and none of
+ * them can collide with "You follow AI." by accident.
+ */
+export function withWhyAndProvenance(
+  story: Story,
+  line: string,
+  fallback: { heading: string; explanation: string } | undefined,
+): Story {
+  const trimmed = line.trim();
+  const flatten = (value: string) => value.replace(/[^a-z]/gi, "").toLowerCase();
+  const isProvenance = fallback !== undefined && flatten(fallback.explanation) === flatten(trimmed);
+  if (trimmed !== "" && !isProvenance) {
+    return { ...story, why: trimmed, ...(fallback ? { personalization: fallback } : {}) };
+  }
+  if (fallback) return { ...story, why: "", personalization: fallback };
+  // No follow graph to compare against: the line is all we know, so it stays.
+  return { ...story, why: trimmed };
 }
 
 /** Whose digest this is — one reader, by construction. */
@@ -1050,25 +1068,7 @@ async function storiesFromEventIds(db: Db, userId: string, eventIds: string[]): 
     const matched = relevance.get(s.id);
     const scored =
       matched === undefined ? s : { ...s, score: { ...s.score, relevance: asPercent(matched) } };
-    const forThisStory = personalization.get(scored.id);
-    const line = (lines.get(scored.id) ?? "").trim();
-    // Same rule as `storiesFromDigest`: the follow explanation and the why-line
-    // must not be the same sentence twice. The significance field stays empty
-    // when the ladder has nothing to say; the follow graph is its own block,
-    // with its own heading, rather than text standing in for a reason.
-    const same =
-      forThisStory !== undefined &&
-      forThisStory.explanation.replace(/[^a-z]/gi, "").toLowerCase() ===
-        line.replace(/[^a-z]/gi, "").toLowerCase();
-    if (line) {
-      return {
-        ...scored,
-        why: line,
-        ...(forThisStory && !same ? { personalization: forThisStory } : {}),
-      };
-    }
-    if (forThisStory) return { ...scored, why: "", personalization: forThisStory };
-    return { ...scored, why: "" };
+    return withWhyAndProvenance(scored, lines.get(scored.id) ?? "", personalization.get(scored.id));
   });
 }
 

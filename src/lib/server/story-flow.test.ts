@@ -35,7 +35,13 @@ vi.mock("@tanstack/react-start", () => ({
     return builder;
   },
 }));
-import { loadDigestStories, loadHomeFeed, loadStory, startFirstBriefing } from "./briefing";
+import {
+  loadDigestStories,
+  loadHomeFeed,
+  loadStory,
+  startFirstBriefing,
+  withWhyAndProvenance,
+} from "./briefing";
 import { composeArticle } from "@/lib/editorial";
 import type { Story } from "@/lib/story";
 /**
@@ -396,5 +402,47 @@ describe("Read never depends on a live AI call", () => {
 
     const story = (await run(loadStory, db, { id: EVENT_ID })) as Story;
     expect(story.relatedEvents ?? []).toEqual([]);
+  });
+
+  /**
+   * The arbiter's ruling of 2026-10-09, as the four shapes the loaders can be
+   * in. The bug this pins was found live: the digest path folded the follow
+   * explanation into `why` when the ladder was silent, so the card's
+   * significance heading printed "You follow AI." as though it were a reason
+   * the story matters.
+   */
+  it("keeps significance and provenance apart in every shape", () => {
+    const story = { id: "e", why: "stale" } as Story;
+    const follow = { heading: "Why you're seeing this", explanation: "You follow OpenAI." };
+
+    // The ladder said nothing: silence in the significance slot, the follow
+    // graph as its own block.
+    const silent = withWhyAndProvenance(story, "  ", follow);
+    expect(silent.why).toBe("");
+    expect(silent.personalization?.explanation).toBe("You follow OpenAI.");
+
+    const bare = withWhyAndProvenance(story, "", undefined);
+    expect(bare.why).toBe("");
+    expect(bare.personalization).toBeUndefined();
+
+    // A real line and the follow graph side by side, each under its own heading.
+    const both = withWhyAndProvenance(story, "The story carries a $2B figure.", follow);
+    expect(both.why).toBe("The story carries a $2B figure.");
+    expect(both.personalization?.explanation).toBe("You follow OpenAI.");
+
+    // An older briefing, generated before the follow rung was deleted, whose
+    // stored line IS that follow sentence. It is provenance wherever it was
+    // written, so it moves under the provenance heading and the significance
+    // slot stays silent rather than claiming "You follow OpenAI." is a reason
+    // the story matters.
+    const same = withWhyAndProvenance(story, "You follow OpenAI.", follow);
+    expect(same.why).toBe("");
+    expect(same.personalization?.explanation).toBe("You follow OpenAI.");
+
+    // No follow graph to compare against: the line is all there is, so it stays
+    // where it was written.
+    const unknown = withWhyAndProvenance(story, "You follow OpenAI.", undefined);
+    expect(unknown.why).toBe("You follow OpenAI.");
+    expect(unknown.personalization).toBeUndefined();
   });
 });
