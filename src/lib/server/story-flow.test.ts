@@ -304,6 +304,45 @@ describe("reader flows never buy background synthesis", () => {
     }
   });
 
+  it("recomputes a retired line from the story's own stored evidence", async () => {
+    // The read path's half of the 2026-10-09 rung (inclusion.ts): a briefing
+    // whose archived line the ladder has since retired is recomputed at read
+    // time, and the material it reads is the same 0090 evidence the Read page
+    // renders — already on the hydrated story, so the line the reader sees and
+    // the article they open are drawn from one source.
+    const db = bundledDb();
+    seedPendingNews(db);
+    await run(startFirstBriefing, db);
+    const digestId = db.rows("digests")[0]!["digest_id"] as string;
+    const eventId = db.rows("user_events")[0]!["event_id"] as string;
+    db.rows("article_evidence").push({
+      article_id: "a",
+      status: "enriched",
+      evidence: [
+        {
+          kind: "fact",
+          text: "In a ruling on Thursday, the court awarded the publisher damages of more than $250 million, finding the training use unlawful.",
+        },
+      ],
+    });
+    db.rows("digest_items").push({
+      digest_id: digestId,
+      event_id: eventId,
+      position: 0,
+      why_it_matters: "You follow OpenAI.",
+    });
+
+    const stories = (await run(loadDigestStories, db, { digestId })) as Story[];
+    expect(stories[0]?.why).toBe(
+      "The court awarded the publisher damages of more than $250 million.",
+    );
+    // That the retired line itself does not resurface anywhere in the
+    // significance slot is the assertion above: this fixture's digest predates
+    // the reader's follow graph, so provenance stays absent rather than being
+    // reconstructed — the four shapes with a follow graph present are pinned in
+    // "keeps significance and provenance apart in every shape".
+  });
+
   it("still shows the quiet-day empty state when nothing matched since the skip", async () => {
     const db = bundledDb();
     seedPendingNews(db);
