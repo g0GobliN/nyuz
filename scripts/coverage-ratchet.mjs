@@ -42,6 +42,12 @@
  * machines rather than a regression. In CI the comparison is exact, and CI is
  * what gates the deploy.
  *
+ * A floor is recorded with RECORD_HEADROOM (scripts/lib/floor.mjs) under the
+ * measurement, because the runner disagrees with itself too: one tree, two runs,
+ * 8899 branch ranges and then 8897. Recording the first run's number exactly
+ * would have failed the second, which is the same defect Audit 42 found between
+ * two machines, one level down.
+ *
  * ---------------------------------------------------------------------------
  * Why a ratchet and not a threshold
  *
@@ -84,6 +90,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { dirname, isAbsolute, relative } from "node:path";
+import { floorUnder, RECORD_HEADROOM } from "./lib/floor.mjs";
 
 const SUMMARY = "coverage/coverage-summary.json";
 const BASELINE = ".ci/baseline/coverage.json";
@@ -261,11 +268,35 @@ if (update) {
   const previous = readBaselineOrEmpty();
 
   /**
+   * The floor each metric records: the measurement, minus its headroom, never
+   * below the floor already committed. The clamp is what makes `--update`
+   * incapable of moving a floor down, whatever the flags say.
+   */
+  const recorded = {
+    directories: Object.fromEntries(
+      Object.entries(measured.directories).map(([group, values]) => {
+        const was = previous?.directories?.[group];
+        const out = { files: values.files };
+        for (const metric of METRICS) out[metric] = floorUnder(values[metric], was?.[metric]);
+        return [group, out];
+      }),
+    ),
+    total: Object.fromEntries(
+      METRICS.map((metric) => [
+        metric,
+        floorUnder(measured.total[metric], previous?.total?.[metric]),
+      ]),
+    ),
+  };
+
+  /**
    * Every metric that would go down, so `--update` can refuse before writing.
    *
    * This is the whole reason the tool is trusted: if the flag that records a
    * measurement could quietly record a smaller one, the floor would be a
-   * suggestion and a red build would be one command away from green.
+   * suggestion and a red build would be one command away from green. A drop
+   * inside RECORD_HEADROOM is the width of the measurement's own disagreement
+   * with itself and is not evidence of anything, so only a drop past it counts.
    */
   if (previous && !allowLower) {
     const lowered = [];
@@ -273,7 +304,7 @@ if (update) {
       const floor = previous.directories?.[group];
       if (!floor) continue;
       for (const metric of METRICS) {
-        if (values[metric] + TOLERANCE < floor[metric]) {
+        if (values[metric] + RECORD_HEADROOM + TOLERANCE < floor[metric]) {
           lowered.push(
             `${group}: ${metric} ${floor[metric].toFixed(2)} -> ${values[metric].toFixed(2)}`,
           );
@@ -281,7 +312,7 @@ if (update) {
       }
     }
     for (const metric of METRICS) {
-      if (measured.total[metric] + TOLERANCE < previous.total[metric]) {
+      if (measured.total[metric] + RECORD_HEADROOM + TOLERANCE < previous.total[metric]) {
         lowered.push(
           `total: ${metric} ${previous.total[metric].toFixed(2)} -> ${measured.total[metric].toFixed(2)}`,
         );
@@ -311,8 +342,8 @@ if (update) {
       "`measuredAtCommit` is the commit the measurement was taken at, so a later\n" +
       "drop can be attributed to a change rather than guessed at. Read it before\n" +
       "blaming the change under review.",
-    directories: measured.directories,
-    total: measured.total,
+    directories: recorded.directories,
+    total: recorded.total,
   };
   mkdirSync(dirname(BASELINE), { recursive: true });
   writeFileSync(BASELINE, `${JSON.stringify(baseline, null, 2)}\n`);

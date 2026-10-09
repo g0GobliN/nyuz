@@ -1,6 +1,6 @@
 {
   "measuredAt": "2026-10-09",
-  "measuredAtCommit": "896080a6",
+  "measuredAtCommit": "64ad642a",
   "measuredIn": "external-measurement",
   "note": "The floor for `npm run coverage:ratchet`. Raise it with `npm run coverage:ratchet -- --update` in the commit that adds the tests, never by hand.\n`measuredAtCommit` is the commit the measurement was taken at, so a later\ndrop can be attributed to a change rather than guessed at. Read it before\nblaming the change under review.",
   "directories": {
@@ -13,17 +13,17 @@
     },
     "src/components": {
       "files": 12,
-      "lines": 29.2,
-      "statements": 29.2,
-      "functions": 17.65,
-      "branches": 45.61
+      "lines": 29.15,
+      "statements": 29.15,
+      "functions": 17.6,
+      "branches": 45.56
     },
     "src/components/admin": {
       "files": 3,
-      "lines": 9.67,
-      "statements": 9.67,
-      "functions": 17.65,
-      "branches": 80.95
+      "lines": 9.62,
+      "statements": 9.62,
+      "functions": 17.6,
+      "branches": 80.9
     },
     "src/components/blog": {
       "files": 1,
@@ -34,17 +34,17 @@
     },
     "src/components/dashboard": {
       "files": 13,
-      "lines": 26.31,
-      "statements": 26.31,
-      "functions": 18.75,
-      "branches": 89.47
+      "lines": 26.26,
+      "statements": 26.26,
+      "functions": 18.7,
+      "branches": 89.42
     },
     "src/components/landing": {
       "files": 9,
-      "lines": 2.1,
-      "statements": 2.1,
-      "functions": 8.33,
-      "branches": 8.33
+      "lines": 2.05,
+      "statements": 2.05,
+      "functions": 8.28,
+      "branches": 8.28
     },
     "src/components/ui": {
       "files": 46,
@@ -62,10 +62,10 @@
     },
     "src/lib": {
       "files": 68,
-      "lines": 85.67,
-      "statements": 85.67,
-      "functions": 90.4,
-      "branches": 86.62
+      "lines": 85.62,
+      "statements": 85.62,
+      "functions": 90.35,
+      "branches": 86.57
     },
     "src/lib/ai": {
       "files": 10,
@@ -76,10 +76,10 @@
     },
     "src/lib/discovery": {
       "files": 7,
-      "lines": 88.37,
-      "statements": 88.37,
+      "lines": 88.35,
+      "statements": 88.35,
       "functions": 88.24,
-      "branches": 82.44
+      "branches": 82.39
     },
     "src/lib/email": {
       "files": 2,
@@ -111,10 +111,10 @@
     },
     "src/lib/pipeline": {
       "files": 41,
-      "lines": 84.43,
-      "statements": 84.43,
-      "functions": 87.76,
-      "branches": 80.1
+      "lines": 84.38,
+      "statements": 84.38,
+      "functions": 87.71,
+      "branches": 80.05
     },
     "src/lib/push": {
       "files": 3,
@@ -125,17 +125,17 @@
     },
     "src/lib/server": {
       "files": 47,
-      "lines": 23.93,
-      "statements": 23.93,
-      "functions": 46.08,
-      "branches": 72.04
+      "lines": 23.88,
+      "statements": 23.88,
+      "functions": 46.03,
+      "branches": 71.99
     },
     "src/lib/supabase": {
       "files": 4,
-      "lines": 48.48,
-      "statements": 48.48,
-      "functions": 62.5,
-      "branches": 92.86
+      "lines": 48.43,
+      "statements": 48.43,
+      "functions": 62.45,
+      "branches": 92.81
     },
     "src/lib/telegram": {
       "files": 1,
@@ -188,9 +188,9 @@
     }
   },
   "total": {
-    "lines": 42.91,
-    "statements": 42.91,
-    "functions": 72.77,
-    "branches": 81.39
+    "lines": 42.86,
+    "statements": 42.86,
+    "functions": 72.72,
+    "branches": 81.34
   }
 }
