@@ -58,6 +58,38 @@ describe("selectEvidenceUnits", () => {
     expect(uncertain.some((u) => u.text.includes("declined to comment"))).toBe(true);
   });
 
+  it("never stores a standfirst welded to the sentence after it", () => {
+    // `extractMainText` emits one run per block; a run is a unit boundary. Before
+    // this, the two blocks were joined by a space, a standfirst carries no full
+    // stop, and `sentences` found no boundary between them -- the Marble Hill
+    // fact (2026-10-10) was stored and published as two clauses run together.
+    const fused =
+      "Locals also express fear after man shot in the neck while his child was in the back of his car\n" +
+      "Residents of Manhattan’s Marble Hill neighborhood were furious at federal Immigration and Customs Enforcement on Friday but also scared after an officer shot their neighbor who had his child in the back of his car.\n" +
+      "Leading New York City and state politicians and officials have condemned ICE’s action, called for an investigation and demanded violent federal immigration enforcement cease.";
+    const units = selectEvidenceUnits(fused);
+    // The fusion is gone, and it cannot come back: nothing downstream can tell
+    // two sentences from one, because there is nothing left in the text to tell
+    // it by.
+    expect(units.some((unit) => /back of his car Residents/.test(unit.text))).toBe(false);
+    expect(units.some((unit) => unit.text.includes("Residents of Manhattan"))).toBe(true);
+    // The standfirst itself has no stop and is refused as a cut fragment, which
+    // is the existing rule for a run that is not a sentence. The measured trade
+    // is one refused fragment per fused story, in exchange for the reader never
+    // seeing two clauses run together. `isCutSentence` in the pipeline, not a
+    // new rule here, is what refuses it.
+    expect(units.some((unit) => unit.text.includes("Locals also express fear"))).toBe(false);
+  });
+
+  it("treats a text with no structural boundary exactly as before", () => {
+    // Every fixture, and every feed excerpt, arrives as one run.
+    const text =
+      "Nvidia announced Monday it will acquire Hugging Face for $13 billion. The deal is expected to close in the first quarter pending regulatory approval.";
+    expect(selectEvidenceUnits(text).length).toBe(
+      selectEvidenceUnits(text.replace(/\n/g, " ")).length,
+    );
+  });
+
   it("keeps quotes as separate units with attribution, excluded from the plain-text sentences", () => {
     const text =
       'The company confirmed the acquisition today. "We could not be more excited about this deal," said Maria Chen, the CEO.';

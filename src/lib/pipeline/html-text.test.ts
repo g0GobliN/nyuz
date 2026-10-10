@@ -1,5 +1,79 @@
 import { describe, expect, it } from "vitest";
-import { extractMainText } from "./html-text";
+import { extractMainText, STRUCTURAL_BREAK } from "./html-text";
+
+/**
+ * A structural boundary is preserved, an inline one is a word space.
+ *
+ * The rule this pins, and the defect behind it (2026-10-10): the Guardian's
+ * Marble Hill standfirst carries no full stop, and every tag used to become a
+ * word space, so the standfirst and the sentence after it were stored as one
+ * fact and reached the reader as two clauses run together with a mid-sentence
+ * capital. The arbiter's ruling: separate the runs, never manufacture the
+ * punctuation that would make them sentences.
+ */
+describe("extractMainText — structural versus inline boundaries", () => {
+  const runs = (html: string) => extractMainText(html).split(STRUCTURAL_BREAK);
+
+  it("separates the standfirst from the body it used to be welded to", () => {
+    const html =
+      "<p>Locals also express fear after man shot in the neck while his child was in the back of his car</p>" +
+      "<p>Residents of Manhattan’s Marble Hill neighborhood were furious at federal Immigration and Customs Enforcement on Friday.</p>";
+    expect(runs(html)).toEqual([
+      "Locals also express fear after man shot in the neck while his child was in the back of his car",
+      "Residents of Manhattan’s Marble Hill neighborhood were furious at federal Immigration and Customs Enforcement on Friday.",
+    ]);
+    // No punctuation was invented to create the separation.
+    expect(extractMainText(html)).not.toContain("car. Residents");
+  });
+
+  it("keeps a `<br>` inside a paragraph as a run boundary, in every spelling", () => {
+    for (const br of ["<br>", "<br/>", "<br />", "<BR>"]) {
+      expect(
+        runs(
+          `<p>Prospect of contentious march led to a standoff${br}The secretary of state has banned the parade today.</p>`,
+        ),
+      ).toEqual([
+        "Prospect of contentious march led to a standoff",
+        "The secretary of state has banned the parade today.",
+      ]);
+    }
+  });
+
+  it("keeps inline and nested markup in one run, without spurious spaces", () => {
+    const html =
+      '<p>The <a href="/x">New York Times</a> reported that <strong><em>three</em></strong> people were <code>treated</code> on site.</p>';
+    expect(runs(html)).toEqual([
+      "The New York Times reported that three people were treated on site.",
+    ]);
+  });
+
+  it("collapses repeated whitespace inside a run, and markup newlines are not boundaries", () => {
+    // A paragraph written across three lines in the page's own source is one
+    // run: the markup's formatting is whitespace, not a publisher boundary.
+    const html =
+      "<p>  First   run  with\n\n  spaces here.  </p>\n\n\n<p>\tSecond\trun with enough text to be a paragraph.\t</p>";
+    expect(runs(html)).toEqual([
+      "First run with spaces here.",
+      "Second run with enough text to be a paragraph.",
+    ]);
+  });
+
+  it("separates an incomplete line without pretending it is a sentence", () => {
+    // The arbiter's qualification, pinned: a run boundary is structural, not
+    // grammatical. A line break inside one sentence must not gain a full stop to
+    // look finished -- the evidence pass refuses a fragment on its own merits.
+    const cut = runs(
+      "<p>The company said the deal would close</p><p>in the first quarter, pending approval.</p>",
+    );
+    expect(cut).toEqual([
+      "The company said the deal would close",
+      "in the first quarter, pending approval.",
+    ]);
+    // The boundary stayed structural: no full stop was inserted to make the
+    // incomplete half look like a sentence.
+    expect(cut[0]?.endsWith(".")).toBe(false);
+  });
+});
 
 describe("extractMainText", () => {
   it("extracts paragraph text and drops script/style/nav/header/footer", () => {

@@ -35,6 +35,56 @@ export const ENTITY_LEAK = /&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]{1,9});/i;
 export const GLUED_ATTRIBUTION =
   /\b(?:reports?|said|says)\s+that\s+(?:[A-Z][\p{L}'-]+,\s|(?:Once|When|While|Because|Although|After|Before|If|Since|But|And|Or|So|Yet|Only|Both)\b|["“])/u;
 
+/**
+ * A *candidate* fusion: a clause with no terminal punctuation welded to a
+ * capital-initial clause, with more words after it.
+ *
+ * Deliberately named a candidate and never counted as a defect. It fires on the
+ * fused standfirst the reader saw on 2026-10-10 ("...while his child was in the
+ * back of his car Residents of Manhattan's Marble Hill neighborhood..."), and it
+ * also fires on place names and product nouns -- "several trains to Delhi have
+ * been cancelled", "the German Federal Public Prosecutor" -- so on its own it
+ * cannot say how many stored units are wrong. The only trustworthy count of a
+ * fusion is a re-extraction: the old extractor produced the unit, the current
+ * one separates it, and the words are unchanged. That experiment is
+ * `scripts/reader-fusion-sample.ts`, and its number is the confirmed one.
+ */
+export const CANDIDATE_FUSION = /[a-z,)\u201d]\s+[A-Z][a-z]+\s+[a-z]+\s+[a-z]+\s+[a-z]+\s+[a-z]+/u;
+
+/**
+ * Whether a re-extraction actually divided a fused unit.
+ *
+ * The comparison has to be against the *runs*, never against the whole text with
+ * its whitespace collapsed: collapsing turns the boundary back into a space, so
+ * a space-joined test finds the fused sentence "still present" in the very
+ * extraction that separated it -- which is how the first version of this test
+ * scored zero confirmed repairs on pages the diagnostic had already shown were
+ * fixed.
+ *
+ * True when no single run contains the original unit and both halves of its seam
+ * are present in the text.
+ */
+export function fusionSeparatedByRuns(unitText: string, runs: string[]): boolean {
+  const norm = (text: string) => text.replace(/\s+/g, " ").trim();
+  const whole = norm(unitText);
+  if (whole.length < 80) return false;
+  // No run holds the unit whole: that is the proof, and no pattern can produce
+  // it. A unit always comes from one run -- `sentences` runs inside a run -- so a
+  // unit that no longer sits inside any single run was divided by the boundary,
+  // whatever its words are.
+  if (runs.some((run) => norm(run).includes(whole))) return false;
+  // Its beginning and its end survived, so this was a division and not a
+  // deletion. Deliberately not a guessed seam: the first version looked for the
+  // space after the regex's own match and cut "Marble | Hill" out of the middle
+  // of a proper noun, which turned a test that could only pass into one that
+  // could only fail.
+  const head = whole.slice(0, 40);
+  const tail = whole.slice(-40);
+  return (
+    runs.some((run) => norm(run).includes(head)) && runs.some((run) => norm(run).includes(tail))
+  );
+}
+
 /** A space where punctuation was meant to follow a word instead. */
 export const SPACE_BEFORE_PUNCT = /\s+[,;.!?]/;
 

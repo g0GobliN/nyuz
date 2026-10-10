@@ -12,6 +12,7 @@ import {
   validDeterministicSentence,
 } from "@/lib/reader-evidence";
 import { evidenceScore, rankEntities } from "../reader-evidence";
+import { STRUCTURAL_BREAK } from "./html-text";
 import { normalizeSourceText, type SourceContext } from "./source-text";
 
 /**
@@ -135,16 +136,32 @@ export function selectEvidenceUnits(
   source?: SourceContext,
 ): EvidenceUnit[] {
   // Normalize the whole body first, then each candidate, because a `<p>` block
-  // can itself begin with a header field when a page mixes prose and metadata.
-  const body = normalizeSourceText(source, mainText).text;
-  if (body === "") return [];
+  // can itself begin with a header field when a page mixes prose and metadata.  // One run per block, as `extractMainText` emitted them. A run boundary is a
+  // candidate boundary, and that is the whole fix for the fused standfirst: two
+  // `<p>` blocks used to be joined by a space, a standfirst carries no full stop,
+  // and `sentences` found no boundary between them -- so Marble Hill's "Locals
+  // also express fear after man shot in the neck … Residents of Manhattan's
+  // Marble Hill neighborhood were furious" was stored as one fact and published
+  // as two clauses run together. A run that is half a sentence is refused below
+  // by the same rules that refuse any other fragment; a fusion is not, because
+  // no later stage has anything left to tell the two sentences apart by.
+  const runs = mainText
+    .split(STRUCTURAL_BREAK)
+    .map((run) => run.trim())
+    .filter((run) => run !== "")
+    .map((run) => normalizeSourceText(source, run).text)
+    .filter((run) => run !== "");
+  if (runs.length === 0) return [];
+  // Quotes and entities are read from the whole article, as they always were.
+  const body = runs.join(" ");
 
   const quotes = extractQuotes(body)
     .filter((q) => !isEvidenceBoilerplate(`${q.attribution} said: "${q.quote}"`))
     .slice(0, 3);
   const quoteKeys = quotes.map((q) => q.quote.toLowerCase());
 
-  const candidates = sentences(body)
+  const candidates = runs
+    .flatMap((run) => sentences(run))
     .map((text) => normalizeSourceText(source, text))
     .filter((unit) => !unit.metadataOnly)
     .map((unit) => cleanDeterministicSentence(unit.text))
