@@ -834,6 +834,30 @@ function cannotWrap(text: string): boolean {
   );
 }
 
+/**
+ * A demonstrative whose head is the document the reader is already holding.
+ *
+ * `This report presents ...`, `This paper investigates ...` -- the head is the page
+ * itself, which the reader has open, so the reference is resolved by the act of
+ * reading rather than by a sentence that may not be there. It is the same shape
+ * `POSSESSIVE_DETERMINER_OPENING` records in the evidence layer, and for the same
+ * reason: without it the deck rule below would refuse the opening sentence of
+ * every research abstract in the corpus.
+ *
+ * Deliberately only the document's own words. `This monitor is compatible ...` is
+ * not self-reference -- the monitor is named in the next block -- so it stays in
+ * the class whose referent the page may not carry.
+ */
+const SELF_REFERENTIAL_DOCUMENT_OPENING =
+  /^(?:this|that)\s+(?:report|paper|study|analysis|article|work|research|survey|review|briefing|piece|post|essay|chapter|section|note|document)\b/i;
+
+/** The deck's own test: an opening whose referent the page never establishes. */
+function needsAntecedentToOpen(text: string): boolean {
+  const trimmed = text.trim();
+  if (SELF_REFERENTIAL_DOCUMENT_OPENING.test(trimmed)) return false;
+  return unresolvedContextOpening(trimmed);
+}
+
 function safeLead(
   lead: ReaderFact | undefined,
   story: Story,
@@ -2314,13 +2338,56 @@ export function composeArticleWithDiagnostics(story: Story): {
       facts.sort((a, b) => a.sourceOrder - b.sourceOrder);
       diagnostics.ordering = "narrative";
     }
-    const lead = researchNarrative ? facts[0] : rankedLead;
-    const leadText = lead ? safeLead(lead, story, independentSources, surveys).text : "";
+    /**
+     * The deck is the one block with no block before it.
+     *
+     * A paragraph opening on `This` or `That` is repaired by adjacency: the
+     * sentence the reader just read is the antecedent. A deck has no such
+     * sentence, so its opening has to stand on its own -- and ranking is no help,
+     * because the highest-scoring fact can be the one that needs the antecedent.
+     * The arbiter's ruling of 2026-10-10: walk the ranked facts in order and take
+     * the first that composes a self-sufficient deck, keeping every existing
+     * evidence and sentence rule; if none qualifies, the story gets no deck and
+     * is withheld rather than shown an opening the page never establishes.
+     *
+     * A displaced candidate is not charged: it is still a fact, and the body path
+     * decides its sentence-level fate on its own terms. Only when *no* candidate
+     * qualifies -- the story that is withheld -- is the missing deck accounted for
+     * by the rule that refused it, so the fact ledger stays a partition.
+     */
+    const deckCandidates = researchNarrative
+      ? facts
+      : [rankedLead, ...facts.filter((fact) => fact !== rankedLead)].filter(
+          (fact): fact is ReaderFact => fact !== undefined,
+        );
+    let lead: ReaderFact | undefined;
+    let leadText = "";
+    const needsAntecedent: { fact: string; text: string }[] = [];
+    for (const candidate of deckCandidates) {
+      const text = safeLead(candidate, story, independentSources, surveys).text;
+      if (text === "") continue;
+      if (needsAntecedentToOpen(text)) {
+        needsAntecedent.push({ fact: candidate.text, text });
+        continue;
+      }
+      lead = candidate;
+      leadText = text;
+      break;
+    }
     const deck = { text: leadText, evidence: lead ? [...lead.evidence] : [] };
     // No fact survived selection, so the deck has to come from somewhere else --
     // and that "somewhere else" is the stored event summary. It is a candidate,
     // not a conclusion: `applyFallbackDeck` judges it exactly as the gate would.
     if (deck.text === "") applyFallbackDeck(deck, story, [story.what], diagnostics);
+    // The summary is prose too, so it faces the same test. A fallback that opens
+    // on a sentence the reader cannot see is refused here as well, which is what
+    // stops the rule above from being routed around by the one path that does not
+    // go through `safeLead`.
+    if (deck.text !== "" && needsAntecedentToOpen(deck.text)) {
+      needsAntecedent.push({ fact: deck.text, text: deck.text });
+      deck.text = "";
+      deck.evidence = [];
+    }
     mergeEvidenceIntoDeck(
       deck,
       selection.facts.filter((fact) => !lead || repeats(lead.text, fact.text)),
@@ -2363,6 +2430,22 @@ export function composeArticleWithDiagnostics(story: Story): {
     if (lead && deck.text !== "") {
       indexSentence(ledger, deck.text, lead.text);
       indexSentence(ledger, stripFrontedConnector(deck.text), lead.text);
+    }
+    // Every candidate needed an antecedent the page does not carry (or the
+    // fallback summary did), so this story has no deck and no body: nothing is
+    // published, and the facts that could not open it are charged to the rule
+    // that refused them. Without this the story would read as one whose facts
+    // vanished with no explanation, and readiness would have nothing to withhold
+    // it on.
+    if (lead === undefined && needsAntecedent.length > 0) {
+      // The absence of a deck gets its own reason rather than a fact charge. A
+      // candidate that could not open the story may still be published by the body
+      // path -- that is the composer's own business -- and charging it here would
+      // report the same fact as refused and rendered, which is the overlap the
+      // ledger exists to keep truthful. Readiness withholds on the empty deck, and
+      // this reason is what a reviewer sees for the refusal in the mean time.
+      diagnostics.qualityGate.unresolvedContextWarnings += needsAntecedent.length;
+      for (const entry of needsAntecedent) refuseBlock(entry.text, "deck_refused", diagnostics);
     }
     const paragraphs = oneDocument
       ? narrativeParagraphs(remaining, story, diagnostics, lead?.sourceOrder ?? -1, surveys, ledger)

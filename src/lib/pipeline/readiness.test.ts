@@ -380,6 +380,36 @@ describe("assessReadiness", () => {
  * corpus, including the four that were the closest calls.
  */
 describe("assessReadiness — briefability", () => {
+  it("refuses a story no fact can open, rather than showing an unresolved opening", () => {
+    // The arbiter's deck-opening ruling of 2026-10-10. A deck has no block before
+    // it, so its opening has to stand on its own: the composer will not lead with
+    // a reference the page never establishes, and it walks the ranked facts for
+    // one that can open the story. Here none can -- and the stored summary is held
+    // to the same test -- so the article has no deck at all.
+    //
+    // The production case was 'Pure insanity': Mathematicians will need years to
+    // make sense of OpenAI's latest drop, whose deck read "Those were among the
+    // descriptions more than three dozen mathematicians reached for ..." while no
+    // page the reader had contained a single description.
+    const verdict = assessReadiness({
+      title: "OpenAI drops a flood of mathematical results",
+      whatHappened: "Those were among the descriptions mathematicians reached for this week.",
+      sourceCount: 1,
+      sources: [
+        {
+          name: "The Verge",
+          excerpt:
+            "Those were among the descriptions mathematicians reached for in conversations this week. This changes how the field reads every result.",
+        },
+      ],
+    });
+    expect(verdict).toEqual({
+      ready: false,
+      kind: "unbriefable",
+      reason: expect.stringContaining("published no deck"),
+    });
+  });
+
   it("refuses a story whose evidence yields one fact, which is only a deck", () => {
     // Reuters, via the 2026-10-03 corpus. A single-sentence excerpt: real news,
     // correctly summarised, and enough for the deck. There is no second fact,

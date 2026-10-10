@@ -309,6 +309,63 @@ describe("composeArticle", () => {
     }
   });
 
+  it("gives the deck to the next fact when the best-ranked one needs an antecedent", () => {
+    // Production fixture, 2026-10-10: the story's own opening sentence was the
+    // one the source wrote second, so the deck read "Those were among the
+    // descriptions more than three dozen mathematicians reached for ..." and no
+    // page the reader has contains a single description. A paragraph resolves
+    // this by adjacency; a deck has nothing before it, so the rule is absolute.
+    const story = makeStory({
+      sources: 1,
+      what: "",
+      sourceList: [
+        {
+          name: "The Verge",
+          at: "10:00",
+          url: "https://theverge.com",
+          excerpt:
+            "Those were among the descriptions mathematicians reached for in conversations this week. The lab published forty pages of results on Tuesday.",
+        },
+      ],
+    });
+
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+    expect(article.deck.text).not.toMatch(/^those\b/i);
+    expect(article.deck.text).toContain("forty pages of results");
+    // The displaced fact is not charged as a defect: it is still a fact, and the
+    // body path decides its sentence-level fate on its own terms.
+    expect(diagnostics.facts.lost).toBe(0);
+  });
+
+  it("publishes no deck at all when every fact needs an antecedent", () => {
+    // The withheld branch of the same rule. Withholding is the composer's half:
+    // it refuses the deck and charges the facts to the rule, and the gate reads
+    // the empty deck and withholds the story (see readiness.test.ts).
+    const story = makeStory({
+      sources: 1,
+      what: "",
+      sourceList: [
+        {
+          name: "The Verge",
+          at: "10:00",
+          url: "https://theverge.com",
+          excerpt:
+            "Those were among the descriptions mathematicians reached for in conversations this week. This changes how the field reads every result.",
+        },
+      ],
+    });
+
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+    expect(article.deck.text).toBe("");
+    // Nothing is unexplained: every fact that could not open the story is charged
+    // to the rule that refused it. The body may still assemble a block from a fact
+    // the narrative path judged adjacent to the sentence before it, which is the
+    // composer's business -- no delivered story is in this state, because a page
+    // whose first block is not a deck is withheld (readiness.test.ts).
+    expect(diagnostics.facts.lost).toBe(0);
+    expect(diagnostics.sentences.reasons["deck_refused"] ?? 0).toBeGreaterThan(0);
+  });
+
   it("keeps an event with no analysis readable", () => {
     const article = composeArticle(makeStory({ understand: undefined as never }));
 

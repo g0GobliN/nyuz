@@ -456,6 +456,21 @@ export function assessReadiness(input: {
     const { article, selectedFacts, refusedFacts } = composeFromSources(title, input.sources, {
       publishedAt: input.publishedAt,
     });
+    // The deck is the one block with nothing before it, so the composer refuses a
+    // lead whose opening needs an antecedent the reader's page never supplies --
+    // and when no candidate qualifies the story composes no deck at all. The
+    // arbiter's ruling of 2026-10-10 (deck openings) is that such a story is
+    // withheld: a reader who meets `Those were among the descriptions` with no
+    // descriptions on the page has been given a sentence the story cannot keep.
+    // Read off the composition, like every other condition here, so the rule
+    // cannot drift from the prose it is guarding.
+    if (article.deck.text === "") {
+      return {
+        ready: false,
+        kind: "unbriefable",
+        reason: `${composedFactCount} accepted fact(s); the composition published no deck`,
+      };
+    }
     if (article.paragraphs.length === 0) {
       // The arbiter's decision table (D1 clarify, 2026-10-10). "No paragraph,
       // refuse" is too broad: a one-fact composition that publishes its deck is

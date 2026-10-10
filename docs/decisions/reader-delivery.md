@@ -224,3 +224,63 @@ avoidable / unexplained            0   <- must stay zero
 
 Superseded baseline (earlier 200, before the evidence repair): 44 empties — 17 `nothing-selected`,
 27 `single-fact-is-the-deck`, 0 charged to a rule, 0 avoidable.
+
+## D2 — the deck may not open on a reference the page never establishes (2026-10-10)
+
+**The case.** Six context-dependent openings on the frozen 200, classified by the only question that
+decides one: can the reader resolve it on the page?
+
+- **Four are resolvable by adjacency** and are not defects: `They'd skulk about in nearby trees`
+  (the previous block names the tits), `That would be the first public execution in the U.S. since
+the 1930s` (the previous block names the livestream), `This monitor is compatible with both AMD
+FreeSync…` (the previous block names the monitor), `He turned it down because he liked working at
+the coal face` (the previous block names Preston).
+- **One was the deck**: `Those were among the descriptions more than three dozen mathematicians
+reached for in conversations with The Verge` — nothing on the page is a set of descriptions, the
+  source sentence that supplied them was never published, and no rule was consulted because a deck
+  was never checked. A deck is the only block with nothing before it, so adjacency cannot repair it.
+- **One was a paragraph opening that a rule had refused and the page published anyway**:
+  `These price increases have been directly caused by the boom in AI data centers…` on the PC
+  shipments story, whose page never says prices increased. Not a wording problem: a rule-enforcement
+  problem, and it is D3 below.
+
+**The ruling.** A deck must not begin with an unresolved demonstrative or pronoun. Walk the ranked
+facts in order and take the first that composes a self-sufficient deck, keeping every existing
+evidence and sentence rule; a displaced candidate is not charged, the body path decides its fate. If
+no candidate qualifies — the stored summary is held to the same test — the story has no deck and is
+withheld. Do not weaken a refusal or reshuffle until something passes. Zero genuinely unresolved
+reader-visible openings is the acceptance condition; the count of adjacency-resolved openings is
+diagnostic, not a failure metric.
+
+The ruling's own boundary, kept literally: this is about _unresolved_ references, not pronouns. A
+demonstrative whose head is the document the reader is already holding self-refers, so
+`This report presents …` and `This paper investigates …` stay published
+(`SELF_REFERENTIAL_DOCUMENT_OPENING` in `src/lib/editorial.ts`). This matters: without it the rule
+refuses the opening sentence of every research abstract in the corpus, and the first failing test was
+exactly that case.
+
+**Measured, same frozen 200 (`tmp/corpus-after.json`).**
+
+| metric                                      | before                | after                 |
+| ------------------------------------------- | --------------------- | --------------------- |
+| stories with a reader-visible defect        | 1                     | **0**                 |
+| context-dependent openings                  | 6                     | 5                     |
+| fact ledger                                 | 1572 = 1422 + 150 + 0 | 1572 = 1421 + 151 + 0 |
+| delivered with no body                      | 0                     | 0                     |
+| readable stories withheld                   | 19                    | 19                    |
+| withheld as unbriefable                     | 49                    | 49                    |
+| stories publishing no paragraph / deck only | 59 / 31               | 59 / 31               |
+
+The residual five are all paragraph openings: the four above that the previous published block
+resolves, and the one D3 owns. No story was newly emptied, no story lost its deck, and the fact
+ledger still reconciles — the extra refused fact is the displaced deck sentence that the body path
+then refused on its own terms.
+
+**Verified:** `tsc --noEmit` clean (app and scripts), eslint 0 errors, prettier clean, 340 tests green
+across the affected suites (editorial, prose rules, quality, fixture regression, readiness,
+digest-cost-safety), and the audit re-run above.
+
+**Next, in the arbiter's order:** D3 refusal-finality (a refused fact must not be republished by
+another path — 5 verbatim cases, and the `matched: sentence|text` split that filed its worst case as
+the benign one), then the 2 absent overlap records, then the 24 quote-opening blocks, then the 8
+two-quote blocks.
