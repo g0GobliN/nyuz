@@ -202,3 +202,261 @@ node --env-file=.env scripts/tsrun.mjs scripts/refresh-latest-brief.ts --hours 4
 Commit style in this repo: imperative subject, body explaining _why_, no `Co-Authored-By` trailer.
 Before a push, `npm run ci` must be green — a red push skips the deploy job, so the change is not
 live even though it is on `main`.
+
+---
+
+## 8. Fact ledger and the empty-story census — 2026-10-10
+
+The read-quality loop continued in the ChatGPT `nyuz` project (the arbiter's rulings live there).
+Two slices landed, each measured on a **frozen** corpus so before and after are the same stories:
+
+```
+node --env-file=.env scripts/tsrun.mjs scripts/reader-corpus-freeze.ts --out tmp/corpus.json
+node --env-file=.env scripts/tsrun.mjs scripts/reader-composer-snapshot.ts --out tmp/after.json --corpus tmp/corpus.json
+node scripts/tsrun.mjs scripts/reader-composer-diff.ts tmp/before.json tmp/after.json
+node --env-file=.env scripts/tsrun.mjs scripts/reader-composer-audit.ts --corpus tmp/corpus.json
+```
+
+**The fact ledger (slice d).** Every selected fact now leaves the composer in exactly one of three
+states — `selected = rendered + refused + lost` — and the three are a partition, asserted in
+`src/lib/editorial.ts`'s tests rather than inferred from totals. The composer records which fact
+became which published sentence, so a sentence-level refusal in the gate is charged to the fact
+behind it, and a block drop (`short_block`, `thin_evidence_cap`, `article_limit`, `deck_refused`)
+charges every fact the block carried. `facts.unrendered` lists each unrendered fact with its rule;
+`facts.refusalEvents` is the rules' execution history, deliberately separate from the partition.
+On the frozen 200-story corpus: **1631 = 1496 rendered + 135 explained + 0 unexplained** (before:
+1508 rendered / 86 refusal events / 51 unexplained).
+
+The one real bypass found and fixed: the ranked `priorityFacts` hoist could republish a fact the
+anaphora rule had already refused. Effect measured on the frozen corpus — context-dependent
+openings 15 → 7, words/story 183.1 → 181.4, 17 stories rewritten, 0 stories became empty. Six
+“refused then published” cases remain and are listed by the audit with the test that matched them;
+three are sentence-level (a two-sentence fact whose other sentence was refused) and three are the
+older wording comparison being generous. The arbiter ruled those a standing diagnostic, not a
+slice, until one of them is shown to be a real republication path.
+
+**The empty-story census (slice e).** 44 of the frozen 200 publish no paragraphs, and every one is
+now classified by the path that emptied it: **17 `nothing-selected`** (the evidence pass found no
+usable fact), **27 `single-fact-is-the-deck`** (one usable fact becomes the deck; a body needs a
+second), and **0 `emptied-after-selection`** — no story that selected two or more facts lost its
+body. The rich-but-empty set is dominated by `llama.cpp` release tags (`b11534`, `b11526`, …): a
+build tag whose only body text is a changelog bullet, already recorded in `status.md` as an
+accepted limitation, not a new defect. The audit prints this classification on every run, so the
+avoidable class is a number that has to stay zero.
+
+Still blocked on a human: the Resend key (§2). Everything else above is code-side and verified.
+
+### The arbiter's next rulings, queued
+
+1. **`emptied-after-selection = 0` is a condition, not a number.** It is printed by the audit on
+   every run; the arbiter wants a test that fails the day it stops being zero. That needs a corpus
+   in the tree — today the frozen corpus is a local `tmp/corpus.json`, so the enforcement is the
+   audit's own line. Committing a small eval corpus is the obvious way to close it.
+2. **Next slice — the 17 `nothing-selected` stories.** The card is emitted with a real headline and
+   provenance and no body. Questions to answer before any code: what does the card communicate
+   without a body; does the stored summary carry real information or is it the headline again;
+   where should the decision live (selection vs delivery); and what does the existing product
+   contract already promise about reader-facing inclusion. The arbiter's provisional ruling is to
+   withhold a `nothing-selected` item unless there is an independently defensible reason to show
+   it — and explicitly **not** to add the rule in both places. Acceptance: identify all 17 with
+   reasons, keep the three-way classification, keep the avoidable class at zero, do not weaken the
+   evidence pass, and do not count fewer empty cards as an improvement on its own.
+3. Queued after that: the 7 context-dependent openings, then the 24 quote-opening blocks, then the
+   8 two-quote blocks — each evidence-driven, none an automatic rewrite.
+4. The release-feed limitation stays accepted: no exceptions, no artificial facts, no turning build
+   tags into substantive reporting.
+
+---
+
+## 9. The selection gate, and the 26 stories it was losing — 2026-10-10
+
+Slice (g). The arbiter accepted it and closed it on the frozen corpus, in the same `nyuz` project
+chat. This is what shipped, and what it cost and bought.
+
+**The contract was already right, and in one place.** The gate's last rung, `unbriefable` in
+`src/lib/pipeline/readiness.ts`, refuses any candidate whose own coverage yields fewer than two
+accepted facts (`MIN_BODY_FACTS`), at selection, in `digest.ts`. There is no delivery-side
+eligibility rule and there should not be one. Measured over the frozen 200 by running the composer
+and the real gate over the same events:
+
+```
+npm run audit:reader -- --corpus tmp/corpus.json
+# Selection gate: what the reader would actually receive
+#   stories that published no paragraph        44
+#     withheld as build-number                  9
+#     withheld as unbriefable                  35
+#   delivered with no body  <- must be zero     0
+#   readable stories withheld                   18
+#     of those, by the summary rung  <- zero    0
+```
+
+**The defect it found.** Rung 1 — "summary below 20 characters" — was refusing 26 stories that HAVE
+a composed body (3-6 paragraphs from their own coverage), every one with `what_happened = ""`. A
+chain-reaction crash with the FDNY in its deck, a banned parade, a vaccine trial, a Fed appointment:
+13% of the corpus, invisible to the reader, and invisible to the operator because the reason string
+said "unreadable". The rung was measuring the summariser's output, not the reader's page. Fixed by
+making it conditional on the caller: `input.sources === undefined`, and the evidence rung decides
+readability wherever coverage was actually loaded. An explicitly empty `sources: []` is _evidence_
+that there is nothing to read and takes the evidence path, not the fallback — tested, not assumed.
+
+**The pair that made it a trade-off rather than a fix.** Two event promotions escaped every commerce
+rung and were withheld only by rung 1, i.e. by accident. One is now refused on purpose by a new
+rung — a ticket/pass/badge/registration noun AND an incentive AND an explicit deadline, all three in
+one title, no `NEWS_VERB` exemption because "starts in 4 days" is the offer's clock. The other (a
+session listing) is deliberately **kept**: the arbiter's ruling is that concerning a commercial
+event is not itself a defect, so no rule was written for it.
+
+**The transition table (same frozen 200, before -> after).** ready 113 -> 138. Withheld as rung 1
+48 -> 0; as build-number 9 -> 18 (nine `b115xx` whose empty summary had been masking an identifier
+refusal); as unbriefable 22 -> 35; as commerce 2 -> 3; marketing, quote, commit-message unchanged.
+**Newly withheld 0.** Empty stories delivered 0 -> 0. Readable stories withheld 43 -> 18, of which
+26 -> 0 by the summary rung. The 25 newly ready are this corpus's measured outcome, not a promise
+about every summary-less story; the remaining 18 readable-withheld are legitimate refusals and their
+rules must not be weakened to improve a count.
+
+**Verified:** tsc clean (app + scripts), eslint 0 errors, `readiness.test.ts` 36 tests (6 new), the
+six affected suites 108 tests (digest, digest-delivery, digest-cost-safety, briefing-timing,
+story-flow, readiness). 0 model calls, 0 new queries, 0 new allocations — the gate is one
+deterministic pass over material already loaded, so nothing here changes cost per reader at 1,000 or
+100,000. The audit prints the cross-tab above on every run.
+
+### The next slice, ruled and queued: fused-subheading decks
+
+The 25 recovered decks were read rather than counted, and two are two sentences run together with no
+punctuation:
+
+```
+Locals also express fear after man shot in the neck while his child was in the back of his car Residents of Manhattan's Marble Hill neighborhood were furious at federal ICE on Friday…
+Prospect of contentious Orange Order march through Garvaghy Road in Portadown has led to a nearly two-week standoff The Northern Ireland secretary of state has banned the Drumcree parade…
+```
+
+A source subheading (no terminal punctuation) is being glued to the sentence after it. The arbiter's
+acceptance for the fix, verbatim in intent: reproduce both from the frozen corpus and preserve the
+original outputs; trace how the subheading enters the deck and why the boundary is invalid; state an
+explicit rule for combining summaries, subheadings and fragments; preserve meaning and attribution
+and **do not insert punctuation blindly where the underlying text is ambiguous**; the deck must read
+as coherent prose with correct separation and capitalisation; regression tests for both cases _and_
+for a subheading that legitimately continues a sentence; re-run the same 200-story audit and report
+deck quality, factual coverage, refusals and dispositions; keep the deterministic path and every
+evidence gate intact; **no general-purpose sentence rewriter** — fix the boundary between source
+fields and their composition. If the audit shows the same structural defect in other stories,
+include them; do not expand into unrelated deck polishing.
+
+**The trace, done before any code, and it moved the fix upstream.** The deck is not appending
+anything. For the Marble Hill story the _stored_ evidence unit is already fused, verbatim, in
+`article_evidence`: `"Locals also express fear after man shot in the neck while his child was in the
+back of his car Residents of Manhattan's Marble Hill neighborhood were furious at federal…"`. The
+cause is one line in `src/lib/pipeline/html-text.ts`: `stripTags` turns **every** tag into a word
+space before whitespace is collapsed, so a `<br>` (or block boundary) inside a paragraph welds a
+punctuation-less standfirst to the sentence after it, and the evidence extractor then finds no
+terminal punctuation between them and stores one fact. The proposed rule: a line-breaking tag is a
+sentence boundary, an inline tag stays a word space.
+
+**A counter I proposed and then withdrew.** The obvious ruler for the stored population (lowercase +
+space + Capital + a word) fires on **933 of 1369** stored units — 68% — on "trains to Delhi",
+"Haryana state", "Prime Minister Narendra Modi". It is the blind heuristic the arbiter forbade,
+expressed as a counter, and it is worth remembering as a shape: a counter that calls two thirds of
+the corpus defective is one nobody reads. The honest measurement is a re-extraction diff over a
+bounded sample of pages, which also means **the frozen 200 cannot be the acceptance corpus for the
+extraction fix** — its evidence is already stored. The arbiter's ruling on (i) the boundary rule,
+(ii) refuse-vs-split for already-stored fused units, and (iii) the bounded re-extraction diff as the
+slice's before/after was requested and had not arrived when this file was written.
+
+Queued after it, in order: the 7 context-dependent openings, then the 24 quote-opening blocks, then
+the 8 two-quote blocks.
+
+## 10. The fused standfirst, fixed where it started — 2026-10-10
+
+Slice (h), accepted by the arbiter with one correction from me. The defect was never in the composer: it
+was one line of `src/lib/pipeline/html-text.ts`, where every tag became a word space, so a
+punctuation-less standfirst was welded to the sentence after it and stored as one fact.
+
+**Shipped.** A structural tag (`<br>`, `<p>`, `<div>`, `<h1>`-`<h6>`, `<li>`, `<ul>`, `<ol>`,
+`<blockquote>`, `<section>`, `<article>`, `<figure>`, `<figcaption>`, `<td>`, `<th>`, `<tr>`, `<table>`,
+`<dd>`, `<dt>`, `<dl>`, `<pre>`, `<hr>`) ends a text run; every other tag stays a word space, so
+`The <a>New York Times</a> reported` is untouched. Runs are joined by a private-use marker, converted
+to `STRUCTURAL_BREAK` on the way out, because a page's own markup newlines are formatting and not
+boundaries. `selectEvidenceUnits` splits the body into runs before sentence extraction, so a run is a
+candidate boundary. **No full stop is inserted anywhere**, and a run that is half a sentence is refused
+by the existing `isCutSentence` rule rather than published as a fragment.
+
+**Two `npm run` entry points, both read-mostly:**
+
+```
+npm run audit:fusion                     # bounded re-extraction sample, one article per publisher
+npm run reenrich:fusions                 # dry run: validates and writes nothing
+npm run reenrich:fusions -- --apply      # writes validated rows (production data — needs the owner)
+```
+
+**Measured, and a correction that matters.** The first "confirmed" test could not fail — it looked for
+the two halves of a fused unit inside text where the unit was still whole, and collapsing whitespace
+turned the new run boundary back into a space. It certified 10 of 16 articles. The test that can fail:
+a unit always comes from one run, so **a stored unit that no longer sits inside any single run was
+divided**, plus its first and last 40 characters must survive so a deletion is not counted as a repair.
+On the same 20-article sample: 16 fetched, 4 unavailable, 11 carrying the candidate signature, and
+**4 confirmed** — Marble Hill, Drumcree, the Delhi protest (BBC), Starlink India (TechCrunch). Word loss
+above 5 across the sample: 0.
+
+**The repair, dry run: 4 attempted, 4 corrected, 0 rejected, word-neutral** (872 = 872, 630 = 630). Each
+row keeps the original evidence and the proposed replacement, so it can be rolled back without a
+re-fetch. A failed fetch leaves the stored row untouched.
+
+**The candidate ruler is not a defect count and must never be quoted as one.** It fires on 374 of the
+corpus's 1369 stored units and 96 stories, because "travelled from nearby Haryana state" and "Prime
+Minister Narendra Modi" look exactly like a fusion to a pattern. The audit prints those numbers with
+that caption and points at `audit:fusion` for the only count that means anything.
+
+**Verified:** tsc clean (app + scripts), eslint 0 errors, html-text 11 tests (6 new), evidence-extract
+21 (2 new), full `src/lib` suite 3028 of 3029 with only the pre-existing `count.test.ts` Windows path
+failure.
+
+**The repair was applied and verified, twice, and the second time is the interesting one.** The owner
+authorised it; `npm run reenrich:fusions -- --apply` wrote the 4 rows, and verifying the written rows
+(instead of trusting the write) caught a regression of my own: the first version of the writer rebuilt
+each unit field by field and **silently dropped `entities`**. 782 of 2035 stored units across the corpus
+carry entities, so the four rows stood out as implausible; a fresh extraction of the same pages yields
+5 and 9 entity-carrying units for two of them. Fixed, re-applied with `--force`, re-verified:
+
+```
+4 rows: units=12 before and after, fused units 0, entities restored where the extraction produces them,
+words identical (872/630/882/804)
+```
+
+`--force` exists because of that mistake: the "nothing to repair" skip condition would have made an
+_incomplete_ repair invisible and permanent. The rollback material for the applied rows is
+`tmp/re-enrich-applied.json`.
+
+### A delivery breach the audit found on the live window — the next slice
+
+`delivered with no body <- must be zero` read **1** after the repair, on a freshly frozen 200. It is not
+caused by the repair or by slices (g)/(h); it is a pre-existing disagreement between the gate's counter
+and the composer's publication rules, and the audit's new cross-tab is what made it visible.
+
+```
+Microsoft barred from sponsoring foreign workers for US residency
+  gate: ready (composedFactCount 3)
+  composer: 3 facts selected, 1 rendered as a 31-word deck, 2 refused as stacked_quotes,
+            0 paragraphs, 0 unexplained
+```
+
+Three quoted fragments of the story's own sentences each carry two quotes, so `stacked_quotes` refuses
+both non-deck sentences, and the reader would receive a card with a headline, a deck and no article.
+The gate's readability rung counts facts the _evidence_ pass accepts; the composer additionally applies
+publication-time rules, and where those disagree a body-less card is delivered. **Proposed seam:** the
+gate should ask the composer's own answer — "does this story publish at least one paragraph" — once per
+candidate, composed from the same story the delivery path will use, so the rule lives in one place and
+no counter can drift. Not started; it needs the arbiter's ruling and its own before/after.
+
+The empty-story census now also splits the class it used to overstate: on the same 200,
+`emptied-after-selection (charged to a rule) 2` (`unresolved_context` once, `stacked_quotes` twice) and
+`emptied after selection (the avoidable class) 0`. Two or more facts selected and no paragraph is not a
+defect by itself; a fact no rule can account for is, and that is the number the line reports.
+
+**Ledger on the repaired corpus:** `1572 = 1422 rendered + 150 explained + 0 unexplained`, reconciles.
+
+**The frozen corpus lives at `tmp/corpus.json`** (200 events, as `CorpusEvent[]`; re-freeze with
+`scripts/reader-corpus-freeze.ts`). It is the only file in `tmp/` worth keeping between sessions:
+the live window slides, so a re-freeze is a different 200 stories and no longer a before/after of
+the same change. Everything else in `tmp/` is a run's output and can be deleted — except, while the
+repair above is pending, `tmp/fusion-sample.json` (the repair's input) and `tmp/re-enrich-report.json`
+(the rollback material).

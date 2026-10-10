@@ -2,6 +2,20 @@
 
 nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
 
+## Decisions come before code
+
+- This is a product, not a scratch script. Anything a reader or operator would experience
+  differently — what ships or is withheld, copy, prices, limits, schema, policy, error
+  states — is a decision, and decisions are ruled on before they are built.
+- The arbiter's rulings live in the owner's ChatGPT `nyuz` project. Put the case to it with
+  evidence and numbered options, wait for the ruling, record it, and only then implement the
+  smallest slice that matches it. A proposal may exist as a diff outside the shipping path;
+  nothing that changes behaviour lands on a recommendation alone.
+- Open and recorded decisions live in `docs/decisions/`. Read the log before re-opening a
+  settled question, and record the ruling with its date and reason when it arrives.
+- The same rule is packaged as the global `arbitrate-first` skill, so it applies in every
+  project rather than only here.
+
 - `npm run dev` serves on port 8080. `npm run build` produces a nitro server bundle.
 - Routes are file-based under `src/routes/`; `src/routeTree.gen.ts` is generated — never edit it by hand.
 - `npx tsc --noEmit` must stay clean. `noUncheckedIndexedAccess` is on, so index
@@ -70,7 +84,18 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
 ## Git delivery
 
 - Never add a `Co-Authored-By` trailer to a commit.
+- **Land verified work; do not ask whether to push it.** A finished, verified change is pushed, not
+  left sitting in the worktree. Do not stop to ask "should I push?" when the checks are green and the
+  change is the one being worked on — the answer is yes, and the deploy job is what makes the change
+  real. This is an authorisation to push the work in flight, not to push anything else: someone
+  else's files, a half-finished slice, or a red tree still stop and wait.
+- **A red push is not a deployed change.** The deploy job is skipped when any check fails, so
+  pushing red leaves `main` ahead of production — the worst of both states. Green before the push,
+  or the push does not happen.
 - Before any push, run `npm run ci` — typecheck, lint, the suite with coverage, the coverage floor, the production build, the PWA install contract, the route walk's self-test, then Playwright against the built Worker. It is the same list the runner executes, so a green local run is a checked push. Do not treat an earlier partial check as sufficient after the final changes.
+- Push one substantial change at a time, in commits that each stand on their own — not one lump per
+  session. Conversely, do not dribble out commits for a change still being verified: the unit is the
+  finished slice, checked once on the final tree.
 - `npm run e2e` needs the Chromium that `npx playwright install chromium` fetches once, and Node 22 (`.nvmrc`); `wrangler dev` refuses to start on Node 20.
 - The coverage floor in `.ci/baseline/coverage.json` only rises, and it is recorded from the runner rather than from a laptop (Audit 42): v8 reports the ranges it discovered while executing, so two machines measure one commit differently — same tree, seven files apart, and a branch denominator that differed for the same file. `npm run coverage:ratchet -- --update` therefore refuses a local measurement; record the runner's summary with `gh run download <run-id> -n coverage-summary -D /tmp/ci-coverage` and `npm run coverage:ratchet -- --update --from /tmp/ci-coverage/coverage-summary.json`. Off CI a shortfall inside the 0.35pp portability band is reported as a warning instead of a failure (local runs drifted 0.22pp against themselves); CI compares exactly. It records `measuredAtCommit`, so read that before blaming the change under review for a drop — it may be another contributor's commit that landed after the floor was taken.
 - The palette is three colours and `src/lib/style-tokens.test.ts` enforces it: every token in `src/styles.css` is chroma 0 except `--signal` and `--ring` at hue 240, and the two blues in `public/logo.svg` must stay the sRGB form of `--signal` in each theme. Adding a fourth colour is a test failure, not a design decision.
