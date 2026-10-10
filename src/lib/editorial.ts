@@ -37,6 +37,7 @@ import {
   type DeterministicFactType,
   type RankedEntity,
   type ReaderFact,
+  type ReaderSource,
 } from "./reader-evidence";
 import {
   gluedAttribution,
@@ -283,7 +284,16 @@ export type CompositionDiagnostics = {
    * into an identical one, or counted under a reason. It never just disappears.
    */
   facts: {
-    /** Facts in hand after merging duplicates. */
+    /**
+     * Facts in hand after merging duplicates -- the accounting set.
+     *
+     * Every one of them leaves this pass in exactly one of three states, and
+     * the three are a partition rather than overlapping counters:
+     * `selected === rendered + refused + lost`. `rendered` is the prose that
+     * exists, `refused` is a named rule that accounts for the absence, and
+     * `lost` is the residue nobody can explain -- the one number that has to
+     * stay at zero for the accounting to mean anything.
+     */
     selected: number;
     /** Of those, how many reached the published prose. */
     rendered: number;
@@ -292,14 +302,63 @@ export type CompositionDiagnostics = {
     /** Facts refused before any paragraph was built. */
     rejected: number;
     /**
-     * Selected facts the composer itself refused, with a reason.
+     * Refusal *events*: how many times a fact-level rule refused a fact, whether
+     * or not the fact was later published by another path.
      *
-     * Refusal is a valid outcome -- a sentence with no antecedent, a wh-headed
-     * fragment -- and it is counted, never silent. These are subtracted from
-     * `lost` below, because `lost` is the counter that means "nobody knows why
-     * this is missing".
+     * This is execution history, and it is deliberately not a partition term: a
+     * fact the ranked pass refused was once republished by the priority hoist, and
+     * the history should show the refusal rather than pretend it never happened.
+     * The partition uses `refused` below, the facts whose *final* state is an
+     * explained absence. Block-level drops are not events here: they charge the
+     * facts they carried once, and `dispositions` is where a reviewer reads them.
+     */
+    refusalEvents: number;
+    /**
+     * Unrendered facts whose absence a named rule accounts for.
+     *
+     * Both kinds count here, and the reason says which: a fact-level rule
+     * (`invalid_sentence`, `unresolved_context`) judged the sentence itself, and
+     * a block-level rule (`short_block`, `thin_evidence_cap`, `article_limit`,
+     * `deck_refused`) dropped the paragraph or deck carrying it. Recording the
+     * block's rule per fact is what makes a dropped paragraph explicable -- a
+     * sentence count cannot say which fact went, and a fact nobody can account
+     * for is the thing this whole ledger exists to prevent.
      */
     refused: number;
+    /**
+     * Which rule accounts for each unrendered fact, by count.
+     *
+     * The audit reads this table beside `lostFacts`, so "where did it go" is
+     * answerable per rule instead of per total.
+     */
+    dispositions: Record<string, number>;
+    /**
+     * The unrendered facts themselves, each with the rule that accounts for it.
+     *
+     * The reason table says how many; this says which, which is what an operator
+     * checking a decision actually needs. One entry per unrendered fact, in the
+     * order the facts were selected.
+     */
+    unrendered: { text: string; rule: string }[];
+    /**
+     * The facts behind `renderedAfterRefusal`: identity, the rule that charged
+     * them, and which test found them in the prose.
+     *
+     * `sentence` means a published block carries a sentence the ledger attributes
+     * to this fact -- a real republished fact, so a real bypass to investigate.
+     * `text` means only the wording comparison matched, which is a resemblance
+     * rather than a republication, and is the counter being generous.
+     */
+    renderedAfterRefusalFacts: { text: string; rule: string; matched: "sentence" | "text" }[];
+    /**
+     * Facts a rule refused along one path that another path published anyway.
+     *
+     * A diagnostic, not a partition term: the fact is `rendered`, because that is
+     * what the reader got, and the refusal stays visible here rather than being
+     * erased from the history. Non-zero is a bug in a later path -- the ranked
+     * priority hoist was the one -- not a tolerance.
+     */
+    renderedAfterRefusal: number;
     /**
      * Units refused in the evidence pass, before selection, by reason.
      *
@@ -308,7 +367,12 @@ export type CompositionDiagnostics = {
      * are `EvidenceRejectionReason` names.
      */
     evidenceRefusals: Record<string, number>;
-    /** Selected facts not rendered and not refused. Anything above zero is a bug. */
+    /**
+     * Selected facts with no rendered prose and no rule to account for it.
+     *
+     * The partition's residue: anything above zero is a bug, and an unexplained
+     * one, which is why the facts behind it are printed in full below.
+     */
     lost: number;
     /**
      * The facts behind `lost`, in full, so the number can be read.
@@ -430,7 +494,12 @@ function createDiagnostics(): CompositionDiagnostics {
       rendered: 0,
       deduplicated: 0,
       rejected: 0,
+      refusalEvents: 0,
       refused: 0,
+      dispositions: {},
+      unrendered: [],
+      renderedAfterRefusalFacts: [],
+      renderedAfterRefusal: 0,
       evidenceRefusals: {},
       lost: 0,
       lostFacts: [],
@@ -493,6 +562,74 @@ function refuseBlock(text: string, reason: string, diagnostics: CompositionDiagn
   const count = Math.max(1, readerSentences(text).length);
   diagnostics.sentences.refused += count;
   tally(diagnostics.sentences.reasons, reason);
+}
+
+/**
+ * The fact ledger: where each fact went, and which sentence carries it.
+ *
+ * Two maps, because the two passes speak different languages. The composer works
+ * in facts and knows which fact became which published sentence (`sentences`),
+ * the gate works in sentences and can only name the sentence it refused. Joining
+ * them on `sentenceKey` -- the same identity `carries` already uses to ask
+ * whether a fact reached the page -- is what lets a sentence-level refusal be
+ * charged to the fact behind it, instead of leaving that fact unexplained.
+ *
+ * `unrendered` is the rule accounting for a fact that will not be published, keyed
+ * by the fact's own sentence. First rule wins: the sentence builder's
+ * `invalid_sentence` is a more specific answer than the `short_block` of the
+ * paragraph that never got built around it, and a later, coarser drop must not
+ * overwrite a reason a reviewer can check.
+ */
+type FactLedger = {
+  sentences: Map<string, string>;
+  unrendered: Map<string, string>;
+};
+
+function markUnrendered(ledger: FactLedger, factKey: string, rule: string): void {
+  if (factKey === "" || ledger.unrendered.has(factKey)) return;
+  ledger.unrendered.set(factKey, rule);
+}
+
+/** Charge a fact, by its own text, to the rule that refused it. */
+function markFact(ledger: FactLedger, factText: string, rule: string): void {
+  markUnrendered(ledger, sentenceKey(factText), rule);
+}
+
+/**
+ * Charge every fact behind a sentence inside `text` to the rule that refused it.
+ *
+ * Used where only the block exists by then -- the thin-evidence cap, a gate
+ * refusal, a dropped deck -- and the facts have to be recovered through the
+ * identity the composer recorded when it published the sentence.
+ */
+function markSentence(ledger: FactLedger, text: string, rule: string): void {
+  for (const sentence of readerSentences(text)) {
+    const fact = ledger.sentences.get(sentenceKey(sentence));
+    if (fact !== undefined) markUnrendered(ledger, fact, rule);
+  }
+}
+
+/** Every fact a dropped block carried is charged to the rule that dropped it. */
+function markDroppedFacts(ledger: FactLedger, facts: readonly { text: string }[], rule: string) {
+  for (const fact of facts) markFact(ledger, fact.text, rule);
+}
+
+/**
+ * Record which fact a published sentence was built from, for the two above.
+ *
+ * Indexed sentence by sentence rather than as one string, because the gate reads
+ * sentences: a fact whose text carries two of them -- a fragment the source wrote
+ * as its own line followed by the sentence about it -- was invisible to the join
+ * both ways round, which is how one fact stayed unexplained after every drop path
+ * was charged.
+ */
+function indexSentence(ledger: FactLedger, sentence: string, factText: string): void {
+  const fact = sentenceKey(factText);
+  if (fact === "") return;
+  for (const part of readerSentences(sentence)) {
+    const key = sentenceKey(part);
+    if (key !== "") ledger.sentences.set(key, fact);
+  }
 }
 
 /**
@@ -1168,6 +1305,12 @@ function qualityGate(
   article: ReaderArticle,
   title: string,
   diagnostics: CompositionDiagnostics,
+  /**
+   * The fact ledger, so a sentence this gate refuses is charged to the fact
+   * behind it. Without it the gate can only count sentences, and every fact
+   * inside a block it dropped stayed unexplainable in `facts.lost`.
+   */
+  ledger: FactLedger,
 ): ReaderArticle {
   const sentencesWithEvidence: { text: string; evidence: number[] }[] = [];
   const index = new Map<string, number>();
@@ -1175,9 +1318,10 @@ function qualityGate(
   const mergeInto = (target: { evidence: number[] }, evidence: number[]) => {
     target.evidence = [...new Set([...target.evidence, ...evidence])];
   };
-  const refuse = (reason: string) => {
+  const refuse = (reason: string, part: string) => {
     diagnostics.sentences.refused += 1;
     tally(diagnostics.sentences.reasons, reason);
+    markSentence(ledger, part, reason);
   };
   // The deck is prose, so it is judged as prose. Indexing it only when it
   // already passed is what let a photo credit sit under a headline: an invalid
@@ -1198,7 +1342,10 @@ function qualityGate(
   } else {
     diagnostics.qualityGate.deckRefusals += 1;
     tally(diagnostics.qualityGate.deckReasons, deckVerdict.reason);
-    refuse(deckVerdict.reason);
+    // Charged to the fact behind the deck before the deck is cleared: a refused
+    // deck is the story's lead sentence gone, and it used to leave the fact that
+    // produced it unexplained.
+    refuse(deckVerdict.reason, deck.text);
     deck.text = "";
     deck.evidence = [];
   }
@@ -1210,7 +1357,7 @@ function qualityGate(
     for (const part of parts) {
       diagnostics.sentences.considered += 1;
       if (part.trim() === "") {
-        refuse("empty_sentence");
+        refuse("empty_sentence", part);
         continue;
       }
       // Checked before validity so a leak is still reported as a leak: the
@@ -1218,30 +1365,30 @@ function qualityGate(
       // read-quality sample reads.
       if (hasSourceMetadata(part)) {
         diagnostics.qualityGate.metadataLeakWarnings += 1;
-        refuse("metadata_leak");
+        refuse("metadata_leak", part);
         continue;
       }
       // An undecoded `&#x20;` is four characters on the page. Nothing below this
       // point may publish one, whatever route brought it here.
       if (hasVisibleEntity(part)) {
         diagnostics.qualityGate.entityLeakWarnings += 1;
-        refuse("entity_leak");
+        refuse("entity_leak", part);
         continue;
       }
       if (!validDeterministicSentence(part)) {
-        refuse("invalid_sentence");
+        refuse("invalid_sentence", part);
         continue;
       }
       if (malformedAttribution(part) || gluedAttribution(part)) {
         diagnostics.qualityGate.malformedAttributionWarnings += 1;
-        refuse("malformed_attribution");
+        refuse("malformed_attribution", part);
         continue;
       }
       // A heading that reached a block anyway -- a stored summary, a sentence the
       // entity path rebuilt -- because a subhead is not a fact about anything.
       if (headingUnit(part)) {
         diagnostics.qualityGate.headingUnitWarnings += 1;
-        refuse("headline_fragment");
+        refuse("headline_fragment", part);
         continue;
       }
       // Two blocks published as one sentence: a heading, a photo credit or a
@@ -1249,7 +1396,7 @@ function qualityGate(
       // sentence itself is, because the sentence test is what the glue passes.
       if (sourceSeam(part)) {
         diagnostics.qualityGate.sourceSeamWarnings += 1;
-        refuse("invalid_sentence");
+        refuse("invalid_sentence", part);
         continue;
       }
       // "Both saw agents make their way onto the open internet", and a fronted
@@ -1259,13 +1406,13 @@ function qualityGate(
       // the only place that knows what is published next to what.
       if (unresolvableContext(part)) {
         diagnostics.qualityGate.unresolvedContextWarnings += 1;
-        refuse("unresolved_context");
+        refuse("unresolved_context", part);
         continue;
       }
       // Two long quoted passages in one sentence is a concatenation, not speech.
       if (quotedSpans(part) > 1) {
         diagnostics.qualityGate.stackedQuoteWarnings += 1;
-        refuse("stacked_quotes");
+        refuse("stacked_quotes", part);
         continue;
       }
       // A paragraph that only restates the deck is the deck, not a paragraph.
@@ -1276,7 +1423,7 @@ function qualityGate(
       }
       const key = sentenceKey(part);
       if (key === "") {
-        refuse("empty_sentence");
+        refuse("empty_sentence", part);
         continue;
       }
       const existing = index.get(key);
@@ -1335,6 +1482,9 @@ function qualityGate(
   }
   const blocks = assembled.slice(0, cap);
   for (const block of assembled.slice(cap)) {
+    // Over the cap, so the block is not published and the facts behind its
+    // sentences are charged to the cap rather than vanishing with the block.
+    markSentence(ledger, block.text, "article_limit");
     for (let count = 0; count < block.sentences; count++) {
       diagnostics.sentences.refused += 1;
       tally(diagnostics.sentences.reasons, "article_limit");
@@ -1371,8 +1521,8 @@ function deterministicParagraphs(
   story: Story,
   diagnostics: CompositionDiagnostics,
   surveys: Map<number, string>,
-  /** Keys of the facts a rule refused by name, for `finishDiagnostics`. */
-  refusedFacts: Set<string>,
+  /** Where a fact this pass does not publish is charged, with its rule. */
+  ledger: FactLedger,
 ): ArticleParagraph[] {
   const groups: ReaderFact[][] = [];
   for (const fact of facts) {
@@ -1393,8 +1543,8 @@ function deterministicParagraphs(
       !unresolvableContext(fact.text)
     ) {
       diagnostics.qualityGate.unresolvedContextWarnings += 1;
-      diagnostics.facts.refused += 1;
-      refusedFacts.add(sentenceKey(fact.text));
+      diagnostics.facts.refusalEvents += 1;
+      markFact(ledger, fact.text, "unresolved_context");
       refuseBlock(fact.text, "unresolved_context", diagnostics);
       continue;
     }
@@ -1443,15 +1593,20 @@ function deterministicParagraphs(
     .sort((a, b) => groupRank(a) - groupRank(b))
     .map((group) => {
       const parts = group
-        .map((fact) => factSentence(fact, story, diagnostics, surveys, refusedFacts))
+        .map((fact) => factSentence(fact, story, diagnostics, surveys, ledger))
         .filter((text): text is string => text !== null);
-      return { text: parts.join(" "), evidence: citationRefs(group) };
+      return { text: parts.join(" "), evidence: citationRefs(group), facts: group };
     })
     .filter((paragraph) => {
       if (countWords(paragraph.text) >= MIN_PARAGRAPH_WORDS) return true;
+      // A paragraph under the floor is dropped whole, so every fact it was built
+      // from is charged to `short_block` here. A sentence count could not say
+      // which facts went, which is how they became "unexplained" before.
+      markDroppedFacts(ledger, paragraph.facts, "short_block");
       refuseBlock(paragraph.text, "short_block", diagnostics);
       return false;
-    });
+    })
+    .map(({ text, evidence }) => ({ text, evidence }));
 }
 
 /**
@@ -1467,15 +1622,18 @@ function factSentence(
   story: Story,
   diagnostics: CompositionDiagnostics,
   surveys: Map<number, string>,
-  /** Keys of the facts a rule refused by name, for `finishDiagnostics`. */
-  refusedFacts: Set<string>,
+  /** The ledger this sentence either joins or is charged to. */
+  ledger: FactLedger,
 ): string | null {
   const attributed = sentence(attributedFactText(fact.text, fact.evidence, story, surveys));
   const text = validDeterministicSentence(attributed) ? attributed : sentence(fact.text);
-  if (validDeterministicSentence(text)) return text;
+  if (validDeterministicSentence(text)) {
+    indexSentence(ledger, text, fact.text);
+    return text;
+  }
   diagnostics.sentences.refused += 1;
-  diagnostics.facts.refused += 1;
-  refusedFacts.add(sentenceKey(fact.text));
+  diagnostics.facts.refusalEvents += 1;
+  markFact(ledger, fact.text, "invalid_sentence");
   tally(diagnostics.sentences.reasons, "invalid_sentence");
   return null;
 }
@@ -1502,13 +1660,13 @@ function narrativeParagraphs(
   /** Source position of the sentence already published as the deck. */
   deckOrder: number,
   surveys: Map<number, string>,
-  /** Keys of the facts a rule refused by name, for `finishDiagnostics`. */
-  refusedFacts: Set<string>,
+  /** Where a fact this pass does not publish is charged, with its rule. */
+  ledger: FactLedger,
 ): ArticleParagraph[] {
   const paragraphs: ArticleParagraph[] = [];
   let previousOrder = deckOrder;
   for (const fact of facts) {
-    const text = factSentence(fact, story, diagnostics, surveys, refusedFacts);
+    const text = factSentence(fact, story, diagnostics, surveys, ledger);
     if (text === null) continue;
     // Here, unlike the ranked path, adjacency can actually be checked: the fact
     // the author wrote immediately before this one is the one just published, so
@@ -1523,8 +1681,8 @@ function narrativeParagraphs(
       fact.sourceOrder !== previousOrder + 1
     ) {
       diagnostics.qualityGate.unresolvedContextWarnings += 1;
-      diagnostics.facts.refused += 1;
-      refusedFacts.add(sentenceKey(fact.text));
+      diagnostics.facts.refusalEvents += 1;
+      markFact(ledger, fact.text, "unresolved_context");
       refuseBlock(text, "unresolved_context", diagnostics);
       continue;
     }
@@ -1570,23 +1728,78 @@ function finishDiagnostics(
   article: ReaderArticle,
   facts: ReaderFact[],
   diagnostics: CompositionDiagnostics,
-  /** Keys of the facts a rule refused by name, from the composition pass. */
-  refusedFacts: Set<string>,
+  /** Where every fact that did not publish was charged, with its rule. */
+  ledger: FactLedger,
 ): void {
   const blocks = [article.deck.text, ...article.paragraphs.map((paragraph) => paragraph.text)];
   const lost: string[] = [];
+  const dispositions: Record<string, number> = {};
+  const unrendered: { text: string; rule: string }[] = [];
+  const renderedAfterRefusalFacts: { text: string; rule: string; matched: "sentence" | "text" }[] =
+    [];
   let rendered = 0;
+  let renderedAfterRefusal = 0;
+  /**
+   * Facts whose sentence actually reached a published block.
+   *
+   * Read off the page, not off the intention: every published sentence is looked
+   * up through the ledger, and a sentence the composer wrote from a fact names
+   * that fact. It is the same prose test `carries` makes, but it survives a
+   * rewrite -- "For founders, the Expo Hall ... could mean meeting an investor"
+   * publishes as "For founders, TechCrunch reports that the Expo Hall ...", and a
+   * substring test calls that fact lost while the reader is reading it. Three of
+   * the six facts still unexplained after the block-level accounting was added
+   * were exactly this shape.
+   */
+  const publishedFacts = new Set<string>();
+  for (const block of blocks) {
+    for (const sentence of readerSentences(block)) {
+      const fact = ledger.sentences.get(sentenceKey(sentence));
+      if (fact !== undefined) publishedFacts.add(fact);
+    }
+  }
   for (const fact of facts) {
-    if (carries(blocks, fact.text)) {
+    // A rule that charged this fact leaves its reason behind even when another
+    // path published it anyway, so the overlap is visible rather than erased.
+    const key = sentenceKey(fact.text);
+    const charged = ledger.unrendered.get(key);
+    // Two tests, and the difference is the point: the first reads the page and
+    // says which fact wrote bearing sentence, the second is the older wording
+    // comparison and can only say the prose resembles the fact. An overlap found
+    // by the first is a path that republished a refused fact; one found only by
+    // the second is the counter being generous, and the two need telling apart
+    // before anyone calls it a bypass.
+    const bySentence = publishedFacts.has(key);
+    if (bySentence || carries(blocks, fact.text)) {
       rendered += 1;
+      if (charged !== undefined) {
+        renderedAfterRefusal += 1;
+        renderedAfterRefusalFacts.push({
+          text: fact.text,
+          rule: charged,
+          matched: bySentence ? "sentence" : "text",
+        });
+      }
       continue;
     }
-    // A refused fact is explained, so it is not lost: `lost` has to keep meaning
-    // "selected, valid, and published nowhere", or the number stops being a bug
-    // report and starts being a style preference.
-    if (!refusedFacts.has(sentenceKey(fact.text))) lost.push(fact.text);
+    // An explained absence is not lost: `lost` has to keep meaning "selected,
+    // valid, published nowhere, and nobody can say why", or the number stops
+    // being a bug report and starts being a style preference. The reason is the
+    // rule that dropped it -- the sentence validator, the paragraph floor, the
+    // thin-evidence cap, the article cap, or the gate itself.
+    if (charged !== undefined) {
+      tally(dispositions, charged);
+      unrendered.push({ text: fact.text, rule: charged });
+      continue;
+    }
+    lost.push(fact.text);
   }
   diagnostics.facts.rendered = rendered;
+  diagnostics.facts.renderedAfterRefusal = renderedAfterRefusal;
+  diagnostics.facts.renderedAfterRefusalFacts = renderedAfterRefusalFacts;
+  diagnostics.facts.dispositions = dispositions;
+  diagnostics.facts.unrendered = unrendered;
+  diagnostics.facts.refused = Object.values(dispositions).reduce((sum, count) => sum + count, 0);
   diagnostics.facts.lost = lost.length;
   diagnostics.facts.lostFacts = lost;
   for (const block of blocks) {
@@ -1892,6 +2105,85 @@ export function capAttributionRepetition(blocks: { text: string }[]): number {
 }
 
 /**
+ * The inert story shell the composer reads when a caller has a headline and
+ * coverage but no story row.
+ *
+ * Only `title` and `sourceList` reach the deterministic composer, so every
+ * other field is here because `Story` asks for it, never because a rule reads
+ * it. A caller that has the real fields (the audit, the reader's own page)
+ * still passes its story and never sees this.
+ */
+const COMPOSER_SHELL: Omit<Story, "title" | "sourceList"> = {
+  id: "",
+  org: "",
+  what: "",
+  why: "",
+  importance: "Notable",
+  score: { relevance: 0, importance: 0, novelty: 0 },
+  sources: 0,
+  topics: [],
+  time: "",
+  publishedAt: "",
+  before: "",
+  after: "",
+  timeline: [],
+};
+
+/**
+ * What the composer would publish from a headline and its coverage, for a caller
+ * that has no story row: the readiness gate, and the tests that pin it.
+ *
+ * The gate decides whether the reader gets anything at all, so it has to ask the
+ * composer's own question rather than a proxy for it. The proxy it used to ask --
+ * "does the evidence pass accept two facts?" -- counted a currency the composer
+ * does not spend: three accepted facts of which the publication-time rules refuse
+ * two as `stacked_quotes` passed the gate and reached the reader as a headline, a
+ * deck and no article (2026-10-10, Microsoft's foreign-worker sponsorship). One
+ * question, asked in one place, is what stops the two counters from drifting.
+ *
+ * The return is the whole composed article, not a boolean, so a caller can print
+ * the deck and the paragraph count it actually got.
+ */
+/**
+ * Everything the composer reads beyond the coverage itself.
+ *
+ * `publishedAt` is not decoration: the event's date is what anchors a source's
+ * relative time ("this year", "on Thursday"). Compose without it and a fact
+ * that the delivery path publishes -- because the reader's page knows the date
+ * -- is refused here instead, which turns an admissible story into a withheld
+ * one. The readiness audit caught exactly that: one story's body existed only
+ * when the date was present, and the gate was composing without it (2026-10-10).
+ */
+export type ComposeFromSourcesOptions = { publishedAt?: string | null | undefined };
+
+export function composeFromSources(
+  title: string,
+  sources: ReaderSource[],
+  options: ComposeFromSourcesOptions = {},
+): { article: ReaderArticle; selectedFacts: number; refusedFacts: number } {
+  const { article, diagnostics } = composeArticleWithDiagnostics({
+    ...COMPOSER_SHELL,
+    title,
+    publishedAt: options.publishedAt ?? "",
+    // The cast is a widening, not a claim: the composer reads a source through
+    // `ReaderSource` (`name`, `headline`, `excerpt`, `enrichedEvidence`), while
+    // `Story` also asks for `at`, which no rule reads and the corpus sets to "".
+    // A caller that has `url` and `articleId` keeps them -- nothing is dropped
+    // on the way in, which is what keeps this answer the delivery path's answer.
+    sourceList: sources as Story["sourceList"],
+  });
+  return {
+    article,
+    selectedFacts: diagnostics.facts.selected,
+    // Facts the publication rules refused outright -- the body that was there
+    // and was declined. A deck-only story refuses nothing; a story whose body
+    // disappeared (the Microsoft case: two `stacked_quotes` refusals) refuses
+    // plenty. The readiness gate needs the difference, not just the emptiness.
+    refusedFacts: diagnostics.facts.refused,
+  };
+}
+
+/**
  * Ignore stored model prose and build the Read article from source evidence
  * and related coverage already attached to the story.
  */
@@ -2055,28 +2347,44 @@ export function composeArticleWithDiagnostics(story: Story): {
           ...priorityFacts,
           ...facts.filter((fact) => fact !== lead && !priorityFacts.includes(fact)),
         ];
-    // Refusals charged to a *fact* by name, so `finishDiagnostics` can tell a
-    // fact a rule refused from a fact nobody can account for. A block-level
-    // refusal cannot add a key here -- see `lostFacts`.
-    const refusedFacts = new Set<string>();
+    /**
+     * The fact ledger: which published sentence carries which fact, and the rule
+     * accounting for every fact this pass will not publish.
+     *
+     * Both the fact-level rules (the sentence validator, the anaphora decision)
+     * and the block-level ones (paragraph floor, thin-evidence cap, article cap,
+     * the gate) write here, which is what turns `facts.lost` back into the one
+     * number it is meant to be: facts nobody can explain.
+     */
+    const ledger: FactLedger = { sentences: new Map(), unrendered: new Map() };
+    // The lead fact, indexed under both forms of its sentence: the gate rewrites
+    // the deck before judging it (`stripFrontedConnector`), and a refused deck has
+    // to be chargeable to the fact that produced it whichever form was refused.
+    if (lead && deck.text !== "") {
+      indexSentence(ledger, deck.text, lead.text);
+      indexSentence(ledger, stripFrontedConnector(deck.text), lead.text);
+    }
     const paragraphs = oneDocument
-      ? narrativeParagraphs(
-          remaining,
-          story,
-          diagnostics,
-          lead?.sourceOrder ?? -1,
-          surveys,
-          refusedFacts,
-        )
+      ? narrativeParagraphs(remaining, story, diagnostics, lead?.sourceOrder ?? -1, surveys, ledger)
       : [
-          ...deterministicParagraphs(remaining, story, diagnostics, surveys, refusedFacts),
+          ...deterministicParagraphs(remaining, story, diagnostics, surveys, ledger),
           ...priorityFacts
+            // A fact a rule already refused is never republished here. The ranked
+            // pass decides the softer anaphora class (`they`, `this`) because it
+            // is the only place that knows what is published next to what, and
+            // the gate deliberately does not re-decide it -- so hoisting a
+            // refused fact into its own paragraph was the one path that could
+            // print a sentence the story's own rule had already rejected.
+            // This spread is evaluated after `deterministicParagraphs` above,
+            // which is what makes the ledger complete when it is read.
+            .filter((fact) => !ledger.unrendered.has(sentenceKey(fact.text)))
             .filter((fact) => !remaining.slice(0, 8).includes(fact))
             .slice(0, 3)
-            .map((fact) => ({
-              text: sentence(attributedFactText(fact.text, fact.evidence, story, surveys)),
-              evidence: fact.evidence,
-            })),
+            .map((fact) => {
+              const text = sentence(attributedFactText(fact.text, fact.evidence, story, surveys));
+              indexSentence(ledger, text, fact.text);
+              return { text, evidence: fact.evidence };
+            }),
         ];
     const composedText = paragraphs.map((paragraph) => paragraph.text).join(" ");
     // The entity-context pass inserts a source sentence that names an entity the
@@ -2149,16 +2457,19 @@ export function composeArticleWithDiagnostics(story: Story): {
     // Whatever the cap drops is counted, so a fact behind it is explicable.
     const capped = paragraphs.slice(0, facts.length <= 3 ? 2 : paragraphs.length);
     for (const block of paragraphs.slice(capped.length)) {
+      // The facts behind the block are charged to the cap that dropped it, so a
+      // thin story's lost sentence is explained rather than unaccounted for.
+      markSentence(ledger, block.text, "thin_evidence_cap");
       refuseBlock(block.text, "thin_evidence_cap", diagnostics);
     }
     paragraphs.length = 0;
     paragraphs.push(...capped, ...related);
-    const gated = qualityGate({ deck, paragraphs }, story.title, diagnostics);
+    const gated = qualityGate({ deck, paragraphs }, story.title, diagnostics, ledger);
     // After the gate, because the gate reads each block as the composer wrote
     // it. Removing a repeated attribution can only shorten a sentence, never
     // break one, so a block that passed stays publishable.
     capAttributionRepetition([gated.deck, ...gated.paragraphs]);
-    finishDiagnostics(gated, facts, diagnostics, refusedFacts);
+    finishDiagnostics(gated, facts, diagnostics, ledger);
     // Last, and deliberately after the counters: renaming is presentation, and
     // `facts.rendered` is read by matching a fact's own text against the
     // published blocks. Shortening a name in the prose but not in the fact makes

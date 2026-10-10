@@ -627,14 +627,15 @@ describe("composeArticle", () => {
       expect(diagnostics.facts.lost).toBe(0);
     });
 
-    it("names the facts behind `lost`, because the number has to be readable", () => {
-      // `lost` means "selected, and no rule refused it by *name*". A block-level
-      // refusal charges the sentence, not the fact behind it, so those facts land
-      // here -- and a number nobody can read is not a bug report. The refused
-      // fact is excluded by name, which is what keeps the two classes apart.
+    it("names the rule behind every unrendered fact, and leaves `lost` for the rest", () => {
+      // `lost` means "selected, no prose carries it, and no rule accounts for it".
+      // A block-level drop used to charge only the sentence, which left the fact
+      // behind it unexplained -- the class this test used to pin. Now the rule
+      // that dropped the block is recorded against the fact itself, so the
+      // partition holds per fact and `lost` is the residue a reader could not
+      // have explained any other way.
       // Two sources, so the composer ranks rather than reading one document
-      // forwards: a lone short fact is then a block under the paragraph floor,
-      // which is the refusal that charges a sentence and loses a fact.
+      // forwards: a lone short fact is then a block under the paragraph floor.
       const story = makeStory({
         title: "Oracle's Wisconsin build slips",
         understand: undefined as never,
@@ -655,13 +656,61 @@ describe("composeArticle", () => {
         ],
       });
       const { diagnostics } = composeArticleWithDiagnostics(story);
-      expect(diagnostics.facts.lostFacts).toEqual(["Implementation is delayed."]);
-      expect(diagnostics.facts.lost).toBe(diagnostics.facts.lostFacts.length);
+      // The dropped block is charged to the rule that dropped it, by fact.
+      expect(diagnostics.facts.dispositions["short_block"]).toBe(1);
       expect(diagnostics.sentences.reasons["short_block"]).toBe(1);
-      // The context-dependent fact was refused by name, so it is explained and
-      // not listed: `lost` keeps meaning "nothing refused it".
-      expect(diagnostics.facts.refused).toBe(1);
-      expect(diagnostics.facts.lostFacts).not.toContain("They also delayed the substation work.");
+      // The context-dependent fact was refused by name, and the block-level drop
+      // is a named rule too, so both are explained and neither is `lost`.
+      expect(diagnostics.facts.dispositions["unresolved_context"]).toBe(1);
+      expect(diagnostics.facts.refused).toBe(2);
+      expect(diagnostics.facts.lostFacts).toEqual([]);
+      expect(diagnostics.facts.lost).toBe(0);
+      // Rendered, refused and lost partition the selected set: one fact added
+      // three ways is how the old counters reported 84 refused beside 49 lost
+      // under a selected total neither could reconcile against.
+      expect(diagnostics.facts.rendered + diagnostics.facts.refused + diagnostics.facts.lost).toBe(
+        diagnostics.facts.selected,
+      );
+      // Refusal *events* stay visible beside the final outcomes: one fact-level
+      // refusal happened, while the partition counts two explained absences (the
+      // block-level drop is charged to the rule that dropped the block, and is
+      // not a fact-level refusal event).
+      expect(diagnostics.facts.refusalEvents).toBe(1);
+      expect(diagnostics.facts.renderedAfterRefusal).toBe(0);
+      // And the facts themselves are listed with their rule, because a count of
+      // explained absences is not an explanation an operator can check.
+      expect(diagnostics.facts.unrendered).toEqual([
+        { text: "Implementation is delayed.", rule: "short_block" },
+        { text: "They also delayed the substation work.", rule: "unresolved_context" },
+      ]);
+      expect(diagnostics.facts.renderedAfterRefusalFacts).toEqual([]);
+    });
+
+    it("publishes the deck alone when the story has one usable fact", () => {
+      // The classification the empty-story census turns on: a body needs a second
+      // fact, so a story with one is not a story a rule emptied -- the deck is the
+      // whole story. 27 of the frozen corpus's 44 stories with no paragraphs are
+      // this shape, and this pins that it is the shape rather than a drop.
+      const story = makeStory({
+        title: "Valve's Proton 11.0-2e released to fix EA App issues",
+        understand: undefined as never,
+        what: "",
+        sources: 1,
+        sourceList: [
+          {
+            name: "GamingOnLinux",
+            at: "10:00",
+            excerpt: "Valve released Proton 11.0-2e with a fix for the EA App on Linux.",
+          },
+        ],
+      });
+      const { article, diagnostics } = composeArticleWithDiagnostics(story);
+      expect(diagnostics.facts.selected).toBe(1);
+      expect(article.paragraphs).toEqual([]);
+      expect(article.deck.text).not.toBe("");
+      expect(diagnostics.facts.rendered).toBe(1);
+      expect(diagnostics.facts.unrendered).toEqual([]);
+      expect(diagnostics.facts.lost).toBe(0);
     });
 
     it("validates a paragraph as a paragraph", () => {

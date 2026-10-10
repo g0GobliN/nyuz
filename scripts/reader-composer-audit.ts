@@ -23,6 +23,7 @@
  */
 
 import { composeArticleWithDiagnostics } from "@/lib/editorial";
+import { assessReadiness } from "@/lib/pipeline/readiness";
 import { hasSourceMetadata, hasVisibleEntity } from "@/lib/pipeline/source-text";
 import {
   headingUnit,
@@ -119,7 +120,12 @@ type Totals = {
   renderedFacts: number;
   lostFacts: number;
   rejectedFacts: number;
+  /** Unrendered facts a named rule accounts for -- the partition's middle term. */
   refusedFacts: number;
+  /** Fact-level refusal events, which is execution history rather than outcome. */
+  refusalEvents: number;
+  /** Facts a rule refused along one path that another path published anyway. */
+  renderedAfterRefusal: number;
   restatements: number;
   sentencesRefused: number;
   voiceStripped: number;
@@ -159,6 +165,8 @@ function emptyTotals(): Totals {
     lostFacts: 0,
     rejectedFacts: 0,
     refusedFacts: 0,
+    refusalEvents: 0,
+    renderedAfterRefusal: 0,
     restatements: 0,
     sentencesRefused: 0,
     voiceStripped: 0,
@@ -224,6 +232,58 @@ main(async () => {
   const caseWords = new Map<string, number>();
   /** The facts behind `facts lost`, in full, with the story they came from. */
   const lostFacts: string[] = [];
+  /**
+   * Every story that published no paragraphs, with the path that emptied it.
+   *
+   * An empty story is the strongest version of "the rules decided against this":
+   * the reader gets a headline, maybe a deck, and nothing else. Whether that is
+   * justified or avoidable cannot be read off a total, so each one is printed with
+   * its evidence volume, its selected/unrendered split, the rule that charged its
+   * facts, the gate's own reason map and what the evidence pass refused -- the
+   * whole path from selection to silence, which is what a reviewer needs to say
+   * "correctly silent" or "lost on the way".
+   */
+  const empties: string[] = [];
+  /** Empty stories by cause, so "avoidable" is a number and not a word. */
+  const emptyKinds: Record<string, number> = {};
+  /** Empty stories the selection gate withheld, by the gate's own kind. */
+  const emptyByGate: Record<string, number> = {};
+  /**
+   * Stories the composer would give a body, refused at selection anyway.
+   *
+   * The gate's whole job is to withhold what the reader cannot use, so this
+   * number is not automatically a defect -- a vendor advert and a build tag both
+   * belong here. It is on the report because every one of them is a candidate
+   * for a reviewer to call right or wrong, and because a *large* one means the
+   * gate has drifted away from the composer it is standing in front of.
+   */
+  const readableWithheld: string[] = [];
+  /**
+   * Stories the gate let through with no body: the defect number.
+   *
+   * It has to be zero. A card whose headline is real and whose article is empty
+   * is the failure this whole path exists to prevent, and it is the one number
+   * on this report that is a verdict rather than a measurement.
+   */
+  const deliveredEmpty: string[] = [];
+  /**
+   * Stored evidence units that look like a fused sentence, and how many of them
+   * the reader actually received.
+   *
+   * The candidate ruler (see `defects.ts`) cannot say a unit is wrong; the
+   * confirmed count comes from re-extracting the source pages, which is what
+   * `scripts/reader-fusion-sample.ts` does. What this section adds is the part
+   * no re-extraction can know: whether the fused words reached a deck or a
+   * paragraph, which is the difference between a storage curiosity and a defect
+   * someone read.
+   */
+  const fusionUnits: string[] = [];
+  const fusionStories = new Set<string>();
+  const fusionVisible: string[] = [];
+  /** The facts a rule charged that the reader received anyway, with the rule. */
+  const overlapFacts: string[] = [];
+  /** Which rule accounts for the unrendered facts, across the corpus. */
+  const dispositions: Record<string, number> = {};
   const changed: Changed[] = [];
   const tally = (counter: Record<string, number>, key: string) => {
     counter[key] = (counter[key] ?? 0) + 1;
@@ -270,6 +330,16 @@ main(async () => {
     for (const text of diagnostics.facts.lostFacts) lostFacts.push(`${event.title} · ${text}`);
     totals.rejectedFacts += diagnostics.facts.rejected;
     totals.refusedFacts += diagnostics.facts.refused;
+    totals.refusalEvents += diagnostics.facts.refusalEvents;
+    totals.renderedAfterRefusal += diagnostics.facts.renderedAfterRefusal;
+    for (const [rule, count] of Object.entries(diagnostics.facts.dispositions ?? {})) {
+      dispositions[rule] = (dispositions[rule] ?? 0) + count;
+    }
+    for (const entry of diagnostics.facts.renderedAfterRefusalFacts ?? []) {
+      overlapFacts.push(
+        `${event.title} · ${entry.rule} (matched by ${entry.matched}): ${entry.text}`,
+      );
+    }
     totals.restatements += diagnostics.dedupe.restatements;
     totals.sentencesRefused += diagnostics.sentences.refused;
     totals.voiceStripped += diagnostics.sourceNormalization.sourceVoiceStripped;
@@ -316,6 +386,92 @@ main(async () => {
     ];
     totals.caseRewrites += rewrittenCases.length;
     for (const word of rewrittenCases) caseWords.set(word, (caseWords.get(word) ?? 0) + 1);
+
+    if (paras.length === 0) {
+      const wordCount = (value: string) => value.split(/\s+/).filter(Boolean).length;
+      const sourceWords = event.sourceList.reduce(
+        (total, source) => total + wordCount(source.excerpt ?? ""),
+        0,
+      );
+      const charged =
+        Object.entries(diagnostics.facts.dispositions)
+          .map(([rule, count]) => `${rule}=${count}`)
+          .join(" ") || "no rule charged a fact";
+      // Which kind of empty it is, decided from the accounting rather than from
+      // the headline: `nothing-selected` means the evidence pass found no fact to
+      // build from, `single-fact-is-the-deck` means the one usable fact became the
+      // deck and a body needs a second one, and `emptied-after-selection` -- the
+      // only genuinely suspicious class -- means two or more facts were selected
+      // and the reader still got no paragraph.
+      // `emptied-after-selection` split in two, because the name was doing more
+      // work than the measurement. Two or more facts selected and no paragraph is
+      // not automatically a defect: the composition rules can legitimately refuse
+      // the remaining sentence, and the ledger charges it to the rule by name.
+      // The class that must stay zero is the one with a fact the rules cannot
+      // account for -- the 2026-10-10 live window had two stories in the loose
+      // class and none in this one (one `unresolved_context`, one two
+      // `stacked_quotes`), which is why the report distinguishes them.
+      const kind =
+        diagnostics.facts.selected === 0
+          ? "nothing-selected"
+          : diagnostics.facts.selected === 1
+            ? "single-fact-is-the-deck"
+            : diagnostics.facts.lost > 0
+              ? "emptied-after-selection (unexplained)"
+              : "emptied-after-selection (charged to a rule)";
+      emptyKinds[kind] = (emptyKinds[kind] ?? 0) + 1;
+      empties.push(
+        [
+          `· ${event.title}  [${kind}]`,
+          `    sources=${event.sourceList.length} sourceWords=${sourceWords} selected=${diagnostics.facts.selected}`,
+          `    deck=${article.deck.text ? `${wordCount(article.deck.text)}w` : "none"} unrendered=${diagnostics.facts.refused} unexplained=${diagnostics.facts.lost} words=${wordCount(text)}`,
+          `    facts by rule: ${charged}`,
+          `    paragraphs: ${JSON.stringify(diagnostics.paragraphs.reasons)} sentences: ${JSON.stringify(diagnostics.sentences.reasons)}`,
+          `    evidence refused before selection: ${JSON.stringify(diagnostics.facts.evidenceRefusals)}`,
+        ].join("\n"),
+      );
+    }
+
+    // Stored evidence: the fusion signature, and whether the reader saw it.
+    for (const source of event.sourceList) {
+      for (const unit of source.enrichedEvidence ?? []) {
+        if (!DEFECTS.CANDIDATE_FUSION.test(unit.text)) continue;
+        fusionUnits.push(`${event.title} · ${unit.text}`);
+        fusionStories.add(event.id);
+        // The published prose is where a reader would meet it: a 60-character
+        // opening is enough to tie a unit to a deck or a paragraph without
+        // pretending two similar sentences are the same one.
+        const opening = unit.text.slice(0, 60);
+        if (text.includes(opening)) {
+          fusionVisible.push(`${event.title} · ${opening}…`);
+        }
+      }
+    }
+
+    // The gate the digest actually runs, over the same story the composer saw.
+    // Two questions, one pass: does a story with a body get withheld anyway
+    // (over-withholding, invisible to the reader), and does a story without one
+    // get through (the defect). `sources` is the story's own coverage, exactly
+    // as `loadBriefs` hands it over, so an absent-evidence refusal cannot be
+    // confused with an evidence-based one.
+    const verdict = assessReadiness({
+      title: event.title,
+      whatHappened: event.what,
+      sourceCount: event.sources,
+      sources: event.sourceList,
+      // The event's clock, because the gate composes: without it a source's
+      // relative time cannot be anchored and a fact the reader's page publishes
+      // is refused here instead. Composing the same article both ways is what
+      // makes this cross-tab a comparison rather than two opinions.
+      publishedAt: event.publishedAt,
+    });
+    const gateKind = verdict.ready ? "ready" : verdict.kind;
+    if (paras.length === 0) {
+      emptyByGate[gateKind] = (emptyByGate[gateKind] ?? 0) + 1;
+      if (verdict.ready) deliveredEmpty.push(event.title);
+    } else if (!verdict.ready) {
+      readableWithheld.push(`[${gateKind}] ${event.title} — ${verdict.reason}`);
+    }
 
     // What this patch did to this story, and why it is on the list: every
     // counted rewrite, refusal or drop makes it a story worth reading by hand.
@@ -414,13 +570,89 @@ main(async () => {
       say(row(REASON_LABEL[reason] ?? reason, count));
     }
   }
-  // The other half of that table: `facts lost` counts what no rule refused by
-  // name -- a block-level refusal charges the sentence, not the fact behind it
-  // -- so the number is only a bug report if these can be read. Nothing here is
-  // "expected": each one is a fact the reader did not get.
-  heading("Facts lost, with no rule refusing them by name");
+  // Every selected fact leaves the composer in exactly one of three states, and
+  // this is the line that has to add up: rendered prose, an absence a named rule
+  // accounts for, or the residue nobody can explain. The refusal-event count sits
+  // beside it deliberately -- it is the rules' execution history, and the two are
+  // different numbers whenever a refused fact was published by another path.
+  heading("Fact ledger: where every selected fact went");
+  say(
+    row(
+      "selected = rendered + explained + unexplained",
+      `${totals.selectedFacts} = ${totals.renderedFacts} + ${totals.refusedFacts} + ${totals.lostFacts}`,
+    ),
+  );
+  say(
+    row(
+      "  reconciles",
+      totals.renderedFacts + totals.refusedFacts + totals.lostFacts === totals.selectedFacts
+        ? "yes"
+        : "NO — the accounting is broken",
+    ),
+  );
+  say(row("unrendered, by the rule that accounts for it", totals.refusedFacts));
+  for (const [rule, count] of Object.entries(dispositions).sort((a, b) => b[1] - a[1])) {
+    say(row(`  ${rule}`, count));
+  }
+  say(row("refusal events (rules' history, not the partition)", totals.refusalEvents));
+  say(row("refused then published by another path", totals.renderedAfterRefusal));
+  // The facts behind the two numbers above, so a reader can check a decision
+  // rather than take a count's word for it. Both are bounded by what the corpus
+  // selected, and both are printed in full.
+  if (overlapFacts.length > 0) {
+    heading("Refused, then published anyway (each one a path that bypassed a rule)");
+    for (const entry of overlapFacts) say(`  ${clip(entry, 240)}`);
+  }
+  // An unexplained fact is a bug report, not a tolerance: nothing here is
+  // "expected", because a rule that accounts for the absence has to be named.
+  heading("Facts lost, with no rule accounting for them");
   say(row("listed", lostFacts.length));
   for (const text of lostFacts) say(`  ${clip(text, 240)}`);
+  heading("Stories that published no paragraphs, and the path that emptied them");
+  say(row("stories", empties.length));
+  for (const [kind, count] of Object.entries(emptyKinds)) say(row(`  ${kind}`, count));
+  say(
+    row(
+      "  emptied after selection (the avoidable class)",
+      emptyKinds["emptied-after-selection"] ?? 0,
+    ),
+  );
+  for (const entry of empties) say(entry);
+
+  heading("Stored evidence carrying a candidate fusion (2026-10-10 standfirst defect)");
+  say(row("stored units matching the candidate signature", fusionUnits.length));
+  say(row("stories affected", fusionStories.size));
+  say(row("of those units, in a deck or paragraph", fusionVisible.length));
+  say(
+    row("  confirmed by re-extraction  <- not a text pattern;", "scripts/reader-fusion-sample.ts"),
+  );
+  say(row("    run it:  npm run audit:fusion", ""));
+  // Named and labelled, because the ruler cannot tell a fusion from a place
+  // name: "travelled from nearby Haryana state" matches it, and it fires on 374
+  // of the corpus's 1369 stored units. The list is material to read by hand, and
+  // the only counts above that mean anything are the confirmed ones.
+  say("  reader-visible candidates to read by hand (the ruler counts place names too):");
+  for (const entry of fusionVisible.slice(0, 8)) say(`  · ${entry}`);
+
+  heading("Selection gate: what the reader would actually receive");
+  say(row("stories that published no paragraph", empties.length));
+  for (const [kind, count] of Object.entries(emptyByGate).sort())
+    say(row(`  withheld as ${kind}`, count));
+  say(row("delivered with no body  <- must be zero", deliveredEmpty.length));
+  for (const title of deliveredEmpty) say(`  · ${title}`);
+  say(row("readable stories withheld", readableWithheld.length));
+  // The invisible-miss class, and the only part of that number that was ever a
+  // defect: 26 stories on the 2026-10-10 corpus had a body and no summary, and
+  // only the summary rung refused them. Rung 1 now runs where the caller could
+  // not load coverage, so this has to stay zero on a corpus that supplies it.
+  say(
+    row(
+      "  of those, by the summary rung  <- must be zero",
+      readableWithheld.filter((entry) => entry.startsWith("[empty]")).length,
+    ),
+  );
+  for (const entry of readableWithheld) say(`  · ${entry}`);
+
   heading("How the published blocks acquired their attribution");
   for (const [shape, count] of Object.entries(attributionShapes).sort((a, b) => b[1] - a[1])) {
     say(row(shape, count));
