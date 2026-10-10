@@ -87,7 +87,12 @@ describe("countOrZero, the one deliberate exception", () => {
 describe("no counted read substitutes a number for an unreadable count", () => {
   const files = readdirSync("src", { recursive: true, encoding: "utf8" })
     .filter((entry) => /\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry))
-    .map((entry) => `src/${entry}`);
+    // A recursive readdir joins with the platform's separator, so on Windows
+    // every nested entry arrived as `lib\server\operations.ts` and the paths
+    // below never matched -- the scan silently read only the top level of `src`
+    // and the two assertions that need a nested file failed for a reason that
+    // had nothing to do with what they check.
+    .map((entry) => `src/${entry.replace(/\\/g, "/")}`);
 
   const sources = new Map(files.map((file) => [file, readFileSync(file, "utf8")] as const));
   const counters = files.filter((file) => sources.get(file)?.includes('count: "exact"'));
