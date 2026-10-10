@@ -31,6 +31,7 @@
  * without a database.
  */
 
+import { composeFromSources } from "../editorial";
 import { selectReaderEvidence, type ReaderSource } from "../reader-evidence";
 
 export type ArtifactKind =
@@ -70,6 +71,35 @@ const NEWSLETTER_TITLE =
  * follows rather than that something happened.
  */
 const QUOTE_TITLE = /^(?:quoting|quote:)\b/i;
+
+/**
+ * An event promotion: a ticket incentive with a clock on it.
+ *
+ * The 2026-10-10 pool carried "TechCrunch Disrupt 2026 starts in 4 days — lock
+ * in your pass savings of up to $100 before prices rise", whose body is
+ * expo-hall copy. It escaped every rung above and was withheld only by
+ * accident — rung 1 was refusing it for a missing summary.
+ *
+ * 2026-10-10 ruling: judge the relationship between the money and its deadline,
+ * not the vocabulary around them. All three parts must be in the title — a
+ * ticket/pass noun, an incentive on it, and an explicit deadline or price
+ * increase — because any one alone is ordinary reporting. "Nvidia RTX Spark
+ * launches with a $2,599 price" has a figure and a launch; "Prime Day sales top
+ * $14B" has money and a shopping event; both are news. What a promotion has and
+ * a report does not is that the money is the reader's own and the clock is what
+ * takes it away.
+ *
+ * Deliberately no `NEWS_VERB` exemption here, unlike every other commerce rung:
+ * "starts in 4 days" is the offer's clock rather than an event happening, and
+ * the three-part conjunction is the guard that keeps a report out. A session
+ * listing that names its speakers is not refused by this rung at all — the
+ * ruling was explicit that concerning a commercial event is not itself a
+ * defect.
+ */
+const TICKET_NOUN = /\b(?:pass(?:es)?|tickets?|badges?|registration)\b/i;
+const TICKET_INCENTIVE = /\b(?:savings?|save|discounts?|% ?off)\b|\$\s?\d/i;
+const TICKET_DEADLINE =
+  /\b(?:before|as|when) prices? (?:rise|increase|go up|jump)\b|\bwhen (?:the )?doors open\b|\bends? (?:tonight|today|soon|this (?:week|month|weekend|friday))\b|\bearly[- ]bird\b|\blast chance\b/i;
 
 /**
  * A vendor's own marketing post shaped as a headline.
@@ -215,6 +245,11 @@ const COMMERCE_PRICE =
  * 200 live events this rule separated perfectly — 99 stories kept, none of them
  * empty, 35 withheld, none of them carrying a body — so it is a contract
  * between selection and composition rather than a guess at quality.
+ *
+ * This clause is the existing contract and is unchanged: a story whose evidence
+ * yields fewer than two accepted facts has nothing to build a body from, and the
+ * lead fact is spent on the deck. It is what the census calls a deck-only story,
+ * and it stays as it was (arbiter's ruling, 2026-10-10, D1 criterion 3).
  */
 const MIN_BODY_FACTS = 2;
 
@@ -236,6 +271,15 @@ const PRIMARY_SOURCE_KINDS: ReadonlySet<string> = new Set(["research", "github"]
 export function assessReadiness(input: {
   title: string;
   whatHappened: string | null | undefined;
+  /**
+   * The event's date, because the composer anchors relative time with it.
+   *
+   * Optional for the callers that do not load it (`briefing-preview`, some
+   * tests); a caller that has the date must pass it, or the gate composes a
+   * different article from the one the reader's page composes — one story's
+   * paragraph existed only when the date was present (2026-10-10, D1).
+   */
+  publishedAt?: string | null | undefined;
   sourceCount?: number;
   /**
    * Every feed this event came from, by `sources.kind`.
@@ -262,9 +306,24 @@ export function assessReadiness(input: {
   const title = (input.title ?? "").replace(/\s+/gu, " ").trim();
   const what = (input.whatHappened ?? "").replace(/\s+/gu, " ").trim();
 
-  // Rung 1: there has to be a summary. A 19-character excerpt with no summary
-  // is #22 — a headline, a source rail, and nothing to read.
-  if (what.length < 20) {
+  // Rung 1: is there anything to read at all. A 19-character excerpt with no
+  // summary is #22 — a headline, a source rail, and nothing to read.
+  //
+  // With the story's own coverage in hand, that question is answered by the
+  // coverage itself, in the briefability rung at the end; without it, the
+  // summary is the only readability the gate can see. `sources === undefined`
+  // is therefore the test, not "an empty list": a caller that loaded coverage
+  // and found none has *established* that there is nothing to read.
+  //
+  // The rung used to refuse on the summary alone, and the 2026-10-10 frozen
+  // corpus showed what that cost: 26 of 200 stories whose `what_happened` was
+  // never written, whose own coverage composes 3-6 paragraphs (a chain-reaction
+  // crash with the FDNY in the deck, a banned parade, a vaccine trial, a Fed
+  // appointment), were withheld as unreadable. 13% of the corpus, invisible to
+  // the reader and to the operator — the miss this gate's header calls the
+  // worse failure. The arbiter's 2026-10-10 ruling: readability is the evidence
+  // rung's question wherever the evidence was actually loaded.
+  if (input.sources === undefined && what.length < 20) {
     return { ready: false, kind: "empty", reason: "summary below 20 characters" };
   }
 
@@ -327,6 +386,14 @@ export function assessReadiness(input: {
     return { ready: false, kind: "commerce", reason: "title is a shop shelf with a price on it" };
   }
 
+  if (TICKET_NOUN.test(title) && TICKET_INCENTIVE.test(title) && TICKET_DEADLINE.test(title)) {
+    return {
+      ready: false,
+      kind: "commerce",
+      reason: "title is an event promotion with a deadline on it",
+    };
+  }
+
   if (QUOTE_TITLE.test(title)) {
     return { ready: false, kind: "quote", reason: "title announces a quotation, not an event" };
   }
@@ -364,6 +431,19 @@ export function assessReadiness(input: {
   // the composer will not pad one out of the scraps of a refused sentence, and
   // "nyuz did not brief this" costs the reader less than "nyuz said this is
   // what the story says".
+  //
+  // Two clauses, two sources, on purpose. The arbiter's ruling of 2026-10-10
+  // (D1) added the second: publication is a hard readiness condition, evaluated
+  // on the authoritative composition -- composed once here, from the same inputs
+  // the delivery path composes from -- so readiness cannot promise prose the
+  // publication rules will refuse.
+  //
+  // The first clause deliberately still reads the evidence pass's own count, and
+  // not the composition's `selected`. Those two counts differ on 45 of the
+  // corpus's 200 stories, and adopting the composer's number as the floor would
+  // withhold one story the ruling never asked to withhold. Criterion 3 of that
+  // ruling left the deck-only contract exactly as it was, so the arithmetic is
+  // untouched and only the new condition comes from the composition.
   if (input.sources !== undefined) {
     const { composedFactCount } = selectReaderEvidence(title, input.sources);
     if (composedFactCount < MIN_BODY_FACTS) {
@@ -372,6 +452,33 @@ export function assessReadiness(input: {
         kind: "unbriefable",
         reason: `${composedFactCount} accepted fact(s); a body needs ${MIN_BODY_FACTS}`,
       };
+    }
+    const { article, selectedFacts, refusedFacts } = composeFromSources(title, input.sources, {
+      publishedAt: input.publishedAt,
+    });
+    if (article.paragraphs.length === 0) {
+      // The arbiter's decision table (D1 clarify, 2026-10-10). "No paragraph,
+      // refuse" is too broad: a one-fact composition that publishes its deck is
+      // an allowed deck-only outcome, not a lost body, and the floor above is
+      // what governs it. What must never pass is a story whose body was there
+      // and was refused, or one whose emptiness no rule can account for -- that
+      // last case fails closed, because an unexplained empty body is the defect
+      // this condition exists to stop, and assuming deck-only would hide it.
+      if (refusedFacts > 0) {
+        return {
+          ready: false,
+          kind: "unbriefable",
+          reason: `${composedFactCount} accepted fact(s); the composer refused the body (${refusedFacts} fact(s))`,
+        };
+      }
+      if (selectedFacts !== 1) {
+        return {
+          ready: false,
+          kind: "unbriefable",
+          reason: `${composedFactCount} accepted fact(s); no paragraph and no rule accounts for it (${selectedFacts} usable fact(s))`,
+        };
+      }
+      // Deck-only: one usable fact, spent on the deck, nothing refused. Allowed.
     }
   }
   if ((input.sourceCount ?? 1) < 2 && !NEWS_VERB.test(title)) {

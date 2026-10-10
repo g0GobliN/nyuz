@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { composeFromSources } from "../editorial";
 import { assessReadiness } from "./readiness";
 
 /**
@@ -488,5 +489,268 @@ describe("assessReadiness — briefability", () => {
         sources: [{ name: "Cloudflare", excerpt: "The router picks the cheapest model." }],
       }),
     ).toEqual({ ready: false, kind: "marketing", reason: expect.any(String) });
+  });
+});
+
+/**
+ * Readability is the coverage's question, not the summary's (2026-10-10).
+ *
+ * The frozen 200-event corpus measured the rung this replaces: 26 stories whose
+ * `what_happened` was never written but whose own coverage composes 3-6
+ * paragraphs were withheld as "unreadable" — 13% of the corpus, invisible to
+ * the reader. The arbiter's ruling draws the line at whether the caller loaded
+ * coverage at all, and demands the distinction between *no* evidence and an
+ * explicitly empty list be tested rather than assumed.
+ */
+describe("assessReadiness — the summary rung and the evidence", () => {
+  it("keeps a story with no summary whose own coverage composes a body", () => {
+    // The shape of eight of the 26: a Guardian event whose summary was never
+    // written, and whose first two paragraphs carry the story (FDNY, the nine
+    // treated, the woman pronounced dead at Jacobi).
+    expect(
+      assessReadiness({
+        title: "One person killed and nine injured in chain-reaction crash in New York City",
+        whatHappened: "",
+        sourceCount: 1,
+        sources: [
+          {
+            name: "The Guardian",
+            excerpt:
+              "The New York fire department said emergency crews treated nine people after the crash. One woman was pronounced dead at Jacobi medical center.",
+          },
+        ],
+      }),
+    ).toEqual({ ready: true });
+  });
+
+  it("refuses on the summary when the caller has loaded no coverage", () => {
+    // Unchanged behaviour, and the reason the rung stays: this caller cannot
+    // answer the readability question any other way.
+    expect(
+      assessReadiness({ title: "Parties prepare for a byelection", whatHappened: "" }),
+    ).toEqual({ ready: false, kind: "empty", reason: "summary below 20 characters" });
+  });
+
+  it("reads an explicitly empty source list as evidence that there is nothing to read", () => {
+    // Not the same case as an absent list. A caller that loaded the coverage and
+    // found none has established that the story has no body, and must not fall
+    // back to the summary rung — which would report "unreadable" for a reason
+    // the caller already disproved.
+    expect(
+      assessReadiness({
+        title: "Two Latvians arrested at RAF base",
+        whatHappened: "",
+        sources: [],
+      }),
+    ).toEqual({ ready: false, kind: "unbriefable", reason: expect.any(String) });
+  });
+
+  it("still withholds a story whose coverage cannot make a body", () => {
+    // The other 22 of the 44: the refusal moves from the summary rung to the
+    // evidence rung, and the reader's outcome is the same — no card.
+    expect(
+      assessReadiness({
+        title: "Ed Davey faces growing revolt against leadership",
+        whatHappened: "",
+        sourceCount: 1,
+        sources: [{ name: "The Guardian", excerpt: "Photograph: Dan Kitwood/Getty Images" }],
+      }),
+    ).toEqual({ ready: false, kind: "unbriefable", reason: expect.any(String) });
+  });
+
+  it("refuses a story that passes the fact floor and publishes no paragraph", () => {
+    // The delivery breach of 2026-10-10, on the live corpus, and the arbiter's
+    // hard condition: paragraph publication is a readiness condition regardless
+    // of the selected fact count. Three facts are accepted here, the composer
+    // then refuses both non-deck sentences as `stacked_quotes`, and the reader
+    // would have received a headline, a 31-word deck and no article.
+    //
+    // This is the test that must fail against the old behaviour: the premise
+    // below (>= 2 accepted facts, 0 paragraphs) is exactly what the old
+    // fact-count rung admitted.
+    const title = "Microsoft barred from sponsoring foreign workers for US residency";
+    const sources = [
+      {
+        name: "Ars Technica",
+        headline: title,
+        excerpt:
+          "Donald Trump’s administration has temporarily banned Microsoft, Adobe, and several other tech companies from sponsoring workers for permanent US residency, claiming they abused immigration programs at the expense of American citizens. Vice-president JD Vance said on Thursday that the H-1B visa programme for highly skilled foreign workers had “become rife with fraud” and that over-reliance on such schemes was “a fundamental insult to the American worker.” He added that “no company in the US” had “abused this system” more than Microsoft. Read full article. Comments",
+      },
+    ];
+
+    const { article, selectedFacts, refusedFacts } = composeFromSources(title, sources);
+    expect(selectedFacts).toBeGreaterThanOrEqual(2);
+    expect(article.paragraphs).toHaveLength(0);
+    expect(refusedFacts).toBeGreaterThan(0);
+
+    expect(assessReadiness({ title, whatHappened: "", sourceCount: 1, sources })).toEqual({
+      ready: false,
+      kind: "unbriefable",
+      reason: expect.stringContaining("the composer refused the body"),
+    });
+  });
+
+  it("allows a deck-only candidate the floor admits, because nothing was refused", () => {
+    // The arbiter's clarification of D1: "no paragraph, no briefing" is too
+    // broad. A composition with a single usable fact publishes its deck and
+    // refuses nothing -- an allowed deck-only outcome, which the existing floor
+    // governs and this condition must not override. Only a body that existed and
+    // was refused (above), or an emptiness no rule explains, fails readiness.
+    const title = "OpenAI ships a reasoning model";
+    const sources = [
+      {
+        name: "The Verge",
+        headline: title,
+        excerpt:
+          "OpenAI released a reasoning model this morning, published alongside API documentation and a pricing page. The lab said the model is available to existing customers today.",
+      },
+    ];
+
+    const { article, selectedFacts, refusedFacts } = composeFromSources(title, sources);
+    // The floor is met on the evidence count (2), the composition has one
+    // usable fact, and nothing was refused: this is the deck-only shape exactly.
+    expect(selectedFacts).toBe(1);
+    expect(refusedFacts).toBe(0);
+    expect(article.paragraphs).toHaveLength(0);
+    expect(assessReadiness({ title, whatHappened: "", sourceCount: 1, sources })).toEqual({
+      ready: true,
+    });
+  });
+
+  it("leaves the deck-only contract to the fact floor, not to the paragraph condition", () => {
+    // Arbiter's ruling, criterion 3: a one-fact story intentionally eligible for
+    // deck-only publication is not a defect and is not refused by the new
+    // condition — it is refused by the floor that has always refused it, and the
+    // reason says which. A reader outcome that is identical for two different
+    // reasons is how a rule stops being readable.
+    const title = "Valve confirms Steam Machine pricing for the holiday season";
+    const sources = [
+      {
+        name: "The Verge",
+        excerpt: "Valve confirmed the Steam Machine will cost $549 when it ships in December.",
+      },
+    ];
+
+    const { article, selectedFacts } = composeFromSources(title, sources);
+    expect(selectedFacts).toBeLessThan(2);
+    expect(article.paragraphs).toHaveLength(0);
+
+    expect(assessReadiness({ title, whatHappened: "", sourceCount: 1, sources })).toEqual({
+      ready: false,
+      kind: "unbriefable",
+      reason: `${selectedFacts} accepted fact(s); a body needs 2`,
+    });
+  });
+
+  it("still admits a story the composer turns into a real body", () => {
+    // The over-withholding guard. The new condition may only refuse stories the
+    // composer cannot publish; a normal two-sentence story must keep shipping.
+    const title = "Nvidia agrees to acquire Hugging Face for $13 billion";
+    const sources = [
+      {
+        name: "Reuters",
+        excerpt:
+          "Nvidia announced Monday it has agreed to acquire Hugging Face for $13 billion in cash and stock. The deal is expected to close in the first quarter, pending regulatory approval.",
+      },
+      {
+        name: "Bloomberg",
+        excerpt:
+          "The purchase price represents a 40% premium over Hugging Face's last private valuation. Both boards have approved the transaction.",
+      },
+    ];
+
+    const { article } = composeFromSources(title, sources);
+    expect(article.paragraphs.length).toBeGreaterThan(0);
+    expect(assessReadiness({ title, whatHappened: "", sourceCount: 2, sources })).toEqual({
+      ready: true,
+    });
+  });
+
+  it("composes with the event's date, so an anchored fact is not lost", () => {
+    // The audit caught this the moment the gate started composing: this story's
+    // only body fact carries a relative time ("this year"), which the composer
+    // anchors to the event's date. Composed without the date it is refused, the
+    // deck is all that is left, and the gate withholds a story the reader's page
+    // publishes -- over-withholding, which is invisible to the reader and was
+    // 19 -> 20 on the frozen corpus before this was fixed.
+    const title = "Why American investors love European defense startups";
+    const sources = [
+      {
+        name: "NPR News",
+        headline: title,
+        excerpt:
+          "As European defense spending takes off, just about half of the funding in Europe's defense tech industry is coming from American investors this year. One reason why: European investment firms have restrictions on how they can invest.",
+      },
+    ];
+
+    const dated = composeFromSources(title, sources, {
+      publishedAt: "2026-10-09T11:00:00+00:00",
+    });
+    expect(dated.article.paragraphs.length).toBeGreaterThan(0);
+    expect(
+      assessReadiness({
+        title,
+        whatHappened: "",
+        sourceCount: 1,
+        sources,
+        publishedAt: "2026-10-09T11:00:00+00:00",
+      }),
+    ).toEqual({ ready: true });
+
+    // Without the clock the same story degrades to its deck: still a publishable
+    // deck-only outcome, so still ready, but the body the reader's page
+    // publishes is gone. That difference -- an article versus a deck -- is why
+    // the date is an input to the gate rather than decoration.
+    const undated = composeFromSources(title, sources);
+    expect(undated.article.paragraphs).toHaveLength(0);
+    expect(assessReadiness({ title, whatHappened: "", sourceCount: 1, sources })).toEqual({
+      ready: true,
+    });
+  });
+
+  it("withholds an event promotion whose incentive carries a deadline", () => {
+    // 2026-10-10 pool. It escaped every commerce rung above and was withheld
+    // only by accident, by the summary rung this change fixes.
+    expect(
+      assessReadiness({
+        title:
+          "TechCrunch Disrupt 2026 starts in 4 days — lock in your pass savings of up to $100 before prices rise",
+        whatHappened: "",
+        sourceCount: 1,
+        sources: [
+          {
+            name: "TechCrunch",
+            excerpt:
+              "Ticket savings of up to $100 will end when doors open on October 13. The Expo Hall opens at 8 a.m.",
+          },
+        ],
+      }),
+    ).toEqual({ ready: false, kind: "commerce", reason: expect.any(String) });
+  });
+
+  it("judges the relationship, so one part alone is not a promotion", () => {
+    // The 2026-10-10 ruling: a ticket noun, an incentive, and a clock are each
+    // ordinary reporting on their own. Every case below is a real corpus title
+    // (or its shape) that must keep shipping.
+    for (const item of [
+      {
+        title: "Nvidia RTX Spark launches with a $2,599 price",
+        whatHappened: "The card ships this month.",
+      },
+      {
+        title: "Prime Day sales top $14B as shoppers front-load holiday spend",
+        whatHappened: "Adobe reported the figure.",
+      },
+      {
+        title: "Ticket prices rise before the World Cup final",
+        whatHappened: "Resale sites reported the increase.",
+      },
+      {
+        title: "TechCrunch Disrupt 2026: Gamma's Grant Lee on landing your first 1,000 customers",
+        whatHappened: "A session at the conference.",
+      },
+    ]) {
+      expect(assessReadiness({ ...item, sourceCount: 1 }).ready, item.title).toBe(true);
+    }
   });
 });

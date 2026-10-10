@@ -710,6 +710,16 @@ type EventBrief = {
    * and shared with the email path, which needed the excerpts anyway.
    */
   sources: ReaderSource[];
+  /**
+   * The event's clock, so the readiness gate can compose the same article the
+   * reader's page composes.
+   *
+   * A source's relative time ("this year") is anchored to it. Composed without
+   * it, a fact the delivery path publishes is refused instead, and the gate
+   * withholds a story it should have shipped -- measured on the frozen corpus,
+   * where one story's only body fact was date-anchored.
+   */
+  publishedAt: string | null;
 };
 
 async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise<DigestOutcome> {
@@ -821,6 +831,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
       sourceCount: brief.sourceCount,
       sources: brief.sources,
       sourceKinds: brief.sourceKinds,
+      publishedAt: brief.publishedAt,
     });
     if (verdict.ready) ready.push(brief);
     else withheld.push({ eventId: brief.eventId, kind: verdict.kind });
@@ -1328,7 +1339,7 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   const { data, error } = await db
     .from("events")
     .select(
-      "id, title, what_happened, before_state, after_state, importance, novelty, publisher_count, tags",
+      "id, title, what_happened, before_state, after_state, importance, novelty, publisher_count, tags, first_seen_at, material_occurrence_at",
     )
     .in("id", ids);
   if (error) throw new Error(`reading events: ${error.message}`);
@@ -1439,6 +1450,9 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
         sourceKinds: [...(kinds.get(row.eventId) ?? [])],
         relevance: row.relevance,
         matchedAt: row.matchedAt,
+        // The occurrence clock for a revised event, `first_seen_at` otherwise --
+        // the same choice the reader's page makes when it dates a story.
+        publishedAt: event.material_occurrence_at ?? event.first_seen_at ?? null,
       },
     ];
   });
