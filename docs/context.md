@@ -216,11 +216,11 @@ unexplained` per story, with the rule named for every explained absence; the ran
     `These price increases have been caused by the boom in AI data centers, Counterpoint
 Research said.` — the corpus defect, reproduced.
 - **2026-10-11 — this file, and the two rules that keep it true.** `docs/context.md` exists as
-the first thing a session reads, and [AGENTS.md](../AGENTS.md) now requires it to be updated in
-the same commit as the change it describes. The rules come with the skills that carry them:
-`arbitrate-first` (extended: the arbiter is asked **first** and may be questioned as much as the
-evidence warrants, with the owner as the escalation) and `keep-context-current` (new), both in
-`docs/skills/` and installed account-wide, so every project gets them.
+  the first thing a session reads, and [AGENTS.md](../AGENTS.md) now requires it to be updated in
+  the same commit as the change it describes. The rules come with the skills that carry them:
+  `arbitrate-first` (extended: the arbiter is asked **first** and may be questioned as much as the
+  evidence warrants, with the owner as the escalation) and `keep-context-current` (new), both in
+  `docs/skills/` and installed account-wide, so every project gets them.
 
 ## 7. What is next
 
@@ -287,17 +287,17 @@ From [AGENTS.md](../AGENTS.md), which is authoritative:
 
 ## 10. Where the detail lives
 
-| question                                              | file                                                                                                                             |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- || Working rules for an agent in this repo                   | [AGENTS.md](../AGENTS.md)                                                |
-| The skills that carry those rules (install fields + text)  | [skills/](skills/) — `arbitrate-first.md`, `keep-context-current.md`      |
-| Product state, area by area                           | [status.md](status.md)                                                                                                           |
-| Rulings on the reader-delivery path, with their dates | [decisions/reader-delivery.md](decisions/reader-delivery.md)                                                                     |
-| The reader-quality loop in more depth                 | [briefing-quality-handoff.md](briefing-quality-handoff.md)                                                                       |
-| Reader quality audit method                           | [reader-quality-audit.md](reader-quality-audit.md)                                                                               |
-| Architecture, database, deployment, development       | [architecture.md](architecture.md), [database.md](database.md), [deployment.md](deployment.md), [development.md](development.md) |
-| The admin console                                     | [admin-console.md](admin-console.md)                                                                                             |
-| Editing site content                                  | [site-content.md](site-content.md)                                                                                               |
-| Vocabulary                                            | [glossary.md](glossary.md)                                                                                                       |
+| question | file |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- || Working rules for an agent in this repo | [AGENTS.md](../AGENTS.md) |
+| The skills that carry those rules (install fields + text) | [skills/](skills/) — `arbitrate-first.md`, `keep-context-current.md` |
+| Product state, area by area | [status.md](status.md) |
+| Rulings on the reader-delivery path, with their dates | [decisions/reader-delivery.md](decisions/reader-delivery.md) |
+| The reader-quality loop in more depth | [briefing-quality-handoff.md](briefing-quality-handoff.md) |
+| Reader quality audit method | [reader-quality-audit.md](reader-quality-audit.md) |
+| Architecture, database, deployment, development | [architecture.md](architecture.md), [database.md](database.md), [deployment.md](deployment.md), [development.md](development.md) |
+| The admin console | [admin-console.md](admin-console.md) |
+| Editing site content | [site-content.md](site-content.md) |
+| Vocabulary | [glossary.md](glossary.md) |
 
 ## 11. Commands worth knowing
 

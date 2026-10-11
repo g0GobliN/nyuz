@@ -72,7 +72,7 @@ The change and its context entry are one commit. Not "afterwards", not "in a doc
 the same commit, because a change that is not recorded reads as a change that never happened,
 and the next session will re-litigate it or undo it.
 
-That means: append the work-log entry, move the item out of *next*, update the state row, and
+That means: append the work-log entry, move the item out of _next_, update the state row, and
 correct any number the change moved. If the change was a decision, the ruling goes in the
 decision log and the context file points at it.
 
@@ -115,11 +115,11 @@ context file only the last session can see is the same as no context file at all
 
 ## Limits the app enforces (from its own schema)
 
-| Rule               | Value                            | This skill |
-| ------------------ | -------------------------------- | ---------- |
-| Name               | `^[a-z0-9][a-z0-9-]{0,63}$`      | matches (20 chars) |
-| Description        | 1–1000 chars                     | 423        |
-| Instructions       | 1–50,000 chars                   | 4,631      |
+| Rule         | Value                       | This skill         |
+| ------------ | --------------------------- | ------------------ |
+| Name         | `^[a-z0-9][a-z0-9-]{0,63}$` | matches (20 chars) |
+| Description  | 1–1000 chars                | 423                |
+| Instructions | 1–50,000 chars              | 4,631              |
 
 ## The repository half of this skill
 
