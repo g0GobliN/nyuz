@@ -19,10 +19,18 @@
  *   failed            the pass threw
  *   covered           usable evidence reached the reader
  *
- * Only `never_attempted`, `extraction_empty`, `pending` and `failed` are fixable.
  * `blocked` is a boundary this project keeps on purpose and `thin_content` is a
- * property of the source, so a report that lumps them in with the fixable ones
- * would send the next change to the wrong file.
+ * property of the source, so a report that lumps them in with the others would
+ * send the next change to the wrong file.
+ *
+ * `never_attempted`, `extraction_empty`, `pending` and `failed` are the families
+ * *worth attributing* -- not four families of fixable stories. The arbiter ruled
+ * on 2026-10-11 (D6) that this distinction has to survive into the report: on the
+ * 30-day window of that date, 267 of the 285 `never_attempted` events were
+ * `never_matched`, i.e. outside both dispatch arms by design, so the honest
+ * estimate of the dispatchable remainder was nearer 198 than 465 -- and even that
+ * is an estimate, because eligibility for a retry does not prove a retry recovers
+ * usable evidence. Run `npm run audit:enrichment:cause` for the attribution.
  *
  * It writes nothing to the database: SELECT only, service-role client, same as
  * `db:status`. Node 22 or later.
@@ -203,9 +211,23 @@ main(async () => {
   const boundary = result.buckets
     .filter((bucket) => ["blocked", "thin_content", "unreachable"].includes(bucket.absence))
     .reduce((sum, bucket) => sum + bucket.events, 0);
-  say(rowLine("fixable families", fixable));
+  // Called "families worth attributing" and not "fixable", per the arbiter's
+  // ruling of 2026-10-11 on D6. The earlier label read as "this many stories can
+  // be recovered", and it is not that: the largest family inside it,
+  // `never_attempted`, is dominated by events nobody was ever matched to and
+  // whose articles are older than the 72-hour fallback arm -- permanently outside
+  // the enrich stage's dispatch arms by design. Running more ticks cannot reach
+  // them, and the deliberate cost boundary is the point rather than the loss.
+  // The attribution is the second stage's job (`audit:enrichment:cause`), so this
+  // report names it instead of guessing which share is really dispatchable.
+  say(rowLine("families worth attributing", fixable));
   say(rowLine("boundaries, not defects", boundary));
   say(rowLine("uncovered carrying importance>=7", result.uncoveredNotable));
+  say(
+    "  Not a count of recoverable stories: eligibility for a retry does not prove that retrying\n" +
+      "  recovers usable evidence, and `never_attempted` includes events no dispatch rule targets.\n" +
+      "  Attribute that family with `npm run audit:enrichment:cause` before reading any of it as loss.",
+  );
 
   heading("The uncovered events, by importance");
   const uncoveredIds = new Set(

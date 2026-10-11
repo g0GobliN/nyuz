@@ -1,9 +1,14 @@
 /**
  * Why the `never_attempted` articles were never attempted.
  *
- * The enrichment census says 830 of 1020 articles in the window have no
- * `article_evidence` row at all. This script asks the next question: which gate
- * kept them out? The enrich stage's candidate arms are, in order:
+ * This is the second stage of `audit:enrichment`: the census reports how many
+ * articles have no `article_evidence` row at all, and this asks which gate kept
+ * each one out. The arbiter's D6 ruling (2026-10-11) is why the split is load
+ * bearing -- `never_matched` is the enrich stage's deliberate cost boundary, not
+ * loss, and a report that treats all of `never_attempted` as recoverable reads the
+ * boundary as a defect. Run it as `npm run audit:enrichment:cause`.
+ *
+ * The enrich stage's candidate arms are, in order:
  *
  *   priority  events with a `user_events.matched_at` in the last 24 hours
  *   fallback  articles `published_at` inside `activeCutoff` (72 hours)

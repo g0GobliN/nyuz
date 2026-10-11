@@ -197,7 +197,34 @@ never_matched 267   priority_arm 9   fallback_arm 4   source_gate 4   outside_bo
   within 24 hours and their articles were inside the candidate arms, so the dispatch should have
   picked them and did not (`ENRICH_LIMIT` is 3 per tick, newest-published first).
 
-## 4. Proposed disposition, for a narrow ruling
+## 4. The ruling on the disposition (2026-10-11)
+
+**Accepted and closed.** The arbiter accepted the classification and the four dispositions as
+reported, and ruled on the boundary it exposed:
+
+- **The 267 `never_matched` events are intentional cost-gate behaviour**, to be recorded as such in
+  the audit's reporting and documentation — never loss, never a defect, not recoverable by running
+  more ticks. Implemented: `audit:enrichment` prints **`families worth attributing`** instead of
+  `fixable families`, with a caveat that it is not a count of recoverable stories and a pointer to
+  `npm run audit:enrichment:cause` — which now exists as an npm script; before this it was a
+  script only reachable by path, so the boundary it measures was not measurable by the documented
+  route. **~198 remains an estimate, not a verified count** of recoverable stories.
+- **Next slice: `priority_arm` 9** (item 2 below), with conditions attached: reconstruct each
+  event's eligibility at decision time; establish its place in the candidate ordering and whether
+  `ENRICH_LIMIT` 3 kept it out; separate legitimate deferral to newer work from starvation by
+  repeated selection; and determine whether repeated ticks can reach an eligible event under the
+  current rules at all. A demonstrated defect needs a fail-before test, the narrowest correction, a
+  before/after measurement, no change to unrelated eligibility rules, and evidence the correction
+  prevents recurrence — not one tick happening to process the nine. **Raising `ENRICH_LIMIT` or
+  widening the fallback window to make the nine disappear is explicitly not authorised.**
+- **Then `extraction_empty` 180** (item 3 below), as its own slice, distinguishing content genuinely
+  unusable from content lost during extraction, structural-parsing failures, and cases where the
+  reported word count does not describe what the extractor evaluated.
+- **No enrichment eligibility was widened, and no broad rule change is authorised.**
+- The two cross-references are live for the later queues: `Quoting Matthew Green` belongs to the
+  quote-opening family (D4), the Microsoft story to the stacked-quotes family (D7).
+
+## 5. Proposed disposition (as put to the arbiter)
 
 1. **No composer rule changes.** Zero false refusals, zero evidence-selection defects, zero
    unresolved across all 59. There is nothing here for a release rule to fix, and this is the
@@ -214,11 +241,12 @@ never_matched 267   priority_arm 9   fallback_arm 4   source_gate 4   outside_bo
    `unresolved_context`). The class is keyed on `selected === 1`, so its name overstates. Both are
    charged to a named rule, so neither is a defect; on the frozen 200 the label is exact (0 of 26).
 
-## 5. Provenance
+## 6. Provenance
 
 - `npm run audit:reader -- --corpus tmp/corpus-after.json` (frozen 200) and `npm run audit:reader`
   (live 200), 2026-10-11. Census `59 (31/26/2)`, ledger `1572 = 1418 + 154 + 0`,
   `delivered with no body 0`, `readable stories withheld 14` — identical before and after the
   instrument change, per-story ledger byte-identical.
 - `npm run audit:enrichment` and `scripts/reader-enrichment-cause.ts`, 2026-10-11, 30-day window.
+- `npm run audit:enrichment:cause` (the same 30-day window), 2026-10-11 — now an npm script.
 - The frozen corpus and its baseline were **not** changed, and no composer rule was touched.

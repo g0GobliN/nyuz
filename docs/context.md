@@ -278,7 +278,7 @@ Research said.` — the corpus defect, reproduced.
   controls are [reader-quote-opening.test.ts](../src/lib/reader-quote-opening.test.ts), including
   the case the tests caught while being written — a quotation glued to its attribution is one
   sentence to the splitter, so the repeat check reads the quoted sentence too.
-- **2026-10-11 — D6, the 59 silent stories accounted for one by one.** The ruling asked for every one
+- **2026-10-11 — D6, the 59 silent stories accounted for one by one** (`7a05c8f`). The ruling asked for every one
   of the 59 individually, with its evidence and decision-time context, and forbade a broad release
   rule before they were understood. The classification is
   [decisions/d6-silence-classification.md](decisions/d6-silence-classification.md), and **it changes
@@ -298,6 +298,16 @@ Research said.` — the corpus defect, reproduced.
   `priority_arm` 9 (a matched, in-arm article no tick reached) and `extraction_empty` 180 (fetched,
   enough words, zero units). Also reported: the census's `fixable families 465` counts the 267
   `never_matched` boundary as fixable, so the honest figure is nearer 198.
+- **2026-10-11 — D6 accepted, and the cost boundary recorded as behaviour.** The arbiter accepted the
+  classification and ruled the `never_matched` 267 to be **intentional cost-gate behaviour**: not lost
+  stories, outside both enrich dispatch arms by design, and not recoverable by running more ticks.
+  `audit:enrichment`'s headline line is therefore `families worth attributing` rather than `fixable
+families`, with a printed note that it is not a count of recoverable stories and that the family
+  must be attributed with `npm run audit:enrichment:cause` — a script that existed but was unreachable
+  by `npm run` until now. ~198 stays an **estimate** of the dispatchable remainder, not a verified
+  count. No enrichment eligibility was widened. The two cross-references in the classification are
+  live for the later queues: `Quoting Matthew Green` belongs to the quote-opening family (D4) and the
+  Microsoft story to the stacked-quotes family (D7).
 
 ## 7. What is next
 
@@ -321,12 +331,15 @@ shapes` section whenever the ingestion mix changes.
    understood. The classification and the proposed disposition come first, with any clearly
    reproducible defect brought forward for a narrow ruling. Not all 59 should be published: the
    question is whether each disposition is right, not how much output there is.
-   **Classified 2026-10-11 — see §6 and
+   **Ruled and closed 2026-10-11 — see §6 and
    [decisions/d6-silence-classification.md](decisions/d6-silence-classification.md): 0 false
-   refusals, 0 evidence-selection defects, 0 unresolved, and nothing for a release rule to fix. Two
-   narrow items await a ruling — `priority_arm` 9 (dispatch starvation: a matched, in-arm article no
-   tick reached) and `extraction_empty` 180 (fetched, enough words, zero units) — and the 267
-   `never_matched` events are the deliberate enrich cost boundary, not loss.**
+   refusals, 0 evidence-selection defects, 0 unresolved, and nothing for a release rule to fix. The
+   arbiter accepted it and ruled the 267 `never_matched` events intentional cost-gate behaviour, not
+   lost stories. Two narrow items came forward and are ordered: next is `priority_arm` 9 (dispatch
+   starvation — a recently matched reader with in-arm articles that no tick reached), then
+   `extraction_empty` 180 (fetched, enough words, zero units) as its own evidence-extraction slice.
+   Neither may be "fixed" by raising `ENRICH_LIMIT` or widening a window, and no broad rule change is
+   authorised.**
 4. **The 9 two-quote blocks** — D7, after D6. D4 measured that they do **not** overlap the 29
    quote-opening blocks on this corpus (0), so they are their own queue and are not yet classified.
 5. **The `rss` risk, kept visible**: no new evidence yet justifies changing the policy again, so the

@@ -442,6 +442,35 @@ dispatch-starvation candidate. `extraction_empty` 180 — fetched, enough words,
 family that is real loss, and an evidence-pass question rather than a readiness one. No composer rule
 is proposed for change: there was nothing for one to fix.
 
+### D6 ruling (2026-10-11) — accepted and closed
+
+The arbiter accepted the classification in full and ruled on the boundary it exposed:
+
+- **The 59 dispositions are accepted as reported** — 26 / 2 / 7 / 24, with false refusals,
+  evidence-selection defects and unresolved all zero. The distinction between material that was
+  _refused_ and material that was _never available to be evaluated_ is the finding that mattered: a
+  headline plus photo credit is a coverage-availability problem, not a failed composition.
+- **`never_matched` 267 is recorded as intentional cost-gate behaviour**, explicitly, in the audit's
+  reporting and in its documentation: never loss, never defect, and not recoverable by running more
+  ticks. `audit:enrichment` therefore prints **`families worth attributing`**, not `fixable families`,
+  with a printed caveat that it is not a count of recoverable stories and a pointer to
+  `npm run audit:enrichment:cause` for the attribution. **~198 is an estimate of the dispatchable
+  remainder, not a verified count of recoverable stories** — eligibility for a retry does not prove a
+  retry recovers usable evidence.
+- **Next slice: `priority_arm` 9.** The investigation must reconstruct each event's eligibility at
+  decision time, establish its place in the candidate ordering and whether `ENRICH_LIMIT` 3 kept it
+  out, separate legitimate deferral to newer work from starvation by repeated selection, and determine
+  whether repeated ticks can reach an eligible event under the current rules at all. If a defect is
+  demonstrated it needs a fail-before test and the narrowest correction, plus a before/after
+  measurement, no change to unrelated eligibility rules, and evidence the correction prevents
+  recurrence rather than one tick happening to process the nine. **Raising `ENRICH_LIMIT` or widening
+  the fallback window to make the nine disappear is explicitly not authorised.**
+- **Then `extraction_empty` 180, as its own slice**, distinguishing content genuinely unusable from
+  content lost during extraction, structural-parsing failures, and cases where the reported word count
+  does not describe what the extractor evaluated. Readiness and composition are not to be changed to
+  compensate for evidence that was never produced.
+- **No broad rule change is authorised by any of this.**
+
 ## D4 — a quote opening is classified, not queued (2026-10-11)
 
 **The case, before any change.** The audit counted 29 published blocks opening on a quotation and
