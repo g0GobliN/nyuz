@@ -790,3 +790,56 @@ options, each with what it costs on the same history:
 
 The recommendation is not made here: (b) and (c) both trade a reader-visible failure for an invisible
 one, and that trade is the arbiter's to rule on.
+
+## D9 — the block that opens on a truncated sentence (2026-10-11, open)
+
+**Status: OPEN, evidence recorded, no code landed.** Found while verifying D8: with the alert gate
+landed, three of the most recent alerted stories were read by hand through the composer audit
+(`npm run audit:reader -- --find "<title>" --show 1`) to check the reader's page behind an alert. The
+audit reports **0 reader-visible defects** on all three. A person reading them finds five.
+
+**The evidence, quoted from the composed pages (2026-10-11, live window).** Each is the _first
+sentence of a published block_, which is the position that has no sentence before it to repair it:
+
+```
+FBI Arrests Founder of Ransomware Negotiation Firm
+  ¶1  "… An online search reveals the Summit was held at the Loews Philadelphia Hotel between Oct."
+      ^ ends mid-date: "between Oct." is not a sentence
+  ¶5  "… The FBI declined to comment for this story. Investors.boeing.com/investors/news/press-release-details/2025/Boeing-to-Sell-…-for-10-55-Billion/default.aspx Am wondering what ransomware negotiations he was involved in."
+      ^ a raw URL and a forum comment, published as reporting
+  ¶5  opens "For example, was he involved in the United Healthcare/ChangeHealth ransomware incident?"
+      ^ a question with no antecedent — charged to no rule
+
+Super Micro smuggling co-conspirator pleads guilty to sending AI chips to China
+  ¶2  "The Super Micro co-founder is set to go to trial this coming Nov."
+  ¶3  opens "Sun is also expected to be sentenced on Sept."          ^ truncated month
+  ¶5  opens "2, even as the third co-conspirator, Chang, remains a fugitive."   ^ opens on "2,"
+
+PS5 hack delivers native PS2 disc support and 4K upscaling where Sony refused
+  deck "One standout feature is high-resolution upscaling, enabling 6X scaling …"
+       ^ a deck whose first words refer to a feature the page has not introduced
+  ¶1   "… Sony is evident that the console can play games from older generations of consoles all this time."
+       ^ broken clause, published
+```
+
+**Why this is its own entry and not a D8 follow-up.** D8 is about _what an alert is allowed to be_;
+this is about the _prose_ the reader lands on, and it applies to the briefing's own pages equally —
+none of the five is alert-specific. It is a reader-quality defect on the frozen-corpus path, and the
+prose rules there are ruled on by the arbiter, not changed on inspection.
+
+**What the instrument cannot currently see, stated plainly.** The audit's rulers are:
+`ENTITY_LEAK`, `METADATA_LEAK`, malformed attribution, context-dependent opening (`unresolved_context`,
+which charged one of the above), `DOUBLE_SPACE`, two quotes in one block, quote-opening block,
+duplicate citation. A **truncated sentence** and **a raw URL with forum comment text** are counted by
+none of them, so the must-be-zero line `stories with a reader-visible defect` reports 0 on stories a
+human calls defective. That is the same shape of failure D2/D3 fixed in the ruler: a count that cannot
+see the thing being judged. The next slice is therefore the **ruler first** — a fragment/truncation
+class and a raw-URL class, measured on the frozen 200 — and a rule only after a ruling, because
+"D12, even as …" and "between Oct." are also legitimate English in other contexts and a rule that
+refuses by regex alone will cost real prose.
+
+**Not claimed here:** that these are five distinct causes. Three of the five are one cause — a source
+sentence truncated at a clipping boundary (a date, a month name, a list item) and then published — and
+the fix for the class is likely one rule. The other two (the raw URL with comment text, the
+unintroduced deck) are evidence passes rather than block rules. The measurement is the next step;
+this entry exists so the finding is not lost between sessions.

@@ -329,6 +329,18 @@ families`, with a printed note that it is not a count of recoverable stories and
   [decisions/reader-delivery.md](decisions/reader-delivery.md#d8--what-an-alert-is-allowed-to-be-2026-10-11)),
   and the arbiter was unreachable from the session, so the ruling recorded is the owner's, not the
   arbiter's.
+- **2026-10-11 — D9 opened: the inside of an alerted story, read by hand.** Verifying D8 meant
+  reading the page behind an alert, not just deciding which alerts fire. Three of the most recent
+  alerted stories were read through `npm run audit:reader -- --find "<title>" --show 1`. **The audit
+  reports 0 reader-visible defects on all three; a person reading them finds five** — two blocks whose
+  first sentence is truncated at a clipping boundary ("… the Loews Philadelphia Hotel between Oct.",
+  "sentenced on Sept."), one block opening on a bare "2,", one raw URL with forum comment text
+  published as reporting ("Investors.boeing.com/… Am wondering what ransomware negotiations he was
+  involved in."), and a deck opening on "One standout feature …" before the page has a feature. The
+  rulers count none of these classes, which is the D2/D3 failure shape again: a count that cannot see
+  the thing being judged. **Next slice is the ruler, not a rule** — measure a fragment/truncation and
+  a raw-URL class on the frozen 200, then take it to the arbiter. Full evidence and the exact strings:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#d9--the-block-that-opens-on-a-truncated-sentence-2026-10-11-open).
 
 ## 7. What is next
 
@@ -380,7 +392,12 @@ shapes` section whenever the ingestion mix changes.
    quote-opening blocks on this corpus (0), so they are their own queue and are not yet classified.
 5. **The `rss` risk, kept visible**: no new evidence yet justifies changing the policy again, so the
    audit's `Vendor shapes` section is the instrument to re-measure on later windows.
-6. **D8 — the alert bar itself** (see §6). The gate landed; **the floor is open and awaiting the
+6. **D9 — the prose behind the story, ruler first** (see §6). Opened 2026-10-11 by reading three
+   alerted stories by hand: the audit calls them clean and they are not. The first slice is a
+   **tool** — a fragment/truncation class and a raw-URL class in the audit's rulers, measured on the
+   frozen 200 so the case rests on a count and not on three anecdotes — and only then a rule, on a
+   ruling. Nothing here changes publication behaviour yet.
+7. **D8 — the alert bar itself** (see §6). The gate landed; **the floor is open and awaiting the
    arbiter**: alerts after the gate still reach phones for shapes no rule refuses (a vendor roadmap
    advertorial at importance 7, a product newsletter at 7, a hobby hack and a personal blog post at
    6, a memory-kit price piece at 6). Four options with their costs are recorded in
