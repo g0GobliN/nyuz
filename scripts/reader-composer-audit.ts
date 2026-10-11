@@ -23,7 +23,7 @@
  */
 
 import { composeArticleWithDiagnostics } from "@/lib/editorial";
-import { assessReadiness } from "@/lib/pipeline/readiness";
+import { assessReadiness, marketingShape } from "@/lib/pipeline/readiness";
 import { hasSourceMetadata, hasVisibleEntity } from "@/lib/pipeline/source-text";
 import {
   headingUnit,
@@ -217,6 +217,17 @@ main(async () => {
     return;
   }
 
+  /**
+   * Whether this corpus carries the coverage kinds the marketing rungs decide by.
+   *
+   * The live window does; a file frozen before the field existed does not, and
+   * `--fixtures` never does. That distinction has to be stated, because the
+   * marketing rung is gated on a first-party source: without kinds it is skipped,
+   * so a frozen run reports a number that moved for a reason the corpus cannot
+   * show. The decision's evidence is the labelled live-window run below it.
+   */
+  const kindsCarried = events.some((event) => event.sourceKinds.length > 0);
+
   const totals = emptyTotals();
   const census = emptyCensus();
   const offenders: string[] = [];
@@ -269,6 +280,22 @@ main(async () => {
    * on this report that is a verdict rather than a measurement.
    */
   const deliveredEmpty: string[] = [];
+  /**
+   * Every story whose title wears a marketing shape, with its source kinds.
+   *
+   * The arbiter's D5 acceptance asks for this by name: the change trades a silent
+   * loss for a possible wrong read, so the report has to show both sides of it --
+   * the shapes refused and the shapes released -- split by the kinds that decided
+   * them. `marketingShape` is the gate's own predicate, not a copy of it, and it
+   * answers about the title alone, which is what makes a released shape visible.
+   */
+  const vendorShapes: {
+    title: string;
+    kinds: string;
+    shape: string;
+    verdict: string;
+    paragraphs: number;
+  }[] = [];
   /**
    * Every readable story the gate withheld, with the rule's own reason and the
    * body it would have delivered.
@@ -509,6 +536,13 @@ main(async () => {
       whatHappened: event.what,
       sourceCount: event.sources,
       sources: event.sourceList,
+      // The coverage's kinds, which decide the marketing shapes since the
+      // arbiter's ruling of 2026-10-11 (D5): a vendor shape refuses only when the
+      // publisher was speaking for itself. A corpus frozen before the field
+      // existed carries none, so the rung is skipped -- unknown is not the
+      // vendor's own voice -- and this report says so rather than letting a
+      // number move for a reason the corpus cannot show.
+      sourceKinds: event.sourceKinds,
       // The event's clock, because the gate composes: without it a source's
       // relative time cannot be anchored and a fact the reader's page publishes
       // is refused here instead. Composing the same article both ways is what
@@ -516,6 +550,16 @@ main(async () => {
       publishedAt: event.publishedAt,
     });
     const gateKind = verdict.ready ? "ready" : verdict.kind;
+    const shape = marketingShape(event.title);
+    if (shape !== null) {
+      vendorShapes.push({
+        title: event.title,
+        kinds: event.sourceKinds.length > 0 ? event.sourceKinds.join("+") : "unknown",
+        shape,
+        verdict: verdict.ready ? "released" : gateKind,
+        paragraphs: paras.length,
+      });
+    }
     if (paras.length === 0) {
       emptyByGate[gateKind] = (emptyByGate[gateKind] ?? 0) + 1;
       if (verdict.ready) deliveredEmpty.push(event.title);
@@ -843,6 +887,27 @@ main(async () => {
     say(
       `      would have delivered: ${entry.paragraphs} paragraph(s), ${entry.words} words · sources: ${entry.sources} (${entry.sourceCount})`,
     );
+  }
+
+  // The trade the D5 ruling made, shown from both sides. A shape that is refused
+  // is the rule working; a shape that is released is the rule standing down
+  // because the publisher was not the story's subject. The kinds column is what
+  // decides, so it is printed -- and "unknown" is the honest answer for a corpus
+  // frozen before the field existed, which is why the line above the list says so.
+  heading("Vendor shapes: which titles wore one, and what decided them");
+  say(
+    row(
+      "coverage kinds carried by this corpus",
+      kindsCarried ? "yes" : "no - the marketing rung is skipped",
+    ),
+  );
+  say(row("stories whose title wears a marketing shape", vendorShapes.length));
+  say(row("  refused as marketing", vendorShapes.filter((e) => e.verdict === "marketing").length));
+  say(row("  released", vendorShapes.filter((e) => e.verdict === "released").length));
+  for (const entry of vendorShapes) {
+    say(`  · [${entry.verdict}] ${entry.shape}`);
+    say(`      ${entry.title}`);
+    say(`      kinds: ${entry.kinds} · composed: ${entry.paragraphs} paragraph(s)`);
   }
 
   heading("How the published blocks acquired their attribution");

@@ -343,11 +343,63 @@ subject-and-question punctuation, and the imperative opener (`MARKETING_TITLE`) 
 that begins with `Meet`. Both are single-source-only rungs, and all three stories are single-source
 newsroom pieces — which is exactly the assumption the marketing rung makes about a single source.
 
-**No fix has been made, and the reason is the ruling's own principle.** A change here decides what
-ships and what is withheld, so it is a product decision and belongs to the arbiter: three options
-went to it on 2026-10-11 — require the source to be first-party before a marketing shape may fire,
-narrow the two shapes, or leave them and accept 968 words of loss. The measurement above is the
-input to that ruling.
+**Ruling (2026-10-11): option (a), conditionally.** _Require a first-party source before a
+marketing-shaped title can trigger the marketing refusal._ The ruling rejected (b) — narrowing the
+patterns — because it moves the error from "we withheld a real story" to "we published a vendor
+advert", and rejected (c) because a usable signal existed. Its implementation contract: keep the
+existing patterns and reasons; let them fire only when the source is _positively_ identified as
+first-party; **unknown, missing or generic `rss` kinds must not silently become first-party**; no new
+query and no inferring kind from a displayed name; the release-note refusals stay, recorded as
+correct outcomes rather than false positives; and no general rewrite of promotion detection.
+
+**Implemented.** `FIRST_PARTY_SOURCE_KINDS` is `company_blog` alone, and the two marketing call
+sites gained that precondition — the patterns and their reason strings are untouched. Missing,
+empty and unknown kinds are all _no_, so the rung is skipped rather than guessed at, which is the
+existing convention for coverage-dependent rungs. `marketingShape(title)` exports the shape test on
+its own, because the audit has to be able to ask "would this title have been refused had the
+publisher been speaking for itself?" on a window whose kinds are unknown without re-implementing the
+patterns; `readiness.test.ts` pins the predicate and the gate together on a table of titles.
+
+**Acceptance evidence.**
+
+- **Fail-before, demonstrated.** With the precondition removed the acceptance tests fail exactly as
+  the defect describes: the three newsroom stories come back `{ ready: false, kind: "marketing" }`
+  where `{ ready: true }` is required, and the generic-`rss` case is refused too — the gate reading a
+  `rss` feed as the publisher speaking for itself. Restored, 49 tests pass.
+- **A regression test per case, from the corpus verbatim:** the three newsroom stories (one `: how`
+  trailer, one `: how` trailer, one `Meet` opener) delivered when their kind is `news`; the two
+  Cloudflare launch posts still refused when theirs is `company_blog`; and the generic-feed control —
+  `rss`, `other`, `product`, empty, a mixed list and a missing `sourceKinds` must all fail to qualify.
+- **The frozen 200, labelled as what it is.** `readable stories withheld 19 → 14`, and the report now
+  says `coverage kinds carried by this corpus: no — the marketing rung is skipped`, with its own
+  `Vendor shapes` section showing 6 titles wearing a shape and **0** refused. That number moved for a
+  reason the corpus cannot show: it does not carry `kind`, so the two Cloudflare posts were released
+  here as well, which is exactly the loss the ruling means to avoid. **This is a sensitivity result,
+  not acceptance evidence**, and the corpus was not changed to make it look better.
+- **The live-window measurement the ruling required** (`npm run audit:reader`, 2026-10-11, kinds
+  carried: **yes**): 4 stories wear a marketing shape — **1 refused** (`Introducing Clef-omni …`,
+  `company_blog`, 5 paragraphs composed) and **3 released**, all `kinds: news`:
+
+  | released title                                                                                   | kinds | composed     |
+  | ------------------------------------------------------------------------------------------------ | ----- | ------------ |
+  | `‘Halloweenmas’: how the spooky one-nighter turned into a month-long spectacular`                | news  | 4 paragraphs |
+  | `We tested gaming performance in 17-year-old Windows 7 on a modern gaming PC against Windows 11` | news  | 8 paragraphs |
+  | `Nord Stream trial: How German police followed the evidence - to Ukraine`                        | news  | 4 paragraphs |
+
+  On that window the change releases 12 paragraphs of newsroom reporting and keeps every vendor post
+  refused. Its must-be-zero lines are unchanged: `facts lost 0`, `delivered with no body 0`,
+  `refused then published by another path 0`, ledger `1777 = 1575 + 202 + 0` reconciles.
+
+- **The `rss` risk is measured, not resolved.** Not one of the released shapes on the live window
+  came from `rss`: the three are `news` and the refusal is `company_blog`. That means the risk was
+  **not exercised** by this window rather than settled by it — a single live run cannot show what a
+  vendor announcement syndicated through a generic feed would do, and the ruling is explicit that the
+  five frozen cases do not settle it either. The window keeps this section, so the next run measures
+  it again.
+
+**D5 disposition: measured, ruled and implemented.** The instrument (the previous section) and this
+rule change are the slice; the arbiter's next queue is D6, the 59 stories publishing nothing, ahead
+of the two-quote blocks on reader impact.
 
 **What this slice does not claim.** It does not claim the three are defects: it claims they are
 refused by rules that judge the title, that their sources are newsrooms rather than vendors, and

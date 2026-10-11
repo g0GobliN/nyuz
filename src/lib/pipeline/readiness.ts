@@ -268,6 +268,63 @@ const MIN_BODY_FACTS = 2;
  */
 const PRIMARY_SOURCE_KINDS: ReadonlySet<string> = new Set(["research", "github"]);
 
+/**
+ * The source kinds that are a publisher speaking for itself.
+ *
+ * `company_blog` only, deliberately. The enum also carries `news`, `rss`,
+ * `github`, `research`, `product` and `other`, and none of the rest says the
+ * publisher is the story's subject: a vendor announcement syndicated through a
+ * generic feed arrives as `rss`, and that is not first-party-ness. Narrow on
+ * purpose, because the rung it guards decides what ships.
+ */
+const FIRST_PARTY_SOURCE_KINDS: ReadonlySet<string> = new Set(["company_blog"]);
+
+/**
+ * Whether the story's own coverage says its publisher was speaking for itself.
+ *
+ * Unknown, missing and empty all mean *no*, which is the point: a caller that has
+ * not loaded coverage must not be read as having found a company blog. The rung
+ * it gates is therefore skipped rather than guessed at, exactly like the
+ * primary-source rung below and the briefability rung that needs the evidence.
+ * The production selection path (`digest.ts`) always loads kinds, so the rung is
+ * live where it matters and absent only in callers that never had the facts.
+ */
+function isFirstPartySource(sourceKinds: readonly string[] | undefined): boolean {
+  if (sourceKinds === undefined || sourceKinds.length === 0) return false;
+  return sourceKinds.every((kind) => FIRST_PARTY_SOURCE_KINDS.has(kind));
+}
+
+/**
+ * The marketing shape a title wears, and the reason that shape produces.
+ *
+ * Exported because the gate is no longer the only thing asked of these patterns.
+ * Since the arbiter's ruling of 2026-10-11 (D5, option (a)) the shapes are gated
+ * on a first-party source, which is judged from coverage -- so "would this title
+ * have been refused had the publisher been speaking for itself?" is a question
+ * the audit has to be able to ask on a window whose kinds are unknown, and it must
+ * be able to ask it without re-implementing the patterns. The patterns stay here,
+ * defined once; this only applies them in one order.
+ *
+ * It answers the shape question alone, deliberately: the gate's own preconditions
+ * (a single source, a first-party kind, no news verb) stay with the gate, because
+ * a caller that asked this and then applied those itself would have rebuilt the
+ * rule. `readiness.test.ts` pins the two together on a table of titles, so a shape
+ * added to one and not the other fails a test rather than drifting.
+ */
+export function marketingShape(title: string): string | null {
+  if (BENEFIT_TITLE.test(title)) return "title pitches a benefit to the reader";
+  if (MARKETING_TITLE.test(title)) return "title is an imperative promotion";
+  if (MARKETING_TRAILER.test(title)) return "title is a vendor how-to";
+  if (CELEBRATION_TITLE.test(title)) return "title celebrates the vendor's own community";
+  if (
+    CAMPAIGN_TITLE.test(title) &&
+    /\b(?:design|partner|innovation|developer|customer)\s/i.test(title)
+  ) {
+    return "title is a themed campaign banner";
+  }
+  return null;
+}
+
 export function assessReadiness(input: {
   title: string;
   whatHappened: string | null | undefined;
@@ -305,6 +362,18 @@ export function assessReadiness(input: {
 }): ReadinessVerdict {
   const title = (input.title ?? "").replace(/\s+/gu, " ").trim();
   const what = (input.whatHappened ?? "").replace(/\s+/gu, " ").trim();
+  /**
+   * Whether the publisher was speaking for itself, for the marketing rungs.
+   *
+   * The arbiter's ruling of 2026-10-11 (D5, option (a)): a marketing-shaped title
+   * is evidence of a possible promotion, not proof of one -- the same shape is
+   * ordinary English in a newsroom's headline. On the frozen 200 the title shapes
+   * refused three single-source newsroom stories (a BBC feature, a Register
+   * analysis, a BBC news story) while correctly dropping two vendor launch posts,
+   * and the source's own kind is the signal that separates them. The title
+   * patterns and their reasons are unchanged; only the precondition is added.
+   */
+  const firstParty = isFirstPartySource(input.sourceKinds);
 
   // Rung 1: is there anything to read at all. A 19-character excerpt with no
   // summary is #22 — a headline, a source rail, and nothing to read.
@@ -421,7 +490,7 @@ export function assessReadiness(input: {
   // 2026-10-02) is an advert whose first word is a news verb by coincidence.
   // The benefit-shape check therefore runs on the raw title regardless of the
   // verb exemption, and only for single-source first-party posts.
-  if (BENEFIT_TITLE.test(title) && (input.sourceCount ?? 1) < 2) {
+  if (firstParty && BENEFIT_TITLE.test(title) && (input.sourceCount ?? 1) < 2) {
     return { ready: false, kind: "marketing", reason: "title pitches a benefit to the reader" };
   }
 
@@ -496,7 +565,7 @@ export function assessReadiness(input: {
       // Deck-only: one usable fact, spent on the deck, nothing refused. Allowed.
     }
   }
-  if ((input.sourceCount ?? 1) < 2 && !NEWS_VERB.test(title)) {
+  if (firstParty && (input.sourceCount ?? 1) < 2 && !NEWS_VERB.test(title)) {
     if (MARKETING_TITLE.test(title)) {
       return { ready: false, kind: "marketing", reason: "title is an imperative promotion" };
     }

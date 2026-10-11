@@ -26,6 +26,18 @@ export type CorpusEvent = {
   /** The event's date, which is the anchor for a source's relative time. */
   publishedAt: string;
   sourceList: Story["sourceList"];
+  /**
+   * The coverage's `sources.kind` values, in reading order and deduplicated.
+   *
+   * The reader-readiness gate decides with these since the arbiter's ruling of
+   * 2026-10-11 (D5): a marketing-shaped title only refuses when the publisher was
+   * speaking for itself, and `company_blog` is what says so. Empty means *not
+   * carried* -- fixtures have no kinds, and a corpus frozen before this field
+   * existed has none either -- which the gate reads as "not first-party" and the
+   * audit prints as a caveat, because a measurement of that decision needs the
+   * live window rather than a corpus that cannot see it.
+   */
+  sourceKinds: string[];
 };
 
 export async function loadFixtureEvents(): Promise<CorpusEvent[]> {
@@ -49,6 +61,10 @@ export async function loadFixtureEvents(): Promise<CorpusEvent[]> {
       headline: source.headline,
       excerpt: source.excerpt,
     })),
+    // The production fixture is one outlet and carries no kind; the gate reads
+    // that as "not first-party", which is the honest answer for a fixture read
+    // outside the database.
+    sourceKinds: [],
   }));
 }
 
@@ -71,7 +87,12 @@ export async function loadCorpusEvents(
     const rows = find
       ? frozen.filter((event) => event.title.toLowerCase().includes(find.toLowerCase()))
       : frozen;
-    return rows.slice(0, limit);
+    // Normalised, because a corpus frozen before `sourceKinds` existed has no such
+    // key and the gate now reads it: an absent field means *not carried*, which is
+    // an empty list rather than a crash or a silent first-party.
+    return rows
+      .slice(0, limit)
+      .map((event) => ({ ...event, sourceKinds: event.sourceKinds ?? [] }));
   }
   const client = db();
   let query = client
@@ -106,16 +127,18 @@ export async function loadCorpusEvents(
   const sourceIds = [...new Set((articles ?? []).map((a) => a.source_id).filter(Boolean))];
   const { data: sources, error: sourceError } = await client
     .from("sources")
-    .select("id, name")
+    .select("id, name, kind")
     .in("id", sourceIds as string[]);
   if (sourceError) throw new Error(`sources: ${sourceError.message}`);
   const nameById = new Map((sources ?? []).map((s) => [s.id, s.name]));
+  const kindById = new Map((sources ?? []).map((s) => [s.id, s.kind as string]));
 
   return (events ?? []).flatMap((event) => {
     const coverage = (articles ?? [])
       .filter((a) => a.event_id === event.id)
       .map((a) => ({
         name: nameById.get(a.source_id as string) ?? "Unknown",
+        sourceId: a.source_id as string,
         title: a.title,
         excerpt: a.excerpt,
         url: a.url,
@@ -146,6 +169,9 @@ export async function loadCorpusEvents(
           ...(c.excerpt ? { excerpt: c.excerpt } : {}),
           ...(c.evidence ? { enrichedEvidence: c.evidence } : {}),
         })),
+        sourceKinds: [...new Set(coverage.map((c) => kindById.get(c.sourceId) ?? ""))].filter(
+          (kind) => kind !== "",
+        ),
       },
     ];
   });

@@ -241,10 +241,23 @@ Research said.` — the corpus defect, reproduced.
   `Growing pains: how distributed AI training …` analysis (The Register, 338 words) and
   `Meet India's feisty Gen Z protester` (BBC World, 377 words) — 968 words of composed reporting a
   reader did not receive. The report now prints each withheld story with its family, the rule's
-  reason, the body it would have delivered and its source. **Nothing was changed:** what ships or is
-  withheld is a product decision, so three options went to the arbiter (require a first-party source,
-  narrow the two shapes, or accept the loss) with this measurement as the input. Controls:
+  reason, the body it would have delivered and its source. Controls:
   [reader-withheld.test.ts](../src/lib/reader-withheld.test.ts).
+- **2026-10-11 — D5 implemented: a vendor shape needs a first-party source.** The arbiter accepted
+  option (a) and rejected narrowing the patterns. `FIRST_PARTY_SOURCE_KINDS` is `company_blog` alone;
+  the two marketing call sites gained that precondition and the patterns and reason strings are
+  untouched. Unknown, empty and missing kinds are all _no_ — a generic `rss` feed is not the
+  publisher speaking for itself — so the rung is skipped rather than guessed at, which is why the
+  corpus loader and the gate both have to see the kinds. Evidence: **fail-before demonstrated** (with
+  the precondition removed, the three newsroom stories are refused and the `rss` case is refused too),
+  49 tests pass after; one regression test per case (3 newsroom, 2 vendor, the generic-feed control);
+  the **frozen 200 reads 19 → 14 with `coverage kinds carried: no`**, which is a sensitivity result
+  and not acceptance evidence — the corpus has no `kind`, so it releases the two Cloudflare posts as
+  well; and the **labelled live-window run** (`coverage kinds carried: yes`) shows 4 shapes, 1 refused
+  (`company_blog`, the Cloudflare launch) and 3 released (`news`: a Halloween feature, a Windows 7
+  performance test, the Nord Stream trial) — 12 paragraphs of newsroom reporting, must-be-zero lines
+  unchanged, ledger `1777 = 1575 + 202 + 0`. The `rss` risk was **not exercised** by that window, and
+  the report keeps the section so the next run measures it again.
 - **2026-10-11 — D4, the quote openings were classified instead of queued** (`f3d0cd0`). The audit counted 29
   blocks opening on a quotation and 9 carrying two, and the queue read "29, then 9". The arbiter
   ruled (option (a)) that the defect had to be _defined_ before either number was a work queue, and
@@ -272,15 +285,15 @@ In the arbiter's order for the reader-delivery path:
    the one shared definition of "unresolved context", and the quote-opening classification. The
    next slice is whichever of the below the arbiter takes first; nothing else on this path lands
    without a ruling.
-2. **D5 is measured and awaiting a ruling** (see §6): of the 19 readable stories withheld, 16 are
-   refusals that hold and 3 are newsroom stories refused by a marketing shape judged from the title
-   (968 words). The ruling picks between requiring a first-party source, narrowing the two shapes,
-   or accepting the loss — nothing changes until it does.
+2. **D5 is landed** (see §6): the 19 split 11/3/5, and a marketing shape now refuses only when the
+   coverage says the publisher was speaking for itself. The standing follow-up is the `rss` risk,
+   which the live window did not exercise — re-run `npm run audit:reader` and read its `Vendor
+shapes` section whenever the ingestion mix changes.
 3. **The 59 stories that publish nothing** (31 nothing-selected, 26 single-fact-is-the-deck, 2
-   charged to a named rule, 0 unexplained) — the arbiter's D6, where the distinction between
+   charged to a named rule, 0 unexplained) — the arbiter's D6, and next: the distinction between
    justified withholding and an actual publication defect has to be preserved.
-4. **The 9 two-quote blocks** — D7. D4 measured that they do **not** overlap the 29 quote-opening
-   blocks on this corpus (0), so they are their own queue and have not been classified yet.
+4. **The 9 two-quote blocks** — D7, after D6. D4 measured that they do **not** overlap the 29
+   quote-opening blocks on this corpus (0), so they are their own queue and are not yet classified.
 
 Blocked on the owner, not on code:
 

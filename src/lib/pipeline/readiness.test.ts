@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { composeFromSources } from "../editorial";
-import { assessReadiness } from "./readiness";
+import { assessReadiness, marketingShape } from "./readiness";
 
 /**
  * The 2026-09-30 briefing carried 25 stories; 6 were not news for a reader.
@@ -13,11 +13,16 @@ describe("assessReadiness", () => {
   it("refuses a vendor benefit pitch from a company blog", () => {
     // Cloudflare blog, 2026-10-02. A feature advert aimed at the reader's own
     // spend; the "your X" possessive is what no third-party report carries.
+    // `sourceKinds` is the precondition, not decoration: since the arbiter's
+    // ruling of 2026-10-11 (D5, option (a)) a marketing shape only refuses when
+    // the coverage says the publisher was speaking for itself, and this test is
+    // about a benefit pitch *from a company blog*.
     const verdict = assessReadiness({
       title: "Cut your AI spend with AI Gateway's Auto Router",
       whatHappened:
         "The router picks the cheapest model that can serve each request automatically.",
       sourceCount: 1,
+      sourceKinds: ["company_blog"],
     });
     expect(verdict.ready).toBe(false);
     if (!verdict.ready) expect(verdict.kind).toBe("marketing");
@@ -35,6 +40,7 @@ describe("assessReadiness", () => {
         title,
         whatHappened: "The feature is available in public beta for existing customers today.",
         sourceCount: 1,
+        sourceKinds: ["company_blog"],
       });
       expect(verdict.ready, title).toBe(false);
       if (!verdict.ready) expect(verdict.kind, title).toBe("marketing");
@@ -333,6 +339,7 @@ describe("assessReadiness", () => {
         title,
         whatHappened:
           "The vendor describes its own product in the first person and links to a trial.",
+        sourceKinds: ["company_blog"],
       }),
     ).toEqual({ ready: false, kind: "marketing", reason: expect.any(String) });
   });
@@ -516,6 +523,7 @@ describe("assessReadiness — briefability", () => {
         title: "Cut your AI spend with AI Gateway's Auto Router",
         whatHappened: "The router picks the cheapest model for each request.",
         sourceCount: 1,
+        sourceKinds: ["company_blog"],
         sources: [{ name: "Cloudflare", excerpt: "The router picks the cheapest model." }],
       }),
     ).toEqual({ ready: false, kind: "marketing", reason: expect.any(String) });
@@ -781,6 +789,124 @@ describe("assessReadiness — the summary rung and the evidence", () => {
       },
     ]) {
       expect(assessReadiness({ ...item, sourceCount: 1 }).ready, item.title).toBe(true);
+    }
+  });
+});
+
+/**
+ * A marketing-shaped title is evidence of a promotion, not proof of one.
+ *
+ * Arbiter's ruling, 2026-10-11 (D5, option (a)). Measured on the frozen 200, the
+ * marketing rungs refused three single-source *newsroom* stories -- a BBC feature
+ * with a `: how` subject-and-question headline, a Register analysis with the same
+ * trailer, and a BBC news story that opens with `Meet` -- while correctly dropping
+ * two Cloudflare launch posts. Between them the three newsroom stories were 968
+ * words of composed reporting that no reader received, so the shapes now fire only
+ * when the coverage says the publisher was speaking for itself.
+ *
+ * The five live cases are below, verbatim from that corpus, plus the two source
+ * kinds that must never qualify. The title patterns and their reasons are
+ * unchanged; only the precondition is new.
+ */
+describe("a vendor shape only refuses when the source is the vendor", () => {
+  const NEWSROOM = [
+    {
+      title: "Nord Stream trial: How German police followed the evidence - to Ukraine",
+      what: "After four years, a Ukrainian man is set to stand trial in Hamburg.",
+    },
+    {
+      title: "Growing pains: how distributed AI training changes the network between datacenters",
+      what: "Operators describe where the bottleneck moves once training spans sites.",
+    },
+    {
+      title: "Meet India's feisty Gen Z protester who is taking on Modi",
+      what: "She has spent two years organising against a party that has governed for a decade.",
+    },
+  ];
+
+  it.each(NEWSROOM)("delivers the newsroom story $title", ({ title, what }) => {
+    expect(
+      assessReadiness({ title, whatHappened: what, sourceCount: 1, sourceKinds: ["news"] }),
+    ).toEqual({ ready: true });
+  });
+
+  it.each([
+    ["Introducing Clef-omni with full multimodality, plus a faster Clef and a cheaper Clef-flash"],
+    [
+      "Introducing on-demand CPU and memory profiling with flamegraphs for Workers and Durable Objects",
+    ],
+  ])("still drops the vendor launch post %s", (title) => {
+    expect(
+      assessReadiness({
+        title,
+        whatHappened: "The vendor announces the feature on its own blog and links to the docs.",
+        sourceCount: 1,
+        sourceKinds: ["company_blog"],
+      }),
+    ).toEqual({ ready: false, kind: "marketing", reason: expect.any(String) });
+  });
+
+  it("keeps the shape predicate and the gate's own refusal in step", () => {
+    // `marketingShape` exists so the audit can ask the shape question on a window
+    // whose kinds are unknown, which means it and the gate must agree about what
+    // a marketing shape is. A shape added to one and not the other fails here
+    // rather than drifting; the shaped titles below include a newsroom headline,
+    // because the shape is a property of the title and the source is what gates
+    // it.
+    const SHAPED = [
+      "Cut your AI spend with AI Gateway's Auto Router",
+      "Introducing Clef-omni with full multimodality, plus a faster Clef and a cheaper Clef-flash",
+      "Adaptive application security for the AI era: how Cloudflare connects controls",
+      "Celebrating Our Newest AWS Heroes",
+      "Nord Stream trial: How German police followed the evidence - to Ukraine",
+    ];
+    const UNSHAPED = [
+      "Cloudflare says Auto Router cuts AI costs for enterprise customers",
+      "Nvidia RTX Spark launches with a $2,599 price",
+      "Prime Day sales top $14B as shoppers front-load holiday spend",
+    ];
+    for (const title of SHAPED) {
+      expect(
+        assessReadiness({
+          title,
+          whatHappened: "The vendor describes its own product in the first person.",
+          sourceCount: 1,
+          sourceKinds: ["company_blog"],
+        }),
+        title,
+      ).toEqual({ ready: false, kind: "marketing", reason: expect.any(String) });
+      expect(marketingShape(title), title).not.toBeNull();
+    }
+    for (const title of UNSHAPED) {
+      expect(marketingShape(title), title).toBeNull();
+      expect(
+        assessReadiness({
+          title,
+          whatHappened: "Outlets reported the change on the day it was announced.",
+          sourceCount: 1,
+          sourceKinds: ["company_blog"],
+        }).ready,
+        title,
+      ).toBe(true);
+    }
+  });
+
+  it("does not read a generic feed, or a missing kind, as the publisher speaking for itself", () => {
+    // The risk the ruling named: a vendor announcement syndicated through a
+    // generic feed arrives as `rss`, and the gate must not treat that as proof of
+    // self-promotion. Missing kinds are the same answer -- unknown is not
+    // first-party -- which is why the rung is skipped rather than guessed at.
+    const title = "Meet India's feisty Gen Z protester who is taking on Modi";
+    for (const sourceKinds of [["rss"], ["other"], ["product"], [], ["news", "rss"], undefined]) {
+      expect(
+        assessReadiness({
+          title,
+          whatHappened: "She has spent two years organising against the governing party.",
+          sourceCount: 1,
+          sourceKinds,
+        }).ready,
+        JSON.stringify(sourceKinds),
+      ).toBe(true);
     }
   });
 });
