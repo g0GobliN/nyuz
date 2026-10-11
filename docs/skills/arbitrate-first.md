@@ -54,6 +54,23 @@ authority has ruled on it.
 Refactors, tests and docs are not a loophole. A decision smuggled in as "cleanup" is still
 a product change.
 
+## It is asked first, and it is cross-examined
+
+The arbiter is where a question goes **first** — before the owner, and before you decide the
+question does not need asking. The owner is the escalation, not the first responder.
+
+Within that, the arbiter is not an oracle to be obeyed:
+
+- **Question it.** Re-ask with better evidence, name the part you believe is wrong, and say
+  what would have to be true for your reading to hold. Push back as many times as it takes; a
+  ruling you had to argue for is stronger than one you accepted to avoid friction.
+- **Check it against the code, the data and the measured corpus.** When a ruling contradicts
+  something you can demonstrate, take the demonstration back instead of implementing around it.
+- **Escalate to the owner only when the arbiter is unavailable, or when evidence you can show
+  contradicts its answer and it will not revise.** Say plainly which of the two it is.
+- **Never invent either answer.** A ruling nobody gave is not a ruling, and an unanswered
+  question is not permission to proceed.
+
 ## How a decision is put
 
 1. **Evidence, not opinion.** The measurement that made the problem visible, the numbers
@@ -93,6 +110,13 @@ a product change.
 - You wrote the option you disagreed with as a straw man.
 - You asked, got no answer, and treated your own recommendation as the ruling.
 ```
+
+## Companion skill
+
+`keep-context-current` is installed the same way, and carries the other half of this
+repository's discipline: the context file every session reads first, and the rule that it is
+updated in the same commit as the change it describes. See
+[keep-context-current.md](keep-context-current.md).
 
 ## Limits the app enforces (from its own schema)
 

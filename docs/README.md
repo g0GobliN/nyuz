@@ -11,9 +11,13 @@ it is the part that gets lost.
 
 ## Start here
 
-**[Project status](status.md)** — what is real and what is a prototype. Read this before
-anything else; several pages below describe systems that are fully built, and one
-describes a dashboard that is not.
+**[Context](context.md)** — what nyuz is, what it does today, what has landed, what is next,
+and the invariants an agent must not break. Read this first; it is updated in the same commit
+as the change it describes, and it is the shortest route to a true picture of the product.
+
+**[Project status](status.md)** — what is real and what is a prototype, area by area;
+several pages below describe systems that are fully built, and one describes a dashboard that
+is not.
 
 ---
 
@@ -29,14 +33,14 @@ describes a dashboard that is not.
 
 ## The system
 
-| Page                              | What it covers                                                                  |
-| --------------------------------- | ------------------------------------------------------------------------------- |
-| [Database](database.md)           | Tables, enums, row-level security, and the reasoning behind the policies        |
-| [History and retention](history-retention.md) | Plan windows, downgrade grace, purge, and how the archive is bounded |
-| [Admin console](admin-console.md) | Analytics, user management, bans, blog, feature flags, audit log                |
-| [Site content](site-content.md)   | How marketing copy is edited without a deploy, and what deliberately cannot be  |
-| [AI providers](ai-providers.md)   | Model routing, swapping provider, and why keys are not in the database          |
-| [Security](security.md)           | Trust boundaries, secrets handling, what is enforced in the database vs the app |
+| Page                                          | What it covers                                                                  |
+| --------------------------------------------- | ------------------------------------------------------------------------------- |
+| [Database](database.md)                       | Tables, enums, row-level security, and the reasoning behind the policies        |
+| [History and retention](history-retention.md) | Plan windows, downgrade grace, purge, and how the archive is bounded            |
+| [Admin console](admin-console.md)             | Analytics, user management, bans, blog, feature flags, audit log                |
+| [Site content](site-content.md)               | How marketing copy is edited without a deploy, and what deliberately cannot be  |
+| [AI providers](ai-providers.md)               | Model routing, swapping provider, and why keys are not in the database          |
+| [Security](security.md)                       | Trust boundaries, secrets handling, what is enforced in the database vs the app |
 
 ## Working on it
 

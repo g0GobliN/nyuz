@@ -2,6 +2,24 @@
 
 nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
 
+## Context comes first, and is kept current
+
+- **`docs/context.md` is the shared memory of this project.** It says what nyuz is, what it
+  does today, what has landed, what is next, and which invariants must not be broken. Read
+  it before touching anything. It exists so a session that starts cold does not have to
+  infer the product from the code — and so that it cannot quietly invent a version of the
+  product that never existed.
+- **Update it in the same commit as the change it describes.** Append to its work log and
+  keep its state, next and measured-number sections true. A change that is not recorded in
+  that file reads as a change that never happened, so an unrecorded slice is an unfinished
+  slice. Record measured numbers with their provenance: the date, the command, and the
+  corpus they came from.
+- **Both files are tracked and are pushed with the work.** `docs/context.md` and this file
+  must never be added to `.gitignore`, excluded from a commit, or left out of a push. A
+  private context file is exactly how the next session starts hallucinating.
+- Every push carries the rules in this file with it: before pushing anything, re-read the
+  delivery rules below and check the staged diff against them.
+
 ## Decisions come before code
 
 - This is a product, not a scratch script. Anything a reader or operator would experience
@@ -11,10 +29,33 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
   evidence and numbered options, wait for the ruling, record it, and only then implement the
   smallest slice that matches it. A proposal may exist as a diff outside the shipping path;
   nothing that changes behaviour lands on a recommendation alone.
+- **The arbiter is asked first, and it is cross-examined.** A question goes to the ChatGPT
+  `nyuz` project before it goes to the owner, and before you decide it does not need asking.
+  Question it as much as the evidence warrants: re-ask with better evidence, name the part you
+  believe is wrong, and check the ruling against the code, the data and the frozen corpus.
+  Escalate to the owner only when the arbiter is unreachable, or when evidence you can show
+  contradicts it and it will not revise — and say which of the two it is. Never invent either
+  answer: a ruling nobody gave is not a ruling, and an unanswered question is not permission.
 - Open and recorded decisions live in `docs/decisions/`. Read the log before re-opening a
   settled question, and record the ruling with its date and reason when it arrives.
 - The same rule is packaged as the global `arbitrate-first` skill, so it applies in every
   project rather than only here.
+
+## Skills are mandatory, and a missing one is written
+
+- **Use the skill that owns the task** instead of improvising a process. Read its `SKILL.md`
+  first. The ones that matter most here: `arbitrate-first` for a decision,
+  `keep-context-current` for this repository's context file, `investigate-first` and `debug-bug`
+  for an unknown cause, `surgical-patch` for a narrow fix, `safe-refactor` for structure,
+  `migration` for a schema or data transition, `verify-and-stop` for proving finished work,
+  `run-long-goal` for a goal that outlives a session, `review-diff` for a diff, `handoff-session`
+  when context is running out. The full set is installed account-wide, not per project.
+- **When a process repeats and no skill covers it, write the skill** — this is a rule from the
+  owner, not a preference. It takes two places, both required: the body in
+  `docs/skills/<name>.md` in this repository (the install fields plus the text, so it is reviewed
+  and versioned with the code) and the installed copy in the account's global skill set, so the
+  next session in any project gets it. Then use it. A process that lives only in one session's
+  head is not a skill.
 
 - `npm run dev` serves on port 8080. `npm run build` produces a nitro server bundle.
 - Routes are file-based under `src/routes/`; `src/routeTree.gen.ts` is generated — never edit it by hand.
