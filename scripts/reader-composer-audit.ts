@@ -256,8 +256,30 @@ main(async () => {
    * facts, the gate's own reason map and what the evidence pass refused -- the
    * whole path from selection to silence, which is what a reviewer needs to say
    * "correctly silent" or "lost on the way".
+   *
+   * The coverage itself is printed with it (D6, the arbiter's 2026-10-11 ruling:
+   * every one of the 59 accounted for individually). The counts said
+   * `sourceWords=2` and left the reader to trust that the excerpt really was two
+   * words; a classification of the silence that cannot see the material it
+   * silenced is an opinion about a number. Each source line carries its
+   * `kind` and its own timestamp, and the event's clock is printed above them,
+   * because the composer anchors a source's relative time to the event's date and
+   * a reviewer judging "too thin to publish" needs the same clock the rules read.
    */
   const empties: string[] = [];
+  /**
+   * One line per silent story, which is the form D6's accounting takes.
+   *
+   * The arbiter's ruling (2026-10-11) asks for every one of the 59 accounted for
+   * *individually*, with its evidence and its decision-time context. The verbose
+   * records above are the evidence; this is the ledger a reader can hold in one
+   * view and disagree with, and it is emitted by the same pass that produced the
+   * census so the two cannot drift. Nothing here is a rule: it is the five facts
+   * the classification turns on -- how much coverage there was, whether any
+   * evidence had been extracted (`units`), how many facts were selected, whether
+   * a deck was published, and which rule charged what it did.
+   */
+  const silenceLedger: string[] = [];
   /** Empty stories by cause, so "avoidable" is a number and not a word. */
   const emptyKinds: Record<string, number> = {};
   /** Empty stories the selection gate withheld, by the gate's own kind. */
@@ -497,6 +519,18 @@ main(async () => {
               ? "emptied-after-selection (unexplained)"
               : "emptied-after-selection (charged to a rule)";
       emptyKinds[kind] = (emptyKinds[kind] ?? 0) + 1;
+      const unitsExtracted = event.sourceList.reduce(
+        (total, source) => total + (source.enrichedEvidence?.length ?? 0),
+        0,
+      );
+      const namesAReason =
+        Object.entries(diagnostics.facts.evidenceRefusals ?? {})
+          .filter(([, count]) => count > 0)
+          .map(([reason, count]) => `${reason}=${count}`)
+          .join(",") || "-";
+      silenceLedger.push(
+        `${kind} | selected=${diagnostics.facts.selected} deck=${article.deck.text ? `${wordCount(article.deck.text)}w` : "none"} units=${unitsExtracted} enrichment=${[...new Set(event.coverage.map((entry) => entry.enrichment))].join("+") || "?"} coverage=${event.sourceList.length} sourceWords=${sourceWords} clock=${event.publishedAt || "-"} charged=${charged} refused=${namesAReason} | ${event.title}`,
+      );
       empties.push(
         [
           `· ${event.title}  [${kind}]`,
@@ -505,6 +539,22 @@ main(async () => {
           `    facts by rule: ${charged}`,
           `    paragraphs: ${JSON.stringify(diagnostics.paragraphs.reasons)} sentences: ${JSON.stringify(diagnostics.sentences.reasons)}`,
           `    evidence refused before selection: ${JSON.stringify(diagnostics.facts.evidenceRefusals)}`,
+          `    clock: event=${event.publishedAt || "-"} kinds=${event.sourceKinds.join(",") || "-"} units=${unitsExtracted}`,
+          `    charged by: ${namesAReason}`,
+          // `units` is the decision-time fact the silence class turns on: a
+          // story with no fact selected and no rule charged anything is either a
+          // story whose evidence was never extracted (`units=0`) or one whose
+          // extracted units the pass did not turn into facts. The two are
+          // different findings and the counts alone cannot separate them.
+          ...(event.coverage.length > 0
+            ? event.coverage.map(
+                (source, index) =>
+                  `    coverage[${index}]${source.kind ? ` ${source.kind}` : ""} enrichment=${source.enrichment} @${source.publishedAt || "-"} units=${event.sourceList[index]?.enrichedEvidence?.length ?? 0}: ${clip(source.headline, 120)}${source.excerpt ? ` -- ${clip(source.excerpt, 200)}` : " -- (no excerpt)"}`,
+              )
+            : event.sourceList.map(
+                (source, index) =>
+                  `    coverage[${index}] (no kinds in this corpus) enrichment=? @- units=${source.enrichedEvidence?.length ?? 0}: ${clip(source.headline ?? "", 120)}${source.excerpt ? ` -- ${clip(source.excerpt, 200)}` : " -- (no excerpt)"}`,
+              )),
         ].join("\n"),
       );
     }
@@ -838,6 +888,10 @@ main(async () => {
     ),
   );
   for (const entry of empties) say(entry);
+
+  heading("D6 ledger: one line per silent story, with its decision-time context");
+  say(row("stories", silenceLedger.length));
+  for (const entry of silenceLedger) say(`  ${entry}`);
 
   heading("Stored evidence carrying a candidate fusion (2026-10-10 standfirst defect)");
   say(row("stored units matching the candidate signature", fusionUnits.length));

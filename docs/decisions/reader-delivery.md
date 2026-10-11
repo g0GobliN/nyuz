@@ -408,6 +408,40 @@ family is read from the gate's reason string, so a reworded rung would be filed 
 reported, not dismissed — and `reader-withheld.test.ts` pins the strings the live corpus produced so
 that a reworded rung fails a test instead of quietly reclassifying a withheld headline.
 
+## D6 — the 59 silent stories, accounted for individually (2026-10-11)
+
+**The ruling.** Account for all 59 one by one with their evidence and decision-time context; classify
+each as justified silence, justified deck-only, false refusal, evidence-selection defect or
+unresolved; no broad release rule before they are understood; a claimed defect must reproduce first.
+
+**The classification is [d6-silence-classification.md](d6-silence-classification.md), and it changed
+no publication behaviour.** Result: **26** justified deck-only, **2** justified deck-only charged to a
+named rule, **7** justified silence charged to a named rule, **24** justified silence with **no
+coverage body** (added class: one stored headline plus a photo credit, 2–9 words — nothing was
+refused because nothing was offered), and **0** false refusals, **0** evidence-selection defects,
+**0** unresolved.
+
+**The instrument, and the proof it moved nothing.** `npm run audit:reader` now prints a per-story D6
+ledger and each coverage source's kind, clock, units and stored excerpt; `scripts/lib/corpus.ts`
+reports each source's `article_evidence.status`. Both are read-only, and the composer's input is
+untouched — the evidence query reads every row and filters `status = "enriched"` in memory, the same
+predicate as before. Frozen 200 before and after: `59 (31/26/2)`, ledger `1572 = 1418 + 154 + 0`,
+`delivered with no body 0`, `readable stories withheld 14`, and the 59-row ledger byte-identical.
+
+**The dominant family has a different owner.** On the live window 41 of 50 (82%) silent stories had
+no usable evidence (30 with no `article_evidence` row, 11 blocked or unavailable). `audit:enrichment`
+and `scripts/reader-enrichment-cause.ts` (30-day window) attribute it: `extraction_empty` 180,
+`never_attempted` 285 — of which `never_matched` **267** is the enrich stage's deliberate cost
+boundary, not loss — plus `priority_arm` 9, `blocked` 82, `thin_content` 15, `unreachable` 2. That
+corrects the census's own `fixable families 465`, which counts all `never_attempted` as fixable; the
+honest figure is nearer 198.
+
+**Brought forward for a narrow ruling, and nothing else.** `priority_arm` 9 — events with a reader
+matched inside 24 hours whose articles were inside the candidate arms and which no tick reached, a
+dispatch-starvation candidate. `extraction_empty` 180 — fetched, enough words, zero units, the one
+family that is real loss, and an evidence-pass question rather than a readiness one. No composer rule
+is proposed for change: there was nothing for one to fix.
+
 ## D4 — a quote opening is classified, not queued (2026-10-11)
 
 **The case, before any change.** The audit counted 29 published blocks opening on a quotation and

@@ -278,6 +278,26 @@ Research said.` — the corpus defect, reproduced.
   controls are [reader-quote-opening.test.ts](../src/lib/reader-quote-opening.test.ts), including
   the case the tests caught while being written — a quotation glued to its attribution is one
   sentence to the splitter, so the repeat check reads the quoted sentence too.
+- **2026-10-11 — D6, the 59 silent stories accounted for one by one.** The ruling asked for every one
+  of the 59 individually, with its evidence and decision-time context, and forbade a broad release
+  rule before they were understood. The classification is
+  [decisions/d6-silence-classification.md](decisions/d6-silence-classification.md), and **it changes
+  no publication behaviour**: **0 false refusals, 0 evidence-selection defects, 0 unresolved** across
+  all 59 — 26 justified deck-only, 2 justified deck-only charged to a name, 7 justified silence
+  charged to a name, 24 justified silence with **no coverage body** (the added class: one stored
+  headline plus a photo credit, 2–9 words, so nothing was refused because nothing was offered).
+  `npm run audit:reader` now prints a per-story **D6 ledger** and its coverage, and
+  `scripts/lib/corpus.ts` reports each source's `enrichment` state — read-only additions, with the
+  composer's input untouched: the frozen 200 is unchanged at `59 (31/26/2)`, ledger
+  `1572 = 1418 + 154 + 0`, `delivered with no body 0`, and the per-story ledger byte-identical before
+  and after. **The dominant family is not the composer's to fix**: on the live window 41 of 50 (82%)
+  silent stories had no usable evidence (30 no `article_evidence` row, 11 blocked/unavailable), and
+  `audit:enrichment` plus `scripts/reader-enrichment-cause.ts` (30-day window) attribute it —
+  `extraction_empty` 180, `never_attempted` 285 of which **`never_matched` 267 is the deliberate cost
+  boundary**, `priority_arm` 9, `blocked` 82. Two items go to the arbiter for a narrow ruling:
+  `priority_arm` 9 (a matched, in-arm article no tick reached) and `extraction_empty` 180 (fetched,
+  enough words, zero units). Also reported: the census's `fixable families 465` counts the 267
+  `never_matched` boundary as fixable, so the honest figure is nearer 198.
 
 ## 7. What is next
 
@@ -301,6 +321,12 @@ shapes` section whenever the ingestion mix changes.
    understood. The classification and the proposed disposition come first, with any clearly
    reproducible defect brought forward for a narrow ruling. Not all 59 should be published: the
    question is whether each disposition is right, not how much output there is.
+   **Classified 2026-10-11 — see §6 and
+   [decisions/d6-silence-classification.md](decisions/d6-silence-classification.md): 0 false
+   refusals, 0 evidence-selection defects, 0 unresolved, and nothing for a release rule to fix. Two
+   narrow items await a ruling — `priority_arm` 9 (dispatch starvation: a matched, in-arm article no
+   tick reached) and `extraction_empty` 180 (fetched, enough words, zero units) — and the 267
+   `never_matched` events are the deliberate enrich cost boundary, not loss.**
 4. **The 9 two-quote blocks** — D7, after D6. D4 measured that they do **not** overlap the 29
    quote-opening blocks on this corpus (0), so they are their own queue and are not yet classified.
 5. **The `rss` risk, kept visible**: no new evidence yet justifies changing the policy again, so the

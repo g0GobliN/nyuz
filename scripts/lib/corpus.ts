@@ -38,6 +38,35 @@ export type CorpusEvent = {
    * live window rather than a corpus that cannot see it.
    */
   sourceKinds: string[];
+  /**
+   * The same coverage as `sourceList`, unaugmented, for the reports.
+   *
+   * `sourceList` is the composer's own input and is left exactly as the composer
+   * receives it. This is the loader's view of the rows behind it -- each source's
+   * own `kind` and its own publication time -- because the D6 silence
+   * classification (arbiter's ruling, 2026-10-11) has to judge "too thin to
+   * publish" against the material that was actually there and the clock the rules
+   * anchored to. Absent on a corpus frozen before this field existed, so every
+   * reader of it must tolerate `[]`.
+   */
+  coverage: {
+    name: string;
+    kind: string;
+    publishedAt: string;
+    headline: string;
+    excerpt: string;
+    /**
+     * The article's `article_evidence.status`, or "none" when there is no row.
+     *
+     * The D6 silence classification turns on this and nothing else could settle
+     * it: `units=0` on a silent story means either the enrichment pass looked at
+     * the article and found nothing to keep ("enriched"), or it never produced a
+     * row at all ("none"), or it recorded a failure. "The rules chose silence"
+     * and "nyuz never fetched the page" are different findings with different
+     * owners, and the composer's own report cannot tell them apart.
+     */
+    enrichment: string;
+  }[];
 };
 
 export async function loadFixtureEvents(): Promise<CorpusEvent[]> {
@@ -65,6 +94,16 @@ export async function loadFixtureEvents(): Promise<CorpusEvent[]> {
     // that as "not first-party", which is the honest answer for a fixture read
     // outside the database.
     sourceKinds: [],
+    // A fixture read outside the database has no enrichment state to report;
+    // "none" is the honest answer rather than an invented "enriched".
+    coverage: fixture.sources.map((source) => ({
+      name: "The Register",
+      kind: "",
+      publishedAt: "",
+      headline: source.headline,
+      excerpt: source.excerpt,
+      enrichment: "none",
+    })),
   }));
 }
 
@@ -90,9 +129,16 @@ export async function loadCorpusEvents(
     // Normalised, because a corpus frozen before `sourceKinds` existed has no such
     // key and the gate now reads it: an absent field means *not carried*, which is
     // an empty list rather than a crash or a silent first-party.
-    return rows
-      .slice(0, limit)
-      .map((event) => ({ ...event, sourceKinds: event.sourceKinds ?? [] }));
+    return rows.slice(0, limit).map((event) => ({
+      ...event,
+      sourceKinds: event.sourceKinds ?? [],
+      // Older frozen files predate `coverage` and its `enrichment` field; an
+      // absent value must read as *not recorded*, never as "enriched".
+      coverage: (event.coverage ?? []).map((entry) => ({
+        ...entry,
+        enrichment: entry.enrichment ?? "unknown",
+      })),
+    }));
   }
   const client = db();
   let query = client
@@ -114,14 +160,22 @@ export async function loadCorpusEvents(
   if (articleError) throw new Error(`articles: ${articleError.message}`);
 
   const articleIds = (articles ?? []).map((a) => a.id);
-  const { data: evidence, error: evidenceError } = await client
+  // Every row, not only the enriched ones, because D6 has to tell "the pass
+  // looked and kept nothing usable" apart from "no pass ever wrote a row". The
+  // units the composer sees are still exactly the `enriched` ones -- this query
+  // widens only what is recorded, never what is delivered.
+  const { data: evidenceRows, error: evidenceError } = await client
     .from("article_evidence")
-    .select("article_id, evidence")
-    .in("article_id", articleIds)
-    .eq("status", "enriched");
+    .select("article_id, evidence, status")
+    .in("article_id", articleIds);
   if (evidenceError) throw new Error(`article_evidence: ${evidenceError.message}`);
   const evidenceByArticle = new Map(
-    (evidence ?? []).map((item) => [item.article_id, (item.evidence ?? []) as EvidenceUnit[]]),
+    (evidenceRows ?? [])
+      .filter((item) => item.status === "enriched")
+      .map((item) => [item.article_id, (item.evidence ?? []) as EvidenceUnit[]]),
+  );
+  const statusByArticle = new Map(
+    (evidenceRows ?? []).map((item) => [item.article_id, (item.status as string) || "empty"]),
   );
 
   const sourceIds = [...new Set((articles ?? []).map((a) => a.source_id).filter(Boolean))];
@@ -137,6 +191,7 @@ export async function loadCorpusEvents(
     const coverage = (articles ?? [])
       .filter((a) => a.event_id === event.id)
       .map((a) => ({
+        articleId: a.id,
         name: nameById.get(a.source_id as string) ?? "Unknown",
         sourceId: a.source_id as string,
         title: a.title,
@@ -162,6 +217,7 @@ export async function loadCorpusEvents(
           event.first_seen_at ??
           "",
         sourceList: coverage.map((c) => ({
+          articleId: c.articleId,
           name: c.name,
           at: "",
           url: c.url,
@@ -172,6 +228,14 @@ export async function loadCorpusEvents(
         sourceKinds: [...new Set(coverage.map((c) => kindById.get(c.sourceId) ?? ""))].filter(
           (kind) => kind !== "",
         ),
+        coverage: coverage.map((c) => ({
+          name: c.name,
+          kind: kindById.get(c.sourceId) ?? "",
+          publishedAt: c.published_at,
+          headline: c.title ?? "",
+          excerpt: c.excerpt ?? "",
+          enrichment: statusByArticle.get(c.articleId) ?? "none",
+        })),
       },
     ];
   });
