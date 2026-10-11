@@ -257,7 +257,9 @@ Research said.` — the corpus defect, reproduced.
   (`company_blog`, the Cloudflare launch) and 3 released (`news`: a Halloween feature, a Windows 7
   performance test, the Nord Stream trial) — 12 paragraphs of newsroom reporting, must-be-zero lines
   unchanged, ledger `1777 = 1575 + 202 + 0`. The `rss` risk was **not exercised** by that window, and
-  the report keeps the section so the next run measures it again.
+  the report keeps the section so the next run measures it again. The runner's gate on `bce35c1`
+  finished green after the report went out — including `Browser smoke on the built Worker` and the
+  deploy — which is the browser result the arbiter asked to be recorded rather than left pending.
 - **2026-10-11 — D4, the quote openings were classified instead of queued** (`f3d0cd0`). The audit counted 29
   blocks opening on a quotation and 9 carrying two, and the queue read "29, then 9". The arbiter
   ruled (option (a)) that the defect had to be _defined_ before either number was a work queue, and
@@ -289,11 +291,20 @@ In the arbiter's order for the reader-delivery path:
    coverage says the publisher was speaking for itself. The standing follow-up is the `rss` risk,
    which the live window did not exercise — re-run `npm run audit:reader` and read its `Vendor
 shapes` section whenever the ingestion mix changes.
-3. **The 59 stories that publish nothing** (31 nothing-selected, 26 single-fact-is-the-deck, 2
-   charged to a named rule, 0 unexplained) — the arbiter's D6, and next: the distinction between
-   justified withholding and an actual publication defect has to be preserved.
+3. **D6 — the 59 stories that publish nothing** (31 nothing-selected, 26 single-fact-is-the-deck, 2
+   charged to a named rule, 0 unexplained). Ruled 2026-10-11 and next. The contract: account for
+   every one of the 59 **individually**, with the evidence and decision-time context (coverage
+   availability, the event clock), and classify each as _justified silence_, _justified deck-only_,
+   _false refusal_, _evidence-selection defect_ or _unresolved_ — naming any class added. The frozen
+   corpus and its baseline stay as they are; a claimed defect must reproduce before its fix and pass
+   afterwards; the standing invariants hold; and **no broad release rule** may land before the 59 are
+   understood. The classification and the proposed disposition come first, with any clearly
+   reproducible defect brought forward for a narrow ruling. Not all 59 should be published: the
+   question is whether each disposition is right, not how much output there is.
 4. **The 9 two-quote blocks** — D7, after D6. D4 measured that they do **not** overlap the 29
    quote-opening blocks on this corpus (0), so they are their own queue and are not yet classified.
+5. **The `rss` risk, kept visible**: no new evidence yet justifies changing the policy again, so the
+   audit's `Vendor shapes` section is the instrument to re-measure on later windows.
 
 Blocked on the owner, not on code:
 
