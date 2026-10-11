@@ -340,6 +340,21 @@ shapes` section whenever the ingestion mix changes.
    `extraction_empty` 180 (fetched, enough words, zero units) as its own evidence-extraction slice.
    Neither may be "fixed" by raising `ENRICH_LIMIT` or widening a window, and no broad rule change is
    authorised.**
+
+   **The `priority_arm` investigation is ruled and its contract is fixed** (2026-10-11): build a
+   read-only **replay using the real dispatch-selection logic** over frozen inputs — not an audit-only
+   reimplementation — recording, per event, its eligibility at decision time (24-hour reader-match arm
+   / 72-hour article arm / both), its position under the real newest-published-first ordering, which
+   three candidates consume each tick's `ENRICH_LIMIT`, and whether successive ticks reach it. Falling
+   below the first three is **not** starvation; only remaining unselected across the replayed ticks is.
+   If starvation is proven the failing replay becomes the regression test and the correction is the
+   narrowest one that restores progress **without changing eligibility, `ENRICH_LIMIT` or the fallback
+   window**; if every event is eventually selected, the nine are **deferred, not defective**, and
+   dispatch behaviour does not change to zero a diagnostic count. One forward confirmation on real
+   ticks follows a demonstrated correction — it supplements the replay, never replaces it. Report the
+   replay, its conclusion and the proposed disposition **before** any dispatch-policy change. Full
+   contract: [decisions/d6-silence-classification.md §6](decisions/d6-silence-classification.md).**
+
 4. **The 9 two-quote blocks** — D7, after D6. D4 measured that they do **not** overlap the 29
    quote-opening blocks on this corpus (0), so they are their own queue and are not yet classified.
 5. **The `rss` risk, kept visible**: no new evidence yet justifies changing the policy again, so the

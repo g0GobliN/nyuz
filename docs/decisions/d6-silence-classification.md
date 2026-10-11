@@ -241,7 +241,37 @@ reported, and ruled on the boundary it exposed:
    `unresolved_context`). The class is keyed on `selected === 1`, so its name overstates. Both are
    charged to a named rule, so neither is a defect; on the frozen 200 the label is exact (0 of 26).
 
-## 6. Provenance
+## 6. The ruling for the next slice: replay, then rule, then correct (2026-10-11)
+
+Asked whether the `priority_arm` acceptance bar was a deterministic replay of the dispatcher's
+ordering or a forward observation across real ticks, the arbiter ruled **replay first, then
+forward-confirm any correction**, and attached the contract:
+
+- **Build a read-only replay using the real dispatch-selection logic**, over the nine measured events.
+  The replay must call the actual selection code, not an audit-only reimplementation, with the
+  candidate inputs and decision-time timestamps frozen so the result is reproducible.
+- **Per event, record**: eligibility at decision time (the 24-hour reader-match arm, the 72-hour
+  article-publication arm, or both); its position under the actual newest-published-first ordering;
+  which three candidates consume each tick's `ENRICH_LIMIT` and whether the event is selected;
+  whether successive ticks eventually reach it or the same newer candidates keep consuming the limit;
+  and the disposition — reachable through normal deferral, or demonstrably starved.
+- **Below the first three candidates is not starvation.** It counts only if the event stays
+  unselected across the replayed ticks under the real behaviour.
+- **If starvation is proven**: preserve the failing replay as the regression test, make the narrowest
+  correction that restores progress without changing eligibility, `ENRICH_LIMIT` or the fallback
+  window, show the test fails against the old implementation, and replay the frozen inputs to show
+  the events become reachable. **If every event is eventually selected, classify the nine as
+  deferred, not defective** — and do not change dispatch behaviour to make a diagnostic count zero.
+- **Then one forward confirmation** on real successive ticks, confirming progress and no eligibility
+  or evidence-quality regression. It supplements the replay; it does not replace it, and a successful
+  replay alone does not establish that production scheduling is correct.
+- **The full-worker failure stays recorded as it happened** (`code-first-db.test.ts` timed out under
+  full-worker load; green at `--maxWorkers=2`) — no worker-setting change, and no claim that the
+  full-worker run was green.
+- The next report contains the nine-event replay, its reproducible conclusion and the proposed
+  disposition **before any dispatch-policy change**.
+
+## 7. Provenance
 
 - `npm run audit:reader -- --corpus tmp/corpus-after.json` (frozen 200) and `npm run audit:reader`
   (live 200), 2026-10-11. Census `59 (31/26/2)`, ledger `1572 = 1418 + 154 + 0`,

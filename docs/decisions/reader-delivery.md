@@ -464,12 +464,23 @@ The arbiter accepted the classification in full and ruled on the boundary it exp
   demonstrated it needs a fail-before test and the narrowest correction, plus a before/after
   measurement, no change to unrelated eligibility rules, and evidence the correction prevents
   recurrence rather than one tick happening to process the nine. **Raising `ENRICH_LIMIT` or widening
-  the fallback window to make the nine disappear is explicitly not authorised.**
-- **Then `extraction_empty` 180, as its own slice**, distinguishing content genuinely unusable from
+  the fallback window to make the nine disappear is explicitly not authorised.**- **Then `extraction_empty` 180, as its own slice**, distinguishing content genuinely unusable from
   content lost during extraction, structural-parsing failures, and cases where the reported word count
   does not describe what the extractor evaluated. Readiness and composition are not to be changed to
   compensate for evidence that was never produced.
 - **No broad rule change is authorised by any of this.**
+- **How `priority_arm` is to be investigated** (ruled the same day, after the boundary landed): a
+  read-only **replay** using the **real dispatch-selection logic** over frozen inputs, not an
+  audit-only reimplementation, recording per event its eligibility at decision time, its position in
+  the newest-published-first ordering, which three candidates consume each tick's `ENRICH_LIMIT`, and
+  whether successive ticks reach it. Falling below the first three is **not** starvation; only staying
+  unselected across the replayed ticks is. If starvation is proven, the failing replay becomes the
+  regression test and the correction is the narrowest one that restores progress **without changing
+  eligibility, `ENRICH_LIMIT` or the fallback window**; if every event is eventually selected the nine
+  are **deferred, not defective**, and dispatch behaviour does not change to make a diagnostic count
+  zero. A demonstrated correction then gets **one forward confirmation** on real successive ticks —
+  which supplements the replay rather than replacing it. Full contract:
+  [d6-silence-classification.md §6](d6-silence-classification.md).
 
 ## D4 — a quote opening is classified, not queued (2026-10-11)
 
