@@ -174,6 +174,10 @@ thin_content       15      unreachable       2
 fixable families 465       boundaries, not defects 99     uncovered with importance>=7  7
 ```
 
+(`fixable families` is what that command printed at the time of this measurement, before the rename
+recorded in §4; the same report now says `families worth attributing`. The number is left as printed
+rather than restated, so the record and the tool can be compared rather than reconciled.)
+
 and `scripts/reader-enrichment-cause.ts` splits the 285 `never_attempted` by the gate that kept each
 article out:
 
