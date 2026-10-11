@@ -120,7 +120,21 @@ export async function loadCorpusEvents(
   limit: number,
   find?: string,
   from?: string,
+  /**
+   * Read these events and no others, by id.
+   *
+   * Added for the alert audit (2026-10-11), which has to ask the readiness gate
+   * about a specific list — the stories an alert would carry — rather than about
+   * whatever happens to be newest. Without it the only way to reach a chosen set
+   * was to load a window large enough to contain it and filter afterwards, which
+   * silently measures a different population whenever the window moves.
+   * Absent, every existing caller reads exactly what it read before.
+   */
+  only?: string[],
 ): Promise<CorpusEvent[]> {
+  if (only && only.length > 0) {
+    return loadEventsByIds(limit, only);
+  }
   if (from) {
     const frozen = JSON.parse(readFileSync(from, "utf8")) as CorpusEvent[];
     const rows = find
@@ -212,6 +226,109 @@ export async function loadCorpusEvents(
         sources: event.publisher_count ?? coverage.length,
         // The event's own date anchors the sources' relative time phrases: the
         // earliest coverage is the day the event happened.
+        publishedAt:
+          coverage.map((c) => c.published_at).find((value) => value !== "") ??
+          event.first_seen_at ??
+          "",
+        sourceList: coverage.map((c) => ({
+          articleId: c.articleId,
+          name: c.name,
+          at: "",
+          url: c.url,
+          headline: c.title,
+          ...(c.excerpt ? { excerpt: c.excerpt } : {}),
+          ...(c.evidence ? { enrichedEvidence: c.evidence } : {}),
+        })),
+        sourceKinds: [...new Set(coverage.map((c) => kindById.get(c.sourceId) ?? ""))].filter(
+          (kind) => kind !== "",
+        ),
+        coverage: coverage.map((c) => ({
+          name: c.name,
+          kind: kindById.get(c.sourceId) ?? "",
+          publishedAt: c.published_at,
+          headline: c.title ?? "",
+          excerpt: c.excerpt ?? "",
+          enrichment: statusByArticle.get(c.articleId) ?? "none",
+        })),
+      },
+    ];
+  });
+}
+
+/**
+ * The same rows, narrowed to an explicit set of events.
+ *
+ * A second selector rather than a flag threaded through the one above, because
+ * the two disagree about what `limit` means: there, "the newest N events"; here,
+ * "these events, at most N of them". Sharing the reader would have made one of
+ * the two quietly wrong.
+ */
+async function loadEventsByIds(limit: number, ids: string[]): Promise<CorpusEvent[]> {
+  const client = db();
+  const wanted = ids.slice(0, limit);
+  const { data: events, error } = await client
+    .from("events")
+    .select(
+      "id, title, what_happened, status, publisher_count, first_seen_at, material_occurrence_at",
+    )
+    .in("id", wanted);
+  if (error) throw new Error(`events: ${error.message}`);
+  if (!events || events.length === 0) return [];
+
+  const eventIds = events.map((event) => event.id);
+  const { data: articles, error: articleError } = await client
+    .from("articles")
+    .select("id, event_id, source_id, title, excerpt, url, published_at")
+    .in("event_id", eventIds)
+    .order("published_at", { ascending: true });
+  if (articleError) throw new Error(`articles: ${articleError.message}`);
+
+  const articleIds = (articles ?? []).map((article) => article.id);
+  const { data: evidenceRows, error: evidenceError } = await client
+    .from("article_evidence")
+    .select("article_id, evidence, status")
+    .in("article_id", articleIds);
+  if (evidenceError) throw new Error(`article_evidence: ${evidenceError.message}`);
+  const evidenceByArticle = new Map(
+    (evidenceRows ?? [])
+      .filter((item) => item.status === "enriched")
+      .map((item) => [item.article_id, (item.evidence ?? []) as EvidenceUnit[]]),
+  );
+  const statusByArticle = new Map(
+    (evidenceRows ?? []).map((item) => [item.article_id, (item.status as string) || "empty"]),
+  );
+
+  const sourceIds = [...new Set((articles ?? []).map((a) => a.source_id).filter(Boolean))];
+  const { data: sources, error: sourceError } = await client
+    .from("sources")
+    .select("id, name, kind")
+    .in("id", sourceIds as string[]);
+  if (sourceError) throw new Error(`sources: ${sourceError.message}`);
+  const nameById = new Map((sources ?? []).map((s) => [s.id, s.name]));
+  const kindById = new Map((sources ?? []).map((s) => [s.id, s.kind as string]));
+
+  return events.flatMap((event) => {
+    const coverage = (articles ?? [])
+      .filter((article) => article.event_id === event.id)
+      .map((article) => ({
+        articleId: article.id,
+        name: nameById.get(article.source_id as string) ?? "Unknown",
+        sourceId: article.source_id as string,
+        title: article.title,
+        excerpt: article.excerpt,
+        url: article.url,
+        published_at: article.published_at ?? "",
+        evidence: evidenceByArticle.get(article.id),
+      }));
+    if (coverage.length === 0) return [];
+    return [
+      {
+        id: event.id,
+        title: event.title,
+        what: event.what_happened,
+        status: event.status,
+        org: coverage[0]!.name,
+        sources: event.publisher_count ?? coverage.length,
         publishedAt:
           coverage.map((c) => c.published_at).find((value) => value !== "") ??
           event.first_seen_at ??

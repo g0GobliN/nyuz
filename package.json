@@ -50,6 +50,7 @@
     "eval:corpus": "node --env-file=.env scripts/tsrun.mjs scripts/reader-eval-corpus.ts",
     "audit:enrichment": "node --env-file=.env scripts/tsrun.mjs scripts/reader-enrichment-census.ts",
     "audit:enrichment:cause": "node --env-file=.env scripts/tsrun.mjs scripts/reader-enrichment-cause.ts",
+    "audit:alerts": "node --env-file=.env scripts/tsrun.mjs scripts/reader-alert-audit.ts",
     "audit:matching": "node --env-file=.env scripts/tsrun.mjs scripts/reader-matching-cause.ts"
   },
   "overrides": {
