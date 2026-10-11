@@ -743,6 +743,51 @@ describe("composeArticle", () => {
       expect(diagnostics.facts.renderedAfterRefusalFacts).toEqual([]);
     });
 
+    it("does not splice a refused fact back in as context for an unborn entity", () => {
+      // Refusal-finality, ruled 2026-10-11. The entity-context pass inserts a
+      // source sentence naming an entity the article has not introduced -- and the
+      // usual reason the entity has not been introduced is that the sentence naming
+      // it was *refused*. On the frozen 200-story corpus that was four of the seven
+      // facts the ledger reported as refused and published by another path,
+      // including the PC-shipments opening whose referent the page never
+      // establishes. A refused sentence stays refused: the splice looks for another
+      // way to introduce the entity, and where there is none the article simply does
+      // not mention it.
+      const story = makeStory({
+        title: "PC shipments tumble as chip shortages bite",
+        understand: undefined as never,
+        what: "",
+        sources: 2,
+        sourceList: [
+          {
+            name: "Tom's Hardware",
+            at: "10:00",
+            excerpt:
+              "PC shipments fell 20.1% in the third quarter. These price increases have been caused by the boom in AI data centers, Counterpoint Research said. Analysts expect the shortage to last until 2027.",
+          },
+          {
+            name: "Reuters",
+            at: "11:00",
+            excerpt:
+              "Memory prices climbed by as much as 500%, according to the report. The decline marks a steeper drop than the 3.8% recorded last quarter.",
+          },
+        ],
+      });
+      const { article, diagnostics } = composeArticleWithDiagnostics(story);
+      const published = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+      expect(published).not.toContain("These price increases");
+      // Refused by name, so its absence is explicable rather than lost, and the
+      // counter that has to mean "a path republished a refused fact" stays zero.
+      expect(
+        diagnostics.facts.unrendered.some((entry) =>
+          entry.text.startsWith("These price increases"),
+        ),
+      ).toBe(true);
+      expect(diagnostics.facts.renderedAfterRefusal).toBe(0);
+      expect(diagnostics.facts.renderedAfterRefusalFacts).toEqual([]);
+      expect(diagnostics.facts.lost).toBe(0);
+    });
+
     it("publishes the deck alone when the story has one usable fact", () => {
       // The classification the empty-story census turns on: a body needs a second
       // fact, so a story with one is not a story a rule emptied -- the deck is the

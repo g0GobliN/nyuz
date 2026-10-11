@@ -284,3 +284,74 @@ digest-cost-safety), and the audit re-run above.
 another path — 5 verbatim cases, and the `matched: sentence|text` split that filed its worst case as
 the benign one), then the 2 absent overlap records, then the 24 quote-opening blocks, then the 8
 two-quote blocks.
+
+## D3 — a refused fact is final (2026-10-11)
+
+**The case, before any change.** The audit reported **7** facts a rule had charged that the page
+received anyway, and the counter's own two-way split told the wrong story about them:
+
+- Four were real republications: the **entity-context splice** had re-inserted a source sentence
+  naming an entity the article had not introduced. The usual reason the entity was unintroduced was
+  that the sentence naming it had been **refused** — and the splice then published that sentence
+  _after_ the quality gate, so no rule had ever read it. This included the PC-shipments opening
+  (`These price increases have been directly caused by the boom in AI data centers …`) whose
+  referent the page never establishes, which is the case D2 handed to D3.
+- Two were the counter reaching too far: facts the page only _resembles_ (`Hegseth. The BBC said:
+"People need to understand …"` versus the sentence `The BBC said: "People need to understand …"`
+  that the page carries). The old `matched: "sentence"` label was produced by the ledger's own
+  sentence index, which every publishing path writes — including a block a later rule refused — so
+  these two were filed as the _worst_ class while one real republication was filed as the benign one.
+- One was a fact that was never withheld: a paragraph restated the deck, was refused under a
+  sentence rule, and the charge landed on the **deck's own fact** through the shared sentence key —
+  a rule the deck had passed.
+
+**The ruling this implements.** From the arbiter's queue: _a refused fact must not be republished by
+another path_; the `matched` split must not file a republication as a resemblance.
+
+**Implemented — two causes, one counter.**
+
+1. **Refusal-finality at the splice** (`republishesRefusedFact`). The entity-context pass may not
+   reinsert a sentence whose text the ledger already charged, and its candidate is added to the
+   article **before** the gate rather than after, so the same sentence rules judge it as every other
+   block. Where the entity cannot be introduced without republishing a refusal, the article does not
+   mention the entity.
+2. **A deck restatement is a merge, not a defect.** `nearDuplicate(deck, part)` is now decided
+   before the refusal rules, so a duplicate of published prose charges nobody.
+3. **The counter reads the page at sentence boundaries.** `matched: "sentence"` now means every
+   sentence of the fact is one of the page's own sentences — the fact's own text on the page, which
+   is what a republication requires. Containment alone was tried first and was too loose: a quoted
+   message inside another sentence (`THE PATRIOTS CAUCUS sends its regards` inside the sentence
+   reporting it) is the page quoting a source, not a path republishing a refused fact. Everything
+   else that matched is now `matched: "resemblance"`, counted separately as a diagnostic, with the
+   sentence that matched recorded beside it so the reading can be checked.
+
+**Measured, same frozen 200 (`tmp/corpus-after.json`).**
+
+| line                                             | before                | after                 |
+| ------------------------------------------------ | --------------------- | --------------------- |
+| `refused then published by another path`         | 7                     | **0**                 |
+| of those, resemblance only (diagnostic)          | —                     | 3                     |
+| `selected = rendered + explained + unexplained`  | 1572 = 1421 + 151 + 0 | 1572 = 1418 + 154 + 0 |
+| `Facts lost, with no rule accounting for them`   | 0                     | **0**                 |
+| context-dependent openings on the published page | 5                     | **3**                 |
+| `stacked_quotes` refusals / sentences refused    | 32 / 166              | 31 / 165              |
+| `delivered with no body`                         | 0                     | **0**                 |
+| readable stories withheld                        | 19                    | 19                    |
+| stories publishing no paragraphs (splits)        | 59 (31/26/2)          | 59 (31/26/2)          |
+| stories with a reader-visible defect             | 0                     | **0**                 |
+
+The whole difference is 13 lines of the report: three facts that were published are now refused (the
+three sentences the splice inserted), one attribution shape moved from `according_to` to `none`
+(the deck-duplicate merge), and the average article lost one word. No story was newly emptied, and
+no story lost its deck.
+
+**Fail-before proof.** With `republishesRefusedFact` disabled, the new regression test
+(`editorial.test.ts`, "does not splice a refused fact back in as context for an unborn entity")
+fails with the corpus defect reproduced verbatim: the published article contains `These price
+increases have been caused by the boom in AI data centers, Counterpoint Research said.` — the
+refused sentence, on the page. Restored, it passes. Verified: `tsc --noEmit` clean for the app and
+for `scripts/`, and 468 tests green across the affected suites (editorial, reader-quality, fixture
+regression, prose rules, readiness, digest-cost-safety, understand).
+
+**Also closes the queued "2 absent overlap records":** they were the two facts whose text the page
+never carried, and they are now the resemblance class instead of being reported as republications.

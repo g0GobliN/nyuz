@@ -126,6 +126,8 @@ type Totals = {
   refusalEvents: number;
   /** Facts a rule refused along one path that another path published anyway. */
   renderedAfterRefusal: number;
+  /** Facts a rule charged that the page only resembles -- the generous half. */
+  renderedAfterRefusalResemblance: number;
   restatements: number;
   sentencesRefused: number;
   voiceStripped: number;
@@ -167,6 +169,7 @@ function emptyTotals(): Totals {
     refusedFacts: 0,
     refusalEvents: 0,
     renderedAfterRefusal: 0,
+    renderedAfterRefusalResemblance: 0,
     restatements: 0,
     sentencesRefused: 0,
     voiceStripped: 0,
@@ -332,13 +335,15 @@ main(async () => {
     totals.refusedFacts += diagnostics.facts.refused;
     totals.refusalEvents += diagnostics.facts.refusalEvents;
     totals.renderedAfterRefusal += diagnostics.facts.renderedAfterRefusal;
+    totals.renderedAfterRefusalResemblance += diagnostics.facts.renderedAfterRefusalResemblance;
     for (const [rule, count] of Object.entries(diagnostics.facts.dispositions ?? {})) {
       dispositions[rule] = (dispositions[rule] ?? 0) + count;
     }
     for (const entry of diagnostics.facts.renderedAfterRefusalFacts ?? []) {
-      overlapFacts.push(
-        `${event.title} · ${entry.rule} (matched by ${entry.matched}): ${entry.text}`,
-      );
+      overlapFacts.push(`${event.title} · ${entry.rule} (${entry.matched}): ${entry.text}`);
+      // The sentence the finding rests on, printed beneath it, so the reading can
+      // be checked without re-running the composer.
+      if (entry.evidence) overlapFacts.push(`    carried by: ${entry.evidence}`);
     }
     totals.restatements += diagnostics.dedupe.restatements;
     totals.sentencesRefused += diagnostics.sentences.refused;
@@ -595,7 +600,15 @@ main(async () => {
     say(row(`  ${rule}`, count));
   }
   say(row("refusal events (rules' history, not the partition)", totals.refusalEvents));
-  say(row("refused then published by another path", totals.renderedAfterRefusal));
+  say(row("refused then published by another path  <- must be zero", totals.renderedAfterRefusal));
+  // Not a defect: the wording comparison matched a sentence about something else.
+  // Its own row so the verdict above is not weakened by it.
+  say(
+    row(
+      "  of those, resemblance only (the counter being generous)",
+      totals.renderedAfterRefusalResemblance,
+    ),
+  );
   // The facts behind the two numbers above, so a reader can check a decision
   // rather than take a count's word for it. Both are bounded by what the corpus
   // selected, and both are printed in full.

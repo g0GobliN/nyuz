@@ -342,23 +342,48 @@ export type CompositionDiagnostics = {
     unrendered: { text: string; rule: string }[];
     /**
      * The facts behind `renderedAfterRefusal`: identity, the rule that charged
-     * them, and which test found them in the prose.
+     * them, the test that found them, and the sentence it found them in.
      *
-     * `sentence` means a published block carries a sentence the ledger attributes
-     * to this fact -- a real republished fact, so a real bypass to investigate.
-     * `text` means only the wording comparison matched, which is a resemblance
-     * rather than a republication, and is the counter being generous.
+     * `sentence` means every sentence of the fact is one of the page's own
+     * sentences: the fact's own text is on the page as prose, and a rule charged it
+     * anyway. That is the class this counter exists to drive to zero.
+     *
+     * `resemblance` means only the wording comparison matched -- the page says
+     * something like the fact, not the fact. Both classes are recorded with the
+     * sentence that carried them, because the difference between them is a
+     * judgement a reader has to be able to check, and the ledger's own sentence
+     * index is not evidence for it: every publishing path writes that index,
+     * including a block a later rule refused, so it says a fact was published when
+     * nothing on the page says it.
      */
-    renderedAfterRefusalFacts: { text: string; rule: string; matched: "sentence" | "text" }[];
+    renderedAfterRefusalFacts: {
+      text: string;
+      rule: string;
+      matched: "sentence" | "resemblance";
+      /** The published sentence carrying the fact, or its closest match. */
+      evidence: string;
+    }[];
     /**
      * Facts a rule refused along one path that another path published anyway.
      *
      * A diagnostic, not a partition term: the fact is `rendered`, because that is
      * what the reader got, and the refusal stays visible here rather than being
      * erased from the history. Non-zero is a bug in a later path -- the ranked
-     * priority hoist was the one -- not a tolerance.
+     * priority hoist and the entity-context splice were the two -- not a
+     * tolerance. Counted on the `matched: "sentence"` class alone: only a fact the
+     * page actually carries is a republished one, and the resemblance class is a
+     * separate, diagnostic number.
      */
     renderedAfterRefusal: number;
+    /**
+     * Facts a rule charged that the page only *resembles*.
+     *
+     * The generous half of `renderedAfterRefusal`, and a diagnostic rather than a
+     * defect: the token comparison matched a sentence about something else. Kept
+     * as its own number so the verdict line above can mean "the page carries a
+     * fact a rule refused" without the resemblance class weakening it.
+     */
+    renderedAfterRefusalResemblance: number;
     /**
      * Units refused in the evidence pass, before selection, by reason.
      *
@@ -500,6 +525,7 @@ function createDiagnostics(): CompositionDiagnostics {
       unrendered: [],
       renderedAfterRefusalFacts: [],
       renderedAfterRefusal: 0,
+      renderedAfterRefusalResemblance: 0,
       evidenceRefusals: {},
       lost: 0,
       lostFacts: [],
@@ -615,6 +641,29 @@ function markDroppedFacts(ledger: FactLedger, facts: readonly { text: string }[]
 }
 
 /**
+ * Whether publishing this sentence would republish a fact a rule refused.
+ *
+ * Refusal-finality, as one predicate: the venue for a fact a rule declined is
+ * silence, not a second path. Tested by containment rather than equality, because
+ * the sentence a later pass rebuilds is often longer than the fact inside it --
+ * the entity-context splice takes a whole source sentence, and a fact the ranked
+ * pass refused can be a fragment of one ("THE PATRIOTS CAUCUS sends its
+ * regards!!!!!!!!!!" inside the message it was written in).
+ *
+ * Only one direction is a republication: this sentence carrying the refused fact.
+ * A sentence that is merely *part* of a refused fact is a fragment, which the
+ * sentence rules judge on their own terms.
+ */
+function republishesRefusedFact(ledger: FactLedger, text: string): boolean {
+  const key = sentenceKey(text);
+  if (key === "") return false;
+  for (const charged of ledger.unrendered.keys()) {
+    if (charged !== "" && key.includes(charged)) return true;
+  }
+  return false;
+}
+
+/**
  * Record which fact a published sentence was built from, for the two above.
  *
  * Indexed sentence by sentence rather than as one string, because the gate reads
@@ -644,6 +693,33 @@ function carries(blocks: string[], factText: string): boolean {
   const key = sentenceKey(factText);
   if (key.length > 0 && blocks.some((block) => sentenceKey(block).includes(key))) return true;
   return blocks.some((block) => similarEnough(block, factText));
+}
+
+/**
+ * The published sentence that resembles `factText` most closely.
+ *
+ * For the resemblance class of the overlap counter only. That class is a
+ * judgement -- "the page says something like this fact" -- and a judgement needs
+ * its evidence attached, so the sentence with the largest share of the fact's
+ * own tokens is the one recorded. Nothing is published from this reading; it is
+ * what an operator reads to decide whether a charge is a republication or the
+ * comparison being generous.
+ */
+function closestPublishedSentence(sentences: string[], factText: string): string {
+  const factTokens = new Set(centralTokens(factText));
+  let best = "";
+  let bestScore = 0;
+  for (const sentence of sentences) {
+    if (sentence.trim() === "") continue;
+    let shared = 0;
+    for (const token of new Set(centralTokens(sentence))) if (factTokens.has(token)) shared += 1;
+    const score = shared / Math.max(factTokens.size, 1);
+    if (score > bestScore) {
+      bestScore = score;
+      best = sentence;
+    }
+  }
+  return best;
 }
 
 function mergeFacts(facts: ReaderFact[], diagnostics: CompositionDiagnostics): ReaderFact[] {
@@ -1423,6 +1499,19 @@ function qualityGate(
         refuse("invalid_sentence", part);
         continue;
       }
+      // A paragraph that only restates the deck is the deck, not a paragraph.
+      //
+      // Checked before the refusal rules below, because a duplicate of published
+      // prose is not a defect in it: refusing it under one of them charges the
+      // *deck's* fact -- this sentence's key is the deck's key -- with a rule the
+      // deck itself passed, which is how a fact that was never withheld came to be
+      // reported as refused and published by another path. The reader is owed the
+      // sentence once, and this is the block that supplies it.
+      if (nearDuplicate(deck.text, part)) {
+        mergeInto(deck, paragraph.evidence);
+        diagnostics.sentences.merged += 1;
+        continue;
+      }
       // "Both saw agents make their way onto the open internet", and a fronted
       // clause whose main clause is a pronoun: the subject is outside the
       // sentence, and no ordering of the page supplies it. The softer class --
@@ -1437,12 +1526,6 @@ function qualityGate(
       if (quotedSpans(part) > 1) {
         diagnostics.qualityGate.stackedQuoteWarnings += 1;
         refuse("stacked_quotes", part);
-        continue;
-      }
-      // A paragraph that only restates the deck is the deck, not a paragraph.
-      if (nearDuplicate(deck.text, part)) {
-        mergeInto(deck, paragraph.evidence);
-        diagnostics.sentences.merged += 1;
         continue;
       }
       const key = sentenceKey(part);
@@ -1756,52 +1839,90 @@ function finishDiagnostics(
   ledger: FactLedger,
 ): void {
   const blocks = [article.deck.text, ...article.paragraphs.map((paragraph) => paragraph.text)];
+  /**
+   * The published sentences, as prose, for the overlap test below.
+   *
+   * Sentence by sentence rather than block by block, because a block is an
+   * assembly of sentences that may come from different facts: containment in the
+   * whole block says a fact's words appear somewhere in the paragraph, which is
+   * not the same claim as a sentence of this fact being on the page.
+   */
+  const publishedSentences = blocks.flatMap((block) => readerSentences(block));
+  /** The same sentences as identity, for the republication test below. */
+  const publishedKeys = new Set(publishedSentences.map((part) => sentenceKey(part)));
   const lost: string[] = [];
   const dispositions: Record<string, number> = {};
   const unrendered: { text: string; rule: string }[] = [];
-  const renderedAfterRefusalFacts: { text: string; rule: string; matched: "sentence" | "text" }[] =
-    [];
-  let rendered = 0;
-  let renderedAfterRefusal = 0;
+  const renderedAfterRefusalFacts: {
+    text: string;
+    rule: string;
+    matched: "sentence" | "resemblance";
+    evidence: string;
+  }[] = [];
   /**
-   * Facts whose sentence actually reached a published block.
+   * Facts whose sentence the ledger says the composer wrote from them.
    *
    * Read off the page, not off the intention: every published sentence is looked
    * up through the ledger, and a sentence the composer wrote from a fact names
    * that fact. It is the same prose test `carries` makes, but it survives a
-   * rewrite -- "For founders, the Expo Hall ... could mean meeting an investor"
-   * publishes as "For founders, TechCrunch reports that the Expo Hall ...", and a
-   * substring test calls that fact lost while the reader is reading it. Three of
-   * the six facts still unexplained after the block-level accounting was added
-   * were exactly this shape.
+   * rewrite, which is why it stays in the `rendered` test below even though it is
+   * not evidence of a republished fact.
    */
   const publishedFacts = new Set<string>();
-  for (const block of blocks) {
-    for (const sentence of readerSentences(block)) {
-      const fact = ledger.sentences.get(sentenceKey(sentence));
-      if (fact !== undefined) publishedFacts.add(fact);
-    }
+  for (const sentence of publishedSentences) {
+    const fact = ledger.sentences.get(sentenceKey(sentence));
+    if (fact !== undefined) publishedFacts.add(fact);
   }
+  let rendered = 0;
+  let renderedAfterRefusal = 0;
+  let renderedAfterRefusalResemblance = 0;
   for (const fact of facts) {
     // A rule that charged this fact leaves its reason behind even when another
     // path published it anyway, so the overlap is visible rather than erased.
     const key = sentenceKey(fact.text);
     const charged = ledger.unrendered.get(key);
-    // Two tests, and the difference is the point: the first reads the page and
-    // says which fact wrote bearing sentence, the second is the older wording
-    // comparison and can only say the prose resembles the fact. An overlap found
-    // by the first is a path that republished a refused fact; one found only by
-    // the second is the counter being generous, and the two need telling apart
-    // before anyone calls it a bypass.
-    const bySentence = publishedFacts.has(key);
-    if (bySentence || carries(blocks, fact.text)) {
+    // Whether this fact reached the page at all. Three readings, and only the
+    // first decides the class below.
+    //
+    // `byLedger` is the ledger's own index: a published sentence was built from
+    // this fact, which stays true when the composer *rewrote* it -- "For founders,
+    // the Expo Hall ... could mean meeting an investor" publishes as "For
+    // founders, TechCrunch reports that the Expo Hall ...", and nothing about the
+    // fact's own wording survives to be found. It is right about the fact being
+    // published; it is wrong as evidence, because a block a later rule refused
+    // also wrote an entry before it was refused.
+    //
+    // `carrying` asks the page directly, and at sentence boundaries: is every
+    // sentence of this fact one of the page's own sentences? That is the one
+    // reading that can say a refused fact was republished, because it needs the
+    // fact's own text to be a sentence on the page rather than words inside one.
+    // Containment alone is not enough -- a quoted message inside another sentence
+    // contains its words (the Ohio blogger's "THE PATRIOTS CAUCUS sends its
+    // regards" is inside the sentence that reports it), and that is the page
+    // quoting a source, not a path republishing a refused fact.
+    //
+    // `resembles` is the oldest and most generous: the wording comparison matched
+    // a sentence about something else, which is the counter reaching too far rather
+    // than a bypass, and is kept as its own number for exactly that reason.
+    const byLedger = publishedFacts.has(key);
+    const factSentences = readerSentences(fact.text)
+      .map((part) => sentenceKey(part))
+      .filter((part) => part !== "");
+    const carrying =
+      factSentences.length > 0 && factSentences.every((part) => publishedKeys.has(part))
+        ? publishedSentences.filter((part) => factSentences.includes(sentenceKey(part))).join(" ")
+        : undefined;
+    const resembles = carrying === undefined && carries(blocks, fact.text);
+    if (byLedger || carrying !== undefined || resembles) {
       rendered += 1;
       if (charged !== undefined) {
-        renderedAfterRefusal += 1;
+        if (carrying !== undefined) renderedAfterRefusal += 1;
+        else renderedAfterRefusalResemblance += 1;
         renderedAfterRefusalFacts.push({
           text: fact.text,
           rule: charged,
-          matched: bySentence ? "sentence" : "text",
+          matched: carrying !== undefined ? "sentence" : "resemblance",
+          evidence: carrying ?? closestPublishedSentence(publishedSentences, fact.text),
         });
       }
       continue;
@@ -1820,6 +1941,7 @@ function finishDiagnostics(
   }
   diagnostics.facts.rendered = rendered;
   diagnostics.facts.renderedAfterRefusal = renderedAfterRefusal;
+  diagnostics.facts.renderedAfterRefusalResemblance = renderedAfterRefusalResemblance;
   diagnostics.facts.renderedAfterRefusalFacts = renderedAfterRefusalFacts;
   diagnostics.facts.dispositions = dispositions;
   diagnostics.facts.unrendered = unrendered;
@@ -2470,10 +2592,28 @@ export function composeArticleWithDiagnostics(story: Story): {
             }),
         ];
     const composedText = paragraphs.map((paragraph) => paragraph.text).join(" ");
-    // The entity-context pass inserts a source sentence that names an entity the
-    // article has not introduced yet. In narrative order the paper has already
-    // said what it means to say, in the order it meant to say it, so nothing is
-    // spliced in.
+    /**
+     * The entity-context pass inserts a source sentence that names an entity the
+     * article has not introduced yet. In narrative order the paper has already
+     * said what it means to say, in the order it meant to say it, so nothing is
+     * spliced in.
+     *
+     * Two rules hold this pass to the same standard as every other path.
+     *
+     * **Refusal-finality.** A sentence the ledger already charged may not be
+     * reinserted here. The whole point of the splice is to add prose the article
+     * does not have, so a sentence it *does* have -- one a rule judged and refused
+     * -- must not be smuggled back in as context. On the 2026-10-10 corpus that
+     * was four of the seven facts the ledger reported as refused and published
+     * anyway, including the PC-shipments opening whose referent the page never
+     * establishes.
+     *
+     * **The gate.** The candidate is added to the article *before* the gate reads
+     * it, not after, so it is judged as prose like every other sentence -- the
+     * metadata, entity, heading, seam, anaphora and quote rules all apply to it.
+     * Splicing after the gate published a sentence no rule had ever seen.
+     */
+    const spliced: ArticleParagraph[] = [];
     for (const entity of oneDocument
       ? []
       : selection.entities.filter((item) => item.role !== "REPORTING_SOURCE")) {
@@ -2488,10 +2628,14 @@ export function composeArticleWithDiagnostics(story: Story): {
               part.toLowerCase().includes(entity.name.toLowerCase()),
             );
       const text = raw ? cleanDeterministicSentence(raw.replace(/^As we write,\s*/i, "")) : "";
-      if (text && validDeterministicSentence(text) && !editorialNoise(text))
-        paragraphs.unshift({ text: sentence(text), evidence: [sourceIndex + 1] });
-      if (paragraphs.length >= 8) break;
+      if (!text) continue;
+      if (republishesRefusedFact(ledger, text)) continue;
+      const candidate = { text: sentence(text), evidence: [sourceIndex + 1] };
+      if (validDeterministicSentence(candidate.text) && !editorialNoise(candidate.text))
+        spliced.push(candidate);
+      if (paragraphs.length + spliced.length >= 8) break;
     }
+    paragraphs.unshift(...spliced);
     /**
      * Prior-coverage background, kept out of the thin-evidence cap.
      *
