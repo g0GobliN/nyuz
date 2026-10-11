@@ -9,7 +9,19 @@
  *
  * Every ruler reads the *published text*, never the composer's own counters: a
  * leak the composer does not know about is the leak worth counting.
+ *
+ * One exception, and it is deliberate: whether a quote opening is a *defect*
+ * cannot be read off the prose alone. The reader's question is "can I tell who is
+ * speaking, and have I already read this?", and the second half of that is a fact
+ * about the page and the ledger, not about one block -- see
+ * `quoteOpeningEvidence` below.
  */
+
+// Relative rather than `@/`, deliberately: this file is imported by a suite that
+// runs under vitest as well as by the operator scripts under tsrun, and only the
+// scripts's own resolution maps the alias. Every other script that reaches into
+// `src` does the same.
+import { readerSentences, sentenceKey } from "../../src/lib/reader-evidence";
 
 /** An HTML entity of any kind -- named, decimal or hex. */
 export const ENTITY_LEAK = /&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]{1,9});/i;
@@ -135,4 +147,198 @@ export function lowercasedSourceCapitals(published: string, source: string): str
     rewritten.add(word);
   }
   return [...rewritten].sort();
+}
+
+/**
+ * A quotation: an opening mark, its speech, and the matching closing mark.
+ *
+ * Single quotes are deliberately absent. The corpus uses them for titles and
+ * possessives far more often than for speech, and counting one as a quotation
+ * would put a speaker's name inside somebody's book title.
+ */
+const QUOTED_SPAN = /"[^"\n]*"|“[^”\n]*”/g;
+
+/**
+ * The page with every quotation removed.
+ *
+ * A name inside quotation marks is the speaker's own words about somebody else,
+ * so it cannot be the name that tells the reader who is talking.
+ */
+export function withoutQuotedSpeech(text: string): string {
+  return text.replace(QUOTED_SPAN, " ");
+}
+
+/**
+ * The speech inside each quotation, as its own text.
+ *
+ * Needed because a quotation is often glued to its attribution -- `"..." said
+ * Jane Smith.` is one sentence to the sentence splitter, so comparing whole
+ * sentences misses the repeat the reader actually meets. The repeated unit is the
+ * quoted sentence, which is why the repeat check reads both.
+ */
+export function quotedSpeech(text: string): string[] {
+  return [...text.matchAll(QUOTED_SPAN)].map((match) => match[0].slice(1, -1).trim());
+}
+
+/** The verbs that hand a name to the words after it. */
+const SPEECH_VERB =
+  "said|says|told|tells|added|adds|noted|notes|wrote|writes|asked|asks|stated|states|explained|explains|warned|warns|announced|announces|argued|argues|claimed|claims|reported|reports|testified|testifies|confirmed|confirms|denied|denies";
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The name the page hands a speech verb, or an empty string.
+ *
+ * The name has to come from the story's own entity list, so this never guesses
+ * that a capitalised word is a person: `containers said` and `The report said`
+ * are how a name-shaped ruler starts naming nobody. Both directions are read,
+ * because English writes both -- `Jane Smith said` and `, said Jane Smith` -- and
+ * each is bounded to one sentence, so a name in a later paragraph cannot count as
+ * this sentence's speaker.
+ */
+export function attributionSeam(text: string, names: string[]): string {
+  const prose = withoutQuotedSpeech(text);
+  for (const name of names) {
+    const escaped = escapeRegExp(name);
+    const before = new RegExp(`\\b${escaped}(?:'s)?[^.!?]{0,30}\\b(?:${SPEECH_VERB})\\b`, "u");
+    const after = new RegExp(`\\b(?:${SPEECH_VERB})\\b[^.!?]{0,24}?\\b${escaped}\\b`, "u");
+    if (before.test(prose) || after.test(prose)) return name;
+  }
+  return "";
+}
+
+/** What a quote-opening block turned out to be. */
+export type QuoteOpeningClass =
+  /** The block repeats a sentence the reader has already read above it. */
+  | "duplicate"
+  /** The speaker is named nowhere, and the ledger shows one was charged. */
+  | "attribution-refused"
+  /** The speaker is named nowhere and nothing shows an attribution existed. */
+  | "unresolved"
+  /** The page names the speaker, so the opening resolves for the reader. */
+  | "valid";
+
+/**
+ * The sentence the page hands the name to the verb in.
+ *
+ * Printed beside the name because the name alone is not the evidence the ruling
+ * asked for -- "where the attribution or necessary context appears" is. The ruler
+ * reports *an* entity in an attribution seam, which is not always the speaker: an
+ * organisation standing next to the verb (`Gartner said`) and a name the entity
+ * extractor cut short (`J.J`, for J.J. "Yank" Cummings) both satisfy it. The
+ * sentence is what lets a reader see which of those happened, and none of those
+ * cases changes the classification, because the person speaking is named in it.
+ */
+export function attributionSentence(text: string, names: string[]): string {
+  for (const sentence of readerSentences(withoutQuotedSpeech(text))) {
+    if (attributionSeam(sentence, names) !== "") return sentence.trim();
+  }
+  return "";
+}
+
+export type QuoteOpeningEvidence = {
+  class: QuoteOpeningClass;
+  /** The speaker the page names, or "". */
+  attribution: string;
+  /** The sentence that name was found in, or "". */
+  attributionSentence: string;
+  /** Where that name is, relative to this block. */
+  where: "block" | "page" | "none";
+  /** The sentence above it that this block repeats, or "". */
+  duplicateOf: string;
+  /** The rule that charged a fact naming the speaker, or "". */
+  refusedRule: string;
+};
+
+/**
+ * Whether a block that opens on a quotation leaves the reader able to read it.
+ *
+ * The arbiter's ruling of 2026-10-11 (option (a) of the quote-opening queue): a
+ * quote opening is defective when the page lacks the context needed to interpret
+ * it, or when it genuinely repeats something already published -- not because it
+ * begins with quoted speech. So this reads four things and no more:
+ *
+ * - whether the *page* names the speaker, in this block or in another one;
+ * - whether the name sits in an attribution seam, so the name is a speaker and
+ *   not a passing mention;
+ * - whether the ledger charged a fact that named a speaker, which is the case
+ *   where the composer had the attribution and did not publish it ("do not invent
+ *   an attribution" -- and do not silently drop one either);
+ * - whether a sentence of this block is the identity of a sentence already
+ *   published above it, by `sentenceKey`, which is the fact identity the merge and
+ *   refusal rules use. Similarity is not enough: the wording comparison matched
+ *   three sentences about other things on the frozen corpus, which is exactly why
+ *   the resemblance class is reported beside the republication class and never
+ *   instead of it.
+ */
+export function quoteOpeningEvidence(input: {
+  /** Every published block of the story, in reading order: deck first. */
+  page: string[];
+  /** The index of the block that opens on a quotation. */
+  index: number;
+  /** The story's named entities, longest first so a full name beats a surname. */
+  names: string[];
+  /** Facts the composer did not publish, with the rule that charged each. */
+  unrendered: { text: string; rule: string }[];
+}): QuoteOpeningEvidence {
+  const block = input.page[input.index] ?? "";
+  const earlier = input.page.slice(0, input.index);
+  const others = [...earlier, ...input.page.slice(input.index + 1)].join(" ");
+
+  const own = attributionSeam(block, input.names);
+  const elsewhere = own === "" ? attributionSeam(others, input.names) : "";
+  const attribution = own !== "" ? own : elsewhere;
+  const attributionSentenceText = attributionSentence(own !== "" ? block : others, input.names);
+  const where: QuoteOpeningEvidence["where"] =
+    own !== "" ? "block" : elsewhere !== "" ? "page" : "none";
+
+  // The same sentence twice, by the identity the merge rules use: punctuation and
+  // case removed. Only sentences already published *above* it count -- a repeat
+  // below is the same defect, reported once, at the block that did it first.
+  //
+  // Both the block's own sentences and the speech inside its quotation marks are
+  // candidates, because a quotation is usually glued to its attribution: `"<the
+  // sentence>" said Jane Smith.` is one sentence to the splitter, and reading only
+  // whole sentences would call a repeated quotation new prose. The unit a reader
+  // repeats is the quoted sentence, so that is the unit compared.
+  let duplicateOf = "";
+  const above = earlier.flatMap((text) => readerSentences(text));
+  const aboveKeys = new Map(above.map((sentence) => [sentenceKey(sentence), sentence]));
+  const candidates = [...readerSentences(block), ...quotedSpeech(block).flatMap(readerSentences)];
+  for (const sentence of candidates) {
+    const hit = aboveKeys.get(sentenceKey(sentence));
+    if (hit !== undefined) {
+      duplicateOf = hit;
+      break;
+    }
+  }
+
+  // The composer had an attribution and charged it. Read only when the page
+  // names nobody, so a story whose speaker is published is never reported as a
+  // refused one.
+  let refusedRule = "";
+  if (where === "none") {
+    const refused = input.unrendered.find((fact) => attributionSeam(fact.text, input.names) !== "");
+    refusedRule = refused?.rule ?? "";
+  }
+
+  const klass: QuoteOpeningClass =
+    duplicateOf !== ""
+      ? "duplicate"
+      : attribution !== ""
+        ? "valid"
+        : refusedRule !== ""
+          ? "attribution-refused"
+          : "unresolved";
+
+  return {
+    class: klass,
+    attribution,
+    attributionSentence: attributionSentenceText,
+    where,
+    duplicateOf,
+    refusedRule,
+  };
 }

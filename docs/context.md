@@ -231,20 +231,41 @@ Research said.` — the corpus defect, reproduced.
   `arbitrate-first` (extended: the arbiter is asked **first** and may be questioned as much as the
   evidence warrants, with the owner as the escalation) and `keep-context-current` (new), both in
   `docs/skills/` and installed account-wide, so every project gets them.
+- **2026-10-11 — D4, the quote openings were classified instead of queued.** The audit counted 29
+  blocks opening on a quotation and 9 carrying two, and the queue read "29, then 9". The arbiter
+  ruled (option (a)) that the defect had to be _defined_ before either number was a work queue, and
+  that the competing reader costs be measured in the same run. `quoteOpeningEvidence` — in
+  [../scripts/lib/defects.ts](../scripts/lib/defects.ts), where the audit's other rulers live —
+  classifies each opening as **duplicate** (a sentence already published above it, by
+  `sentenceKey` identity), **attribution-refused** (the page names nobody and the ledger charged a
+  fact that named a speaker), **unresolved** (nobody named, nothing charged: a list to read, not a
+  defect) or **valid** (the page names the speaker, in the block or elsewhere). On the frozen 200:
+  **29 openings, 0 confirmed defects, 29 valid leads, 0 unresolved, 26 stories, 0 overlap with the
+  9 two-quote blocks**. Nothing was fixed because nothing was a defect, and the new field is purely
+  additive — the two runs differ only in the printed sentences — so the ledger still reconciles at
+  `1572 = 1418 + 154 + 0`. The ruler claims only "an entity sits in an attribution seam", never
+  "this is the speaker's name": in 7 of the 29 the matched string is an employer, a publication, a
+  role or a truncated name, and each one prints the sentence that shows the person speaking. The
+  controls are [reader-quote-opening.test.ts](../src/lib/reader-quote-opening.test.ts), including
+  the case the tests caught while being written — a quotation glued to its attribution is one
+  sentence to the splitter, so the repeat check reads the quoted sentence too.
 
 ## 7. What is next
 
 In the arbiter's order for the reader-delivery path:
 
-1. **D3 is landed and measured** (see §6). The next slice is whichever of the below the
-   arbiter takes first; nothing else on this path lands without a ruling.
-2. **The two absent overlap records** — closed by D3: they were the two facts the old
-   counter called `matched by sentence` whose text the page never carried, and they are now
-   reported as `resemblance` with the sentence that matched printed beneath them.
-3. **Quote-opening blocks** and **two-quote blocks** — the published-prose shapes the audit
-   counts (29 and 9 on this corpus); the arbiter ruled they are their own slices.
-4. The standing queue behind those: **28 stories that publish nothing at all**, and **19
-   readable stories withheld** (over-withholding).
+1. **D1–D4 are landed and measured** (see §6): the readiness seam, the deck rule, refusal-finality,
+   the one shared definition of "unresolved context", and the quote-opening classification. The
+   next slice is whichever of the below the arbiter takes first; nothing else on this path lands
+   without a ruling.
+2. **The 9 two-quote blocks** — the other published-prose shape the audit counts. D4 measured
+   that it does **not** overlap the 29 quote-opening blocks on this corpus (0), so it is its own
+   queue and has not been classified yet.
+3. **The 19 readable stories withheld** (over-withholding: a story with a body the gate refused)
+   and the **59 stories that publish nothing** (31 nothing-selected, 26 single-fact-is-the-deck, 2
+   charged to a named rule, 0 unexplained). D4 printed both beside the quote queue so the next
+   priority decision is a measured trade-off rather than the size of a counter — neither class has
+   yet been shown to be correctable without weakening the evidence standard.
 
 Blocked on the owner, not on code:
 

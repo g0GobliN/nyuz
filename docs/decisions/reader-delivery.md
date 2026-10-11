@@ -285,6 +285,94 @@ another path — 5 verbatim cases, and the `matched: sentence|text` split that f
 the benign one), then the 2 absent overlap records, then the 24 quote-opening blocks, then the 8
 two-quote blocks.
 
+## D4 — a quote opening is classified, not queued (2026-10-11)
+
+**The case, before any change.** The audit counted 29 published blocks opening on a quotation and
+9 carrying two quotations, and the queue read "29, then 9". D2 had just shown what that hazard
+costs: a ruler's count is not a defect count, and 29 was never a measurement of what a reader
+experiences. So the case put to the arbiter was not "how do we fix 29 blocks" but "which of them
+is a defect", with the competing reader costs measured in the same run so the answer could be
+traded against them.
+
+**Ruling (2026-10-11): option (a).** _Define the quote-opening defect first, inspect the actual
+blocks, fix only confirmed defects, and measure the opportunity cost alongside._ The ruling's own
+table:
+
+| shape                                                                | classification                  | action                                                     |
+| -------------------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------- |
+| opens a block, speaker identifiable nowhere on the page              | potential defect — verify       | repair from supported evidence, or refuse the opening      |
+| opens a block, speaker and context established elsewhere on the page | valid quote lead                | leave it alone                                             |
+| repeats a sentence already published above it                        | potential duplicate-publication | verify, then remove or merge through the established rules |
+| opens a block, self-contained and properly attributed                | valid quote lead                | leave it alone                                             |
+| has an attribution in the source that was refused or never published | potential context failure       | trace the refusal; do not invent an attribution            |
+| unusual to the heuristic, resolvable from the page                   | diagnostic false positive       | retain, and record the classification                      |
+
+With it, acceptance criteria named explicitly: print each candidate with enough context to judge
+it by hand; record the opening text and its position, whether the speaker is identifiable, where
+the attribution appears, whether the same sentence is already published, whether the source
+sentence was refused and under which rule, the classification, and the proposed disposition with
+its effect on the ledger; keep 29 as a diagnostic until the classification is complete; check the
+overlap with the two-quote class rather than merging the two queues; and report the competing
+classes — 19 readable stories withheld, and the census of stories publishing nothing — beside it,
+because "the size of a diagnostic counter is not the size of the reader-facing cost".
+
+**Implemented.** `quoteOpeningEvidence` in [../../scripts/lib/defects.ts](../../scripts/lib/defects.ts),
+where the other rulers the audit and the before/after diff share are defined, so the definition
+exists once. It reads four things and no more: whether the _page_ names the speaker, in this block
+or in another; whether that name sits in an attribution seam (a name handed to a speech verb in
+the same sentence), tested against the story's own entities from `rankEntities` so the ruler never
+guesses that a capitalised word is a person; whether the ledger charged a fact that named a
+speaker — the case where the composer had the attribution and did not publish it; and whether a
+sentence of the block is the _identity_ of a sentence already published above it, by `sentenceKey`,
+which is the merge rules' own notion of "the same sentence". Similarity is deliberately not
+a defect test: the D3 resemblance class is reported beside the republication class, never instead
+of it. Both quote rows now print the blocks behind them, and each classification prints the
+sentence the name was found in.
+
+**Measured on the same frozen 200** (`tmp/corpus-after.json`, 2026-10-11,
+`npm run audit:reader -- --corpus tmp/corpus-after.json`):
+
+```
+block opening with a quote                             29
+  confirmed defects                                    0
+    same sentence already published above it           0
+    the page names the speaker only in a charged fact  0
+  valid quote leads (the page names the speaker)       29
+  unresolved: no speaker named anywhere, nothing charged 0
+  stories carrying a quote opening                     26
+  of those blocks, a second quotation in the same block 0
+two quotes in one block                                 9
+```
+
+**Nothing to fix, and that is the finding.** By the ruling's own definition none of the 29 is a
+defect: the page names the speaker in every one (25 in the opening block itself — `said Jitesh
+Ubrani, research director for consumer devices at IDC`, `Haugen says` — and 4 in another block of
+the same story), none repeats a sentence already published above it, and no block that opens on a
+quotation also carries two quotations, so the two classes do not overlap on this corpus and 29 and
+9 are separate queues rather than one of thirty-eight. The queue the arbiter declined to spend a
+slice on was, on this corpus, empty.
+
+**What the ruler claims, and what it does not — read off the printed sentences.** It claims "an
+entity from the story's own entity list sits in an attribution seam on this page", never "this is
+the speaker's name". In 5 of the 29 the string it matched is not the speaker: an employer
+(`Techsponential`, for the analyst Avi Greengart), a publication (`Register`, for `Preston told
+The Register.`), a body named by its role (`FCC Chairman`, for Carr), and one run that spans the
+wrong words (`AI Standards`, out of `US Center for AI Standards and Innovation`); in 2 more the
+name is the person's and is cut short (`J.J` for J.J. "Yank" Cummings, `Prime Minister Jonas Gahr`
+for Jonas Gahr Støre). In all seven the sentence printed beside the name names the person or the
+body speaking, which is why the classification holds — and the sentence is printed for exactly
+that reason, so the judgement can be checked instead of trusted. The institution speaking in its
+own voice (`Gartner said`, `Comcare said in its notice`, `Anthropic said`) is not one of those
+seven: that is the correct attribution.
+
+**Effect on the ledger: none**, which is the other half of the finding. No fact moves, and the
+new field is purely additive: the run that printed it differs from the run that did not in
+nothing but the added `in:` lines (checked with `diff` over the two reports), so the measurement
+is reproducible and the classification changes no publication decision. The must-be-zero lines
+stay at zero on both runs — `refused then published by another path` 0, `delivered with no body`
+0, `Facts lost, with no rule accounting for them` 0 — and the ledger still reconciles at
+`1572 = 1418 + 154 + 0`.
+
 ## D2 closure — one definition of "unresolved context" (2026-10-11)
 
 **The case the arbiter ruled on.** The deck predicate and the audit's ruler disagreed about what
@@ -295,9 +383,9 @@ research abstract. The ruler (`unresolvedContextOpening`) never learned the exem
 counting decks the rule would publish — which made the acceptance number partly a definition rather
 than a fact about the prose.
 
-**Ruling (2026-10-11): option (a).** *Teach `unresolvedContextOpening` the same self-reference
+**Ruling (2026-10-11): option (a).** _Teach `unresolvedContextOpening` the same self-reference
 exemption, then re-baseline the diagnostic. Do not leave the primary diagnostic knowingly broader
-than the rule it measures.* Acceptance criteria, all of which the arbiter named explicitly: one
+than the rule it measures._ Acceptance criteria, all of which the arbiter named explicitly: one
 shared definition of unresolved context wherever the two overlap; the exemption implemented
 consistently; the PC-shipments sentence still detectable as genuinely unresolved; the arXiv
 `This report …` and `This paper investigates …` cases negative controls; the diagnostic rerun
@@ -311,13 +399,13 @@ by coincidence.
 
 **Controls, as tests** (`reader-prose-rules.test.ts`):
 
-| case                                                                    | expected |
-| ----------------------------------------------------------------------- | -------- |
-| `This report presents the OpenSpace Lab's solution to the competition.`  | not unresolved |
-| `This paper investigates the feasibility of deploying quadruped walking robots…` | not unresolved |
+| case                                                                              | expected                          |
+| --------------------------------------------------------------------------------- | --------------------------------- |
+| `This report presents the OpenSpace Lab's solution to the competition.`           | not unresolved                    |
+| `This paper investigates the feasibility of deploying quadruped walking robots…`  | not unresolved                    |
 | `These price increases have been directly caused by the boom in AI data centers…` | **unresolved** (positive control) |
-| `This was announced on Tuesday.`                                         | unresolved |
-| `The study found a similar effect in every market it examined.`          | not unresolved |
+| `This was announced on Tuesday.`                                                  | unresolved                        |
+| `The study found a similar effect in every market it examined.`                   | not unresolved                    |
 
 **Re-baselined on the same frozen 200 (`tmp/corpus-after.json`, 2026-10-11).** The count is **3**,
 and the row is now printed with the blocks behind it, so the number can be checked instead of
@@ -334,7 +422,7 @@ Historical counts, kept as evidence: **7** in the run before D2 (one of them the
 **5** after D2, **3** since D3 (the entity splice and the deck charge were supplying the other two).
 
 **What the re-baseline actually measured, stated honestly.** On this corpus the exemption changes
-nothing on the published page: all three remaining openings are the *adjacency-resolved* paragraph
+nothing on the published page: all three remaining openings are the _adjacency-resolved_ paragraph
 openings D2 named — the previous published block supplies the referent (`the tits`, `the
 livestream`, `Preston`) — and none is a document self-reference, nor is the PC-shipments sentence
 still present for D3 to have fixed. So the exemption's effect here is zero, and its value is that

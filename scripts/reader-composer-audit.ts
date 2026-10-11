@@ -27,6 +27,7 @@ import { assessReadiness } from "@/lib/pipeline/readiness";
 import { hasSourceMetadata, hasVisibleEntity } from "@/lib/pipeline/source-text";
 import {
   headingUnit,
+  rankEntities,
   readerSentences,
   sourceColour,
   unresolvableContext,
@@ -68,7 +69,6 @@ const ENTITY_LEAK = DEFECTS.ENTITY_LEAK;
 const GLUED_ATTRIBUTION = DEFECTS.GLUED_ATTRIBUTION;
 const DOUBLE_SPACE = DEFECTS.DOUBLE_SPACE;
 const TWO_QUOTES = DEFECTS.TWO_QUOTES;
-const LEADING_QUOTE = DEFECTS.OPENS_ON_QUOTE;
 
 const clip = (text: string, max = 180): string =>
   text.length > max ? `${text.slice(0, max - 1)}…` : text;
@@ -295,6 +295,22 @@ main(async () => {
    * here; the PC-shipments sentence, whose referent the page never establishes, must.
    */
   const contextOpenings: string[] = [];
+  /**
+   * Every block that opens on a quotation, with the evidence that decides whether
+   * it is a defect -- see `quoteOpeningEvidence`, which is where the definition
+   * lives. The row below this list used to be a count, and the arbiter's ruling of
+   * 2026-10-11 (option (a)) is why it is not one any more: a ruler's number is not
+   * a defect count, and which of these blocks a reader cannot resolve is a
+   * judgement the report has to carry the inputs for.
+   */
+  const quoteOpenings: (DEFECTS.QuoteOpeningEvidence & {
+    title: string;
+    position: string;
+    opening: string;
+    twoQuotes: boolean;
+  })[] = [];
+  /** The blocks carrying two quoted passages, so the second row is readable too. */
+  const twoQuoteBlocks: string[] = [];
   /** Which rule accounts for the unrendered facts, across the corpus. */
   const dispositions: Record<string, number> = {};
   const changed: Changed[] = [];
@@ -527,8 +543,32 @@ main(async () => {
       contextOpenings.push(`${event.title} · ${block}`);
     }
     totals.doubleSpace += blocks.filter((b) => DOUBLE_SPACE.test(b)).length;
-    totals.doubleQuotes += blocks.filter((b) => TWO_QUOTES.test(b)).length;
-    totals.bareQuoteSentence += blocks.filter((b) => LEADING_QUOTE.test(b)).length;
+    // The story's own named entities, longest first, are what make an attribution
+    // readable rather than guessed: a name-shaped ruler cannot tell `The report
+    // said` from `Jane Smith said`, and this one does not have to.
+    const entityNames = rankEntities(event.title, event.sourceList)
+      .map((entity) => entity.name)
+      .sort((a, b) => b.length - a.length);
+    for (const [index, block] of blocks.entries()) {
+      if (TWO_QUOTES.test(block)) {
+        totals.doubleQuotes += 1;
+        twoQuoteBlocks.push(`${event.title} · ${block}`);
+      }
+      if (!DEFECTS.OPENS_ON_QUOTE.test(block)) continue;
+      totals.bareQuoteSentence += 1;
+      quoteOpenings.push({
+        ...DEFECTS.quoteOpeningEvidence({
+          page: blocks,
+          index,
+          names: entityNames,
+          unrendered: diagnostics.facts.unrendered,
+        }),
+        title: event.title,
+        position: index === 0 ? "deck" : `paragraph ${index}`,
+        opening: block,
+        twoQuotes: TWO_QUOTES.test(block),
+      });
+    }
 
     for (const paragraph of article.paragraphs) {
       if (paragraph.evidence.length > 0) totals.paragraphsWithRefs += 1;
@@ -570,9 +610,81 @@ main(async () => {
   for (const entry of contextOpenings) say(`  ${clip(entry, 240)}`);
   say(row("double spaces", totals.doubleSpace));
   say(row("two quotes in one block", totals.doubleQuotes));
+  for (const entry of twoQuoteBlocks) say(`  ${clip(entry, 240)}`);
+  // The two quote rows are diagnostics, and the arbiter's ruling of 2026-10-11
+  // (option (a)) is why they are printed with their classification rather than as
+  // a work queue: a block opening on quoted speech is not a defect, a block the
+  // reader cannot resolve is, and the difference is evidence this report has to
+  // carry. `confirmed` is the class that may be fixed; `unresolved` is not a
+  // defect yet -- it is the list to read before anyone decides it is one.
+  const quoteDefects = quoteOpenings.filter(
+    (entry) => entry.class === "duplicate" || entry.class === "attribution-refused",
+  );
   say(row("block opening with a quote", totals.bareQuoteSentence));
+  say(row("  confirmed defects", quoteDefects.length));
+  say(
+    row(
+      "    same sentence already published above it",
+      quoteDefects.filter((entry) => entry.class === "duplicate").length,
+    ),
+  );
+  say(
+    row(
+      "    the page names the speaker only in a charged fact",
+      quoteDefects.filter((entry) => entry.class === "attribution-refused").length,
+    ),
+  );
+  say(
+    row(
+      "  valid quote leads (the page names the speaker)",
+      quoteOpenings.filter((entry) => entry.class === "valid").length,
+    ),
+  );
+  say(
+    row(
+      "  unresolved: no speaker named anywhere, nothing charged",
+      quoteOpenings.filter((entry) => entry.class === "unresolved").length,
+    ),
+  );
+  say(
+    row(
+      "  stories carrying a quote opening",
+      new Set(quoteOpenings.map((entry) => entry.title)).size,
+    ),
+  );
+  say(
+    row(
+      "  of those blocks, a second quotation in the same block",
+      quoteOpenings.filter((entry) => entry.twoQuotes).length,
+    ),
+  );
+  for (const entry of quoteOpenings) {
+    say(`  [${entry.class}] ${entry.position} · ${entry.title}`);
+    say(`      ${clip(entry.opening, 220)}`);
+    say(
+      `      speaker=${entry.attribution === "" ? "not named" : entry.attribution} (${entry.where})` +
+        (entry.refusedRule === "" ? "" : ` charged as ${entry.refusedRule}`),
+    );
+    // Where the name was found, because the name alone is not the evidence: the
+    // ruler reports *an* entity in an attribution seam, and the sentence is what
+    // shows whether that entity is the person speaking.
+    if (entry.attributionSentence !== "") say(`      in: ${clip(entry.attributionSentence, 200)}`);
+    if (entry.duplicateOf !== "") say(`      repeats above: ${clip(entry.duplicateOf, 160)}`);
+  }
   say(row("duplicate citation in a block", totals.duplicateRefBlocks));
   say(row("paragraphs carrying a citation", totals.paragraphsWithRefs));
+  // The classes this queue competes with, in the same run and beside it. The
+  // arbiter's ruling asked for the trade-off rather than the queue: the size of a
+  // diagnostic counter is not the size of the reader-facing cost, and the two
+  // numbers have to be read together before anyone spends a slice.
+  heading("The same run's competing classes, for the priority decision");
+  say(row("quote-opening blocks (the queue)", quoteOpenings.length));
+  say(row("  confirmed defects in it", quoteDefects.length));
+  say(row("readable stories withheld (a body refused)", readableWithheld.length));
+  say(row("stories publishing nothing", empties.length));
+  for (const [kind, count] of Object.entries(emptyKinds).sort()) say(row(`  ${kind}`, count));
+  say(row("delivered with no body  <- must be zero", deliveredEmpty.length));
+  say(row("refused then published  <- must be zero", totals.renderedAfterRefusal));
 
   heading("What the composer refused, by reason");
   for (const [reason, count] of Object.entries(refusedByReason).sort((a, b) => b[1] - a[1])) {
@@ -639,10 +751,14 @@ main(async () => {
   heading("Stories that published no paragraphs, and the path that emptied them");
   say(row("stories", empties.length));
   for (const [kind, count] of Object.entries(emptyKinds)) say(row(`  ${kind}`, count));
+  // Keyed on the class the census actually produces. The old key
+  // (`emptied-after-selection`) stopped existing when the class was split in two,
+  // so this row read zero from an absent key -- a number that agreed with the
+  // verdict for the wrong reason.
   say(
     row(
       "  emptied after selection (the avoidable class)",
-      emptyKinds["emptied-after-selection"] ?? 0,
+      emptyKinds["emptied-after-selection (unexplained)"] ?? 0,
     ),
   );
   for (const entry of empties) say(entry);
