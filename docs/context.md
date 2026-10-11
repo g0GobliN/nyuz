@@ -215,7 +215,7 @@ unexplained` per story, with the rule named for every explained absence; the ran
     new refusal-finality predicate disabled, the regression test publishes
     `These price increases have been caused by the boom in AI data centers, Counterpoint
 Research said.` — the corpus defect, reproduced.
-- **2026-10-11 — D2 closure, one definition of "unresolved context".** The deck rule had exempted
+- **2026-10-11 — D2 closure, one definition of "unresolved context"** (`dc232a3`). The deck rule had exempted
   a demonstrative whose head is the document the reader is holding (`This report presents …`) since
   D2; the audit's ruler never learned it, so it counted decks the rule would publish. The arbiter
   approved option (a): one shared definition. The exemption now lives in
@@ -231,7 +231,21 @@ Research said.` — the corpus defect, reproduced.
   `arbitrate-first` (extended: the arbiter is asked **first** and may be questioned as much as the
   evidence warrants, with the owner as the escalation) and `keep-context-current` (new), both in
   `docs/skills/` and installed account-wide, so every project gets them.
-- **2026-10-11 — D4, the quote openings were classified instead of queued.** The audit counted 29
+- **2026-10-11 — D5, the 19 readable-but-withheld stories were split by what the gate matched**
+  (`withheldFamily` in [../scripts/lib/defects.ts](../scripts/lib/defects.ts), read off the gate's own
+  reason strings). The single line `readable stories withheld 19` is three quantities: **11
+  `not-a-headline`** (9 build numbers, 1 commit message, 1 quotation announcement — nothing to read),
+  **3 `promotion`** (the shop's own offer), and **5 `first-party-shape`** — the one family judged from
+  the title alone. Within that family, **3 are newsroom stories refused by a title shape**: the
+  `Nord Stream trial: How German police followed the evidence` feature (BBC World, 253 words), a
+  `Growing pains: how distributed AI training …` analysis (The Register, 338 words) and
+  `Meet India's feisty Gen Z protester` (BBC World, 377 words) — 968 words of composed reporting a
+  reader did not receive. The report now prints each withheld story with its family, the rule's
+  reason, the body it would have delivered and its source. **Nothing was changed:** what ships or is
+  withheld is a product decision, so three options went to the arbiter (require a first-party source,
+  narrow the two shapes, or accept the loss) with this measurement as the input. Controls:
+  [reader-withheld.test.ts](../src/lib/reader-withheld.test.ts).
+- **2026-10-11 — D4, the quote openings were classified instead of queued** (`f3d0cd0`). The audit counted 29
   blocks opening on a quotation and 9 carrying two, and the queue read "29, then 9". The arbiter
   ruled (option (a)) that the defect had to be _defined_ before either number was a work queue, and
   that the competing reader costs be measured in the same run. `quoteOpeningEvidence` — in
@@ -258,14 +272,15 @@ In the arbiter's order for the reader-delivery path:
    the one shared definition of "unresolved context", and the quote-opening classification. The
    next slice is whichever of the below the arbiter takes first; nothing else on this path lands
    without a ruling.
-2. **The 9 two-quote blocks** — the other published-prose shape the audit counts. D4 measured
-   that it does **not** overlap the 29 quote-opening blocks on this corpus (0), so it is its own
-   queue and has not been classified yet.
-3. **The 19 readable stories withheld** (over-withholding: a story with a body the gate refused)
-   and the **59 stories that publish nothing** (31 nothing-selected, 26 single-fact-is-the-deck, 2
-   charged to a named rule, 0 unexplained). D4 printed both beside the quote queue so the next
-   priority decision is a measured trade-off rather than the size of a counter — neither class has
-   yet been shown to be correctable without weakening the evidence standard.
+2. **D5 is measured and awaiting a ruling** (see §6): of the 19 readable stories withheld, 16 are
+   refusals that hold and 3 are newsroom stories refused by a marketing shape judged from the title
+   (968 words). The ruling picks between requiring a first-party source, narrowing the two shapes,
+   or accepting the loss — nothing changes until it does.
+3. **The 59 stories that publish nothing** (31 nothing-selected, 26 single-fact-is-the-deck, 2
+   charged to a named rule, 0 unexplained) — the arbiter's D6, where the distinction between
+   justified withholding and an actual publication defect has to be preserved.
+4. **The 9 two-quote blocks** — D7. D4 measured that they do **not** overlap the 29 quote-opening
+   blocks on this corpus (0), so they are their own queue and have not been classified yet.
 
 Blocked on the owner, not on code:
 

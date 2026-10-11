@@ -238,6 +238,70 @@ export function attributionSentence(text: string, names: string[]): string {
   return "";
 }
 
+/**
+ * What a withheld story's reason says the gate refused.
+ *
+ * Grouped here rather than guessed in the report, and deliberately read off the
+ * gate's own `reason` string: that string is the rule's self-report of which
+ * shape it matched, so the audit and the rule cannot drift about what "a vendor
+ * how-to" is. The four families are different questions, which is why the count
+ * of 19 means nothing until they are separated:
+ *
+ * - `not-a-headline` -- the title is a machine identifier, a commit message, a
+ *   byline, a newsletter container or an announcement of a quotation. There is
+ *   nothing for a reader to read, so nothing was lost by withholding it.
+ * - `promotion` -- the title's own words are a price, a sale with a clock on it,
+ *   or a shopping-event listing. The reader was offered a shop, not a story.
+ * - `first-party-shape` -- a vendor-marketing shape fired: a first-person
+ *   imperative, a benefit aimed at the reader, a how-to trailer. This is the only
+ *   family the gate is *guessing* about, because the shape is judged on the title
+ *   and the title's words alone decide whether the source was a vendor.
+ * - `evidence` -- the refusal came from the composition or the coverage (no body,
+ *   one-source primary material, an empty summary). A different failure entirely.
+ */
+export type WithheldFamily = "not-a-headline" | "promotion" | "first-party-shape" | "evidence";
+
+const WITHHELD_REASONS: readonly [WithheldFamily, readonly string[]][] = [
+  [
+    "not-a-headline",
+    [
+      "headline is an identifier",
+      "commit message",
+      "byline",
+      "announces the container",
+      "announces a quotation",
+    ],
+  ],
+  [
+    "promotion",
+    [
+      "price promotion",
+      "sale with a clock",
+      "ranks products by price",
+      "shopping-event listing",
+      "shop shelf with a price",
+      "event promotion with a deadline",
+    ],
+  ],
+  [
+    "first-party-shape",
+    [
+      "imperative promotion",
+      "vendor how-to",
+      "pitches a benefit",
+      "celebrates the vendor",
+      "themed campaign banner",
+    ],
+  ],
+];
+
+export function withheldFamily(reason: string): WithheldFamily {
+  for (const [family, markers] of WITHHELD_REASONS) {
+    if (markers.some((marker) => reason.includes(marker))) return family;
+  }
+  return "evidence";
+}
+
 export type QuoteOpeningEvidence = {
   class: QuoteOpeningClass;
   /** The speaker the page names, or "". */

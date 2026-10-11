@@ -270,6 +270,25 @@ main(async () => {
    */
   const deliveredEmpty: string[] = [];
   /**
+   * Every readable story the gate withheld, with the rule's own reason and the
+   * body it would have delivered.
+   *
+   * Split by family because the count is not one quantity: a build number and a
+   * real news headline refused by a marketing shape are both "readable stories
+   * withheld", and only one of them is a loss. The reason string is the gate's
+   * own, so the audit cannot disagree with the rule about which shape fired.
+   */
+  const withheldDetail: {
+    title: string;
+    kind: string;
+    reason: string;
+    family: DEFECTS.WithheldFamily;
+    sources: string;
+    sourceCount: number;
+    paragraphs: number;
+    words: number;
+  }[] = [];
+  /**
    * Stored evidence units that look like a fused sentence, and how many of them
    * the reader actually received.
    *
@@ -502,6 +521,19 @@ main(async () => {
       if (verdict.ready) deliveredEmpty.push(event.title);
     } else if (!verdict.ready) {
       readableWithheld.push(`[${gateKind}] ${event.title} — ${verdict.reason}`);
+      // The reader cost, not just the refusal: what the story would have
+      // delivered had the gate let it through. The gate composed it already, so
+      // this is the same article the delivery path would have published.
+      withheldDetail.push({
+        title: event.title,
+        kind: gateKind,
+        reason: verdict.reason,
+        family: DEFECTS.withheldFamily(verdict.reason),
+        sources: event.sourceList.map((source) => source.name ?? "(unnamed)").join(" + "),
+        sourceCount: event.sourceList.length,
+        paragraphs: paras.length,
+        words: text.split(/\s+/).filter(Boolean).length,
+      });
     }
 
     // What this patch did to this story, and why it is on the list: every
@@ -795,7 +827,23 @@ main(async () => {
       readableWithheld.filter((entry) => entry.startsWith("[empty]")).length,
     ),
   );
-  for (const entry of readableWithheld) say(`  · ${entry}`);
+  // The families first, then every story with the rule's own reason and the body
+  // it would have delivered. `first-party-shape` is the only family the gate is
+  // *guessing* about -- the shape is decided from the title alone -- so it is the
+  // one a reviewer has to read, and printing the source beside it is what says
+  // whether the source was the vendor or a newsroom reporting the same words.
+  for (const family of ["not-a-headline", "promotion", "first-party-shape", "evidence"] as const) {
+    const list = withheldDetail.filter((entry) => entry.family === family);
+    if (list.length === 0) continue;
+    say(row(`  ${family}`, list.length));
+  }
+  for (const entry of withheldDetail) {
+    say(`  · [${entry.family}] ${entry.kind} · ${entry.title}`);
+    say(`      ${entry.reason}`);
+    say(
+      `      would have delivered: ${entry.paragraphs} paragraph(s), ${entry.words} words · sources: ${entry.sources} (${entry.sourceCount})`,
+    );
+  }
 
   heading("How the published blocks acquired their attribution");
   for (const [shape, count] of Object.entries(attributionShapes).sort((a, b) => b[1] - a[1])) {

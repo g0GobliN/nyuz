@@ -285,6 +285,77 @@ another path — 5 verbatim cases, and the `matched: sentence|text` split that f
 the benign one), then the 2 absent overlap records, then the 24 quote-opening blocks, then the 8
 two-quote blocks.
 
+## D5 — the 19 readable stories withheld, split by what the gate said it matched (2026-10-11)
+
+**The case, before any change.** The audit printed one line — `readable stories withheld 19` — and a
+line is not a class. The 19 are stories where the composer published a body and the gate refused the
+story anyway, so every one of them is prose a reader could have received; the arbiter's question was
+which of them should have. Nothing was changed to answer it.
+
+**Ruling (2026-10-11): option (a) of the previous question, applied.** Classify the 19 before fixing
+any, print each with the rule that fired and the evidence behind it, and keep the withheld/justified
+distinction explicit rather than collapsing the count. The governing principle is stated in the same
+ruling: reduce reader-visible errors without turning justified silence into publication.
+
+**Implemented.** `withheldFamily` in [../../scripts/lib/defects.ts](../../scripts/lib/defects.ts) maps
+each of the gate's own `reason` strings — the rule's self-report of which shape it matched — into one
+of four families, so no rule is re-implemented to measure it and the audit cannot drift from the
+gate about what "a vendor how-to" is:
+
+| family              | what it means                                                                                  | is a loss?                                                         |
+| ------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `not-a-headline`    | the title is an identifier, a commit message, a byline, a container or quotation               | no — there is nothing to read                                      |
+| `promotion`         | the title's own words are a price, a sale with a clock, or a shopping listing                  | no — the reader was offered a shop                                 |
+| `first-party-shape` | a vendor-marketing shape fired: an imperative, a benefit aimed at the reader, a how-to trailer | **guessed from the title** — the one family a reviewer has to read |
+| `evidence`          | the refusal came from the composition or the coverage, not the title                           | a different failure                                                |
+
+The report now prints every withheld story with its family, the rule's reason, the body it would
+have delivered (`N paragraph(s), M words`), and the source it came from — because the first-party
+family is decided from the title alone, and the source is what says whether the title was the
+vendor's own announcement or a newsroom reporting the same words.
+
+**Measured on the same frozen 200** (`tmp/corpus-after.json`, 2026-10-11,
+`npm run audit:reader -- --corpus tmp/corpus-after.json`): **19 withheld, and the count is three
+quantities**:
+
+```
+readable stories withheld        19
+  not-a-headline             11
+  promotion                   3
+  first-party-shape           5
+```
+
+Sixteen are refusals that hold. Eleven have no headline to read (9 llama.cpp build numbers, 1 commit
+message, 1 quotation announcement), three are the shop's own offer (`TechCrunch Disrupt 2026 … lock
+in your pass savings`, `Grab this 32-inch 4K OLED gaming monitor … $596`, `Save $200 on the 2026 M5
+MacBook Air`), and two are the vendor's own launch posts (both Cloudflare). **Three are the class
+this slice exists to find** — a newsroom story refused by a shape judged from its title:
+
+| title                                                                                | source       | reason                           | would have delivered    |
+| ------------------------------------------------------------------------------------ | ------------ | -------------------------------- | ----------------------- |
+| `Nord Stream trial: How German police followed the evidence - to Ukraine`            | BBC World    | title is a vendor how-to         | 4 paragraphs, 253 words |
+| `Growing pains: how distributed AI training changes the network between datacenters` | The Register | title is a vendor how-to         | 5 paragraphs, 338 words |
+| `Meet India's feisty Gen Z protester who is taking on Modi`                          | BBC World    | title is an imperative promotion | 6 paragraphs, 377 words |
+
+Together they are 968 words of composed reporting a reader did not receive. The two shapes
+responsible are the `: how` trailer (`MARKETING_TRAILER`) firing on a news feature's
+subject-and-question punctuation, and the imperative opener (`MARKETING_TITLE`) firing on a headline
+that begins with `Meet`. Both are single-source-only rungs, and all three stories are single-source
+newsroom pieces — which is exactly the assumption the marketing rung makes about a single source.
+
+**No fix has been made, and the reason is the ruling's own principle.** A change here decides what
+ships and what is withheld, so it is a product decision and belongs to the arbiter: three options
+went to it on 2026-10-11 — require the source to be first-party before a marketing shape may fire,
+narrow the two shapes, or leave them and accept 968 words of loss. The measurement above is the
+input to that ruling.
+
+**What this slice does not claim.** It does not claim the three are defects: it claims they are
+refused by rules that judge the title, that their sources are newsrooms rather than vendors, and
+that the composer had a body ready for each. Which of those is worth changing is the ruling. The
+family is read from the gate's reason string, so a reworded rung would be filed as `evidence` —
+reported, not dismissed — and `reader-withheld.test.ts` pins the strings the live corpus produced so
+that a reworded rung fails a test instead of quietly reclassifying a withheld headline.
+
 ## D4 — a quote opening is classified, not queued (2026-10-11)
 
 **The case, before any change.** The audit counted 29 published blocks opening on a quotation and
