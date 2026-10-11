@@ -708,3 +708,85 @@ charged to a rule). Separate accounting of refused sentences genuinely absent fr
 `resemblance` class, printed with the sentence that matched. Not a generic text-matching filter:
 the suppression test is the ledger's charge, never similarity — the resemblance class changes no
 publication decision, it only reports.
+
+## D8 — what an alert is allowed to be (2026-10-11)
+
+Numbered D8 because D7 is already reserved in the work log for the stacked-quotes family
+(`docs/context.md`, 2026-10-11); this entry does not take that slot.
+
+**Status: the gate landed; the floor is open, awaiting the arbiter.** Two separable questions were
+found in one complaint ("this does not feel like breaking news"); one is a defect and was fixed, the
+other is a policy and is put below.
+
+**Where the case came from.** The owner, reading their own account: alerts fire on stories that are
+not breaking — a newsletter, research preprints, a vendor roadmap post, a hobby hack — and the page
+behind an alert sometimes has nothing to read. That is a claim about the product, so it was measured
+rather than argued. `npm run audit:alerts` was written for it (the alert path had no instrument at
+all; see the work log in `docs/context.md`).
+
+**The measurement** (`npm run audit:alerts`, live database, 2026-10-11; raw output
+`tmp/alerts-audit5.txt`, the instrument committed in `9cbde00`):
+
+```
+alerts ever created (digests kind=alert)                     205
+of those, refused by the gate the briefing uses          108 of 205
+  unbriefable             69   (the page composes no readable body)
+  primary-source          31   (single-source research item)
+  newsletter               5
+  commit-message           2
+  build-number             1
+alertable now (matched, in reach, not yet alerted)            16
+  would publish                                              14
+  refused by the gate                                         2
+newest alert                                          2026-10-10T21:14
+```
+
+Read precisely: **the shipped alert rule would have refused 53% of everything it ever sent, had it
+asked the question the briefing asks of every story** — 69 of them pointing at a story with no
+publishable body. The four most recent refused alerts were two `The Download` newsletter containers
+(importance 8 and 6) and two single-source arXiv items (6 and 6). Separately, importance does not
+separate "worth interrupting" from "not worth interrupting" on this history: **raising the floor to 8
+would remove 7 of the 8 interrupts that read as non-news in the last 25 and cost 7 genuine ones**
+(KillSec 10, Soldier 10, US disrupts 8, Warner Bros 8, Blockchain 9 versus Super Micro 7, Nvidia 7,
+Top AI labs 7, FBI 6, Dyfed-Powys 7, EC 6, TLD hijacks 7).
+
+**Ruling and authority, stated exactly.** The arbiter's ChatGPT project was **not reachable from this
+session** — that is the first of the two conditions in `AGENTS.md` for escalating to the owner, and it
+is which one applies. The owner ruled in-session: an alert must be breaking and latest, and worth
+interrupting for. That ruling is recorded as the owner's, not attributed to the arbiter.
+
+**Implemented — the gate (one shared gate, no new rule).** `fireAlerts` now runs every candidate
+through `assessReadiness` — the same function, on the same inputs (the event's clock, its coverage,
+the feeds' kinds) that `digest.ts` uses to select a briefing story — **before `paceAlerts`**, so a
+refused hit does not spend one of the three burst slots. Refusals are reported as `withheld` and
+`withheldKinds` on `AlertReport` instead of being folded into `skipped`, because "nothing was sent"
+must be answerable. Nothing is deleted or claimed: `create_alert_delivery` is the only thing that
+records a claim, so a refused event stays in `user_events` and leads the reader's next briefing.
+Six tests (`alerts-readiness.test.ts`); five of the six fail with the gate disabled, verified by
+running them against a pass-through gate.
+
+This is the narrowest fix that removes a proven defect, and it is deliberately _not_ a new policy: it
+applies a rule that already exists to the path that was skipping it.
+
+**Open — the residual, for the arbiter, with the numbers.** After the gate, alerts that still read as
+non-breaking are shapes no rule refuses: a vendor roadmap advertorial (importance 7), a product
+newsletter (7), a hobby hack (6), a personal blog post (6), a price-piece about a memory kit (6). The
+options, each with what it costs on the same history:
+
+- **(a) Nothing further.** The gate is the whole fix. Cheapest and touches no settled rule; leaves the
+  five shapes above reaching phones.
+- **(b) Raise the alert floor above the briefing floor.** `ALERT_FLOOR` (`scoring-shadow.ts`) is
+  `IMPORTANT_FLOOR` verbatim today although its own comment says it is "kept separate because a miss
+  here is the expensive one". At 8: removes 7 of 8 recent non-news interrupts, costs 7 genuine ones.
+  A miss here is invisible to the reader and to the operator, which is the trade the measurement puts
+  in numbers.
+- **(c) A first-party marketing shape refuses an alert even when corroborated.** This **contradicts
+  D5** (2026-10-11), which ruled that a marketing shape only refuses when the publisher was speaking
+  for itself and that `company_blog` is what says so. It would catch the vendor advertorial and the
+  product newsletter; it needs D5 reopened, not extended.
+- **(d) Require the alert to be carryable by more than one outlet** (a stricter `sourceCount` than the
+  briefing's) — the same operator decision of 2026-10-08 that created the `primary-source` rung,
+  applied at the alert bar rather than the briefing bar.
+
+The recommendation is not made here: (b) and (c) both trade a reader-visible failure for an invisible
+one, and that trade is the arbiter's to rule on.

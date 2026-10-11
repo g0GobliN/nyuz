@@ -22,6 +22,8 @@ import { flushDeliveries, queuedChannels, deliveryTargets } from "./digest";
 import { FLASH_POLICY, ageHours } from "./freshness";
 import { IMPORTANT_FLOOR } from "./alert-floor";
 import { alertEligible } from "./subject-significance";
+import { assessReadiness } from "./readiness";
+import type { ReaderSource } from "../reader-evidence";
 
 export { IMPORTANT_FLOOR };
 
@@ -114,6 +116,23 @@ export type AlertHit = {
   significance?: AlertSignificance | undefined;
 };
 
+/**
+ * One alertable event, as the send path needs it: what the alert says (`why`)
+ * and everything the readiness gate judges it by.
+ *
+ * The gate's inputs travel with the event rather than being fetched by the gate,
+ * because they come from the same rows — the composer's `sources`, the outlets
+ * on the story, the feeds' kinds and the event's own clock.
+ */
+type AlertEventRow = {
+  title: string;
+  whatHappened: string | null;
+  publishedAt: string | null;
+  sourceCount: number;
+  sourceKinds: string[];
+  sources: ReaderSource[];
+};
+
 export type AlertSignificance = {
   /** Some admitting topic matched this event firmly (`relevanceStrength`). */
   relevanceStrong: boolean;
@@ -177,6 +196,16 @@ export type AlertReport = {
   queued: number;
   sent: number;
   skipped: number;
+  /**
+   * Hits the readiness gate refused, and the distinct rules that refused them.
+   *
+   * Reported rather than silently counted in `skipped` because "nothing was
+   * sent" has to be answerable: the dashboard's empty state says the same
+   * sentence whether the day was quiet, no reader was listening, or the story
+   * nothing could read was withheld. This is the third of those.
+   */
+  withheld: number;
+  withheldKinds: string[];
 };
 
 export function shouldAlert(breaking: BreakingMode, importance: number): boolean {
@@ -234,7 +263,14 @@ export function remainingImportantSlots(alreadyToday: number): number {
 
 export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertReport> {
   const now = options.now ?? new Date();
-  const empty: AlertReport = { considered: options.hits.length, queued: 0, sent: 0, skipped: 0 };
+  const empty: AlertReport = {
+    considered: options.hits.length,
+    queued: 0,
+    sent: 0,
+    skipped: 0,
+    withheld: 0,
+    withheldKinds: [],
+  };
   if (options.hits.length === 0) return empty;
 
   // Age first, before any preference read or provider call. A stale hit is not
@@ -311,22 +347,71 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
     return { ...empty, skipped: options.hits.length };
   }
 
+  /**
+   * The gate every briefing story passes, which this path never asked.
+   *
+   * `assessReadiness` is what withholds the empty summary, the build number,
+   * the commit message, the newsletter container, the single-source preprint
+   * and the story whose own coverage composes no readable body. The briefing
+   * has applied it since stage 4; alerts were fired on importance and the flash
+   * window alone, so a story the briefing would have refused could still be
+   * pushed to a reader's phone as breaking news. Measured on the alert history
+   * of 2026-10-11 (`npm run audit:alerts`): **108 of the 205 alerts ever sent
+   * would have been refused by this gate** — 69 with no publishable body, 31
+   * single-source research items, 5 newsletter containers, 3 machine artifacts.
+   *
+   * An interruption is the one place the reader has no choice about, so the
+   * cheaper failure here is not sending: the event stays in `user_events`, and
+   * the next briefing still offers it if it is worth reading by then. The gate
+   * runs before `paceAlerts` so a refused hit does not spend one of the burst
+   * slots a story someone can actually read should have.
+   */
+  const events = await loadEvents(
+    db,
+    fresh.map((h) => h.eventId),
+  );
+  const withheldKinds = new Set<string>();
+  const sendable = fresh.filter((hit) => {
+    const event = events.get(hit.eventId);
+    if (!event) return false;
+    const verdict = assessReadiness({
+      title: event.title,
+      whatHappened: event.whatHappened,
+      publishedAt: event.publishedAt,
+      sourceCount: event.sourceCount,
+      sourceKinds: event.sourceKinds,
+      sources: event.sources,
+    });
+    if (verdict.ready) return true;
+    withheldKinds.add(verdict.kind);
+    return false;
+  });
+  const withheld = fresh.length - sendable.length;
+  if (sendable.length === 0) {
+    return {
+      ...empty,
+      skipped: options.hits.length,
+      withheld,
+      withheldKinds: [...withheldKinds].sort(),
+    };
+  }
+
   // The strongest few of what qualified, and only if this run is not refilling
   // a tray the last one just filled. What this drops is left unclaimed on
   // purpose — the next run weighs it again rather than it being lost.
   const sending = paceAlerts({
-    hits: fresh,
+    hits: sendable,
     recent: await recentAlertTimes(db, options.userId, now),
     now,
   });
   if (sending.length === 0) {
-    return { ...empty, skipped: options.hits.length };
+    return {
+      ...empty,
+      skipped: options.hits.length,
+      withheld,
+      withheldKinds: [...withheldKinds].sort(),
+    };
   }
-
-  const events = await loadEvents(
-    db,
-    sending.map((h) => h.eventId),
-  );
 
   let queued = 0;
   let created = 0;
@@ -369,6 +454,8 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
     queued,
     sent,
     skipped: options.hits.length - created,
+    withheld,
+    withheldKinds: [...withheldKinds].sort(),
   };
 }
 
@@ -431,19 +518,62 @@ async function alreadyAlerted(
   return found;
 }
 
-async function loadEvents(
-  db: Db,
-  eventIds: string[],
-): Promise<Map<string, { title: string; whatHappened: string }>> {
-  const out = new Map<string, { title: string; whatHappened: string }>();
+async function loadEvents(db: Db, eventIds: string[]): Promise<Map<string, AlertEventRow>> {
+  const out = new Map<string, AlertEventRow>();
   if (eventIds.length === 0) return out;
   const { data, error } = await db
     .from("events")
-    .select("id, title, what_happened")
+    .select("id, title, what_happened, publisher_count, first_seen_at, material_occurrence_at")
     .in("id", eventIds);
   if (error) throw new Error(`reading alert events: ${error.message}`);
+
+  // The coverage the readiness gate composes from, in the identical shape the
+  // reader's page and the briefing hand it (`loadBriefs` in `digest.ts` builds
+  // this in the same pass as its other inputs, for a whole briefing's worth of
+  // events; the alert path asks for the same rows directly, for a handful).
+  // Built the same way on purpose: a gate that judged a different story from
+  // the one the reader's page composes would refuse prose that exists.
+  const { data: coverage, error: coverageError } = await db
+    .from("articles")
+    .select("event_id, source_id, title, excerpt, sources ( name, kind )")
+    .in("event_id", eventIds);
+  if (coverageError) throw new Error(`reading alert coverage: ${coverageError.message}`);
+
+  const outlets = new Map<string, Set<string>>();
+  const kinds = new Map<string, Set<string>>();
+  const evidence = new Map<string, ReaderSource[]>();
+  for (const row of coverage ?? []) {
+    const eventId = row.event_id;
+    if (!eventId) continue;
+
+    const seen = outlets.get(eventId) ?? new Set<string>();
+    seen.add(row.source_id ?? "unknown");
+    outlets.set(eventId, seen);
+
+    const kind = (row.sources as { kind?: string } | null)?.kind;
+    if (kind) kinds.set(eventId, new Set([...(kinds.get(eventId) ?? []), kind]));
+
+    const sourceList = evidence.get(eventId) ?? [];
+    sourceList.push({
+      name: (row.sources as { name?: string } | null)?.name ?? "Unattributed",
+      ...(row.title ? { headline: row.title } : {}),
+      ...(row.excerpt ? { excerpt: row.excerpt } : {}),
+    });
+    evidence.set(eventId, sourceList);
+  }
+
   for (const row of data ?? []) {
-    out.set(row.id, { title: row.title, whatHappened: row.what_happened });
+    out.set(row.id, {
+      title: row.title,
+      whatHappened: row.what_happened,
+      // The occurrence clock for a revised event, `first_seen_at` otherwise --
+      // the same choice the reader's page makes when it dates a story, and the
+      // date the composer anchors relative time with.
+      publishedAt: row.material_occurrence_at ?? row.first_seen_at ?? null,
+      sourceCount: row.publisher_count || outlets.get(row.id)?.size || 0,
+      sourceKinds: [...(kinds.get(row.id) ?? [])],
+      sources: evidence.get(row.id) ?? [],
+    });
   }
   return out;
 }

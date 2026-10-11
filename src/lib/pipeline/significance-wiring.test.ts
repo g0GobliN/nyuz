@@ -238,6 +238,22 @@ function stageDb(options: { flag?: boolean; history?: SubjectHistoryRow[] } = {}
         last_material_change_at: null,
       },
     ],
+    // The alert path loads the event *and its coverage*, because an alert now
+    // has to clear the same readiness gate a briefing story does (`fireAlerts`).
+    // A fixture with no articles is a story the gate refuses — nothing to read —
+    // so the tests below would be asserting on silence. This is the same shape
+    // `readiness.test.ts` proves composes two facts: one outlet, three sentences.
+    articles: [
+      {
+        id: "article-1",
+        event_id: EVENT,
+        source_id: "source-1",
+        title: "Rust 2.0 reaches release candidate",
+        excerpt:
+          "The first Rust 2.0 release candidate is available for testing. It ships the edition-2027 syntax and a stabilised async trait. The final release is expected in December.",
+        sources: { name: "InfoWorld", kind: "news" },
+      },
+    ],
     // Candidates arrive through `match_candidate_bundle` (0116), not through
     // chunked link reads: the stub below carries the one linked, article-backed
     // row this fixture is about. The `events` row stays because the alert path

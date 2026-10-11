@@ -137,6 +137,25 @@ main(async () => {
       flagRow ? (flagRow.enabled ? "on" : "OFF") : "missing (reads as off)",
     ),
   );
+  /**
+   * The second door into an alert.
+   *
+   * With this on, `alertEligible` admits a hit *below* the importance floor --
+   * a firmly matched interest with a subject development -- and `claim_alert`
+   * (0103) honours the claim. Every alert this admitted is one the floor would
+   * have refused, so the flag is part of what the alert product actually is.
+   */
+  const { data: significanceFlag } = await client
+    .from("feature_flags")
+    .select("enabled")
+    .eq("key", "subject_significance_enabled")
+    .maybeSingle();
+  say(
+    rowLine(
+      "subject_significance_enabled",
+      significanceFlag ? (significanceFlag.enabled ? "ON" : "off") : "missing (reads as off)",
+    ),
+  );
 
   const { data: prefs, error: prefError } = await client
     .from("notification_preferences")
@@ -414,17 +433,130 @@ main(async () => {
     const ordered = [...alertItems].sort((a, b) =>
       (generatedById.get(b.digest_id) ?? "").localeCompare(generatedById.get(a.digest_id) ?? ""),
     );
+    /** When each alerted event actually went out, for the below-floor date range. */
+    const sentAtByEvent = new Map<string, string>();
+    for (const item of alertItems) {
+      const at = generatedById.get(item.digest_id) ?? "";
+      if (at > (sentAtByEvent.get(item.event_id) ?? "")) sentAtByEvent.set(item.event_id, at);
+    }
+    /**
+     * The decisive number, and the reason this section exists twice.
+     *
+     * The list below says what an alert carried. This says how much of what an
+     * alert carried the briefing gate would have refused, and where the alert
+     * floor sits in that history's importance distribution — the two numbers a
+     * ruling on "is this worth interrupting someone for" turns on. Both are
+     * counterfactual (these alerts were already sent), which is the point: they
+     * measure the shipped rule against the other rule, on the material it acted
+     * on. Computed before the list so each row can carry its own verdict: the
+     * question "would this one have survived" is per alert, not per total.
+     */
+    const sentCoverage = await loadCorpusEvents(sentIds.length, undefined, undefined, sentIds);
+    const sentVerdicts: Record<string, number> = {};
+    const sentRefused: { title: string; kind: string; reason: string }[] = [];
+    const gateByEvent = new Map<string, string>();
+    for (const story of sentCoverage) {
+      const verdict = assessReadiness({
+        title: story.title,
+        whatHappened: story.what,
+        sourceCount: story.sources,
+        sources: story.sourceList,
+        sourceKinds: story.sourceKinds,
+        publishedAt: story.publishedAt,
+      });
+      const key = verdict.ready ? "ready" : verdict.kind;
+      sentVerdicts[key] = (sentVerdicts[key] ?? 0) + 1;
+      gateByEvent.set(story.id, key);
+      if (verdict.ready) continue;
+      sentRefused.push({ title: story.title, kind: verdict.kind, reason: verdict.reason });
+    }
+
     for (const item of ordered.slice(0, SHOW)) {
       const event = eventById.get(item.event_id);
       const sentAt = generatedById.get(item.digest_id) ?? "";
       const ageAtSend = event && sentAt ? hours(occurred(event), new Date(sentAt)) : null;
+      const gate = gateByEvent.get(item.event_id) ?? "novel";
       say(
         `  ${sentAt.slice(0, 16)} user=${(userIdByDigest.get(item.digest_id) ?? "").slice(0, 8)} ` +
           `imp=${String(event?.importance ?? "?").padStart(2)} ` +
           `age-at-send=${ageAtSend === null ? "n/a" : `${ageAtSend.toFixed(1)}h`} ` +
-          `${short(event?.title ?? item.event_id, 60)}`,
+          `${gate === "ready" ? "  gate ok" : `gate ${gate}`.padEnd(9)} ` +
+          `${short(event?.title ?? item.event_id, 55)}`,
       );
     }
+
+    const refusalCount = sentCoverage.length - (sentVerdicts["ready"] ?? 0);
+    say(
+      rowLine(
+        "  of those, refused by the gate the briefing uses",
+        `${refusalCount} of ${sentCoverage.length}`,
+      ),
+    );
+    for (const [kind, count] of Object.entries(sentVerdicts).sort()) {
+      if (kind === "ready") continue;
+      say(rowLine(`    ${kind}`, count));
+    }
+    for (const entry of sentRefused.slice(0, SHOW)) {
+      say(`  · [${entry.kind}] ${short(entry.title, 70)}\n      ${short(entry.reason, 100)}`);
+    }
+
+    // Where the floor sits. `ALERT_FLOOR` is the briefing's Minimal-density floor
+    // verbatim, so this asks what a reader would have received at each step above
+    // it — the evidence for or against separating the two numbers.
+    const importanceHistogram: Record<number, number> = {};
+    for (const event of sentEvents) {
+      const value = Math.round(event.importance ?? 0);
+      importanceHistogram[value] = (importanceHistogram[value] ?? 0) + 1;
+    }
+    say("  the importance of what an alert carried " + "".padEnd(4));
+    for (const value of Object.keys(importanceHistogram)
+      .map(Number)
+      .sort((a, b) => b - a)) {
+      say(rowLine(`    importance ${value}`, importanceHistogram[value] ?? 0));
+    }
+    for (const floor of [IMPORTANT_FLOOR, 7, 8, 9, 10]) {
+      const kept = sentEvents.filter((event) => (event.importance ?? 0) >= floor).length;
+      say(
+        rowLine(
+          `  would still have alerted at importance >= ${floor}`,
+          `${kept} of ${sentEvents.length}`,
+        ),
+      );
+    }
+    // Which door each alert came through. An alert below the floor can only be the
+    // significance route (0103), so this is the share of the reader's alerts the
+    // floor never agreed to, and the date it started.
+    const belowFloor = sentEvents.filter((event) => (event.importance ?? 0) < IMPORTANT_FLOOR);
+    const belowFloorDates = belowFloor
+      .map((event) => sentAtByEvent.get(event.id) ?? "")
+      .filter((value) => value !== "")
+      .sort();
+    say(rowLine("  below the importance floor (the significance door)", belowFloor.length));
+    if (belowFloorDates.length > 0) {
+      say(
+        `  ${"".padEnd(4)}those ran ${belowFloorDates[0]?.slice(0, 10)} to ${belowFloorDates[belowFloorDates.length - 1]?.slice(0, 10)}`,
+      );
+    }
+    /**
+     * The below-floor alerts, split by whether the score moved after the send.
+     *
+     * `importance` is a current value and an alert is a past event, so a
+     * below-floor alert is only a defect if the score was already there when it
+     * fired. `analysed_at` after the send means the engine re-scored the event
+     * afterwards and the alert was fired on a score that no longer exists --
+     * revision drift. Without that, the shipped rule admitted a hit the floor
+     * refuses, and that is the one worth a ruling. Assuming drift without this
+     * check would be the instrument explaining away its own finding.
+     */
+    const rescored = belowFloor.filter((event) => {
+      const sentAt = sentAtByEvent.get(event.id);
+      if (!sentAt || !event.analysed_at) return false;
+      return new Date(event.analysed_at) > new Date(sentAt);
+    });
+    say(rowLine("    ...re-scored after the send (drift, not a bypass)", rescored.length));
+    say(
+      rowLine("    ...score unchanged at send <- unexplained", belowFloor.length - rescored.length),
+    );
   }
 
   heading("6. What the plan entitles, against what the safety cap allows");

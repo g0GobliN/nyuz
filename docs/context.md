@@ -111,6 +111,7 @@ must-be-zero lines are the acceptance test.
 | Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                       |
 | Ingestion, clustering, analysis, matching    | Built                                                         |
 | Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly       |
+| Breaking alerts                              | Built; now gated like a briefing story (D8) — see §6          |
 | **Briefing email actually delivered**        | **BLOCKED — the Resend key returns 401** (see §7)             |
 | Reader article (deterministic composer)      | Built, under active quality work (see §5)                     |
 | Story Ask                                    | Dormant — endpoint disabled, zero allowance on every plan     |
@@ -308,6 +309,26 @@ families`, with a printed note that it is not a count of recoverable stories and
   count. No enrichment eligibility was widened. The two cross-references in the classification are
   live for the later queues: `Quoting Matthew Green` belongs to the quote-opening family (D4) and the
   Microsoft story to the stacked-quotes family (D7).
+- **2026-10-11 — D8, the alert path gets the gate every briefing story already had** (`9cbde00`
+  instrument, then the gate). The owner's report from their own account: alerts do not feel like
+  breaking news, and the page behind one sometimes has nothing to read. The alert path had **no
+  instrument at all**, so the claim was measured rather than argued — `npm run audit:alerts` reads
+  the funnel (in-window events, refused, already alerted, per-day volume, sent) and puts every
+  candidate through the **same `assessReadiness` a briefing story passes**, with a gate verdict on
+  each alert it prints. On the live database: **108 of the 205 alerts ever sent would have been
+  refused by that gate** — 69 `unbriefable` (no publishable body), 31 `primary-source`, 5
+  `newsletter`, 2 `commit-message`, 1 `build-number`; the four most recent refusals are two
+  `The Download` containers (importance 8 and 6) and two single-source arXiv items. Separately,
+  importance does not separate the two populations: **at floor 8, 7 of the 8 recent non-news
+  interrupts go and 7 genuine ones go with them.** `fireAlerts` now runs the gate **before**
+  `paceAlerts` (a refused hit must not spend a burst slot) and reports `withheld`/`withheldKinds`
+  instead of folding refusals into `skipped`. Nothing is claimed or deleted: a withheld event stays
+  in `user_events` and leads the reader's next briefing. Six tests in
+  [alerts-readiness.test.ts](../src/lib/pipeline/alerts-readiness.test.ts); five fail with the gate
+  disabled. **The floor is left alone** — that is the open policy question (options (a)–(d) in
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#d8--what-an-alert-is-allowed-to-be-2026-10-11)),
+  and the arbiter was unreachable from the session, so the ruling recorded is the owner's, not the
+  arbiter's.
 
 ## 7. What is next
 
@@ -359,6 +380,17 @@ shapes` section whenever the ingestion mix changes.
    quote-opening blocks on this corpus (0), so they are their own queue and are not yet classified.
 5. **The `rss` risk, kept visible**: no new evidence yet justifies changing the policy again, so the
    audit's `Vendor shapes` section is the instrument to re-measure on later windows.
+6. **D8 — the alert bar itself** (see §6). The gate landed; **the floor is open and awaiting the
+   arbiter**: alerts after the gate still reach phones for shapes no rule refuses (a vendor roadmap
+   advertorial at importance 7, a product newsletter at 7, a hobby hack and a personal blog post at
+   6, a memory-kit price piece at 6). Four options with their costs are recorded in
+   [decisions/reader-delivery.md](decisions/reader-delivery.md#d8--what-an-alert-is-allowed-to-be-2026-10-11):
+   (a) gate only; (b) raise the alert floor above the briefing floor — and the measurement says
+   raising it to 8 removes 7 of the 8 recent non-news interrupts and 7 genuine ones with them;
+   (c) refuse a first-party marketing shape even when corroborated, **which contradicts D5** and needs
+   D5 reopened; (d) require more than one outlet for an alert. Nothing here changes without a ruling,
+   and the arbiter was unreachable from this session — the ruling that landed is the owner's.
+   `npm run audit:alerts` is the instrument, and it now prints a gate verdict per alert.
 
 Blocked on the owner, not on code:
 
@@ -385,7 +417,10 @@ Blocked on the owner, not on code:
 - **Every mutating console action writes an `admin_audit_log` row** via `audit()`.
 - On the reader path: a refused fact stays refused; every selected fact is `rendered`,
   explained by a named rule, or counted as unexplained (which must be zero); the deck must
-  stand on its own; no card ships without a body.
+  stand on its own; no card ships without a body. **An alert clears the same `assessReadiness`
+  gate a briefing story does** ([alerts.ts](../src/lib/pipeline/alerts.ts)), because an
+  interruption is the one thing the reader cannot choose: a shape the briefing refuses must
+  never reach a phone as breaking news.
 - DeepSeek models are reasoning models: budget `max_tokens` for reasoning _plus_ output, and
   always check `finish_reason`, or a response comes back empty with no error.
 
