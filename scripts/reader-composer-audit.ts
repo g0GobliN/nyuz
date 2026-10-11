@@ -285,6 +285,16 @@ main(async () => {
   const fusionVisible: string[] = [];
   /** The facts a rule charged that the reader received anyway, with the rule. */
   const overlapFacts: string[] = [];
+  /**
+   * The published blocks the context-dependent-opening ruler counted, in full.
+   *
+   * The row below is a count, and a count cannot answer the question the arbiter's
+   * D2 closure ruling asked of it: which openings are genuinely unresolved, and which
+   * are the ruler still disagreeing with the rule. A deck that opens `This paper
+   * investigates ...` resolves itself by the act of reading, so it must not appear
+   * here; the PC-shipments sentence, whose referent the page never establishes, must.
+   */
+  const contextOpenings: string[] = [];
   /** Which rule accounts for the unrendered facts, across the corpus. */
   const dispositions: Record<string, number> = {};
   const changed: Changed[] = [];
@@ -511,7 +521,11 @@ main(async () => {
     totals.entityLeaks += blocks.filter((b) => ENTITY_LEAK.test(b)).length;
     totals.metadataLeaks += blocks.filter((b) => hasSourceMetadata(b)).length;
     totals.gluedAttribution += blocks.filter((b) => GLUED_ATTRIBUTION.test(b)).length;
-    totals.unresolvedContext += blocks.filter((b) => unresolvedContextOpening(b)).length;
+    for (const block of blocks) {
+      if (!unresolvedContextOpening(block)) continue;
+      totals.unresolvedContext += 1;
+      contextOpenings.push(`${event.title} · ${block}`);
+    }
     totals.doubleSpace += blocks.filter((b) => DOUBLE_SPACE.test(b)).length;
     totals.doubleQuotes += blocks.filter((b) => TWO_QUOTES.test(b)).length;
     totals.bareQuoteSentence += blocks.filter((b) => LEADING_QUOTE.test(b)).length;
@@ -553,6 +567,7 @@ main(async () => {
   // is in the previous block of the same story is not a defect, and thirteen of
   // them were read by hand to be sure of exactly that.
   say(row("context-dependent openings", totals.unresolvedContext));
+  for (const entry of contextOpenings) say(`  ${clip(entry, 240)}`);
   say(row("double spaces", totals.doubleSpace));
   say(row("two quotes in one block", totals.doubleQuotes));
   say(row("block opening with a quote", totals.bareQuoteSentence));

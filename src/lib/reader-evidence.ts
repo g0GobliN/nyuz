@@ -677,6 +677,30 @@ const POSSESSIVE_DETERMINER_OPENING = /^(?:this|that|these|those)\s+\S*['’]s?(
 const RECOVERABLE_OPENING = /^(?:it|its|the figure|that figure)\b/i;
 
 /**
+ * A demonstrative whose head is the document the reader is already holding.
+ *
+ * `This report presents ...`, `This paper investigates ...` -- the head is the page
+ * itself, which the reader has open, so the reference is resolved by the act of
+ * reading rather than by a sentence that may not be there. It is the same shape
+ * `POSSESSIVE_DETERMINER_OPENING` records below, and for the same reason.
+ *
+ * It lives in the evidence layer, and not with the deck rule that first needed it,
+ * because both the rule and the measurement have to mean the same thing by
+ * "unresolved context". The arbiter's ruling of 2026-10-11 accepted exactly that
+ * (option (a) of the D2 closure): a diagnostic that stays knowingly broader than the
+ * rule it measures stops being able to tell a real defect from a research abstract
+ * convention.
+ *
+ * Deliberately only the document's own words. `This monitor is compatible ...` is
+ * not self-reference -- the monitor is named in another sentence -- so it stays in
+ * the class whose referent the page may not carry. And the list of document nouns is
+ * not a general exemption for sentences that merely mention a paper, a report or a
+ * study: the demonstrative has to head the document noun itself.
+ */
+export const SELF_REFERENTIAL_DOCUMENT_OPENING =
+  /^(?:this|that)\s+(?:report|paper|study|analysis|article|work|research|survey|review|briefing|piece|post|essay|chapter|section|note|document)\b/i;
+
+/**
  * Openings that need a reference this source never supplies, and cannot be
  * written around.
  *
@@ -790,7 +814,11 @@ export function recoverableContext(text: string): boolean {
  * trusting the counter that refused them.
  */
 export function unresolvedContextOpening(text: string): boolean {
-  return contextDependent(text) && !recoverableContext(text);
+  const trimmed = text.trim();
+  // One definition, shared with the deck rule: a demonstrative that heads the
+  // document the reader is holding is resolved by reading, not by context.
+  if (SELF_REFERENTIAL_DOCUMENT_OPENING.test(trimmed)) return false;
+  return contextDependent(trimmed) && !recoverableContext(trimmed);
 }
 
 /** Quoted speech belongs to its speaker, not the publication. */

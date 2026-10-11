@@ -28,6 +28,7 @@ import {
   storyPosition,
   storyPositionRank,
   stripEditorialVoice,
+  unresolvedContextOpening,
   stripFrontedFrame,
   stripHeadingLabel,
   stripProviderNavigation,
@@ -815,6 +816,42 @@ describe("a feed's footer belongs to the feed", () => {
     expect(text).not.toContain("appeared first on");
     expect(text).not.toContain("Put these ideas in practice");
     expect(text).not.toContain("The post AI is changing developer work.");
+  });
+});
+
+describe("the ruler and the deck rule mean the same thing by unresolved context", () => {
+  it("exempts a demonstrative whose head is the document the reader is holding", () => {
+    // Negative controls from the arbiter's D2 closure ruling, 2026-10-11. Both were
+    // counted as context-dependent openings by the ruler while the deck rule (which
+    // has always exempted them) published them, so the diagnostic read two more
+    // defects than the rule could produce. `This report` and `This paper` name the
+    // page the reader has open; its subject is in the sentence.
+    expect(
+      unresolvedContextOpening(
+        "This report presents the OpenSpace Lab's solution to the competition.",
+      ),
+    ).toBe(false);
+    expect(
+      unresolvedContextOpening(
+        "This paper investigates the feasibility of deploying quadruped walking robots in a warehouse.",
+      ),
+    ).toBe(false);
+  });
+
+  it("still detects a demonstrative the page never establishes", () => {
+    // The positive control the ruling names by hand: the PC-shipments opening, whose
+    // referent is the price increases the page never mentions. D3 stopped it reaching
+    // the reader through the entity-context splice; the ruler must still be able to
+    // see it, or the fix would be invisible to the measurement that proved it.
+    expect(
+      unresolvedContextOpening(
+        "These price increases have been directly caused by the boom in AI data centers, with hyperscalers pouring money into HBM.",
+      ),
+    ).toBe(true);
+    expect(unresolvedContextOpening("This was announced on Tuesday.")).toBe(true);
+    expect(
+      unresolvedContextOpening("The study found a similar effect in every market it examined."),
+    ).toBe(false);
   });
 });
 

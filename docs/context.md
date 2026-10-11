@@ -215,6 +215,16 @@ unexplained` per story, with the rule named for every explained absence; the ran
     new refusal-finality predicate disabled, the regression test publishes
     `These price increases have been caused by the boom in AI data centers, Counterpoint
 Research said.` — the corpus defect, reproduced.
+- **2026-10-11 — D2 closure, one definition of "unresolved context".** The deck rule had exempted
+  a demonstrative whose head is the document the reader is holding (`This report presents …`) since
+  D2; the audit's ruler never learned it, so it counted decks the rule would publish. The arbiter
+  approved option (a): one shared definition. The exemption now lives in
+  [reader-evidence.ts](../src/lib/reader-evidence.ts) with the other opening patterns,
+  `unresolvedContextOpening` applies it, and the deck rule delegates. Controls pinned as tests
+  (arXiv `This report…` and `This paper investigates…` as negatives, the PC-shipments sentence as the
+  positive). Re-baselined on the same frozen 200: **3**, and the row now prints the blocks behind it —
+  all three are the adjacency-resolved paragraph openings D2 named, so the exemption's effect on this
+  corpus's published page is zero and the ruler no longer counts a class the rule cannot produce.
 - **2026-10-11 — this file, and the two rules that keep it true.** `docs/context.md` exists as
   the first thing a session reads, and [AGENTS.md](../AGENTS.md) now requires it to be updated in
   the same commit as the change it describes. The rules come with the skills that carry them:

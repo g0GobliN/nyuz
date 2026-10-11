@@ -911,27 +911,17 @@ function cannotWrap(text: string): boolean {
 }
 
 /**
- * A demonstrative whose head is the document the reader is already holding.
+ * The deck's own test: an opening whose referent the page never establishes.
  *
- * `This report presents ...`, `This paper investigates ...` -- the head is the page
- * itself, which the reader has open, so the reference is resolved by the act of
- * reading rather than by a sentence that may not be there. It is the same shape
- * `POSSESSIVE_DETERMINER_OPENING` records in the evidence layer, and for the same
- * reason: without it the deck rule below would refuse the opening sentence of
- * every research abstract in the corpus.
- *
- * Deliberately only the document's own words. `This monitor is compatible ...` is
- * not self-reference -- the monitor is named in the next block -- so it stays in
- * the class whose referent the page may not carry.
+ * Thin on purpose. `unresolvedContextOpening` carries the definition -- including the
+ * document-self-reference exemption -- because the audit's ruler and this rule have
+ * to agree on what "unresolved" means or the diagnostic cannot tell a real defect
+ * from a research abstract convention (the arbiter's D2 closure ruling, 2026-10-11).
+ * What stays here is the deck's question, which only the deck has: nothing precedes
+ * it, so no ordering of the page can supply the reference.
  */
-const SELF_REFERENTIAL_DOCUMENT_OPENING =
-  /^(?:this|that)\s+(?:report|paper|study|analysis|article|work|research|survey|review|briefing|piece|post|essay|chapter|section|note|document)\b/i;
-
-/** The deck's own test: an opening whose referent the page never establishes. */
 function needsAntecedentToOpen(text: string): boolean {
-  const trimmed = text.trim();
-  if (SELF_REFERENTIAL_DOCUMENT_OPENING.test(trimmed)) return false;
-  return unresolvedContextOpening(trimmed);
+  return unresolvedContextOpening(text.trim());
 }
 
 function safeLead(

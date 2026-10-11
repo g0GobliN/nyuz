@@ -285,6 +285,62 @@ another path — 5 verbatim cases, and the `matched: sentence|text` split that f
 the benign one), then the 2 absent overlap records, then the 24 quote-opening blocks, then the 8
 two-quote blocks.
 
+## D2 closure — one definition of "unresolved context" (2026-10-11)
+
+**The case the arbiter ruled on.** The deck predicate and the audit's ruler disagreed about what
+"unresolved context" means. The rule had exempted a demonstrative whose head is the document the
+reader is holding (`This report presents …`, `This paper investigates …`) since D2, because the
+arXiv regression proved that without the exemption the rule refuses the opening sentence of every
+research abstract. The ruler (`unresolvedContextOpening`) never learned the exemption, so it kept
+counting decks the rule would publish — which made the acceptance number partly a definition rather
+than a fact about the prose.
+
+**Ruling (2026-10-11): option (a).** *Teach `unresolvedContextOpening` the same self-reference
+exemption, then re-baseline the diagnostic. Do not leave the primary diagnostic knowingly broader
+than the rule it measures.* Acceptance criteria, all of which the arbiter named explicitly: one
+shared definition of unresolved context wherever the two overlap; the exemption implemented
+consistently; the PC-shipments sentence still detectable as genuinely unresolved; the arXiv
+`This report …` and `This paper investigates …` cases negative controls; the diagnostic rerun
+against the same frozen 200 with the old count preserved as evidence.
+
+**Implemented.** `SELF_REFERENTIAL_DOCUMENT_OPENING` moved from `editorial.ts` into
+`src/lib/reader-evidence.ts`, where the other opening patterns live, and `unresolvedContextOpening`
+now applies it. The deck rule's `needsAntecedentToOpen` delegates to that one function instead of
+keeping a private copy — the rule and the ruler now share the definition by construction rather than
+by coincidence.
+
+**Controls, as tests** (`reader-prose-rules.test.ts`):
+
+| case                                                                    | expected |
+| ----------------------------------------------------------------------- | -------- |
+| `This report presents the OpenSpace Lab's solution to the competition.`  | not unresolved |
+| `This paper investigates the feasibility of deploying quadruped walking robots…` | not unresolved |
+| `These price increases have been directly caused by the boom in AI data centers…` | **unresolved** (positive control) |
+| `This was announced on Tuesday.`                                         | unresolved |
+| `The study found a similar effect in every market it examined.`          | not unresolved |
+
+**Re-baselined on the same frozen 200 (`tmp/corpus-after.json`, 2026-10-11).** The count is **3**,
+and the row is now printed with the blocks behind it, so the number can be checked instead of
+trusted:
+
+```
+context-dependent openings        3
+  My brief romance with an AI bird feeder · They'd skulk about in nearby trees …
+  The U.S. last held a public execution in the 1930s … · That would be the first public execution …
+  Rejecting a promotion sent field service tech into support hell · He turned it down because …
+```
+
+Historical counts, kept as evidence: **7** in the run before D2 (one of them the arXiv deck),
+**5** after D2, **3** since D3 (the entity splice and the deck charge were supplying the other two).
+
+**What the re-baseline actually measured, stated honestly.** On this corpus the exemption changes
+nothing on the published page: all three remaining openings are the *adjacency-resolved* paragraph
+openings D2 named — the previous published block supplies the referent (`the tits`, `the
+livestream`, `Preston`) — and none is a document self-reference, nor is the PC-shipments sentence
+still present for D3 to have fixed. So the exemption's effect here is zero, and its value is that
+the ruler no longer counts a class the rule cannot produce: the diagnostic is now a floor of
+resolved-by-adjacency cases rather than a mixture of those and definition artefacts.
+
 ## D3 — a refused fact is final (2026-10-11)
 
 **The case, before any change.** The audit reported **7** facts a rule had charged that the page
@@ -355,3 +411,15 @@ regression, prose rules, readiness, digest-cost-safety, understand).
 
 **Also closes the queued "2 absent overlap records":** they were the two facts whose text the page
 never carried, and they are now the resemblance class instead of being reported as republications.
+
+**Checked against the arbiter's own acceptance list for D3 (2026-10-11), item by item.** Traceability
+from the original refusal through every publication path: the ledger charges facts by identity and
+`republishesRefusedFact` reads those charges, so a charge still names its rule. Regression test that
+fails against the old behaviour and passes against the fix: yes, with the fail-before output
+recorded above. Zero verbatim refused-then-published on the frozen corpus: 0. Zero unexplained
+selected facts: 0. Zero delivered stories without a body: 0. No newly emptied story without a
+disposition: the census is unchanged at 59 (31 nothing-selected / 26 single-fact-is-the-deck / 2
+charged to a rule). Separate accounting of refused sentences genuinely absent from the page: the
+`resemblance` class, printed with the sentence that matched. Not a generic text-matching filter:
+the suppression test is the ledger's charge, never similarity — the resemblance class changes no
+publication decision, it only reports.
