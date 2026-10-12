@@ -617,6 +617,24 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   **Consequence, recorded:** if a floor update is ever needed while the quota is full, the artifact
   must come from a run where the upload succeeded — the measurement itself never depended on it.
 
+- **2026-10-12 — the 69 and the 413 are attributed individually, as the ruling required, and the
+  ruler that judged them misfiled 155 items on its first run.** `npm run audit:backlog`
+  (`scripts/backlog-attribution.ts`, read-only) reproduces both published counts exactly — 69 items
+  over 69 events, 413 items over 12 digests — and prints one disposition per digest with its
+  delivery legs and recorded errors. **The 69: all 69 are the same defect** — no explanation
+  produced (67 `event_impacts` rows never written, 2 written with empty text), zero composer drops
+  — so every one is a confirmed violation of the why-it-matters rule and the fix belongs at item
+  admission, not in the composer. **The 413: 168 items / 6 digests were never lost** — an accepted
+  leg (5× push, 1× email) means the reader received the briefing while expiry marked it failed,
+  the status defect `reconcileDigestAfterTerminal` removes; **245 items / 6 digests were lost to
+  execution failures** — 5 digests / 220 items on the missing `EMAIL_UNSUBSCRIBE_SECRET`, 1 digest /
+  25 items on a rejected Resend key **and** `public.registered_devices` missing from the live
+  schema (schema drift, a finding of its own); 0 policy refusals, 0 expiry-only, 0 other. The first
+  classifier filed any digest whose legs failed for _different_ reasons under "other" — 155 items
+  misfiled — and the per-leg cause decides now, with every live error string pinned in
+  `src/lib/backlog-disposition.test.ts`. Tables and evidence:
+  [decisions/backlog-attribution.md](decisions/backlog-attribution.md).
+
 ## 7. What is next
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates
