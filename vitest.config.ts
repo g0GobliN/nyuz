@@ -43,8 +43,20 @@ export default defineConfig({
      * TypeScript compiler -- and under it the slowest of them crossed 30s while
      * the machine was busy, which presents as a timeout in a file with nothing
      * wrong in it. A test that genuinely hangs still fails, 60s later.
+     *
+     * The ceiling alone was not enough, so coverage runs also get a worker cap.
+     * Measured 2026-10-12 on the 8-core development machine: one default-
+     * parallelism coverage run finished with four timeouts (three PGlite
+     * `beforeAll` hooks and the repo walk) after 512s, every one of the four
+     * passing in ~10s when re-run alone -- a 6x starvation factor, and v8
+     * instrumentation is why the ceiling is hit from above. The same suite with
+     * `--maxWorkers=3` ran 3140/3140 green in 95s, so the cap does not slow the
+     * gate down, it stops eight instrumented workers thrashing one machine into
+     * reporting failures that are not there. Assertions are untouched: a wrong
+     * answer still fails, on any machine.
      */
     testTimeout: measuringCoverage ? 60_000 : 30_000,
+    maxWorkers: measuringCoverage ? 3 : undefined,
     /**
      * Coverage is measured, never targeted.
      *
