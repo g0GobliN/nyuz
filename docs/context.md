@@ -628,9 +628,11 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   silence is not) and which the templates render around (`email/templates.ts:392` drops the line
   when empty). The first draft of the record called them confirmed violations by reading the
   landing page's sample instead of the rules; corrected in
-  [decisions/backlog-attribution.md](decisions/backlog-attribution.md). **One decision is open and
-  belongs to the arbiter:** should rung-6 silence withhold the item — fewer, thicker items, closer
-  to the sample — or keep shipping without a significance line? It changes what sends. **The 413: 168 items / 6 digests were never lost** — an accepted
+  [decisions/backlog-attribution.md](decisions/backlog-attribution.md). **The question went to the
+  arbiter the same day and came back ruled (Q4): rung-6 silence withholds the item** — no rung-6
+  item reaches a reader, no explanation is invented to rescue one ("the remedy is withholding, not
+  filler"), and every withheld item is recorded as `skipped` with a canonical reason and its
+  identifiers. Implementation is the next slice; until it lands, rung-6 items still ship. **The 413: 168 items / 6 digests were never lost** — an accepted
   leg (5× push, 1× email) means the reader received the briefing while expiry marked it failed,
   the status defect `reconcileDigestAfterTerminal` removes; **245 items / 6 digests were lost to
   execution failures** — 5 digests / 220 items on the missing `EMAIL_UNSUBSCRIBE_SECRET`, 1 digest /

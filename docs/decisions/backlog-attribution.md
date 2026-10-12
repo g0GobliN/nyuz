@@ -35,12 +35,14 @@ defect; honest silence is not). So the correct attribution is: **69 items took r
 cause (67 events never had an `event_impacts` row written, 2 had one with empty text — so no rung
 1–5 material existed), zero composer drops, zero policy violations. What ships is thin but honest.
 
-**The open question is a decision, not a defect:** should rung-6 silence _withhold_ the item
-(fewer, thicker items — closer to the sample the landing page shows) or continue to ship it
-without a significance line? The code itself deferred this — the `bare` count rides the digest row
-"so the honesty-bar presentation can be measured against real counts before it changes what
-sends" — and the measurement those words asked for is the 69 above. Changing what sends is a
-reader-facing decision and goes to the arbiter before any code.
+**Ruled 2026-10-12 (Q4 in
+[arbitration-2026-10-12.md](arbitration-2026-10-12.md)): rung-6 silence withholds the item.** The
+code deferred this — the `bare` count rode the digest row "so the honesty-bar presentation can be
+measured against real counts before it changes what sends" — and the measurement those words asked
+for is the 69 above. The arbiter chose withholding over shipping: no rung-6 item reaches a reader,
+no explanation is invented to rescue one, and every withheld item is recorded as `skipped` with a
+canonical reason and its identifiers, so every disposition stays auditable. Implementation is the
+next slice.
 
 ## The 413 — built, then discarded with their digest
 
@@ -82,7 +84,7 @@ misfiled case.
 - Confirmed defects, in order of what a reader loses: (1) the digest status defect — fixed and
   landed; (2) missing `EMAIL_UNSUBSCRIBE_SECRET` — owner-side secret, same blocker as the step-1
   email proof; (3) `public.registered_devices` absent on the live schema — needs a migration check.
-- One decision open, on the arbiter's desk in substance: whether rung-6 silence should withhold the
-  item. It changes what a reader receives, so it is ruled before it is built.
+- The rung-6 question is **ruled**: withhold the item with mandatory skipped-with-reason
+  accounting (Q4). Implementation pending — until it lands, rung-6 items still ship without a line.
 - Nothing here forces an item to ship. The 245 are unrecoverable for those readers (their slots are
   past); the causes are what is fixed.

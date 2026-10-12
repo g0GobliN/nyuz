@@ -101,3 +101,32 @@ classes with independent evidence.
 
 **Nothing is pushed.** Steps 1–3 are authorised but not yet implemented; this file records the ruling
 so the next session starts from it rather than re-deriving it.
+
+## Q4 — rung-6 silence at the 10/10 bar (RULED 2026-10-12: withhold)
+
+Asked after the Q3 audit found the 69 empty-`why_it_matters` items are rung-6 silence — allowed by
+the existing rules, but thinner than the sample the landing page shows on every item.
+
+> "Ruling: Option 1 — WITHHOLD THE ITEM. At the 10/10 reader-quality bar, an item without a
+> story-specific `why_it_matters` line does not ship. It remains eligible for future processing,
+> but it is withheld from that briefing."
+
+Reasons on the record: silence is honest but inclusion is a separate decision; the landing-page
+promise shows a reason on every item and shipping without one makes the real experience thinner
+than the advertised one; a quiet morning is an acceptable outcome — _"fewer defensible items over
+a fuller briefing that cannot meet its own standard"_. Withholding is explicitly **not** a
+confirmed violation of the inclusion ladder: it is a stricter shipping decision at the final
+quality gate. And the boundary the ruling draws by name: _"Do not manufacture explanations to
+rescue items. Rung 6 must remain honest silence. The remedy is withholding, not filler, generic
+explanations, or unsupported claims."_
+
+**Disposition recording is mandatory:** every withheld item is recorded as `skipped` with an
+explicit canonical reason (e.g. `missing_story_specific_why_it_matters`), preserving item and
+briefing identifiers, the disposition, the reason, and the gate decision — _"an auditable
+disposition, not a fabricated delivery failure or a confirmed content violation"_. No silent
+disappearance.
+
+Options 2–4 rejected: 2 accepts the sample-vs-output gap; 3 makes the standard depend on
+neighbouring content; 4 fixes only the promise (useful as an additional correction, not
+sufficient). **Acceptance condition:** no rung-6 item reaches a reader, no explanation is invented
+to fill the gap, and every withheld item has an auditable disposition.
