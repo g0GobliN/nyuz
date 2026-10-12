@@ -600,6 +600,23 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   (the provider key is refused; the Stripe price names are unset), so step 1 is landed in code and
   unfinished in proof.
 
+- **2026-10-12 — a push went red on an account quota, not on code, and the artifact upload was
+  demoted so it can never skip a deploy again.** The first push of the origin work failed CI with
+  every check green: the four test shards, typecheck/lint/build, the browser suite and the commit
+  message check all passed, and the single failing step was `Keep the measurement` in the Coverage
+  floor job — `Failed to CreateArtifact: Artifact storage quota has been hit`. Because the deploy
+  job needs the coverage job, the deploy was skipped and the reader-facing fix sat unbuilt for
+  readers. Measured cause: **account-level** quota on GitHub's free plan ("usage is recalculated
+  every 6-12 hours"), and this repository is not the owner of it — all 48 of its artifacts total
+  **248,359 bytes**. So this is a free-tier condition to design inside, not a defect and not
+  something to pay for. **Landed:** `continue-on-error: true` on both evidence uploads
+  (coverage-summary and the Playwright failure bundle), with the evidence written into the
+  workflow comment. The gate is the Ratchet step — it compares the floor and passes or fails the
+  job; the upload is only the archival copy used by the recorded recipe
+  (`gh run download <run-id> -n coverage-summary`) when the floor is re-recorded from the runner.
+  **Consequence, recorded:** if a floor update is ever needed while the quota is full, the artifact
+  must come from a run where the upload succeeded — the measurement itself never depended on it.
+
 ## 7. What is next
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates

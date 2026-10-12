@@ -354,8 +354,24 @@ jobs:
 
       # The raw summary, so a red run can be read without re-running it. Small
       # (one JSON file) and short-lived; `retention-days` keeps it from piling up.
+      #
+      # `continue-on-error` is here because artifact storage is an *account*
+      # quota on GitHub's free plan, and on 2026-10-12 it was already full before
+      # this repo uploaded anything: all 48 artifacts in this repository total
+      # 248 KB, and the upload failed `Failed to CreateArtifact: Artifact storage
+      # quota has been hit` while every check in this job had passed -- which
+      # skipped the deploy job and left readers on the old build. The gate is the
+      # Ratchet step above; this upload is the archival copy that exists only so
+      # the floor can be recorded from the runner (`gh run download <run-id> -n
+      # coverage-summary`), an operation that happens when the floor moves, not
+      # on every run. A quota this repository does not own must not hold the
+      # deploy hostage -- that is the shape of failure this repo keeps meeting,
+      # where an unrelated condition hides finished work from readers. If the
+      # upload is skipped, recording the floor needs the artifact from a run
+      # where it succeeded; nothing about the measurement changes.
       - name: Keep the measurement
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-summary
@@ -420,8 +436,12 @@ jobs:
       # Traces and screenshots from a failed run. A browser assertion that fails
       # in CI is hard to reproduce locally, and the trace is the whole story:
       # DOM at the moment of failure, network log, console output.
+      # Evidence only -- Playwright's own exit code is what fails this job. Same
+      # account-quota reason as the coverage summary above: when storage is full,
+      # a failing browser run must not be reported as two failures.
       - name: Keep the evidence
         if: failure()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-failure
