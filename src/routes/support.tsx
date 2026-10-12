@@ -41,11 +41,11 @@ const FAQ_ITEMS = [
   },
   {
     q: "Can I get briefings in other languages?",
-    a: "Yes. In Settings → Delivery, you can choose Japanese, Hindi, Nepali, Korean, or Simplified Chinese. These are translations of the English briefing.",
+    a: "Not yet. Briefings are delivered in English today, and translation is not part of this release — there is no language setting to choose from. This page will say so when it ships.",
   },
   {
     q: "How do alerts work?",
-    a: "Every plan includes important alerts, within its daily allowance. Configure them in Delivery settings.",
+    a: "Every plan includes important alerts, with its own daily allowance: one a day on Uno, five on Plura and twelve on Omni. Only events scoring 6 or higher interrupt you, so most days that is nothing at all. Configure them in Delivery settings.",
   },
 ];
 
