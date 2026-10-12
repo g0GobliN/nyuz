@@ -114,6 +114,9 @@ function tables(over: {
         id: "event-1",
         title: "OpenAI ships a reasoning model",
         what_happened: "The lab released it this morning.",
+        // Two-word states on purpose: `changeLine` refuses them, so no rung has
+        // anything story-specific to say and Q4 withholds the item — which is
+        // what the two tests below are about.
         before_state: "Nothing shipped.",
         after_state: "Something shipped.",
         importance: 7,
@@ -237,7 +240,7 @@ describe("shared explanations are read, never bought by a briefing", () => {
     );
   });
 
-  it("derives a factual line when the shared impact is missing", async () => {
+  it("withholds the story when no rung can say anything story-specific (Q4)", async () => {
     const { spy, digest } = await withDoubles();
     const db = new FakeDb(tables({ impact: null }));
 
@@ -246,7 +249,12 @@ describe("shared explanations are read, never bought by a briefing", () => {
     expect(spy.impactCalls).toBe(0);
     expect(spy.features).toEqual([]);
     expect(db.rows("event_impacts")).toHaveLength(0);
-    expect(db.rows("digest_items")[0]?.["why_it_matters"]).toBe("");
+    // Ruled Q4: no rung had a story-specific line, so the item does not ship —
+    // and its disposition is recorded with the reason and the event id.
+    expect(db.rows("digest_items")).toHaveLength(0);
+    const note = String(db.rows("digests")[0]?.["generation_failure_reason"] ?? "");
+    expect(note).toContain("missing_story_specific_why_it_matters");
+    expect(note).toContain("event-1");
   });
 
   it("does not buy an explanation another worker is generating", async () => {
@@ -297,9 +305,13 @@ describe("shared explanations are read, never bought by a briefing", () => {
     // 0077 the briefing ships the story with an empty explanation rather than
     // shipping nothing; the claim above is still what proves nothing was
     // bought twice.
-    expect(report.generated).toBe(1);
-    expect(db.rows("digest_items")).toHaveLength(1);
-    expect(db.rows("digest_items")[0]?.["why_it_matters"]).toBe("");
+    // The reader outcome Q4 chooses: the story is withheld — no rung could say
+    // anything story-specific — and the disposition is recorded rather than an
+    // empty line shipping. The claim above still proves nothing was bought.
+    expect(report.generated).toBe(0);
+    expect(db.rows("digest_items")).toHaveLength(0);
+    const note = String(db.rows("digests")[0]?.["generation_failure_reason"] ?? "");
+    expect(note).toContain("missing_story_specific_why_it_matters");
   });
 
   it("does not retry an explanation that permanently failed", async () => {

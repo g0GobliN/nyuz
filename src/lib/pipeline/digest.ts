@@ -839,7 +839,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // items are stamped `briefed_at` below alongside the shipped ones so a
   // machine artifact does not resurface on every cycle, but no `digest_items`
   // row is written for them and they count toward nothing.
-  const ready: EventBrief[] = [];
+  let ready: EventBrief[] = [];
   const withheld: { eventId: string; kind: string }[] = [];
   for (const brief of briefs) {
     const verdict = assessReadiness({
@@ -856,11 +856,9 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // The twin drop and the gate both run after the cap, so the cap has the last
   // word: the reader asked for `cap` stories, never more.
   if (ready.length > cap) ready.splice(cap);
-  const withheldNote =
-    withheld.length > 0
-      ? `${withheld.length} withheld (${[...new Set(withheld.map((w) => w.kind))].join(", ")})`
-      : null;
-
+  // Recomputed after the Q4 gate below: the gate adds to `withheld`, and the
+  // note must carry every disposition or the record is incomplete.
+  let withheldNote = withheldNoteOf(withheld);
   if (ready.length === 0 && briefs.length > 0) {
     if (options.dryRun !== true) {
       await finish(db, due.digest_id, "skipped", 0, 0);
@@ -884,10 +882,12 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // story and turned the briefing into a quiet day that was not quiet.
   //
   // None of those are reasons the reader's 07:30 should move. A model that will
-  // not answer costs the sentence, never the story and never the slot: whatever
-  // impacts exist are used, the rest ship without one, and the reason is
-  // recorded so the lateness that did not happen is still visible.
-  // Read, never generate (0078 follow-up).
+  // not answer costs the sentence, never the slot: whatever impacts exist are
+  // used, and an item no rung can say something story-specific about is
+  // **withheld from this briefing** — Q4, ruled 2026-10-12: "the remedy is
+  // withholding, not filler, generic explanations, or unsupported claims".
+  // The reason is recorded so the lateness that did not happen is still
+  // visible. Read, never generate (0078 follow-up).
   //
   // This used to call a model for any event without a stored impact, which made
   // the daily briefing job itself a reason to spend money. It is not the source
@@ -924,17 +924,46 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     }),
   );
 
+  // Q4 quality gate, ruled 2026-10-12: an item without a story-specific
+  // why-line does not ship. It is withheld exactly like a readiness-gate item —
+  // no `digest_items` row, stamped alongside the rest so it does not loop — and
+  // recorded as `skipped` with the canonical reason `missing_story_specific_why_it_matters`
+  // and its event id, so the disposition is auditable and no item ever
+  // disappears silently. Not a confirmed violation of the ladder (rung 6 stays
+  // honest silence); a stricter shipping decision at the final quality gate.
+  for (const brief of ready) {
+    if ((byImpact.get(brief.eventId) ?? "") === "") {
+      withheld.push({ eventId: brief.eventId, kind: GATED_KIND });
+    }
+  }
+  ready = ready.filter((brief) => (byImpact.get(brief.eventId) ?? "") !== "");
+  withheldNote = withheldNoteOf(withheld);
+
   const unexplained = ready.filter((brief) => !stored.get(brief.eventId)).length;
-  // Thin-brief materiality, recorded not acted on: how many cards carry no
-  // story-specific line. The classification (sufficient / thin / empty) rides
-  // the digest row so the honesty-bar presentation can be measured against
-  // real counts before it changes what sends.
-  const bare = ready.filter((brief) => (byImpact.get(brief.eventId) ?? "") === "").length;
+  // How many shipped cards carry no stored shared impact and are riding on a
+  // derived rung. The "without a specific line" count is gone with the old
+  // honesty-bar measurement: it measured exactly the items Q4 now withholds,
+  // and a count of what cannot ship is a count of nothing.
   const enrichment =
     unexplained > 0
-      ? `${unexplained} story${unexplained === 1 ? "" : "s"} using a derived inclusion line` +
-        (bare > 0 ? `, ${bare} without a specific line` : "")
+      ? `${unexplained} story${unexplained === 1 ? "" : "s"} using a derived inclusion line`
       : null;
+
+  // Withholding can empty a briefing the readiness gate passed. That is the
+  // quiet morning the ruling accepts — it takes the same path as a briefing
+  // nothing was ready for.
+  if (ready.length === 0) {
+    if (options.dryRun !== true) {
+      await finish(db, due.digest_id, "skipped", 0, 0, noteOf(enrichment, withheldNote));
+      await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
+    }
+    return {
+      ...base,
+      tokens,
+      decision: "skipped",
+      detail: `nothing carried a story-specific line (${withheldNote ?? ""})`,
+    };
+  }
 
   if (options.dryRun === true) {
     return {
@@ -1017,7 +1046,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
       .in("event_id", eventIds);
   }
 
-  await finish(db, due.digest_id, "ready", ready.length, tokens, enrichment);
+  await finish(db, due.digest_id, "ready", ready.length, tokens, noteOf(enrichment, withheldNote));
   await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
 
   const notes = [enrichment, withheldNote].filter((note): note is string => note !== null);
@@ -1158,6 +1187,29 @@ async function claimDigest(db: Db, due: DueRow, options: DigestOptions): Promise
   if (error) return `claiming: ${error.message}`;
   if ((data?.length ?? 0) === 0) return "already claimed";
   return "held";
+}
+
+/** The Q4 quality-gate disposition reason, one spelling everywhere. */
+const GATED_KIND = "missing_story_specific_why_it_matters";
+
+/**
+ * The withheld dispositions as the digest row records them: count and kinds,
+ * then — for the Q4 quality gate — the item ids beside the reason, so the
+ * disposition is auditable and no item disappears silently.
+ */
+function withheldNoteOf(entries: { eventId: string; kind: string }[]): string | null {
+  if (entries.length === 0) return null;
+  const gated = entries.filter((w) => w.kind === GATED_KIND);
+  return (
+    `${entries.length} withheld (${[...new Set(entries.map((w) => w.kind))].join(", ")})` +
+    (gated.length > 0 ? `; skipped ${GATED_KIND}: ${gated.map((w) => w.eventId).join(" ")}` : "")
+  );
+}
+
+/** Join the notes a digest row carries, dropping the absent ones. */
+function noteOf(...parts: (string | null)[]): string | null {
+  const joined = parts.filter((part): part is string => part !== null).join("; ");
+  return joined === "" ? null : joined;
 }
 
 async function finish(

@@ -41,11 +41,28 @@ const T0 = new Date("2026-09-18T09:00:00Z"); // the story breaks
  */
 function fixture(clock: FakeClock) {
   const db = newsPipelineFixture(clock.now, clock);
+  withLadder(db);
   // Candidates arrive through `match_candidate_bundle` (0116): the RPC's
   // lanes and link rules evaluated over the live tables, so later cycles see
   // revisions and attachments exactly as the chunked reads did.
   db.rpcs["match_candidate_bundle"] = () => bundleRows(db);
   return db;
+}
+
+/**
+ * Ladder material (rung 2) on every event.
+ *
+ * Q4 withholds an item no rung can say something story-specific about, and
+ * these cases are about revision delivery, not the quality gate — so every
+ * event carries a change to state, re-applied whenever seeding or a revision
+ * rewrites the rows.
+ */
+function withLadder(db: FakeDb): void {
+  for (const e of db.rows("events"))
+    Object.assign(e, {
+      before_state: "The lab had shipped nothing since 2019.",
+      after_state: "The lab shipped three devices in one morning.",
+    });
 }
 
 function bundleRows(db: FakeDb): Record<string, unknown>[] {
@@ -164,6 +181,7 @@ async function deliveredAtT0() {
   const clock = { now: firstRun };
   const db = fixture(clock);
   seedPendingNews(db, T0);
+  withLadder(db);
   const briefing = await cycle(db, firstRun);
   return { db, clock, briefing };
 }
@@ -313,6 +331,7 @@ describe("material re-entry and revision-aware delivery", () => {
     const clock = { now: firstRun };
     const db = fixture(clock);
     seedPendingNews(db, newest);
+    withLadder(db);
     await cycle(db, firstRun);
     expect(db.rows("events")[0]?.["material_occurrence_at"]).toBe(newest.toISOString());
 
@@ -338,6 +357,7 @@ describe("material re-entry and revision-aware delivery", () => {
     const clock = { now };
     const db = fixture(clock);
     seedPendingNews(db, now);
+    withLadder(db);
     await cycle(db, now);
     // The suite-wide invariant test asserts this structurally; here it is at the
     // stage level, on the request path that now writes material state.

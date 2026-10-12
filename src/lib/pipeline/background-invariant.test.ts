@@ -96,6 +96,14 @@ describe("full background pipeline", () => {
         expired_at: null,
         events: db.rows("events")[0],
       });
+    // Ladder material (rung 2) on every event: Q4 withholds an item no rung
+    // can say something story-specific about, and this invariant is about the
+    // pipeline running without provider calls, not the quality gate.
+    for (const e of db.rows("events"))
+      Object.assign(e, {
+        before_state: "The lab had shipped nothing since 2019.",
+        after_state: "The lab shipped three devices in one morning.",
+      });
     const briefing = await digest(asDb(db), { now, skipSend: true });
     expect(briefing.generated).toBe(1);
     expect(db.rows("digest_items")).toHaveLength(1);

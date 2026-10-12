@@ -643,6 +643,21 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   `src/lib/backlog-disposition.test.ts`. Tables and evidence:
   [decisions/backlog-attribution.md](decisions/backlog-attribution.md).
 
+- **2026-10-12 — Q4 implemented: a briefing item with no story-specific line no longer ships.** At
+  the admission seam in `digest.ts`, after the inclusion ladder runs, an item whose `why_it_matters`
+  resolves to empty is withheld exactly like a readiness-gate item — no `digest_items` row, stamped
+  beside the rest so it cannot loop — and the digest row's note records the disposition as
+  `skipped missing_story_specific_why_it_matters: <event id> …`, the auditable record the ruling
+  demands. Withholding runs **before** the cap, so a withheld slot is filled by an explained item;
+  if withholding empties a briefing it takes the quiet-morning path. Rung 6 stays honest silence —
+  no explanation is generated to rescue an item. Twelve tests pinning the old "ships without one"
+  behaviour now assert the ruled behaviour: fixtures meant to ship a story carry `changeLine`-grade
+  state pairs (two-word states are refused by rung 2, which is why the old fixtures produced empty
+  lines), and the two tests whose stories genuinely have nothing to say assert the item is withheld
+  with its disposition recorded. Caught in verification: `withheldNote` was first computed before
+  the gate ran, so the record came out empty — recomputed after the gate, which is exactly what the
+  disposition tests proved.
+
 ## 7. What is next
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates

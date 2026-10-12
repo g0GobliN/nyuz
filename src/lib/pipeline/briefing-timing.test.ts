@@ -192,8 +192,12 @@ function tables(over: { impact?: Row | null; digest?: Row } = {}): Record<string
         id: "event-1",
         title: "A story the reader was matched to",
         what_happened: "It happened overnight.",
-        before_state: null,
-        after_state: null,
+        // Ladder material (rung 2): Q4 withholds an item no rung can say
+        // something story-specific about, so a story that must ship in these
+        // timing tests carries a change to state — two full sentences that
+        // differ, which is what `changeLine` accepts.
+        before_state: "The lab had shipped nothing since 2019.",
+        after_state: "The lab shipped three devices in one morning.",
         importance: 7,
         novelty: 6,
         first_seen_at: matchedAt,
@@ -357,9 +361,11 @@ describe("a model that will not answer costs the sentence, not the slot", () => 
       // The deadline is untouched, and no retry window was opened behind it.
       expect(row?.["scheduled_for"]).toBe(TOKYO_0730);
       expect(row?.["generation_deferred_until"]).toBeNull();
-      // The story is in the briefing; only its shared explanation is missing.
+      // The story is in the briefing on its derived line; only its shared
+      // explanation is missing (Q4: it ships because a rung could say something
+      // story-specific — an item with no line at all is withheld).
       expect(db.rows("digest_items")).toHaveLength(1);
-      expect(db.rows("digest_items")[0]?.["why_it_matters"]).toBe("");
+      expect(db.rows("digest_items")[0]?.["why_it_matters"]).not.toBe("");
     });
   }
 
@@ -409,8 +415,11 @@ describe("a shared explanation being written elsewhere does not empty the briefi
     expect(report.generated).toBe(1);
     expect(report.skipped).toBe(0);
     expect(db.rows("digests")[0]?.["status"]).toBe("ready");
+    // Ruled Q4: the story ships on its derived line (rung 2), never on an empty
+    // one — the shared explanation being written elsewhere costs the sentence,
+    // and a story with no line at all would be withheld.
     expect(db.rows("digest_items")).toHaveLength(1);
-    expect(db.rows("digest_items")[0]?.["why_it_matters"]).toBe("");
+    expect(db.rows("digest_items")[0]?.["why_it_matters"]).not.toBe("");
   });
 });
 
