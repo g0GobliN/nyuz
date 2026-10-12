@@ -1650,6 +1650,44 @@ async function deliveryDeadlines(db: Db, digestIds: string[]): Promise<Map<strin
   return out;
 }
 
+/**
+ * Settles a `ready` digest the moment its last delivery leg resolves
+ * terminally, however the legs ordered themselves. A digest with an accepted
+ * leg is `sent`; a digest no leg could deliver is `failed` here with a reason
+ * that names the cause, instead of sitting `ready` until the sweeper expires
+ * it two hours later with built items attached. Runs only on terminal
+ * resolution — a leg back in `queued` still owns the digest's future — and
+ * never touches a digest that already left `ready`.
+ */
+async function reconcileDigestAfterTerminal(
+  db: Db,
+  digest: { digest_id: string; status: string },
+): Promise<void> {
+  if (digest.status !== "ready") return;
+  const { count: queued, error: queuedError } = await db
+    .from("deliveries")
+    .select("id", { count: "exact", head: true })
+    .eq("digest_id", digest.digest_id)
+    .eq("status", "queued");
+  if (countOrThrow("queued deliveries", { count: queued, error: queuedError }) !== 0) return;
+  const { count: accepted, error: acceptedError } = await db
+    .from("deliveries")
+    .select("id", { count: "exact", head: true })
+    .eq("digest_id", digest.digest_id)
+    .eq("status", "sent");
+  if (countOrThrow("sent deliveries", { count: accepted, error: acceptedError }) === 0) {
+    await db
+      .from("digests")
+      .update({
+        status: "failed",
+        generation_failure_reason: "all deliveries failed; not sent",
+      })
+      .eq("digest_id", digest.digest_id);
+  } else {
+    await db.from("digests").update({ status: "sent" }).eq("digest_id", digest.digest_id);
+  }
+}
+
 async function sendOne(
   db: Db,
   row: { id: string; digest_id: string; channel: DeliveryChannel; attempts: number },
@@ -1688,6 +1726,7 @@ async function sendOne(
       .from("deliveries")
       .update({ status: "failed", last_error: "Alert allowance changed or expired." })
       .eq("id", row.id);
+    await reconcileDigestAfterTerminal(db, digestRow);
     return "failed";
   }
   if (row.channel === "telegram" && !PLAN_LIMITS[plan].telegram) {
@@ -1695,6 +1734,7 @@ async function sendOne(
       .from("deliveries")
       .update({ status: "failed", last_error: "Telegram is not included in the current plan." })
       .eq("id", row.id);
+    await reconcileDigestAfterTerminal(db, digestRow);
     return "failed";
   }
   const items = await loadMailItems(db, row.digest_id, "en");
@@ -1733,6 +1773,7 @@ async function sendOne(
   }
 
   await markDelivery(db, row.id, attempts, "failed", result.error, now);
+  await reconcileDigestAfterTerminal(db, digestRow);
   return "failed";
 }
 
