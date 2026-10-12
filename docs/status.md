@@ -1,5 +1,10 @@
 # Project status
 
+> **Figures here are a historical snapshot (August–September 2026) and not the current state.**
+> The dated, measured state of every side — accounts, each delivery channel, alerts, briefings,
+> the pipeline and its backlog, cost, security findings — is [product-readiness.md](product-readiness.md),
+> produced by `npm run audit:posture` (2026-10-12). Read that before quoting a number from here.
+
 Repository behavior reviewed 26 September 2026. Live database counts and payment/provider configuration below are historical snapshots from August 2026 and were not rechecked during this remediation.
 
 Real growth happened in the gap: the source list and topic vocabulary both expanded
@@ -31,37 +36,37 @@ account that owns the key. A stranger cannot receive mail until
 
 ## Summary
 
-| Area                                                   | State                                                             |
-| ------------------------------------------------------ | ----------------------------------------------------------------- |
-| Marketing site (landing, pricing, how-it-works, legal) | **Built**                                                         |
-| Editable site content + feature flags                  | **Built**                                                         |
-| Accounts, sign-in, OAuth                               | **Built**                                                         |
-| Admin console (analytics, users, bans, roles, audit)   | **Built**                                                         |
-| Blog (authoring + public pages)                        | **Built**                                                         |
-| AI provider routing configuration                      | **Built** — two stages route through it                           |
-| Billing (checkout, portal, webhook)                    | **Built**; live account configuration and end-to-end payment remain |
-| Lifecycle email (account, billing, pause)              | **Built** — Free warns at 23 inactive days, pauses at 30          |
-| Onboarding flow                                        | **Built**, persisted to the account                               |
-| Source list (87 feeds, 83 active)                      | **Built** — expanded past technology into general news; see `track.md` |
-| Ingestion pipeline                                     | **Built** — 7,035 articles stored                                 |
-| Clustering (articles → events)                         | **Built** — 2,007 articles across 1,803 events                    |
-| Analysis and scoring (events → understood)             | **Built** — 549 analysed; 718,351 tokens; 1,254 backlog growing faster than `ANALYSE_LIMIT` drains it — see `track.md` |
-| Matching (events → readers)                            | **Built** — 157 rows in `user_events`, free                       |
+| Area                                                   | State                                                                                                                                               |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Marketing site (landing, pricing, how-it-works, legal) | **Built**                                                                                                                                           |
+| Editable site content + feature flags                  | **Built**                                                                                                                                           |
+| Accounts, sign-in, OAuth                               | **Built**                                                                                                                                           |
+| Admin console (analytics, users, bans, roles, audit)   | **Built**                                                                                                                                           |
+| Blog (authoring + public pages)                        | **Built**                                                                                                                                           |
+| AI provider routing configuration                      | **Built** — two stages route through it                                                                                                             |
+| Billing (checkout, portal, webhook)                    | **Built**; live account configuration and end-to-end payment remain                                                                                 |
+| Lifecycle email (account, billing, pause)              | **Built** — Free warns at 23 inactive days, pauses at 30                                                                                            |
+| Onboarding flow                                        | **Built**, persisted to the account                                                                                                                 |
+| Source list (87 feeds, 83 active)                      | **Built** — expanded past technology into general news; see `track.md`                                                                              |
+| Ingestion pipeline                                     | **Built** — 7,035 articles stored                                                                                                                   |
+| Clustering (articles → events)                         | **Built** — 2,007 articles across 1,803 events                                                                                                      |
+| Analysis and scoring (events → understood)             | **Built** — 549 analysed; 718,351 tokens; 1,254 backlog growing faster than `ANALYSE_LIMIT` drains it — see `track.md`                              |
+| Matching (events → readers)                            | **Built** — 157 rows in `user_events`, free                                                                                                         |
 | **V2: shared event impacts**                           | **Live** — one shared explanation per event, written inside the analysis call at zero extra token cost. The per-reader-per-story model call is gone |
-| **V2: pre-analysis demand gate**                       | **Live** — skipped 6/6 events in a real batch, 0 model calls      |
-| **V2: cached translation**                             | **Cache/read path exists; generation dormant** — missing translations fall back to English |
-| **V2: custom sources**                                 | **Live** — Free 0 / Personal 5 / Pro 25, enforced in Postgres under an advisory lock |
-| **V2: demand-driven collection, adaptive polling**     | **Live, flags off** — tiers and eligibility computed and visible; behaviour unchanged until enabled |
-| **V2: cluster v2 skip**                                | **Built, off** — no shadow measurements exist yet                 |
-| **V2: cost intelligence**                              | **Live** — `/admin/cost`, counted from rows only                  |
-| Day-one backfill for a new account                     | **Built** — one query; pays only if empty                         |
-| Digest generation and delivery                         | **Built** — email, browser push, linked Telegram; quiet days skip honestly |
-| Breaking alerts                                        | **Built** — none Free, 3/week Personal, 10/day Pro; atomic claims |
-| Story Ask                                              | **Dormant** — endpoint returns disabled; every plan has a zero daily allowance |
-| Plan story limits                                      | **Built** — Deep caps 18/30/50; large briefings chunked           |
-| AI cost ceiling                                        | **Built** — monthly reservation ledger and global token budget    |
-| Staff pipeline page                                    | **Built** — live `getOverview` counts                             |
-| Customer dashboard                                     | **Built** — reads `user_events` and `digest_items`                |
+| **V2: pre-analysis demand gate**                       | **Live** — skipped 6/6 events in a real batch, 0 model calls                                                                                        |
+| **V2: cached translation**                             | **Cache/read path exists; generation dormant** — missing translations fall back to English                                                          |
+| **V2: custom sources**                                 | **Live** — Free 0 / Personal 5 / Pro 25, enforced in Postgres under an advisory lock                                                                |
+| **V2: demand-driven collection, adaptive polling**     | **Live, flags off** — tiers and eligibility computed and visible; behaviour unchanged until enabled                                                 |
+| **V2: cluster v2 skip**                                | **Built, off** — no shadow measurements exist yet                                                                                                   |
+| **V2: cost intelligence**                              | **Live** — `/admin/cost`, counted from rows only                                                                                                    |
+| Day-one backfill for a new account                     | **Built** — one query; pays only if empty                                                                                                           |
+| Digest generation and delivery                         | **Built** — email, browser push, linked Telegram; quiet days skip honestly                                                                          |
+| Breaking alerts                                        | **Built** — 1/day Uno, 5/day Plura, 12/day Omni (the code's `alertDailyCap`); atomic claims                                                         |
+| Story Ask                                              | **Dormant** — endpoint returns disabled; every plan has a zero daily allowance                                                                      |
+| Plan story limits                                      | **Built** — Deep caps 18/30/50; large briefings chunked                                                                                             |
+| AI cost ceiling                                        | **Built** — monthly reservation ledger and global token budget                                                                                      |
+| Staff pipeline page                                    | **Built** — live `getOverview` counts                                                                                                               |
+| Customer dashboard                                     | **Built** — reads `user_events` and `digest_items`                                                                                                  |
 
 ---
 

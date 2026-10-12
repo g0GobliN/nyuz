@@ -843,3 +843,55 @@ sentence truncated at a clipping boundary (a date, a month name, a list item) an
 the fix for the class is likely one rule. The other two (the raw URL with comment text, the
 unintroduced deck) are evidence passes rather than block rules. The measurement is the next step;
 this entry exists so the finding is not lost between sessions.
+
+### D9 — the ruler landed and was measured (2026-10-12), still no rule
+
+**Status: ruler landed, rule still open and still unruled.** The two classes exist now as measurement
+only, in [defects.ts](../../scripts/lib/defects.ts) beside the other rulers, with 12 tests in
+[reader-truncation.test.ts](../../src/lib/reader-truncation.test.ts). Nothing the reader receives
+changed. Measured on the frozen 200 with the real composer
+(`node --env-file=.env scripts/tsrun.mjs tmp/d9-measure.ts tmp/corpus-after.json`):
+
+| class                                       | count                               |
+| ------------------------------------------- | ----------------------------------- |
+| published blocks judged                     | 702 (141 of 200 events have a body) |
+| **truncated lead**                          | **0**                               |
+| **raw URL in published prose**              | **6**                               |
+| input excerpts carrying a URL, for contrast | 22 of 207                           |
+
+The 6 raw URLs, printed with their matched text: the bare
+`Investors.boeing.com/investors/news/…/default.aspx` press release — **the exact block D9 was opened
+on** — plus `bun.sh/install.ps1` inside a shell snippet, and `Orkut.com` ×2,
+`PhillyUnsolvedMurders.com`, `WordPress.com`. **Only the first two are the shape the owner flagged**;
+the other four are a domain used as an ordinary noun ("urged users to visit Orkut.com", "the
+WordPress.com parent company"), which is prose, not damage. So the address class is _6 rows, 2 of them
+defects_, and it needs that sub-classification before it could support a rule — which is an argument
+against a blanket one, not for it.
+
+**Two things the first draft of each ruler got wrong, and both are now pinned as tests.** The
+truncation ruler's first version listed every preposition and fired on four published leads that were
+merely idiomatic — "while OpenAI moves on.", "most passionate about.", "have quickly signed on.",
+"was scheduled on." — so the list is now months, articles and conjunctions plus the prepositions that
+bind forward tightly, with those four strings kept as negative controls. The URL ruler's first version
+accepted any dotted word and called `llama.cpp`, `Node.js` and `GLM-5.3-Flash` web addresses; its
+second accepted any suffix followed by a path and counted `Assisted-by: pi:llama.cpp/Qwen3.8-Flash-Next`
+as a URL. It now decides on a named set of web TLDs, which costs one recorded miss and removes every
+false positive measured. Both drafts would have produced a number, and the number would have been
+wrong — which is the whole reason the ruling ordered the ruler before the rule.
+
+**The finding that matters most: the frozen 200 is the wrong instrument for the truncation class.**
+Both D9 samples — "…the Loews Philadelphia Hotel between Oct." and "…sentenced on Sept." — end on a
+month, and the ruler catches exactly that shape (it is two of the tests). The frozen corpus contains
+none of them, so it reports 0, while the same ruler fires on the live window D9 was opened from. A
+corpus that cannot contain the defect cannot measure it, and reporting "0 truncated leads" from the
+frozen 200 alone would be a clean number standing in for an unmeasured question. The live window is
+the instrument for this class; `npm run audit:reader` over a live window is the run that would give
+the arbiter a number to rule on.
+
+**Also measured, not a defect:** 22 of 207 input excerpts carry an address and only 6 published blocks
+do, so the composer already removes the majority of raw addresses before they reach a block. That is a
+result worth keeping beside the 6, because it is the difference between "addresses leak through" and
+"some do".
+
+**Still not claimed:** that either class should refuse a story. No rule, no refusal, no gate change —
+the numbers above are what a ruling would be argued from, and they are not yet a case for one.

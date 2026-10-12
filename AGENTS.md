@@ -2,6 +2,71 @@
 
 nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
 
+## Stage and priority — read this before choosing any work
+
+- **This is a develop-stage product, and it runs on free plans.** Cloudflare, Supabase, the AI
+  provider and anything else are free tier **on purpose** until the reader-facing quality bar is
+  met. A free-tier limit is therefore a **known condition, not a bug**: record it with its evidence,
+  design inside it, and do not spend a slice trying to upgrade it, and do not ask the owner to pay
+  for it. Measured example, recorded so no future session re-investigates it as a defect: the
+  Workers Free **10 ms CPU budget per Cron Trigger** ends ~37% of scheduled invocations with
+  `exceededResources`, which is why some briefings are late or unbuilt —
+  [decisions/cpu-killed-invocations.md](docs/decisions/cpu-killed-invocations.md). Work within the
+  budget; a bigger one is a later, separate decision.
+- **No domain has been bought, and that is deliberate — not an oversight to fix.** `nyuz.app` does
+  not exist: it is not a zone on the Cloudflare account and DNS does not resolve it, because the
+  product is not ready to launch under a name. **The product's origin is the Cloudflare-provided one,
+  `https://nyuz.grgvishal-gurung17.workers.dev`**, and that host is the live product to read when the
+  loop opens the site. Treat the unbought domain exactly like the free plan: a stage condition, not a
+  defect, and **do not propose buying one**.
+  [decisions/reader-facing-origin.md](docs/decisions/reader-facing-origin.md)
+- **The origin is configuration, never a literal, and a deployment may declare only one.** Measured
+  2026-10-12: the runtime surface — briefing email links, the unsubscribe link, Stripe returns,
+  `sitemap.xml` — reads `VITE_SITE_URL` from the Worker and was already right, while the build-time
+  surface disagreed: the canonical link, the OpenGraph images and `public/robots.txt` named
+  `nyuz.app` from literals in `seo.ts`, `index.tsx` and `__root.tsx`, and the repository variable
+  `VITE_SITE_URL` held the literal string `https://<the origin production answers on>`. So a
+  reader's social card and every crawler were sent to a host that does not exist. Now
+  `src/lib/site-origin.ts` is the single origin for every URL the app publishes, `robots.txt` is
+  generated from the same runtime variable as the sitemap, and `scripts/origin-check.mjs` — in
+  `npm run ci` as a self-test and in the deploy job as a live assertion — fails when the pages,
+  `robots.txt` and the sitemap name different origins, or when the origin they name does not serve
+  the site. **Do not write an origin into a file, and do not let a placeholder pass as one.**
+- **What the reader reads is the only quality bar and it is 10/10, with no exceptions.** No rubbish
+  reaches a reader: not a thin briefing, not a story shipped with no explanation, not a paragraph
+  that opens on a reference the page never establishes, not a truncated sentence, not a claim the
+  sources do not carry. **A defect in what a reader reads outranks every other kind of work**, and
+  nothing is "next" until the reader-facing output is confirmed 10/10.
+- **It is judged on what a real reader actually receives, on the live product** — not on a passing
+  suite, a green build, or the composer's own opinion of its prose. Open the site and read it as a
+  stranger would. A test proving a sentence is well-formed does not prove a briefing is worth
+  reading, and the reverse is also true: "all tests green" is not evidence about a reader.
+- **Alerts are only for something breaking and important, and recent.** An alert claims this matters
+  now. **Silence is the correct default and the usual case**; an alert a reader did not need to act
+  on is a defect in the same class as a bad paragraph. Never widen an alert rule to make the feature
+  look used, and never fill a quiet day.
+- **The order is: build → verify against the reader's own output → confirm → push to `main`.** A
+  confirmed change is pushed (see Git delivery). A change still waiting on confirmation is not on
+  `main`.
+
+## The loop does not stop
+
+- **Work the goal continuously, and never hand back a status report in place of progress.** The
+  standing goal outlives any session: get what the reader reads to 10/10, hold it there, then make
+  the alert side quiet and meaningful, then move on. Use `run-long-goal`. When the context window is
+  genuinely full, load `handoff-session`, write the state to a file, and continue in a fresh thread
+  — the plan survives; the context does not have to. Stopping at "I investigated it" is not a
+  completion.
+- **Keep two things open and read them every loop:** the owner's ChatGPT `nyuz` project as the
+  arbiter (a decision goes there first — see Decisions come before code), and **the live product in
+  the browser panel**, so reader quality is inspected on what actually shipped rather than inferred
+  from the repository. Opening the site and reading one briefing is part of the work.
+- **Every loop ends with either a landed change or a sharper question.** A loop that produced only a
+  finding is unfinished: write it into `docs/decisions/`, then take the next slice — or put numbered
+  options to the arbiter and say plainly that you are blocked on the ruling. "The system design is
+  not good enough yet" is true until the reader-facing output is 10/10; that is the work, not a
+  reason to pause.
+
 ## Context comes first, and is kept current
 
 - **`docs/context.md` is the shared memory of this project.** It says what nyuz is, what it

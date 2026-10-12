@@ -41,7 +41,7 @@ Plans (display figures, which live in [launch-plans.ts](../src/lib/launch-plans.
 
 | tier    | monthly | annual  | shape                                           |
 | ------- | ------- | ------- | ----------------------------------------------- |
-| `uno`   | $0      | —       | free: fewer briefings, no breaking alerts       |
+| `uno`   | $0      | —       | free: fewer briefings, 1 important alert/day    |
 | `plura` | $14.99  | $149.90 | Personal                                        |
 | `omni`  | $29.99  | $299.90 | Pro; larger briefings, own sources, more alerts |
 
@@ -102,19 +102,20 @@ must-be-zero lines are the acceptance test.
 
 ## 4. Current state
 
-| area                                         | state                                                         |
-| -------------------------------------------- | ------------------------------------------------------------- |
-| Marketing site, pricing, how-it-works, legal | Built                                                         |
-| Accounts, sign-in (email + Google + GitHub)  | Built                                                         |
-| Admin console, roles, audit log              | Built — the security boundary is `adminOnly`/`superadminOnly` |
-| Blog, site content, feature flags            | Built                                                         |
-| Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                       |
-| Ingestion, clustering, analysis, matching    | Built                                                         |
-| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly       |
-| Breaking alerts                              | Built; now gated like a briefing story (D8) — see §6          |
-| **Briefing email actually delivered**        | **BLOCKED — the Resend key returns 401** (see §7)             |
-| Reader article (deterministic composer)      | Built, under active quality work (see §5)                     |
-| Story Ask                                    | Dormant — endpoint disabled, zero allowance on every plan     |
+| area                                         | state                                                                                                                                                                                                               |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Marketing site, pricing, how-it-works, legal | Built                                                                                                                                                                                                               |
+| Accounts, sign-in (email + Google + GitHub)  | Built                                                                                                                                                                                                               |
+| Admin console, roles, audit log              | Built — the security boundary is `adminOnly`/`superadminOnly`                                                                                                                                                       |
+| Blog, site content, feature flags            | Built                                                                                                                                                                                                               |
+| Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                                                                                                                                                                             |
+| Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                               |
+| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly                                                                                                                                                             |
+| Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled to stay (R1)                                                                                                                                                   |
+| **Briefing email actually delivered**        | **BROKEN — two causes in sequence** (see §7): 125 failures for `Missing EMAIL_UNSUBSCRIBE_SECRET` (26 Aug → 11 Sep), then 128 for the Resend 401 (11 Sep → today, current); nothing accepted since 2026-08-26T22:59 |
+| Reader article (deterministic composer)      | Built, under active quality work (see §5)                                                                                                                                                                           |
+| Story Ask                                    | Dormant — endpoint disabled, zero allowance on every plan                                                                                                                                                           |
+| Every side, measured                         | [product-readiness.md](product-readiness.md) via `npm run audit:posture`; rated built 8.5 / exercised live 5 / sellable 3, ruled in [decisions/product-readiness.md](decisions/product-readiness.md)                |
 
 ## 5. The reader-quality loop (what "the work" means right now)
 
@@ -342,7 +343,331 @@ families`, with a printed note that it is not a count of recoverable stories and
   a raw-URL class on the frozen 200, then take it to the arbiter. Full evidence and the exact strings:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#d9--the-block-that-opens-on-a-truncated-sentence-2026-10-11-open).
 
+- **2026-10-12 — every side measured, one instrument, and the ruling that follows (R1).**
+  `npm run audit:posture` ([product-posture.ts](../scripts/product-posture.ts)) prints one line of
+  truth per side against the live project — accounts and money, every delivery channel, alerts,
+  briefings, pipeline intake against drain, cost, flags, and the health rows the app writes about
+  itself. It is an instrument, not a gate (it exits 0 with a channel dead since August), and it exists
+  because "how done is the product?" had been answered from memory. The measured state, the scorecard
+  and the per-side acceptance lines are [product-readiness.md](product-readiness.md); the rating is
+  **built 8.5/10, exercised live 5/10, sellable 3/10** — three different questions with three
+  different answers.
+  Four things this read found that no document said:
+  1. **Email has two causes in sequence.** The first failure after the last accepted send is
+     `Missing EMAIL_UNSUBSCRIBE_SECRET` on 2026-08-26T23:55, and it runs to 2026-09-11T05:45 (125
+     failures); the Resend 401 takes over at 2026-09-11T06:14 and runs to today (128 failures).
+     Nothing has been accepted since 2026-08-26T22:59, and push (110 accepted in 30 days) is the only
+     channel carrying anything. Telegram has never delivered once. The unsubscribe secret is still
+     absent from this environment's `.env`, so a laptop run fails differently from the Worker.
+  2. **The 22:30 briefing slot fails systematically** — 16 of 17 failed briefings are that slot, and in
+     10 of them a briefing had already been built and **336 items were discarded**.
+  3. **`billing:check` exits 1**: the `PLURA`/`OMNI` price variables are unset while the pre-rename
+     `PERSONAL`/`PRO` names are still configured, so checkout resolves no price in this environment.
+  4. **Two support answers were untrue** — a language control that is deliberately hidden, and a claim
+     about alerts that did not match the plans.
+     **The arbiter was reached from this session** (the owner's ChatGPT `nyuz` project, "Readiness review
+     summary", 2026-10-12) — earlier slices recorded the owner's ruling because the arbiter was
+     unreachable; that is no longer the case. Rulings, verbatim and with their reasons, in
+     [decisions/product-readiness.md](decisions/product-readiness.md): **the blocking set comes first**
+     (email's two secrets, Stripe configuration plus a test payment, the 22:30 investigation, stranger
+     sign-in, Telegram exercised or declared inactive); **the alert floor stays as it is, provisionally**
+     (D8 closes as a policy question and re-opens as an evidence one — does the gate separate news from
+     announcements?); **Uno keeps one alert a day** and the documents change instead; **the support copy
+     is corrected**; **the 19 anon-executable `SECURITY DEFINER` functions are classified before any
+     grant change** (no blanket revocations, and the RLS/search-path/leaked-password findings classified
+     separately); **the 22:30 lateness is investigated rather than normalised in copy**; **every side gets
+     an acceptance line** while the reader path keeps its must-be-zero gates; **the 69 alerts at
+     `ready` are a status-semantics defect**; and **a recorded failure is not a monitored service** —
+     critical failures must reach a responsible person inside a defined time. Landed here: the instrument
+     and the readiness document, the two support answers ([support.tsx](../src/routes/support.tsx)), the
+     Uno-alert correction in this file and [status.md](status.md), and the acceptance lines. Not landed,
+     by the ruling's own order: email/Stripe configuration (owner), the 22:30 investigation, and the
+     security classification.
+
+- **2026-10-12 — R1 items 3 and 6: the 22:30 slot investigated, and the security findings classified.**
+  Both are read-only: no behaviour changed, and nothing was revoked. Evidence and provenance in
+  [decisions/briefing-slot-failures.md](decisions/briefing-slot-failures.md) and
+  [decisions/security-classification.md](decisions/security-classification.md).
+  **The 22:30 slot is not a scheduling defect.** 19 failed digests, 18 of them at 22:30Z — which is
+  07:30 JST, one reader's chosen `send_at`. At the _same_ slot 23 briefings were **sent** and 5
+  skipped, so the cron never stopped; a whole-reader outage would not look like that. Two distinct
+  shapes: **(A) 12 built-then-discarded** — 25–50 items assembled, every leg failed or one succeeded
+  and nothing settled the digest, so it sat `ready` and `expire_stale_work` (0091) failed it two hours
+  later as `briefing slot expired`, **413 built items discarded**; four of those rows carried
+  **`push:sent`**, meaning the reader got the briefing on their phone while the database called it a
+  failure. **(B) 5 never built** — 0 items, no delivery rows, `missed slot by 120–126 minutes`, stamped
+  at 00:30. **Diagnosed on a second pass the same day** (see §7 item 3): they are the days whose
+  claim crossed the 120-minute ceiling, for two different reasons — killed invocations that nothing
+  reaps (1,936 `status: running` receipts) and, on three of the five days, a digest stage that was
+  not running regularly. The dominant cause
+  underneath is R1 item 1: email legs are 4 sent / **253 failed** (125 missing secret, 128 Resend 401),
+  push is 208 sent / 12 failed. This is what justifies `reconcileDigestAfterTerminal`
+  ([digest.ts](../src/lib/pipeline/digest.ts)): it settles a digest the moment its last leg resolves, so
+  a partly-delivered briefing is `sent` (which the four `push:sent` rows were) and a wholly
+  undeliverable one is `failed` at send time with the cause named, instead of silently expiring with
+  built items attached. Also re-measured: the `ready` backlog is **70 rows and every one is an alert**
+  — zero briefings, so the briefing sweeper has nothing to do, and 48 of the 70 are `email:failed ·
+push:sent`, the same status defect in the alert path that the second R1 ruling asks to model.
+  **Security classification, no revocations:** all **32** RLS-enabled-no-policy tables (the advisor
+  says 31) are reachable only from service-role code, scripts, or pipeline modules that take `db` as an
+  injected parameter — the browser's anon-key client is constructed in one module and imported by
+  exactly four files, and its only `public` table read is `subscriptions`, which has a policy. Nothing
+  is missing; deny-all is correct for internal tables. The mutable-`search_path` finding is the
+  migrated chain being clean (0 definers, now locked by a test) against 10 live names outside it —
+  owner-side. Blocked, not fixed: the 10 names, the 31-vs-32 reconciliation, and email/Stripe.
+
+- **2026-10-12 — D9's ruler landed, and both first drafts were wrong.** The two classes D9 asked for —
+  a **fragment/truncation** class and a **raw-URL** class — now exist as measurement in
+  [scripts/lib/defects.ts](../scripts/lib/defects.ts), with 12 tests in
+  [reader-truncation.test.ts](../src/lib/reader-truncation.test.ts) (`12 passed`, EXIT:0; both
+  `tsc --noEmit` runs clean; eslint clean). **Nothing the reader receives changed** — no rule, no
+  refusal, no gate. Measured on the frozen 200 through the real composer: **702 published blocks,
+  truncated lead 0, raw URL 6**, against 22 of 207 _input_ excerpts carrying an address, so the
+  composer already strips most of them. Of the 6, only two are the shape D9 was opened on (a bare
+  Boeing press-release URL — the exact block — and `bun.sh/install.ps1` in a shell snippet); the other
+  four are a domain used as an ordinary noun ("visit Orkut.com", "the WordPress.com parent company").
+  **The first draft of each ruler produced a number and the number was wrong**: the truncation ruler
+  fired on four idiomatic published leads ("while OpenAI moves on.", "most passionate about.", "have
+  quickly signed on.", "was scheduled on."), and the URL ruler called `llama.cpp`, `Node.js`,
+  `GLM-5.3-Flash` and `pi:llama.cpp/Qwen3.8-Flash-Next` web addresses. Both are now pinned as negative
+  controls, and the URL ruler decides on a named set of web TLDs — one recorded miss, zero false
+  positives measured. **And the instrument question:** the frozen 200 contains neither D9 sample, so it
+  reports 0 on a class the same ruler catches on the live window D9 came from — the live window is the
+  instrument for this class, not the corpus. Full record:
+  [reader-delivery.md](decisions/reader-delivery.md#d9--the-ruler-landed-and-was-measured-2026-10-12-still-no-rule).
+
+- **2026-10-12 — the briefings have been shipping without their shared explanations, and the cause
+  is the AI provider balance.** Found while investigating the 22:30 failures; a different failure on
+  the same path, and worse for the reader than a late briefing. Measured: of **1,145** published
+  briefing items, **69 carry an empty `why_it_matters`** and **67 of them have no `event_impacts` row
+  at all** — and they are not spread out. **2026-09-30 shipped all 25 of its stories with no line**,
+  2026-10-01 24 of 25, 2026-10-08 12 of 16, 2026-10-09 8 of 9. The newest `event_impacts` row with
+  real text is **2026-09-13**; everything after is absent or a row recording `status: "failed"` /
+  `"pending"` with `text: null`. The cause is recorded in the app's own health row and it is money:
+  `ops_status.impact:writer` has been **`warning` since 2026-10-01 with `402 Insufficient
+Balance`**, and `ai:settle:error` has been **`error` since 2026-09-12 — 30 days** — neither of
+  which reached a human (R1 item 7, now measured at 30 days instead of 29.6). What kept the
+  briefings readable is the **derived inclusion line** (`reasonFor` in `inclusion.ts`), which builds
+  a sentence from the event's own stored fields: it covered 1,076 of 1,145 items and is why the
+  digest row says "N storys using a derived inclusion line" from 09-13 to 10-07. It is a fallback,
+  not a replacement — when a story has no stored impact _and_ no field for any rung to stand on, the
+  item ships empty, and 09-30 is the day it had nothing left to stand on. **No code changed for
+  this**; widening the ladder would be a rule change and needs a ruling. The blocking action is
+  owner-side: **the AI provider account is out of balance**, the third independent account-level
+  blocker beside the two email secrets and the Stripe price names. Full record:
+  [briefing-explanations.md](decisions/briefing-explanations.md).
+
+- **2026-10-12 — the pipeline loses 37% of its scheduled invocations to Cloudflare, and no monitor
+  can see it** (open, needs a ruling). This is the resolution of the 22:30 investigation's last
+  open thread, read off Cloudflare's own record rather than inferred from our tables. Full evidence
+  and the ruling it needs: [decisions/cpu-killed-invocations.md](decisions/cpu-killed-invocations.md).
+
+  **The trigger is not at fault.** Cloudflare's `workersInvocationsScheduled` dataset — one row per
+  scheduled invocation, with the cron expression and the `scheduledDatetime` it fired for — shows the
+  every-minute trigger producing **1,443 invocations across 1,443 distinct slots on 2026-10-11** and
+  **1,435 across 1,435 on 2026-10-05**. Every minute fired. The deployed Worker's schedules were also
+  read back and match `triggers.crons` exactly.
+
+  **What is happening instead: the invocations are killed.** **354 of 1,443 (24.5%)** every-minute
+  invocations ended `exceededResources` on 10-11 and **768 of 1,435 (53.5%)** on 10-05; whole-day kills
+  are **604** and **1,047**. Across 09-19…10-12 the account-wide dataset reports **21,909
+  `exceededResources` against 37,142 `success` — 37% killed.** `exceededResources` is the metrics name
+  for `exceededCpu`, error 1102. The kill line sits at **~10 ms of CPU** (453 of 604 kills on 10-11 land
+  in the 9.5–10 ms bucket), and it is a **soft** budget: 767 invocations the same day succeeded having
+  used more than 10 ms, up to 0.71 s, matching Cloudflare's documented per-isolate grace. **Which limit
+  is configured could not be read from the token available here** — a custom `cpu_ms`, the Free plan's
+  10 ms Cron Trigger budget and a legacy Bundled 50 ms limit all sit in that range — and it is stated
+  as open rather than assumed.
+
+  **These kills are the 6,258 "missing minutes" and the 1,936 unclosed rows, and they are one thing.**
+  Before Audit 47 (deployed 10-07T04:04Z) the receipt was written _after_ the work, so a kill left no
+  row and the minute looked skipped: **6,258 minutes** to 10-07, in 1–29 minute groups, never a blocked
+  window. After the deploy the same death leaves a `running` row: **1,936 rows**, 493/97/559/531/251
+  across 10-07…10-11 and **zero before 10-07**. The rates agree — ~357/day before, ~387/day after — so
+  this census's "two distinct mechanisms" was an artifact of which side of that deploy a row landed on.
+  Ruled out with measurements: run duration (median 1.6 s, p90 2.1 s, only 3 of 25,433 over 60 s, 0.0%
+  overlap), the subrequest budget (kills carry 3–20 subrequests, successes up to 59), retention (0092
+  keeps 90 days; the table simply starts at 2026-09-19T13:12Z, twelve minutes after 0092 deployed), and
+  the audit's own arithmetic (dividing by `--days` while the table holds fewer days).
+
+  **Why this matters more than a count: the kills land on the ticks that have work.** A tick that finds
+  nothing is cheap and survives; a tick that must build, deliver and record a briefing is the expensive
+  one. So the reader-visible outcome is a briefing that was never built — not a pipeline that ran less
+  often — and the 22:30 failures are a symptom of it rather than a separate bug.
+
+  **The monitoring defect it exposes, which is the part that should worry an operator most.** A killed
+  invocation never runs `recordOps(db, "cron:heartbeat", …)` — but the next surviving no-op tick one
+  minute later rewrites that row `healthy`, because it is a latest-state upsert written by _every_
+  invocation. `/api/health` then tolerates a **45-minute** stale heartbeat and
+  `deriveOperationsState` tolerates **2 hours**, and **nothing reads `pipeline_runs` for health at all**
+  — the 1,936 abandoned rows are read only by an operator script someone has to remember to run. **The
+  pipeline can lose more than a third of its scheduled work and still answer `/api/health` `200 ok`.**
+  That is R1 item 7's theme again — a recorded failure is not a monitored service — except here the
+  failure is not even recorded, and the monitor is _structurally_ incapable of seeing it because it
+  polls a value that survives the failure.
+
+  **Not changed, and why:** no schedule, batch size, limit or health threshold was touched. Option A
+  (raise the budget — a billing/config change and the only one that leaves behaviour alone), B (split
+  generation from delivery so one tick does one thing), C (reap abandoned run rows and surface them)
+  and D (profile per-tick CPU and shrink it) are put to the arbiter with their costs in
+  [decisions/cpu-killed-invocations.md](decisions/cpu-killed-invocations.md). `docs/deployment.md`
+  already carried the relevant gate unchecked: _"Workers Paid enabled, or production traces prove SSR
+  and every cron stay within Free CPU limits"_ — production traces now exist and they prove the
+  opposite.
+
+- **2026-10-12 — the owner set the stage and the priority, and both are now rules.** Free plans
+  (Cloudflare, Supabase, the AI provider, anything else) are **intentional while the product is
+  develop-stage**: a free-tier limit is a condition to design inside, not a defect to close by
+  paying, so the 37% kill rate below is **accepted** and Option A in
+  [decisions/cpu-killed-invocations.md](decisions/cpu-killed-invocations.md) is settled as **not
+  authorised, not to be re-proposed**. The bar that decides every other piece of work is **what the
+  reader reads, at 10/10, with no rubbish ever sent to a reader** — judged by opening the live
+  product and reading it as a stranger would, not from a passing suite, a green build, or a snapshot.
+  Alerts are for something **breaking, important and recent**; silence is the correct default and an
+  alert a reader did not need is a defect in the same class as a bad paragraph. The order is build →
+  verify against the reader's own output → confirm → push to `main`. The loop is continuous and never
+  hands back a status report in place of progress. Written into [AGENTS.md](../AGENTS.md) under
+  **Stage and priority** and **The loop does not stop**, and packaged as the `reader-quality-loop`
+  skill ([skills/reader-quality-loop.md](skills/reader-quality-loop.md) plus the installed copy in
+  the account's global skill set) — the one rule the owner had to state twice, which is why it is a
+  skill now rather than a note. **Nothing shipped to a reader before this belongs to the 10/10 bar**, including the 69 briefed
+  items with no `why_it_matters` and the 413 built-then-discarded items: those are the backlog this
+  priority is aimed at.
+
+- **2026-10-12 — the live product was read as a stranger, and the first reader-facing defect is that
+  its own address does not exist.** `AGENTS.md` now requires opening the live product; doing it found
+  that the site serves at `https://nyuz.grgvishal-gurung17.workers.dev` while it publishes
+  `https://nyuz.app` — a host that **does not resolve** (`getaddrinfo ENOTFOUND`) and has **no zone
+  on the Cloudflare account at all** (only `autocasters.xyz`, `launchreadyy.xyz` and `v1.monster`;
+  the only Worker custom domains belong to a different Worker, `portfoliiov1`). Three independent
+  readings agree. **The first statement of this finding was too broad, and the measured version is in
+  the entry below:** the runtime surface (briefing email links, the unsubscribe link, the Stripe
+  returns, `sitemap.xml`) reads `VITE_SITE_URL` from the Worker and was already right; it is the
+  build-time surface — the canonical link, the OpenGraph images and `public/robots.txt` — that named
+  the dead host, from literals in source plus a `Sitemap:` line no setting could reach. Options (A
+  register `nyuz.app`, B adopt a domain the account already holds, C ship the workers.dev origin as an
+  interim) are in [decisions/reader-facing-origin.md](decisions/reader-facing-origin.md). Owner-side:
+  no domain, DNS, `VITE_SITE_URL` binding or test fixture was touched.
+
+- **2026-10-12 — both open findings went to the arbiter and came back ruled, with an execution
+  order.** The owner's two further rulings are now in [AGENTS.md](../AGENTS.md): **all plans stay
+  free while develop-stage**, and **no domain has been bought** — the product's origin is the
+  Cloudflare-provided `https://nyuz.grgvishal-gurung17.workers.dev`, so an unbought domain is a stage
+  condition, not a defect to close by paying. The findings and the owner's rulings were then put to
+  the ChatGPT `nyuz` project **through the browser** (there is no ChatGPT connector in this
+  environment — `supabase` and `cloudflare` are the only MCP servers — so the project has to stay
+  open, which is exactly why `AGENTS.md` now requires it). Ruling, recorded in full with its register
+  in [decisions/arbitration-2026-10-12.md](decisions/arbitration-2026-10-12.md): **Q1 approved** —
+  set `VITE_SITE_URL` to the verified workers.dev origin now, do not wait for a purchased domain, and
+  **verify the complete email and checkout flows on that origin** plus add a **deployment-origin
+  assertion** so the next misconfiguration is caught by a test; **Q2 — C approved** (bounded,
+  auditable abandoned-run reconciliation and a durable kill signal independent of the heartbeat,
+  provisional threshold **>5% over 15 minutes with at least 10 observed invocations**, plus degraded
+  states in health and detailed evidence in `/admin`), **B deferred pending the CPU evidence**, A
+  stays refused; **Q3 — reader quality remains the release bar**, the 69 and the 413 to be
+  **attributed individually and not merged into one count**, with confirmed violations blocked. The
+  authorised order is: origin first → audit the 69 and 413 → implement C → investigate the CPU
+  workload → then decide on B, and _"broad implementation work must not displace immediate,
+  confirmed reader-facing corrections."_ **Push ruling unchanged: do not push red, and "worker
+  starvation" must be demonstrated by separating environment-dependent failures from real
+  regressions rather than asserted.** Nothing is pushed; steps 1–3 are authorised and not yet
+  implemented.
+
+- **2026-10-12 — the origin is fixed, single-sourced and asserted (the code half of the ruling's step
+  1).** Measured before touching anything: the Worker's own `/sitemap.xml` already listed
+  `https://nyuz.grgvishal-gurung17.workers.dev/…`, so the runtime variable was right, and the
+  repository variable `VITE_SITE_URL` held the literal placeholder
+  `https://<the origin production answers on>` — set 2026-08-26, never changed, and passing the
+  deploy job's own non-empty check. The wrong origin came from source literals in `src/lib/seo.ts`,
+  `src/routes/index.tsx` and `src/routes/__root.tsx`, plus `public/robots.txt`, a static asset
+  pointing crawlers at a sitemap they could never fetch. **Landed:** `src/lib/site-origin.ts` is now
+  the one origin — a configured value must be an absolute https origin and nothing else, and a
+  placeholder, a `localhost` or a path falls back to the deployed origin instead of publishing an
+  address that cannot be reached; `robots.txt` is generated from the same runtime variable as the
+  sitemap; the repository variable is now the workers.dev origin. **The assertion the ruling required
+  by name** is `scripts/origin-check.mjs`: it takes the deployment's own sitemap as the corpus, then
+  requires the pages, `robots.txt` and the sitemap to name **one** origin and that origin to serve
+  the site. It has a self-test that breaks eight things (`npm run origin:self-test`, inside
+  `npm run ci`) and runs live in the deploy job after the route walk. **Verified:** against the
+  pre-fix deployment it fails and names both origins —
+  `…workers.dev (sitemap.xml)  |  https://nyuz.app (robots.txt, canonical, og:image, twitter:image,
+og:url)` — and against the built Worker served locally under wrangler/workerd, `/robots.txt` reads
+  `Sitemap: https://nyuz.grgvishal-gurung17.workers.dev/sitemap.xml` and `/` carries
+  `<link rel="canonical" href="https://nyuz.grgvishal-gurung17.workers.dev/"/>` with matching
+  `og:image` and `twitter:image`, and `/pricing` canonicalises to the same origin through `seo.ts`.
+  **Still owner-side and not met:** the ruling's acceptance for step 1 also requires the email and
+  checkout flows **verified on that origin**, and both are blocked by the same missing credentials
+  (the provider key is refused; the Stripe price names are unset), so step 1 is landed in code and
+  unfinished in proof.
+
 ## 7. What is next
+
+**The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates
+what "next" means: **what the reader reads must be 10/10 and no rubbish reaches a reader**, judged on
+the live product by reading it as a stranger, and **nothing else is next until that holds.** The
+alert side is held to the same standard in its own terms — a breaking, important, recent event, and
+silence otherwise. The R1 order below still stands and is still the blocking set; it is just no
+longer the answer to "what work do I take", because reader quality outranks all of it.
+
+**The arbiter's order, ruled 2026-10-12 (R1 — [decisions/product-readiness.md](decisions/product-readiness.md)).**
+The blocking set comes first; D8/D9 continue only where the work is independent and does not
+obscure the current measurements:
+
+1. **Restore email delivery** — both the Resend credentials _and_ `EMAIL_UNSUBSCRIBE_SECRET`, plus a
+   real production sender instead of `onboarding@resend.dev`. Acceptance: a production email is
+   accepted by the provider **and** verified as delivered.
+2. **Fix the Stripe configuration** and verify the whole payment-to-entitlement path on a test
+   transaction before any live charge. (`billing:check` exits 1 today: the `PLURA`/`OMNI` price
+   variables are unset and the old `PERSONAL`/`PRO` names are still in the environment.)
+3. **Investigate the 22:30 briefing failures** — **investigated 2026-10-12**
+   ([decisions/briefing-slot-failures.md](decisions/briefing-slot-failures.md)); the failure is
+   **not** normalised in copy and discarded work is **not** treated as steady state. Result: not a
+   scheduling defect (23 sent at the same slot), two shapes — 12 built-then-discarded (413 items)and **5 never built**, diagnosed below. The code half of the fix is `reconcileDigestAfterTerminal`,
+   which settles a digest on its last leg instead of letting the 120-minute sweeper discard built
+   items; the channel half is item 1 (email), which is owner-side.
+4. **Verify stranger sign-in and the first-user experience** end to end.
+5. **Exercise Telegram or declare it inactive for this release** (1 account, 0 deliveries ever).
+6. **Classify the 19 anon-executable `SECURITY DEFINER` functions** before any grant changes, and
+   classify the 31 RLS-no-policy tables, the 10 mutable `search_path` functions and the disabled
+   leaked-password protection separately. No blanket revocations.
+   **Three of the four are classified 2026-10-12** ([decisions/security-classification.md](decisions/security-classification.md)):
+   the 19 definers (revoke nothing — RLS helpers the policies themselves call, trigger-only
+   bodies unreachable through PostgREST, and candidates that are invoker-rights once read),
+   the 32 RLS-no-policy tables (**deny-all is correct**; the browser's anon client reaches
+   exactly one `public` table, `subscriptions`, which has a policy), and `search_path` (the chain is
+   clean at 0 definers and now pinned by a test; the advisor's 10 are live drift **outside** the
+   chain). **Still open:** the 10 live `search_path` names and the 31-vs-32 reconciliation, both of
+   which need the dashboard's list — owner-side — and the disabled leaked-password protection.
+
+   **Shape B of the 22:30 failures is now diagnosed (2026-10-12).** The five never-built rows are the
+   days whose first _successful_ claim slipped past `MAX_LATENESS_MINUTES = 120`: across all 47
+   briefings scheduled at 22:30Z, healthy days claim at −9 to +26 min and the five failures at +113 to
+   +120 min, with days at +45/+86 still delivering. `claimDigest` is the only writer of
+   `generation_started_at` and a retake **overwrites** it, so the stamp is the _last_ claim, not the
+   first. Two mechanisms, both from `pipeline_runs`: **1,936 of 27,178 digest runs are left
+   `status: running` — invocations killed before the receipt could close, and nothing reaps them**
+   (98/31/116/34/22 of them inside the slot windows of 10-07..10-11, and the two that failed are
+   10-10 and 10-11; one is stamped `00:24:13.121`, matching the failing row's claim at `.696` of the
+   same second); and three days — 09-26, 10-05, 10-06 — with **no** stuck runs but only 47–125 runs in
+   the window against ~170 on a healthy day. That second reading was **wrong, and is now closed** (see
+   the 2026-10-12 work-log entry and
+   [decisions/cpu-killed-invocations.md](decisions/cpu-killed-invocations.md)). There is no
+   trigger-delivery fault: the every-minute trigger fired on every minute
+   of both days, and those shortfall days are the _same_ killed-invocation mechanism recorded on the
+   other side of the Audit 47 deploy — before it, a killed invocation left no row at all, so the
+   minute looked skipped. **Instrument defect found
+   and fixed:** `DigestReport` had no `considered` field, so `recordRunLifecycle` — which reads a
+   missing metric as 0 — recorded `considered: 0` for **every** digest run ever, including ticks that
+   were generating; 285 consecutive zeroes looked like starvation and were an artifact. The report now
+   carries `considered: due.length` and `describeDigest` prints it, with a regression test on the
+   expiring tick. **Not fixed, deliberately:** nothing reaps an abandoned `pipeline_runs` row, and
+   generation shares one invocation with delivery, so the 253 failed email legs and their retries
+   compete with the work that builds the briefing — both are behaviour changes awaiting a ruling.
+
+7. **Make failures actionable, not merely recorded** — an `ops_status` error sat 29.6 days. Failure
+   detection is part of the acceptance criteria for the restored email and billing paths.
+8. **Acceptance lines for every side** are now recorded (§7 of [product-readiness.md](product-readiness.md));
+   the reader path keeps its stricter must-be-zero gates.
 
 In the arbiter's order for the reader-delivery path:
 
@@ -393,10 +718,15 @@ shapes` section whenever the ingestion mix changes.
 5. **The `rss` risk, kept visible**: no new evidence yet justifies changing the policy again, so the
    audit's `Vendor shapes` section is the instrument to re-measure on later windows.
 6. **D9 — the prose behind the story, ruler first** (see §6). Opened 2026-10-11 by reading three
-   alerted stories by hand: the audit calls them clean and they are not. The first slice is a
-   **tool** — a fragment/truncation class and a raw-URL class in the audit's rulers, measured on the
-   frozen 200 so the case rests on a count and not on three anecdotes — and only then a rule, on a
-   ruling. Nothing here changes publication behaviour yet.
+   alerted stories by hand: the audit calls them clean and they are not. **The ruler landed 2026-10-12**
+   — a fragment/truncation class and a raw-URL class in [defects.ts](../scripts/lib/defects.ts), 12
+   tests, nothing changing what the reader receives. On the frozen 200: 702 published blocks, **0
+   truncated leads, 6 raw URLs** (2 of them the flagged shape). **The rule is still open and still
+   needs a ruling**, and the measurement sharpened the question rather than settling it: the address
+   class needs an address-as-noun sub-classification before a rule could be argued from it, so the
+   count is an argument against a blanket rule; and the frozen 200 cannot measure the truncation class
+   at all, because it holds neither of the two samples D9 was opened on — a **live window**
+   (`npm run audit:reader`) is the instrument for that one.
 7. **D8 — the alert bar itself** (see §6). The gate landed; **the floor is open and awaiting the
    arbiter**: alerts after the gate still reach phones for shapes no rule refuses (a vendor roadmap
    advertorial at importance 7, a product newsletter at 7, a hobby hack and a personal blog post at
@@ -405,17 +735,27 @@ shapes` section whenever the ingestion mix changes.
    (a) gate only; (b) raise the alert floor above the briefing floor — and the measurement says
    raising it to 8 removes 7 of the 8 recent non-news interrupts and 7 genuine ones with them;
    (c) refuse a first-party marketing shape even when corroborated, **which contradicts D5** and needs
-   D5 reopened; (d) require more than one outlet for an alert. Nothing here changes without a ruling,
-   and the arbiter was unreachable from this session — the ruling that landed is the owner's.
+   D5 reopened; (d) require more than one outlet for an alert.
+   **Ruled 2026-10-12 by the arbiter: (a), provisionally** — the floor stays, no outlet minimum and no
+   blanket first-party exclusion, while the open question becomes evidence rather than policy: does
+   the gate distinguish news from announcements at all? A second ruling of the same day covers the 69
+   alerts stuck at `ready`: that status conflates whole-alert completion with one channel's state and
+   needs a model that can say successful / partial / failed / pending.
    `npm run audit:alerts` is the instrument, and it now prints a gate verdict per alert.
 
-Blocked on the owner, not on code:
+Blocked on the owner, not on code (all three measured 2026-10-12, §1 of
+[product-readiness.md](product-readiness.md)):
 
-- **The briefing email has never been delivered to a reader because the Worker's Resend key
-  returns 401.** Nothing in the code changes that: it needs a fresh key from the Resend
-  dashboard set as the Worker secret.
+- **The briefing email is blocked by two independent causes, not one.** The first failure after the
+  last accepted send (2026-08-26T23:55) was `Missing EMAIL_UNSUBSCRIBE_SECRET (minimum 32
+characters)` on 2026-08-26T23:55, unbroken to 2026-09-11T05:45 (125 failures); the Resend 401 is the
+  current cause, 128 failures from 2026-09-11T06:14 to today. `EMAIL_UNSUBSCRIBE_SECRET` is still
+  absent from this environment, so local runs and the Worker do not fail for the same reason.
 - **`RESEND_FROM_EMAIL` is `onboarding@resend.dev`**, so even with a working key a stranger
   cannot receive mail until a domain is verified.
+- **The Stripe price variables are the pre-rename names.** `npm run billing:check` exits 1:
+  `STRIPE_PRICE_PLURA_*` / `STRIPE_PRICE_OMNI_*` are unset and `PERSONAL`/`PRO` are present but no
+  longer read. Checkout resolves no price until they are renamed — and no live payment has ever run.
 
 ## 8. Invariants an agent must not break
 
@@ -466,8 +806,13 @@ From [AGENTS.md](../AGENTS.md), which is authoritative:
 | question | file |
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- || Working rules for an agent in this repo | [AGENTS.md](../AGENTS.md) |
 | The skills that carry those rules (install fields + text) | [skills/](skills/) — `arbitrate-first.md`, `keep-context-current.md` |
-| Product state, area by area | [status.md](status.md) |
+| Every side, measured today, with its acceptance line | [product-readiness.md](product-readiness.md) — the output of `npm run audit:posture` |
+| The product-wide readiness ruling (R1, 2026-10-12) | [decisions/product-readiness.md](decisions/product-readiness.md) |
+| Product state, area by area (historical snapshot) | [status.md](status.md) |
 | Rulings on the reader-delivery path, with their dates | [decisions/reader-delivery.md](decisions/reader-delivery.md) |
+| Why briefings shipped without their shared explanations (2026-10-12) | [decisions/briefing-explanations.md](decisions/briefing-explanations.md) |
+| Why the 22:30 slot failed, and what the 1,936 stuck receipts say | [decisions/briefing-slot-failures.md](decisions/briefing-slot-failures.md) |
+| The security findings, classified before any revocation (R1 item 6) | [decisions/security-classification.md](decisions/security-classification.md) |
 | The reader-quality loop in more depth | [briefing-quality-handoff.md](briefing-quality-handoff.md) |
 | Reader quality audit method | [reader-quality-audit.md](reader-quality-audit.md) |
 | Architecture, database, deployment, development | [architecture.md](architecture.md), [database.md](database.md), [deployment.md](deployment.md), [development.md](development.md) |
@@ -484,6 +829,7 @@ npm run typecheck    # app + scripts
 npm run test         # vitest
 npm run e2e          # playwright; needs `npx playwright install chromium` once, on Node 22
 
+npm run audit:posture                                 # every side, one read-only run
 npm run audit:reader -- --corpus tmp/corpus-after.json   # the composer's published prose
 npm run audit:reader -- --find "DigiCert"                # one event's raw rows
 npm run audit:fusion                                     # re-extract sources to confirm fusions
@@ -492,6 +838,14 @@ node --env-file=.env scripts/tsrun.mjs scripts/reader-corpus-freeze.ts --out tmp
 ```
 
 Node 22 (`.nvmrc`) is required; `wrangler dev` refuses to start on Node 20.
+
+**Known local fragility, re-measured 2026-10-12.** The same four files failed inside a full
+`npm run ci` again — `exclusions-db.test.ts`, `launch-plans-db.test.ts`, `ai/code-first-db.test.ts`
+(hook timeouts) and the filesystem-walking `ai/callsites.test.ts` (`Test timed out in 60000ms`) — and
+one worker reported `[vitest-worker]: Timeout calling "onTaskUpdate"`, which is contention rather
+than an assertion. Each passes alone on the same tree with coverage enabled, so a red run that names
+only these files is worker starvation: check whether the diff touches them before believing it, and
+run them individually (`npx vitest run --coverage <file>`).
 
 **Known local fragility, measured 2026-10-11.** On this machine the coverage suite can starve its
 own heavy files: 179 files across many workers, and four of them then exceed their ceilings —
