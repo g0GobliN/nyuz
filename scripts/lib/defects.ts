@@ -239,6 +239,121 @@ export function attributionSentence(text: string, names: string[]): string {
 }
 
 /**
+ * A URL published as prose.
+ *
+ * D9's second class. The block the owner read ended `Investors.boeing.com/... Am
+ * wondering what ransomware negotiations he was involved in.` -- a link from
+ * somebody's comment thread, published as if it were reporting. Nothing counted
+ * it, which is the D2/D3 shape again: a ruler that cannot see the thing being
+ * judged.
+ *
+ * Two shapes, both requiring a real address rather than a dotted word: a scheme
+ * or `www.`, or a bare host with a path or a two-or-more-letter TLD. Deliberately
+ * not anchored to the start of a block, because the address in the sample sits
+ * mid-sentence.
+ *
+ * Deliberately does *not* require the address to resolve or the TLD to be real.
+ * "Is it a URL" is a question about shape, and a ruler that checked liveness
+ * would report an outage as an absence of defects.
+ */
+/**
+ * The TLDs that make a bare dotted word read as a web address rather than a name.
+ *
+ * The first draft accepted any two-letter-or-longer suffix and published 16 raw
+ * URLs on the frozen corpus, most of them not URLs at all: `llama.cpp`,
+ * `Node.js`, `GLM-5.3-Flash`. A file extension and a country TLD are the same
+ * shape, so the suffix alone cannot decide it -- the list below is what a reader
+ * recognises as the web, and it is deliberately short rather than clever.
+ */
+const WEB_TLD = "(?:com|org|net|io|ai|app|dev|gov|edu|co|uk|jp|us|news|blog|xyz|me|info|site|sh)";
+
+/**
+ * A URL published as prose.
+ *
+ * D9's second class -- the block the owner read ended `Investors.boeing.com/...
+ * Am wondering what ransomware negotiations he was involved in.`, a link out of
+ * somebody's comment thread published as reporting. Nothing counted it.
+ *
+ * Three shapes: `https://` and `www.` are addresses by declaration, and a bare
+ * host is one when its suffix is a name the web uses. The third draft of this
+ * ruler also accepted *any* suffix followed by a path, on the theory that a path
+ * makes an address unambiguous; the frozen corpus showed what that costs --
+ * `Assisted-by: pi:llama.cpp/Qwen3.8-Flash-Next` is an identifier with a slash in
+ * it, and it was counted as a published URL. So the suffix list decides, and `sh`
+ * is on it precisely so `bun.sh/install.ps1` still counts without the path rule.
+ *
+ * Deliberately does not check that the address resolves. "Is it an address" is a
+ * question about shape, and a ruler that probed liveness would report a network
+ * outage as an absence of defects.
+ *
+ * Known, recorded limitation: a bare host whose TLD is not on the list is missed.
+ * `bun.sh` survives only because `sh` is listed; a future `.dev`-like suffix that
+ * is not named here would not. That is the trade this ruler chose -- a miss costs
+ * one row, and a false positive costs the count the ruling is argued from.
+ */
+export const RAW_URL = new RegExp(
+  `\\b(?:https?:\\/\\/[^\\s]+|www\\.[^\\s]+|[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.${WEB_TLD}(?:\\/[^\\s]*)?)`,
+  "i",
+);
+
+/**
+ * The words a sentence cannot end on, so their period is a cut and not a stop.
+ *
+ * Two families, and they are the ones a clipping boundary leaves behind:
+ *
+ * - a **month** ("... between Oct.", "... sentenced on Sept."): a date was
+ *   being given and the feed's excerpt ended inside it;
+ * - a **function word** -- article, conjunction or preposition -- which by
+ *   definition wants a complement after it ("... the Loews Philadelphia Hotel
+ *   between Oct." is the sample's other half).
+ *
+ * Months are a closed list, so that half is exact. The function-word half is
+ * deliberately a **short** list: articles and conjunctions, which cannot end a
+ * sentence at all, plus the few prepositions that bind forward so tightly that
+ * stopping on one is a cut. The first draft listed every preposition and fired on
+ * four published leads, all of them idiomatic -- "while OpenAI moves on.", "most
+ * passionate about.", "have quickly signed on.", "was scheduled on." -- which is
+ * the failure mode this file exists to avoid: a ruler that measures English rather
+ * than damage. `on`, `about`, `for` and `to` are ordinary sentence endings and are
+ * therefore absent by measurement, not by taste.
+ */
+export const DANGLING_TAIL =
+  /(?:\b(?:Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\.|\b(?:the|a|an|and|or|but|of|between|into|during)\.)$/i;
+
+/**
+ * A sentence that ends where prose cannot: the fragment D9 asked to be counted.
+ *
+ * Returns the offending sentence, or "" -- the sentence rather than a boolean,
+ * because the report has to print the evidence beside the count or the number is
+ * an anecdote again.
+ *
+ * Bounded by a length floor and by requiring the sentence to have run for a few
+ * words. `Oct.` as an entire line is a date, not a truncated clause, and a
+ * two-word block is not prose that can be judged this way.
+ */
+export function truncatedSentence(sentence: string): string {
+  const trimmed = sentence.trim();
+  if (!DANGLING_TAIL.test(trimmed)) return "";
+  const words = trimmed.split(/\s+/).filter((word) => /[\p{L}\p{N}]/u.test(word)).length;
+  if (words < 5) return "";
+  return trimmed;
+}
+
+/**
+ * The opening sentence of a block, when it is a truncated one.
+ *
+ * The reader meets the fragment in the lead slot, which is what makes it cost
+ * more than a fragment further down: it is the one sentence with nothing before
+ * it. Only the first sentence is judged, because that is the class D9 described
+ * and widening it to every sentence would be a different measurement wearing the
+ * same name.
+ */
+export function truncatedLead(block: string): string {
+  const first = readerSentences(block)[0];
+  return first === undefined ? "" : truncatedSentence(first);
+}
+
+/**
  * What a withheld story's reason says the gate refused.
  *
  * Grouped here rather than guessed in the report, and deliberately read off the
