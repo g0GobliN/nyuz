@@ -248,6 +248,18 @@ jobs:
       - name: Route walk self-test
         run: npm run route:walk:self-test
 
+      # The origin check's self-test, for the same reason again. This is the
+      # check that would have caught the product publishing `nyuz.app` as its own
+      # canonical address while answering on `nyuz.grgvishal-gurung17.workers.dev`
+      # -- a defect that survived weeks of green runs because every surface was
+      # internally consistent and nothing compared them. It breaks eight things
+      # on purpose: a canonical, an OpenGraph image, a sitemap entry and a robots
+      # sitemap line each moved to another origin, a page missing its canonical, a
+      # robots file with no sitemap line, an unserved sitemap, and one committed
+      # origin that does not answer.
+      - name: Origin check self-test
+        run: npm run origin:self-test
+
   # ---------------------------------------------------------------------------
   # The suite, in four shards
   # ---------------------------------------------------------------------------
@@ -619,6 +631,28 @@ jobs:
             exit 1
           fi
           node scripts/route-walk.mjs "$TARGET"
+
+      # The assertion the 2026-10-12 ruling required by name: a deployment must
+      # publish ONE origin across the pages, `robots.txt` and the sitemap, and
+      # that origin must serve the site. Until this step existed, a build could
+      # declare `https://nyuz.app` in every canonical while answering on
+      # workers.dev, and the walk above would still pass — it reads the pages it
+      # was given, and each page was internally consistent.
+      #
+      # `steps.deploy.outputs.deployment-url` is preferred for the same reason as
+      # the walks above, and the origin the pages name is reported rather than
+      # required to equal it: a preview may legitimately be built with the
+      # production origin, and a check that fails on that is switched off.
+      - name: Assert the deployment publishes one origin
+        env:
+          TARGET: ${{ steps.deploy.outputs.deployment-url || vars.VITE_SITE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TARGET:-}" ]; then
+            echo "::error::No deployment URL and no VITE_SITE_URL to check"
+            exit 1
+          fi
+          node scripts/origin-check.mjs "$TARGET"
 
       # The half of the install contract that only a deployment can answer:
       # whether Cloudflare is serving the manifest the browser accepts, icons

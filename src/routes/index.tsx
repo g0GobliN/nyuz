@@ -12,6 +12,7 @@ import { HowItWorksRail, Comparison } from "@/components/landing/how-it-works";
 import { ProfileDemo, WhyDifferent, AiTrust, Infrastructure } from "@/components/landing/sections";
 import { SourceTransparency, FinalCta } from "@/components/landing/closing";
 import { getPublicSiteContent } from "@/lib/server/settings";
+import { siteOrigin } from "@/lib/site-origin";
 import { MaintenanceScreen } from "@/components/access";
 import type { MediaItem, SectionKey } from "@/lib/site-content";
 import { useReveal } from "@/lib/use-reveal";
@@ -38,9 +39,12 @@ export const Route = createFileRoute("/")({
     // `loaderData` is undefined while the loader is in flight, so every field
     // needs a literal fallback rather than an optional chain into a template.
     if (!seo) return { meta: [] };
-    const image = seo.ogImage
-      ? new URL(seo.ogImage, "https://nyuz.app").toString()
-      : "https://nyuz.app/og-image.png";
+    // The origin is resolved once per render from the same module every other
+    // published URL uses, rather than written out here: this literal is what
+    // pointed a reader's social card and this page's canonical at a host with
+    // no DNS record until 2026-10-12.
+    const origin = siteOrigin();
+    const image = seo.ogImage ? new URL(seo.ogImage, origin).toString() : `${origin}/og-image.png`;
     return {
       meta: [
         { title: seo.title },
@@ -50,7 +54,7 @@ export const Route = createFileRoute("/")({
         { property: "og:image", content: image },
         { name: "twitter:image", content: image },
       ],
-      links: [{ rel: "canonical", href: "https://nyuz.app/" }],
+      links: [{ rel: "canonical", href: `${origin}/` }],
     };
   },
   component: Index,

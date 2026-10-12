@@ -81,14 +81,14 @@ each SHA belongs to is in the comment beside it.
 The workflow reads one secret and five variables from the repository. Under
 **Settings → Secrets and variables → Actions**:
 
-| Name                     | Kind     | Value                                    |
-| ------------------------ | -------- | ---------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`   | Secret   | A token with **Edit Cloudflare Workers** |
-| `CLOUDFLARE_ACCOUNT_ID`  | Variable | The account ID from the dashboard URL    |
-| `VITE_SUPABASE_URL`      | Variable | `https://<ref>.supabase.co`              |
-| `VITE_SUPABASE_ANON_KEY` | Variable | The anon key                             |
-| `VITE_SITE_URL`          | Variable | Absolute origin, no trailing slash       |
-| `VITE_VAPID_PUBLIC_KEY`  | Variable | From `npm run vapid`                     |
+| Name                     | Kind     | Value                                          |
+| ------------------------ | -------- | ---------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`   | Secret   | A token with **Edit Cloudflare Workers**       |
+| `CLOUDFLARE_ACCOUNT_ID`  | Variable | The account ID from the dashboard URL          |
+| `VITE_SUPABASE_URL`      | Variable | `https://<ref>.supabase.co`                    |
+| `VITE_SUPABASE_ANON_KEY` | Variable | The anon key                                   |
+| `VITE_SITE_URL`          | Variable | Absolute origin, no trailing slash — see below |
+| `VITE_VAPID_PUBLIC_KEY`  | Variable | From `npm run vapid`                           |
 
 The four `VITE_` values are variables and not secrets on purpose: Vite compiles them into
 the bundle every visitor downloads, so calling them secret would be theatre. Everything
@@ -311,11 +311,45 @@ Before enabling payments, reconcile the pre-fix pipeline backlog once:
 ## Release checklist
 
 - [ ] `npm run ci` green locally — CI green on `main` is what actually deploys
-- [ ] Domain registered; `VITE_SITE_URL`, DNS and HTTPS point to the production Worker
+- [x] **The origin the product publishes is the origin that resolves, and one assertion enforces
+      it.** The ruling of 2026-10-12 was to use the Cloudflare-provided Worker origin rather than wait
+      for a domain, and the measurement that came with implementing it corrected the finding: the
+      _runtime_ variable was already right (`sitemap.xml`, email links, Stripe returns), while a
+      literal `nyuz.app` in `seo.ts`, `index.tsx`, `__root.tsx` and `public/robots.txt` — plus a
+      repository variable holding the placeholder `https://<the origin production answers on>` — was
+      publishing a dead host. `src/lib/site-origin.ts` is now the single origin, `robots.txt` is
+      generated from the same variable as the sitemap, and `scripts/origin-check.mjs` runs in the
+      deploy job after the route walk: it fails when the pages, `robots.txt` and the sitemap name
+      more than one origin, or when the origin they name does not answer. It was verified red against
+      the pre-fix deployment. The **domain** half stays open on purpose — the unbought domain is a
+      stage condition ([decisions/reader-facing-origin.md](decisions/reader-facing-origin.md)) — and
+      becomes load-bearing at launch, when the assertion has to hold for the branded origin.
+- [ ] Set `VITE_SITE_URL` on both sides when the origin changes: the repository variable (build-time
+      inline, and the deploy job's fallback target) and the Worker secret (runtime — email, Stripe
+      returns, `robots.txt`, the sitemap). The deploy job's origin assertion is what tells you the two
+      agree; a value that is missing, a placeholder or a `localhost` falls back to the deployed origin
+      rather than publishing an address that cannot be reached.
 - [ ] The four `@nyuz.app` mailboxes receive mail; Resend domain SPF/DKIM and DMARC verified
 - [ ] `CLOUDFLARE_API_TOKEN` and the five variables set on the repository
 - [ ] Cron Triggers tab shows every schedule in `triggers.crons` registered
-- [ ] Workers Paid enabled, or production traces prove SSR and every cron stay within Free CPU limits
+- [ ] Workers Paid enabled, or production traces prove SSR and every cron stay within Free CPU
+      limits — **answered 2026-10-12, and the answer is no.** Production traces now exist and they
+      convict the Free budget: across 2026-09-19…10-12, **21,909 of 59,150 invocations (37%)** were
+      ended by Cloudflare with `exceededResources` (`exceededCpu`, error 1102). The every-minute
+      trigger fired every minute — 1,443 invocations across 1,443 distinct slots on 10-11, 1,435
+      across 1,435 on 10-05 — and **354 (24.5%) and 768 (53.5%) of those ticks respectively were
+      killed**, with the kill line at ~10 ms of CPU. Because a tick that finds no work is cheap and
+      survives, the kills land on the invocations that were going to build a briefing; that is the
+      22:30 failure. Full evidence: [decisions/cpu-killed-invocations.md](decisions/cpu-killed-invocations.md).
+      **The line stays unticked and that is correct for now, so do not act on it:** the owner ruled on
+      2026-10-12 that the free plan is **intentional while the product is develop-stage**, which makes
+      the kill rate an accepted operating condition rather than a defect to close by paying. It becomes
+      load-bearing at launch, when the reader-facing quality bar is met and the pipeline has to hold up
+      for real readers; at that point raise the budget (Workers Paid moves the Cron Trigger limit
+      10 ms → 30 s) or cut per-tick CPU. Until then: **design inside 10 ms, and do not propose an
+      upgrade, a purchase or a plan change** — a session that finds this unticked and reaches for the
+      budget is repeating a question the owner has already settled.
+
 - [ ] Migrations applied to the target project
 - [ ] Secrets set for every active AI provider and the service role
 - [ ] Resend and Stripe secrets and four Stripe Price ids set

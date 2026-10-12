@@ -21,21 +21,29 @@
  * at it again after the first time.
  *
  * ---------------------------------------------------------------------------
- * Why the origin is a constant
+ * Why the origin comes from one module
  * ---------------------------------------------------------------------------
  *
- * A canonical URL has to be the public production address. `VITE_SITE_URL`
- * would be that in production and `http://localhost:8080` in development, and a
- * canonical pointing at localhost is worse than none at all — it is a positive
- * instruction to a crawler to index an address it cannot reach. This matches
- * what `__root.tsx` and `index.tsx` already do with the og:image and the
- * existing canonical.
+ * A canonical URL has to be the public production address, and it must be the
+ * *same* address as the one in `robots.txt`, in the sitemap and in the links an
+ * email carries — a page that canonicalises to one host while the sitemap lists
+ * another is telling a crawler two different things about the same site.
+ *
+ * This used to be a literal here, and a second literal in `index.tsx` and a
+ * third in `__root.tsx`. On 2026-10-12 all three pointed at a host with no DNS
+ * record while the product answered somewhere else, and nothing caught it.
+ * `siteOrigin()` is now the single answer, and `scripts/origin-check.mjs`
+ * asserts against a real deployment that the answer matches the sitemap, the
+ * robots file and the origin itself.
+ *
+ * It is still never localhost: see the reasoning in `site-origin.ts`.
  */
 
-const SITE_ORIGIN = "https://nyuz.app";
+import { siteOrigin } from "@/lib/site-origin";
 
 export function canonicalUrlFor(path: string): string {
-  return path === "/" ? `${SITE_ORIGIN}/` : `${SITE_ORIGIN}${path}`;
+  const origin = siteOrigin();
+  return path === "/" ? `${origin}/` : `${origin}${path}`;
 }
 
 /**

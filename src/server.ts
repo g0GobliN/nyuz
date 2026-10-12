@@ -8,6 +8,7 @@ import { verifyUnsubscribeToken, type UnsubscribeEnv } from "./lib/server/email/
 import { createAdminClient, type ServerEnv } from "./lib/supabase/admin";
 import { countOrThrow } from "./lib/supabase/count";
 import { handleSitemap, type SitemapEnv } from "./lib/server/sitemap";
+import { handleRobotsTxt, type RobotsTxtEnv } from "./lib/server/robots-txt";
 import { envValue } from "./lib/runtime-env";
 import type { DeliveryChannel } from "./lib/supabase/types";
 
@@ -28,6 +29,9 @@ const UNSUBSCRIBE_PATH = "/api/unsubscribe";
 const HEALTH_PATH = "/api/health";
 // Served here rather than from public/: it lists blog posts, which are rows.
 const SITEMAP_PATH = "/sitemap.xml";
+// Also served here, and for the same reason: its `Sitemap:` line is the origin,
+// and a file in public/ cannot follow a setting. Nothing read the old one.
+const ROBOTS_PATH = "/robots.txt";
 
 type UnsubscribeServerEnv = ServerEnv & UnsubscribeEnv;
 type HealthEnv = ServerEnv & { HEALTHCHECK_TOKEN?: string };
@@ -273,6 +277,9 @@ export default {
       }
       if (path === SITEMAP_PATH) {
         return secureResponse(request, await handleSitemap(env as SitemapEnv | undefined));
+      }
+      if (path === ROBOTS_PATH) {
+        return secureResponse(request, handleRobotsTxt(env as RobotsTxtEnv | undefined));
       }
 
       const handler = await getServerEntry();

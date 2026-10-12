@@ -18,6 +18,7 @@ import { ensureServiceWorker } from "../lib/sw";
 import { SHELL_INIT_SCRIPT } from "../lib/display-mode";
 import { INSTALL_INIT_SCRIPT, attachInstallEvents } from "../lib/install/prompt";
 import { THEME_COLORS, THEME_INIT_SCRIPT } from "../lib/theme";
+import { siteOrigin } from "../lib/site-origin";
 
 /**
  * The 404 and the error page.
@@ -160,11 +161,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "Tell nyuz what matters. It keeps watch across relevant sources, connects duplicate coverage into events, and delivers a personalized news briefing without the noise.",
       },
       { property: "og:type", content: "website" },
-      { property: "og:image", content: "https://nyuz.app/og-image.png" },
+      { property: "og:image", content: `${siteOrigin()}/og-image.png` },
       { property: "og:image:width", content: "1200" },
       { property: "og:image:height", content: "630" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:image", content: "https://nyuz.app/og-image.png" },
+      { name: "twitter:image", content: `${siteOrigin()}/og-image.png` },
     ],
     links: [
       { rel: "preconnect", href: "https://fonts.googleapis.com" },

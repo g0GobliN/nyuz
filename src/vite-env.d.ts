@@ -8,6 +8,15 @@
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL: string;
   readonly VITE_SUPABASE_ANON_KEY: string;
+  /**
+   * The public origin every absolute URL is built from — see `site-origin.ts`.
+   *
+   * Optional on purpose: an unset variable is `undefined` at runtime rather
+   * than absent, and the module that reads it has to handle that. It has been
+   * set to a placeholder sentence in this repository before, which is the other
+   * thing `site-origin.ts` refuses.
+   */
+  readonly VITE_SITE_URL?: string;
 }
 
 interface ImportMeta {
