@@ -249,6 +249,22 @@ export type DigestOutcome = {
 export type DigestReport = {
   startedAt: string;
   finishedAt: string;
+  /**
+   * Rows the stage looked at: everything `loadDue` returned for this tick.
+   *
+   * Carried because its absence was actively misleading. `recordRunLifecycle`
+   * reads a missing metric as 0, so every digest receipt in `pipeline_runs`
+   * recorded `considered: 0` and the column read as "the stage saw nothing" on
+   * ticks that were generating briefings. That is the failure this repo keeps
+   * meeting -- a count that cannot see the thing being judged -- and it cost real
+   * time twice: once while investigating why a 22:30 briefing was never built
+   * (2026-10-12), where 285 consecutive runs at `considered: 0` looked like
+   * starvation and were an artifact.
+   *
+   * `due.length`, not the delivered count: this answers "how much work did the
+   * tick have", and `generated`/`skipped`/`failed` answer what became of it.
+   */
+  considered: number;
   scheduled: number;
   generated: number;
   skipped: number;
@@ -502,6 +518,7 @@ export async function digest(db: Db, options: DigestOptions = {}): Promise<Diges
   return {
     startedAt,
     finishedAt: new Date().toISOString(),
+    considered: due.length,
     scheduled,
     generated,
     skipped,
@@ -2104,7 +2121,8 @@ async function excerptsFor(db: Db, eventIds: string[]): Promise<Map<string, stri
 export function describeDigest(report: DigestReport): string {
   const seconds = Math.round((Date.parse(report.finishedAt) - Date.parse(report.startedAt)) / 1000);
   return (
-    `digest: ${report.generated} generated, ${report.skipped} skipped, ` +
+    `digest: ${report.considered} considered, ${report.generated} generated, ` +
+    `${report.skipped} skipped, ` +
     `${report.failed} failed, ${report.paused} paused, ${report.deferred} retrying, ` +
     `${report.expired} expired, ` +
     `${report.sent} sent, ${report.retried} retrying, ` +

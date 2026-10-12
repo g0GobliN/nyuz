@@ -782,6 +782,13 @@ describe("a briefing far past its slot is abandoned rather than delivered as a s
 
     const row = db.rows("digests").find((r) => r["digest_id"] === "digest-1");
     expect(report.expired).toBe(1);
+    // The receipt must count the work the tick SAW, not the work it produced.
+    // `DigestReport` carried no `considered`, and the receipt reads a missing
+    // metric as 0, so every digest run recorded `considered: 0` -- which read as
+    // "the stage saw nothing" on ticks like this one, where it saw one row and
+    // expired it. That artifact cost real investigation time on 2026-10-12, when
+    // 285 consecutive `considered: 0` runs looked like starvation.
+    expect(report.considered).toBe(1);
     expect(row?.["status"]).toBe("failed");
     expect(row?.["scheduled_for"]).toBe(TOKYO_0730);
     expect(String(row?.["generation_failure_reason"])).toContain("missed slot");
