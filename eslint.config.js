@@ -6,7 +6,15 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi"] },
+  // Build output, plus the two scratch directories. `tmp/` and `.scratch/` are
+  // gitignored (see .gitignore) and hold investigation scripts that are never
+  // reviewed, committed, or shipped -- but `eslint .` walks them anyway, so one
+  // leftover probe turned `npm run ci` red with 51 formatting errors in files
+  // outside the diff. That is a red gate that names the wrong cause: the person
+  // reading it goes looking for a code defect instead of this file. Anything
+  // under these paths is throwaway by definition, so it is ignored by pattern
+  // rather than by remembering to delete it.
+  { ignores: ["dist", ".output", ".vinxi", "tmp/**", ".scratch/**"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
