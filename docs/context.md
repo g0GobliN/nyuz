@@ -621,10 +621,16 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   ruler that judged them misfiled 155 items on its first run.** `npm run audit:backlog`
   (`scripts/backlog-attribution.ts`, read-only) reproduces both published counts exactly — 69 items
   over 69 events, 413 items over 12 digests — and prints one disposition per digest with its
-  delivery legs and recorded errors. **The 69: all 69 are the same defect** — no explanation
-  produced (67 `event_impacts` rows never written, 2 written with empty text), zero composer drops
-  — so every one is a confirmed violation of the why-it-matters rule and the fix belongs at item
-  admission, not in the composer. **The 413: 168 items / 6 digests were never lost** — an accepted
+  delivery legs and recorded errors. **The 69: all 69 took the same
+  rung — and they are not violations.** No explanation was produced (67 `event_impacts` rows never
+  written, 2 written with empty text), zero composer drops, so every one fell to the inclusion
+  ladder's rung 6: silence, which the rules allow (ruled 2026-10-08 — filler is the defect, honest
+  silence is not) and which the templates render around (`email/templates.ts:392` drops the line
+  when empty). The first draft of the record called them confirmed violations by reading the
+  landing page's sample instead of the rules; corrected in
+  [decisions/backlog-attribution.md](decisions/backlog-attribution.md). **One decision is open and
+  belongs to the arbiter:** should rung-6 silence withhold the item — fewer, thicker items, closer
+  to the sample — or keep shipping without a significance line? It changes what sends. **The 413: 168 items / 6 digests were never lost** — an accepted
   leg (5× push, 1× email) means the reader received the briefing while expiry marked it failed,
   the status defect `reconcileDigestAfterTerminal` removes; **245 items / 6 digests were lost to
   execution failures** — 5 digests / 220 items on the missing `EMAIL_UNSUBSCRIBE_SECRET`, 1 digest /

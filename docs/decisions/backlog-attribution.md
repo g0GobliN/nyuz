@@ -23,11 +23,24 @@ digest's disposition.
 | — row written, text empty        | 2     | the explanation was attempted and produced nothing      |
 | explanation produced and dropped | 0     | the composer had a line and discarded it                |
 
-**All 69 are confirmed violations** of the reader-quality rule the reader-facing contract shows on
-every item ("Why it matters ·"), and they share one cause: **the item shipped before any shared
-explanation existed**. Not one is a composer defect. The fix belongs where items are admitted to a
-briefing — an item without an explanation is generated or withheld — and that is the next slice,
-not part of this attribution.
+**Corrected the same day (2026-10-12, after re-reading the rules): none of the 69 is a confirmed
+violation of the existing reader-quality rules.** The first draft of this file called all 69
+violations because the landing page's sample briefing shows a "Why it matters ·" line on every
+item. That was the wrong ruler. The existing rules are the inclusion ladder
+([inclusion.ts](../src/lib/pipeline/inclusion.ts)), whose rung 6 is _silence_: when no rung
+produces a story-specific line, `why_it_matters` ships empty **by design**, and the delivery
+surfaces render around it — `email/templates.ts:392` drops the whole line when the text is empty,
+and the Telegram formatter does the same. The ladder was ruled on 2026-10-08 (filler is the
+defect; honest silence is not). So the correct attribution is: **69 items took rung 6**, all one
+cause (67 events never had an `event_impacts` row written, 2 had one with empty text — so no rung
+1–5 material existed), zero composer drops, zero policy violations. What ships is thin but honest.
+
+**The open question is a decision, not a defect:** should rung-6 silence _withhold_ the item
+(fewer, thicker items — closer to the sample the landing page shows) or continue to ship it
+without a significance line? The code itself deferred this — the `bare` count rides the digest row
+"so the honesty-bar presentation can be measured against real counts before it changes what
+sends" — and the measurement those words asked for is the 69 above. Changing what sends is a
+reader-facing decision and goes to the arbiter before any code.
 
 ## The 413 — built, then discarded with their digest
 
@@ -64,9 +77,12 @@ misfiled case.
 ## What this closes and what it opens
 
 - Closes step 2 of the ruling's order: both counts are attributed individually, nothing merged.
-- Confirmed defects, in order of what a reader loses: (1) items shipping with no explanation — 69
-  items, fix at admission; (2) the digest status defect — fixed and landed; (3) missing
-  `EMAIL_UNSUBSCRIBE_SECRET` — owner-side secret, same blocker as the step-1 email proof; (4)
-  `public.registered_devices` absent on the live schema — needs a migration check.
+  Under the existing rules there are **zero confirmed violations** to block: the 69 are rung-6
+  silence (allowed), and the 413 are accounted for disposition by disposition.
+- Confirmed defects, in order of what a reader loses: (1) the digest status defect — fixed and
+  landed; (2) missing `EMAIL_UNSUBSCRIBE_SECRET` — owner-side secret, same blocker as the step-1
+  email proof; (3) `public.registered_devices` absent on the live schema — needs a migration check.
+- One decision open, on the arbiter's desk in substance: whether rung-6 silence should withhold the
+  item. It changes what a reader receives, so it is ruled before it is built.
 - Nothing here forces an item to ship. The 245 are unrecoverable for those readers (their slots are
   past); the causes are what is fixed.
