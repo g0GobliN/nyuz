@@ -783,6 +783,26 @@ describe("the callable surface the application depends on (0115)", () => {
     expect(broken).toEqual([]);
   });
 
+  it("pins search_path on every SECURITY DEFINER function", async () => {
+    // The advisor flags DEFINER functions with a mutable search_path, and the
+    // repo convention is SET search_path = public on every one. This locks
+    // the convention at the source: a future migration that adds an unpinned
+    // DEFINER fails here, where it costs a test run, instead of on the
+    // advisor. Live drift outside the migration chain is a separate finding
+    // and is not what this asserts.
+    const { rows } = await db.query<{ name: string; args: string }>(
+      `select p.proname as name, pg_get_function_identity_arguments(p.oid) as args
+         from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.prosecdef
+          and (p.proconfig is null
+            or not exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%'))
+        order by 1`,
+    );
+    expect(rows.map((row) => `${row.name}(${row.args})`)).toEqual([]);
+  });
+
   it("follows a topic through the user_topics cap trigger", async () => {
     // The function calls above cannot see the trigger, and the trigger was the
     // worst of 0110's leftovers: it fires on every insert, so a reference to
