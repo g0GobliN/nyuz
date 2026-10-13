@@ -658,6 +658,30 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   the gate ran, so the record came out empty — recomputed after the gate, which is exactly what the
   disposition tests proved.
 
+- **2026-10-13 — the home feed runs the same gate as the briefing.** Read live
+  as a stranger (`/dashboard`, 23 cards): a podcast episode carried show notes
+  as its summary ("Brandon (00:29) So Jess, let's start with…"), a "This week
+  on … Premium" recap shelf and four "The Download" containers reached the
+  reader as cards. The briefing path was safe (the newsletter rung already
+  refuses those titles); the feed was not, because `loadMatchedStories` never
+  asked the gate — verified with the gate's own code on the exact live strings
+  (`tmp/gate-probe.ts`, since removed): 4 of 5 ship, 1 refused. Two narrow
+  rungs added to `readiness.ts`: `transcript` (a summary opening on a speaker
+  name plus a parenthesised media timestamp; a clock time mentioned later in
+  the text keeps shipping, pinned as a negative control) and a `this week on`
+  shape on the newsletter rung (same kind and reason, so the audit needs no
+  change). `loadHomeFeed`'s matches branch filters through the same
+  `assessReadiness` on title plus summary only — coverage-dependent rungs skip
+  without loaded coverage, so the 2026-10-08 decision stands: single-source
+  preprints keep their feed place. Search stays ungated (it is the archive).
+  Fail-before proof: both rung tests and the feed test failed on the
+  unpatched tree (feed served all 3 junk shapes alongside the real story) and
+  pass after. Measured: `readiness.test.ts` 52/52, `story-flow.test.ts`
+  13/13, seven affected suites 135/135. Authority: the owner in-session — the
+  arbiter was unreachable from the session, which is AGENTS.md's first
+  escalation condition (same basis as the D8 owner ruling, 2026-10-11) — plus
+  the standing order that nothing but 10/10 reader output is next.
+
 ## 7. What is next
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates

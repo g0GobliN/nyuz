@@ -267,6 +267,77 @@ describe("reader flows never buy background synthesis", () => {
     expect(feed.stories.map((s) => s.id)).toContain(EVENT_ID);
   });
 
+  it("withholds non-news shapes from the home-feed matches branch", async () => {
+    // Live 2026-10-13: the briefing was quiet so the homepage showed raw
+    // matches — a transcript cue, a roundup container and a newsletter
+    // container reached the reader as cards. The matches branch applies the
+    // same gate the briefing path runs; coverage-dependent rungs skip (no
+    // kinds pass through here), so single-source preprints keep their place
+    // per the 2026-10-08 decision.
+    const db = bundledDb();
+    seedPendingNews(db);
+    await run(startFirstBriefing, db);
+    const now = new Date().toISOString();
+    const junk = [
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        title: "Imagine there’s no Shiny Hunters – AI could make human hacking crews obsolete",
+        what: "Brandon (00:29) So Jess, let’s start with the FBI’s continuing crusade against who seems to be its new arch nemesis, the Shiny Hunters cyber extortion crew.",
+      },
+      {
+        id: "44444444-4444-4444-8444-444444444444",
+        title:
+          "This week on Tom’s Hardware Premium: September 19, 2026 — Steam Frame interview, killer AI models, and the DRAM crisis deepens",
+        what: "Valve Steam Frame interview — why it costs up to $1,300, Snapdragon power, and 10x foveated streaming.",
+      },
+      {
+        id: "55555555-5555-4555-8555-555555555555",
+        title: "The Download: AI’s extinction risk and bioweapons threat",
+        what: "The specter of AI-enabled bioweapons is a wake-up call for biotech.",
+      },
+    ];
+    for (const j of junk) {
+      db.rows("events").push({
+        id: j.id,
+        title: j.title,
+        what_happened: j.what,
+        importance: 8,
+        novelty: 5,
+        publisher_count: 1,
+        before_state: null,
+        after_state: null,
+        first_seen_at: now,
+        last_updated_at: now,
+        analysed_at: now,
+        understand: null,
+      });
+      db.rows("articles").push({
+        id: `article-${j.id}`,
+        event_id: j.id,
+        url: `https://news.example.com/${j.id}`,
+        title: j.title,
+        published_at: now,
+        excerpt: j.what,
+        sources: { name: "Feed News" },
+      });
+      db.rows("user_events").push({
+        user_id: READER_ID,
+        event_id: j.id,
+        relevance: 9,
+        matched_at: now,
+      });
+    }
+    db.rows("digests").length = 0;
+    const feed = (await run(loadHomeFeed, db)) as {
+      source: string;
+      stories: { id: string }[];
+    };
+    expect(feed.source).toBe("matches");
+    const ids = feed.stories.map((s) => s.id);
+    expect(ids).toContain(EVENT_ID);
+    for (const j of junk) expect(ids).not.toContain(j.id);
+  });
+
   it("keeps a stored significance line and retires the archived filler shapes", async () => {
     // The archive is what the email said, so a real line survives verbatim —
     // but the follow fallback and the subject line are shapes the ladder

@@ -44,6 +44,7 @@ export type ArtifactKind =
   | "marketing"
   | "quote"
   | "primary-source"
+  | "transcript"
   | "unbriefable";
 
 export type ReadinessVerdict =
@@ -62,9 +63,22 @@ const COMMIT_MARKERS = /(?:assisted-by:|signed-off-by:|co-authored-by:|closes #\
 const BYLINE_SUMMARY =
   /^(?:posted by|by)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+,?\s+(?:senior|staff|principal|product|engineering|developer|technology).{0,80}$/i;
 
+/**
+ * A transcript cue standing where the news should be.
+ *
+ * Live 2026-10-13: a podcast episode reached the feed with show notes as its
+ * summary — "Brandon (00:29) So Jess, let's start with…". A speaker name
+ * opening onto a parenthesised media timestamp is a transcript convention;
+ * a news summary never opens that way, which is why the pattern is anchored
+ * to the opening and requires both parts. A clock time mentioned later in
+ * the text ("after a briefing (10:30) ended early") is ordinary reporting
+ * and keeps shipping.
+ */
+const TRANSCRIPT_CUE = /^\s*[A-Z][a-z]{2,}\s+\(\d{1,2}:\d{2}(?::\d{2})?\)/;
+
 /** Titles that announce the container rather than the news. */
 const NEWSLETTER_TITLE =
-  /(?:\bthe download\b|^coming soon:|\bweek in review\b|\bnewsletter\b|\bmorning briefing\b|\bdaily digest\b|\bwhat to read\b)/i;
+  /(?:\bthe download\b|^coming soon:|\bweek in review\b|\bnewsletter\b|\bmorning briefing\b|\bdaily digest\b|\bwhat to read\b|\bthis week on\b)/i;
 
 /**
  * A quote post wearing a headline: the title announces that a quotation
@@ -406,6 +420,10 @@ export function assessReadiness(input: {
 
   if (BYLINE_SUMMARY.test(what)) {
     return { ready: false, kind: "byline", reason: "summary is a byline, not news" };
+  }
+
+  if (TRANSCRIPT_CUE.test(what)) {
+    return { ready: false, kind: "transcript", reason: "summary is a transcript cue, not news" };
   }
 
   if (NEWSLETTER_TITLE.test(title)) {

@@ -152,6 +152,46 @@ describe("assessReadiness", () => {
     ).toEqual({ ready: false, kind: "byline", reason: expect.any(String) });
   });
 
+  it("drops the transcript cue standing in for a summary", () => {
+    // Live 2026-10-13: a podcast episode's show notes reached the feed —
+    // speaker, media timestamp and host chatter where the news should be.
+    expect(
+      assessReadiness({
+        title: "Imagine there’s no Shiny Hunters – AI could make human hacking crews obsolete",
+        whatHappened:
+          "Brandon (00:29) So Jess, let’s start with the FBI’s continuing crusade against who seems to be its new arch nemesis, the Shiny Hunters cyber extortion crew.",
+        sourceCount: 1,
+      }),
+    ).toEqual({ ready: false, kind: "transcript", reason: expect.any(String) });
+  });
+
+  it("keeps a real summary that merely mentions a clock time", () => {
+    // The transcript rung fires on a speaker cue plus a media timestamp at
+    // the opening — not on any clock time anywhere in the text.
+    expect(
+      assessReadiness({
+        title: "Council approves night-bus extension",
+        whatHappened:
+          "The council approved the night-bus extension after a briefing (10:30) ended early and the vote moved without debate.",
+        sourceCount: 1,
+      }).ready,
+    ).toBe(true);
+  });
+
+  it("drops the roundup container announcing itself, not the news", () => {
+    // Live 2026-10-13: a "This week on … Premium" recap shelf reached the
+    // feed — the container, not an event in the world.
+    expect(
+      assessReadiness({
+        title:
+          "This week on Tom’s Hardware Premium: September 19, 2026 — Steam Frame interview, killer AI models, and the DRAM crisis deepens",
+        whatHappened:
+          "Valve Steam Frame interview — why it costs up to $1,300, Snapdragon power, and 10x foveated streaming.",
+        sourceCount: 1,
+      }),
+    ).toEqual({ ready: false, kind: "newsletter", reason: expect.any(String) });
+  });
+
   it("drops newsletter containers and coming-soon announcements", () => {
     expect(
       assessReadiness({

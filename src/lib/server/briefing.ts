@@ -5,6 +5,7 @@ import { z } from "zod";
 import { scoreRelatedEvent } from "@/lib/related-events";
 import { rankEventTopics } from "@/lib/pipeline/topic-assign";
 import { reasonFor } from "@/lib/pipeline/inclusion";
+import { assessReadiness } from "@/lib/pipeline/readiness";
 import { signedInOnly } from "./guard";
 import { countOrThrow } from "@/lib/supabase/count";
 import { backfill, WINDOW_HOURS } from "@/lib/pipeline/backfill";
@@ -268,7 +269,7 @@ export const loadHomeFeed = createServerFn({ method: "GET" })
       const since = await loadMatchedStories(actor.db, actor.id, PAGE, latest.scheduled_for);
       if (since.length > 0) {
         return {
-          stories: since,
+          stories: gateHomeFeed(since),
           source: "matches",
           digestStatus: latest.status,
           scheduledFor: latest.scheduled_for,
@@ -287,9 +288,10 @@ export const loadHomeFeed = createServerFn({ method: "GET" })
     }
 
     const matches = await loadMatchedStories(actor.db, actor.id, PAGE);
+    const gated = gateHomeFeed(matches);
     return {
-      stories: matches,
-      source: matches.length > 0 ? "matches" : "empty",
+      stories: gated,
+      source: gated.length > 0 ? "matches" : "empty",
       digestStatus: latest?.status ?? null,
       scheduledFor: latest?.scheduled_for ?? null,
       nextAt,
@@ -1007,6 +1009,23 @@ async function digestReaderOf(db: Db, digestId: string): Promise<string | null> 
     .eq("digest_id", digestId)
     .maybeSingle();
   return data?.user_id ?? null;
+}
+
+/**
+ * The home feed shows cards, and a card is a title plus a summary — exactly
+ * what the reader-readiness gate judges. A shape the gate refuses (an empty
+ * summary, a byline, a transcript cue, a newsletter container) is
+ * unrecoverable at render time, so the matches branch withholds it here,
+ * with the same function the briefing path runs.
+ *
+ * Only title and summary pass through: coverage-dependent rungs (marketing
+ * shapes, primary-source, briefability) skip without loaded coverage rather
+ * than guessing, which keeps the 2026-10-08 decision intact — single-source
+ * preprints and code releases keep their feed place. Search stays ungated:
+ * it is a view of the archive and must stop where the archive stops.
+ */
+function gateHomeFeed(stories: Story[]): Story[] {
+  return stories.filter((s) => assessReadiness({ title: s.title, whatHappened: s.what }).ready);
 }
 
 /**

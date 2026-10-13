@@ -383,6 +383,7 @@ const WITHHELD_REASONS: readonly [WithheldFamily, readonly string[]][] = [
       "headline is an identifier",
       "commit message",
       "byline",
+      "transcript cue",
       "announces the container",
       "announces a quotation",
     ],
