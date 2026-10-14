@@ -89,6 +89,46 @@ function stripTags(fragment: string): string {
 }
 
 /**
+ * Headings that end the article body and start a separate sidebar or index.
+ *
+ * The Guardian's "What else we're reading about" section carries unrelated
+ * snippets from other stories (visa policy, water restrictions) that sit inside
+ * the same article column and reach the reader if extraction does not stop at
+ * the heading. The boundary is exact and structural: it matches the heading
+ * text, not the semantics of the sentences under it, so ordinary article prose
+ * is untouched.
+ */
+const STOP_HEADING_TEXTS = ["what else we're reading about", "what else we’re reading about"];
+
+/** Whether a heading is exactly one of the stop texts, plus optional trailing punctuation. */
+function isStopHeading(text: string): boolean {
+  const normalized = text
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  for (const stop of STOP_HEADING_TEXTS) {
+    if (normalized === stop) return true;
+    if (/^[-:;…!?.]+$/.test(normalized.slice(stop.length).trimStart())) return true;
+  }
+  return false;
+}
+
+/**
+ * The index in `html` where the article body ends, or -1 if no stop heading is
+ * found. Searches after furniture tags have been stripped, so a matching heading
+ * inside `aside`/`footer`/`nav` cannot trigger an early cut.
+ */
+function stopHeadingIndex(html: string): number {
+  const headingRe = /<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = headingRe.exec(html)) !== null) {
+    if (isStopHeading(match[1] ?? "")) return match.index ?? 0;
+  }
+  return -1;
+}
+
+/**
  * Main body text, one run per block -- never the raw HTML itself.
  *
  * Runs are separated by `STRUCTURAL_BREAK` rather than a space, so a caller can
@@ -101,6 +141,9 @@ export function extractMainText(html: string, maxChars = 20_000): string {
   for (const tag of STRIP_TAGS) {
     cleaned = cleaned.replace(new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`, "gi"), " ");
   }
+
+  const stopAt = stopHeadingIndex(cleaned);
+  if (stopAt >= 0) cleaned = cleaned.slice(0, stopAt);
 
   const paragraphs: string[] = [];
   const pRe = /<p\b[^>]*>([\s\S]*?)<\/p>/gi;

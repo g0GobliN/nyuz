@@ -682,6 +682,22 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   escalation condition (same basis as the D8 owner ruling, 2026-10-11) — plus
   the standing order that nothing but 10/10 reader output is next.
 
+- **2026-10-13 — GOB-6, Guardian newsletter sidebar boundary.** Board interaction
+  `20825b29-4359-4c90-8d18-a27ef7ab5e66` approved an exact heading boundary before changing
+  reader-visible output. `extractMainText` now stops at a `<h1>`–`<h6>` heading whose text is
+  exactly "What else we're reading about" (case-insensitive, optional trailing punctuation), so
+  the unrelated visa-policy and water-restriction snippets that followed the heading in the
+  Guardian story cannot enter evidence or the composed article. The boundary lives in the
+  structural extraction layer (`src/lib/pipeline/html-text.ts`) because that is where publisher
+  structure becomes text runs; it is not a broad relevance filter. Controls:
+  [html-text.test.ts](../src/lib/pipeline/html-text.test.ts) and
+  [reader-fixture-regression.test.ts](../src/lib/reader-fixture-regression.test.ts). Fail-before
+  demonstration: removing the heading causes the same snippets to be selected as evidence.
+  Validated: focused tests pass, `npx tsc --noEmit` clean. The frozen corpus was not available in
+  this workspace, so the existing-corpus audit could not be re-run; the fixture exercises the
+  captured Guardian case directly. Decision recorded in
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#gob-6--guardian-newsletter-sidebar-boundary-2026-10-13).
+
 ## 7. What is next
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates

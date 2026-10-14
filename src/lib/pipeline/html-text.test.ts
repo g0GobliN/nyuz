@@ -129,3 +129,69 @@ describe("extractMainText", () => {
     expect(text.length).toBeLessThanOrEqual(5_000);
   });
 });
+
+describe("extractMainText — exact heading boundary", () => {
+  const runs = (html: string) => extractMainText(html).split(STRUCTURAL_BREAK);
+
+  it("stops at the Guardian 'What else we're reading about' heading", () => {
+    const html =
+      "<article>" +
+      "<p>Shock and anger spread through the city after the new policy was announced on Tuesday.</p>" +
+      "<p>Officials said the measure would take effect within weeks and affect thousands of residents.</p>" +
+      "<h2>What else we're reading about</h2>" +
+      "<p>Visa policy changes have left hundreds of students uncertain about their status this autumn.</p>" +
+      "<p>Water restrictions are expected to tighten across the region after a dry summer.</p>" +
+      "</article>";
+    const text = extractMainText(html);
+    expect(text).toContain("Shock and anger spread");
+    expect(text).toContain("Officials said the measure");
+    expect(text).not.toContain("Visa policy changes");
+    expect(text).not.toContain("Water restrictions");
+    expect(text).not.toContain("What else");
+  });
+
+  it("stops at the heading with a curly apostrophe or trailing colon", () => {
+    const html =
+      "<p>The report was published on Monday.</p>" +
+      "<h2>What else we’re reading about:</h2>" +
+      "<p>Unrelated snippet from another story.</p>" +
+      "<p>The report found no wrongdoing.</p>";
+    const text = extractMainText(html);
+    expect(text).toContain("The report was published");
+    expect(text).not.toContain("Unrelated snippet");
+    expect(text).not.toContain("The report found no wrongdoing");
+  });
+
+  it("does not stop at a heading that merely contains the phrase", () => {
+    const html =
+      "<p>The main finding stands.</p>" +
+      "<h2>What else we're reading about today in Congress</h2>" +
+      "<p>The provision passed by a narrow margin.</p>";
+    const text = extractMainText(html);
+    expect(text).toContain("The main finding stands");
+    expect(text).toContain("The provision passed");
+  });
+
+  it("ignores the stop heading when it sits inside a stripped tag", () => {
+    const html =
+      "<aside><h2>What else we're reading about</h2><p>Sidebar content.</p></aside>" +
+      "<article><p>The article body remains.</p></article>";
+    const text = extractMainText(html);
+    expect(text).toContain("The article body remains");
+    expect(text).not.toContain("Sidebar content");
+  });
+
+  it("keeps ordinary article content and controls unchanged", () => {
+    const html =
+      "<p>First paragraph of the article.</p>" +
+      "<h2>Analysis</h2>" +
+      "<p>Second paragraph of the article.</p>" +
+      "<h3>What officials said</h3>" +
+      "<p>Third paragraph of the article.</p>";
+    expect(runs(html)).toEqual([
+      "First paragraph of the article.",
+      "Second paragraph of the article.",
+      "Third paragraph of the article.",
+    ]);
+  });
+});

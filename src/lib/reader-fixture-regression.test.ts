@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { composeArticle, composeArticleWithDiagnostics } from "./editorial";
+import { selectEvidenceUnits } from "./pipeline/evidence-extract";
+import { extractMainText } from "./pipeline/html-text";
 import { decodeEntities, hasSourceMetadata, hasVisibleEntity } from "./pipeline/source-text";
 import {
   selectReaderEvidence,
@@ -372,5 +374,117 @@ describe("the production story: structure the reader depends on", () => {
     expect(text).not.toContain(EXCERPT.slice(0, 60));
     expect(article.paragraphs.every((paragraph) => paragraph.text.trim() !== "")).toBe(true);
     expect(rendered().deck.text).not.toContain("Why identity built for humans");
+  });
+});
+
+/**
+ * GOB-6 — Guardian newsletter sidebar entering story evidence.
+ *
+ * The Guardian story "Shock, anger…" carried a "What else we're reading about"
+ * section with unrelated visa-policy and water-restriction snippets inside the
+ * same article column. Before the exact heading boundary, those snippets were
+ * extracted as ordinary paragraphs, selected as evidence, and composed into the
+ * reader's article. The fix is structural: extraction stops at the heading.
+ */
+describe("GOB-6 — Guardian sidebar boundary", () => {
+  const HEADLINE = "Shock, anger and protests after city announces new residency policy";
+
+  const GUARDIAN_HTML =
+    "<article>" +
+    "<h1>Shock, anger and protests after city announces new residency policy</h1>" +
+    "<p>Residents reacted with shock and anger on Tuesday after officials unveiled a new residency policy they said would reshape who can live and work in the city.</p>" +
+    "<p>The mayor's office said the measure, which takes effect next month, was designed to address a severe housing shortage and would be reviewed after six months.</p>" +
+    "<p>Civil rights groups promised legal challenges, arguing the policy unfairly targets low-income families and recent arrivals.</p>" +
+    "<h2>What else we're reading about</h2>" +
+    "<p>Visa changes for international students have left hundreds uncertain about their autumn plans, universities said.</p>" +
+    "<p>Water restrictions are expected to tighten across the southern region after the driest summer on record.</p>" +
+    "</article>";
+
+  const mainText = extractMainText(GUARDIAN_HTML);
+
+  const units = selectEvidenceUnits(mainText, undefined, HEADLINE);
+
+  const story = (): Story => ({
+    id: "guardian-sidebar-boundary",
+    org: "The Guardian",
+    title: HEADLINE,
+    what: "",
+    why: "",
+    importance: "High",
+    score: { relevance: 80, importance: 80, novelty: 60 },
+    sources: 1,
+    topics: ["Policy", "Housing"],
+    time: "",
+    publishedAt: "2026-10-13T09:00:00Z",
+    sourceList: [
+      {
+        name: "The Guardian",
+        at: "",
+        url: "https://www.theguardian.com/",
+        excerpt: mainText,
+        enrichedEvidence: units.map((unit) => {
+          if (unit.kind === "quote") {
+            return unit.attribution
+              ? { kind: "quote", text: unit.text, attribution: unit.attribution }
+              : { kind: "quote", text: unit.text };
+          }
+          return unit.entities
+            ? { kind: unit.kind, text: unit.text, entities: unit.entities }
+            : { kind: unit.kind, text: unit.text };
+        }),
+      },
+    ],
+    before: "",
+    after: "",
+    timeline: [],
+  });
+
+  const composed = () => composeArticleWithDiagnostics(story());
+
+  it("keeps the article's own reporting in the extracted text", () => {
+    expect(mainText).toContain("Residents reacted with shock and anger");
+    expect(mainText).toContain("mayor's office said the measure");
+    expect(mainText).toContain("Civil rights groups promised legal challenges");
+  });
+
+  it("does not extract the sidebar heading or the snippets after it", () => {
+    expect(mainText).not.toContain("What else");
+    expect(mainText).not.toContain("Visa changes");
+    expect(mainText).not.toContain("Water restrictions");
+  });
+
+  it("selects only the article's facts as evidence", () => {
+    expect(units.length).toBeGreaterThan(0);
+    const text = units.map((u) => u.text).join(" ");
+    expect(text).toMatch(/shock and anger|residency policy|housing shortage/i);
+    expect(text).not.toContain("Visa changes");
+    expect(text).not.toContain("Water restrictions");
+  });
+
+  it("fail-before: without the heading boundary the sidebar snippets become evidence", () => {
+    // Removing the heading collapses the sidebar into the article body, so the
+    // same sentences that are now excluded would be selected as evidence. This
+    // is the shape of the original defect: the heading existed but extraction
+    // did not honour it.
+    const withoutHeading = GUARDIAN_HTML.replace("<h2>What else we're reading about</h2>", "");
+    const unbounded = selectEvidenceUnits(extractMainText(withoutHeading), undefined, HEADLINE);
+    const text = unbounded.map((u) => u.text).join(" ");
+    expect(text).toContain("Visa changes");
+    expect(text).toContain("Water restrictions");
+  });
+
+  it("does not compose the sidebar snippets into the reader's article", () => {
+    const { article, diagnostics } = composed();
+    const text = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    expect(text).not.toContain("Visa changes");
+    expect(text).not.toContain("Water restrictions");
+    expect(text).not.toContain("What else");
+    expect(diagnostics.facts.lost).toBe(0);
+  });
+
+  it("still publishes the article's own reporting", () => {
+    const { article } = composed();
+    const text = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    expect(text).toMatch(/residency policy|housing shortage|legal challenges/i);
   });
 });

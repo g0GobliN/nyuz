@@ -895,3 +895,78 @@ result worth keeping beside the 6, because it is the difference between "address
 
 **Still not claimed:** that either class should refuse a story. No rule, no refusal, no gate change —
 the numbers above are what a ruling would be argued from, and they are not yet a case for one.
+
+## GOB-6 — Guardian newsletter sidebar boundary (2026-10-13)
+
+**Status: implemented.** Board interaction `20825b29-4359-4c90-8d18-a27ef7ab5e66` approved an exact
+heading boundary before changing reader-visible output.
+
+**Observed defect.** A live-read audit of the Guardian story titled “Shock, anger…” found the
+reader's article carrying unrelated visa-policy and water-restriction snippets from the story's
+separate “What else we're reading about” section. The composer included them, and the existing
+reader-visible defect audit did not count them. The boundary failure was structural: the section
+heading and its paragraphs sit inside the same article column, and `extractMainText` processed every
+`<p>` tag after the heading as ordinary article body.
+
+**Owner decision.** Place the boundary at the exact heading, in the structural extraction layer
+(`src/lib/pipeline/html-text.ts`), because that is where publisher structure becomes text runs. Do
+not add a broad relevance filter, a generic sidebar detector, or any unrelated quality change. Match
+the heading text exactly: "What else we're reading about", case-insensitive, with straight or curly
+apostrophe, and optional trailing punctuation (`:`, `…`, `.`, `?`, `!`, `-`).
+
+**Scope.** The change affects only HTML extraction. It stops paragraph collection at the matched
+heading. Existing stored excerpts and the frozen corpus are unchanged; new fetches and re-fetches
+apply the boundary. Ordinary article content, other headings, and all composer controls remain
+unchanged.
+
+**Validation.**
+- New unit tests in [html-text.test.ts](../../src/lib/pipeline/html-text.test.ts): the heading cuts
+  the run list; variants with curly apostrophe and trailing colon are honoured; headings that merely
+  contain the phrase are not cut; headings inside stripped furniture tags (`aside`) are ignored;
+  ordinary article headings remain intact.
+- New regression fixture in [reader-fixture-regression.test.ts](../../src/lib/reader-fixture-regression.test.ts)
+  proving the captured Guardian case: the article's own reporting stays in the extracted text,
+  evidence selection, and composed article; the sidebar heading and snippets are absent from all
+  three; and removing the heading reproduces the defect (the snippets become evidence).
+- `npx tsc --noEmit` clean.
+- Focused test run: `npx vitest run src/lib/pipeline/html-text.test.ts src/lib/reader-fixture-regression.test.ts`
+  passes (59 tests).
+- The frozen corpus was not present in this workspace (`tmp/` empty), so `npm run audit:reader --
+  --corpus tmp/corpus-after.json` could not be re-run. The fixture exercises the captured case
+  directly; the existing corpus is unaffected because the change applies at extraction time, not to
+  stored excerpts.
+
+**Measured reader-visible output for the captured case.**
+
+Before the boundary (simulated by removing the heading):
+
+```
+Deck: Residents reacted with shock and anger on Tuesday after officials unveiled a new
+residency policy they said would reshape who can live and work in the city.
+
+Paragraphs include:
+- The mayor's office said the measure, which takes effect next month, was designed to address
+  a severe housing shortage and would be reviewed after six months.
+- Civil rights groups promised legal challenges, arguing the policy unfairly targets low-income
+  families and recent arrivals.
+- Visa changes for international students have left hundreds uncertain about their autumn plans,
+  universities said.
+- Water restrictions are expected to tighten across the southern region after the driest summer
+  on record.
+```
+
+After the boundary:
+
+```
+Deck: Residents reacted with shock and anger on Tuesday after officials unveiled a new
+residency policy they said would reshape who can live and work in the city.
+
+Paragraphs:
+- The mayor's office said the measure, which takes effect next month, was designed to address
+  a severe housing shortage and would be reviewed after six months.
+- Civil rights groups promised legal challenges, arguing the policy unfairly targets low-income
+  families and recent arrivals.
+```
+
+The visa-policy and water-restriction snippets are no longer in the extracted text, evidence, or
+composed article. The fact ledger for the fixture reconciles (`lost: 0`).
