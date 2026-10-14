@@ -754,6 +754,39 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   access` with no antecedent). It explicitly did **not** declare reader quality 10/10 — the gate
   stays open until those categories are handled and the broader path is re-read.
 
+- **2026-10-14 — the deck the arbiter tracked separately, traced to its cause, ruled, and landed as
+  a second slice.** The deck of story `7af726e6` — `A set of taskflow YAMLs, one per stage, which are
+  essentially the prompts that tell the LLM agent what to do at each step.` — is not a damaged
+  sentence: it is **one item of the source's own bulleted list**, flattened into a paragraph by the
+  provider and published as the story's opening line (the two siblings stay in the body, held up by
+  the lead-in "There are three layers:"). Three rulers were measured over the live window before any
+  rule, and the numbers killed two: "no predicate before the relativizer" matched 82 of 7,870 units
+  and **every one was ordinary prose** ("Today's epic patch batch dwarfs September's record …, which
+  was already …" — "dwarfs" is invisible to the closed verb lists); adding verb morphology made it 91
+  of 7,870 with the same problem ("We present ToFu, a tool-aware framework that …"); requiring the
+  relativizer to be **set off by a comma**, with determiner-plus-verb-shaped noun heads masked ("A set
+  of …" — `IRREGULAR_PREDICATE` carries `set`) and code tokens skipped (or `fuzzing` in
+  `(run_fuzzing.sh)` reads as a verb), gave **12 of 7,842, 11 of them prose**. Landed: `noMainClause`
+  in [reader-evidence.ts](../src/lib/reader-evidence.ts), refused at `judgeFallbackDeck` as the
+  **existing** `malformed_sentence`, deck boundary only — **not** folded into `sourceFurnitureHead`,
+  as the arbiter required, and with the note where the unit-level hook would go explaining why it is
+  absent (11 of 12 hits are prose). **Narrowness with the shipped predicate:** 200 completed events,
+  192 published decks, 57 carrying a comma-set relative clause, **0 refused**; the production deck is
+  withheld (`deck.text === ""`, `deckReasons={"malformed_sentence":1}`) and the article opens on its
+  real first sentence; the non-comma shapes that share its grammar are complete sentences and are kept
+  ("A Ukrainian company that got rich … now outfits drones …", "A Silicon Valley startup that uses
+  weather balloons … won a US military contract …"). **A false positive the repo's own suite caught**
+  — `The photographer told Reuters that the image was taken on Monday.`, whose main verb `told` no
+  closed list carries — is what moved the rule to the comma-set form, and it is a negative control
+  now. **The arbiter accepted it** (ChatGPT `nyuz` project, 2026-10-14): accept as a separate
+  deck-boundary rule; **do not promote the next-ranked fact automatically** (a valid fact is not
+  necessarily a valid deck, and automatic fallback can hide the original failure); record the
+  non-comma limitation and do not widen on current evidence; an empty deck is acceptable here as
+  containment, not as proof that an empty deck is always best. Verified: `npx tsc --noEmit` clean,
+  12 new tests, 214 focused tests, the full suite at 189 files / 3,215 tests, the deploy gate, and the
+  rendered page (no empty-deck artifact). Full record with the ruled limits:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-incomplete-deck-a-published-list-item--ruled-and-landed-2026-10-14).
+
 ## 7. What is next
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates

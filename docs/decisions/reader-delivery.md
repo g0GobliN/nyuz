@@ -1053,3 +1053,79 @@ be folded into this rule):
 claimed is measured: four reader-visible welds are refused by a rule that matches one unit in
 7,926, `npx tsc --noEmit` is clean, the full suite passes 3,203 tests, and the local app renders
 both affected stories with the welds gone and the real facts kept.
+
+## The incomplete deck: a published list item — ruled and landed 2026-10-14
+
+**The defect, and where it comes from.** Story `7af726e6`'s deck, read at the deployed origin on
+2026-10-14, was:
+
+> `A set of taskflow YAMLs, one per stage, which are essentially the prompts that tell the LLM agent
+> what to do at each step.`
+
+It is not a truncated sentence. It is one item of the source's own **bulleted list**. The GitHub blog
+post writes a lead-in and three items — "There are three layers: a shell driver
+(`run_fuzzing.sh`) …, a set of taskflow YAMLs …, a set of MCP tools …" — the provider flattens the
+list into one paragraph, and the composer published the middle item as the story's opening line. Its
+two siblings are still published in the body, where the lead-in carries them:
+
+> `For the fuzzing task flow, the authors use Claude Sonnet 5 by default because it passed all of
+> their internal tests without issues. There are three layers: A shell driver (run_fuzzing.sh) that
+> chains the pipeline stages together. A set of MCP tools that the agent calls to actually do the
+> work: run AFL, compile a harness, store a crash, read a coverage report, and so on.`
+
+**Rulers measured before any rule** (live window: the newest 1,000 articles, 14 days, 7,870 units;
+three drafts, and the numbers killed two of them):
+
+| draft | shape | live-window result |
+| --- | --- | --- |
+| v1 | no predicate before the relativizer | **82 matches, every one ordinary prose** — "Today's epic patch batch dwarfs September's record of nearly 1,000 fixes, which was already …" ("dwarfs" is invisible to the closed verb lists) |
+| v2/v3 | + verb morphology, any relativizer | 91 matches, still dominated by prose — "We present ToFu, a tool-aware framework that …" (complementizer `that`) |
+| shipped | the relativizer must be **set off by a comma**, and the material outside it read with determiner-plus-verb-shaped noun heads masked | **12 of 7,842**, 11 of them prose ("Consumers fetch data …, like ClickHouse, which we rely on heavily.") |
+
+**What landed.** `noMainClause` in [reader-evidence.ts](../../src/lib/reader-evidence.ts): a unit whose
+only predicate is a comma-set relative clause's own verb. It reads the material outside the clause and
+treats a verb-shaped word directly after a determiner as the noun head it is — `IRREGULAR_PREDICATE`
+carries `set`, which is a verb in "the company set a record" and a noun in "a set of rules" — and it
+ignores a token carrying a bracket, an underscore, an internal dot or a digit, because
+`PREDICATE_MORPHOLOGY` otherwise reads the filename in "A shell driver (`run_fuzzing.sh`) that chains
+…" as a verb. Refused at `judgeFallbackDeck` as the **existing** `malformed_sentence`: no new reason
+string, no counter change, and deliberately **not** folded into `sourceFurnitureHead` — it is a
+separate classification, as the arbiter required. It is hooked at the deck boundary and nowhere else;
+`unitTextRejection` carries the note where the hook would go.
+
+**Narrowness, measured with the shipped predicate.** Live window, newest 200 completed events: 192
+published decks, 57 of them carrying a comma-set relative clause, **0 refused**. The production deck is
+refused — the composed article has `deck.text === ""` with `deckReasons={"malformed_sentence":1}` and
+opens on its real first sentence ("Even projects that have been enrolled in OSS-Fuzz for years can
+still hide critical bugs …"). At the unit boundary the same predicate refuses 12 of 7,842 live units
+and 11 of those are prose, which is why it has no hook there; two of the eleven are the reason the
+rule stops at the deck.
+
+**A false positive the repository's own suite caught, and what it changed.** The first draft refused
+`The photographer told Reuters that the image was taken on Monday.` — `told` is a main verb none of
+the closed lists carry ([reader-quality.test.ts](../../src/lib/reader-quality.test.ts)). That is what
+moved the rule to the comma-set form, and the sentence is a pinned negative control now.
+
+**The arbiter's ruling (ChatGPT `nyuz` project, 2026-10-14, asked with the numbers above).** **Accept**
+`noMainClause` as a separate, deck-boundary refusal rule. **Do not promote the next-ranked fact
+automatically**: withholding is the correct outcome for a list item, because repair would risk
+inventing source material, and "a valid fact is not necessarily a valid deck … automatic fallback can
+hide the original failure". **Record the non-comma limitation explicitly and do not broaden the rule**
+on current evidence — the two live shapes that share the item's grammar without the comma ("A
+Ukrainian company that got rich … now outfits drones …", "A Silicon Valley startup that uses weather
+balloons … won a US military contract …") are complete sentences and are kept, pinned as controls.
+Also ruled: an empty deck is acceptable as a *containment* outcome for this defect, not proof that an
+empty deck is always the best reader experience; that broader question stays open. **No widening** of
+the rule without new evidence.
+
+**Acceptance conditions set by the ruling, and their result:** `npx tsc --noEmit` clean; the 12 new
+tests pass; reader-quality + prose-rules + fixture-regression 214 pass; the full suite passes (189
+files / 3,215 tests); the deploy gate passes; the malformed deck stays withheld in a
+production-shaped run; the non-comma sentences and the Reuters sentence stay publishable; both valid
+list siblings stay in the body; and the rendered page starts on the article's own first sentence with
+no empty-deck artifact.
+
+**Not claimed.** That the class is solved. The non-comma shape is untouched, the two siblings are
+still published in body position, the deck is withheld rather than replaced, and 200 events is
+evidence of narrow observed behaviour, not proof of universal precision or recall. **The overall
+reader-quality gate remains open**, exactly as the arbiter restated.

@@ -28,6 +28,7 @@ import {
   sourceNameForEvidence,
   sourceMarkupOrUrl,
   sourceSeam,
+  noMainClause,
   readerSentences,
   validDeterministicParagraph,
   validDeterministicSentence,
@@ -1992,6 +1993,12 @@ export function judgeFallbackDeck(
   // And a stored summary that is a heading joined to its own prose is not a
   // sentence, however much of one its second half reads like.
   if (sourceSeam(text)) return { text: "", reason: "malformed_sentence" };
+  // And a stored summary that is a list item is not a sentence either: its one verb
+  // belongs to a relative clause, so the head is a noun phrase the page never
+  // completes. Withheld rather than repaired, on the ruling of 2026-10-14: recover
+  // the source's complete sentence when it is attributable, and a bulleted item has
+  // none to recover. See `noMainClause` for the live shape and the measurement.
+  if (noMainClause(text)) return { text: "", reason: "malformed_sentence" };
   if (hasVisibleEntity(text)) return { text: "", reason: "entity_leak" };
   if (editorialNoise(text)) return { text: "", reason: "editorial_noise" };
   if (!validDeckSentence(text)) return { text: "", reason: "malformed_sentence" };

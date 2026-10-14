@@ -537,6 +537,154 @@ export function sourceFurnitureHead(text: string): string | null {
 export function sourceSeam(text: string): string | null {
   return headingSeam(text) ?? creditInventory(text)?.run ?? sourceFurnitureHead(text) ?? null;
 }
+
+/**
+ * A relative clause that is set off by a comma, which is the only shape separable
+ * from prose.
+ *
+ * The comma is load-bearing, and it was measured rather than chosen. The first
+ * draft accepted a bare `which|who|whose|that` and refused the closed-set verb
+ * lists' blind spots into the bargain: "The photographer told Reuters that the
+ * image was taken on Monday." is a real sentence whose main verb, `told`, none of
+ * the lists carry (the repository's own reader-quality suite caught it), and "A
+ * Ukrainian company that got rich making cameras ... now outfits first-person-view
+ * drones ..." is the same shape a live window is full of. Neither has a comma
+ * before its relative clause. What a comma before `which|who|whose` marks is the
+ * other thing: a non-restrictive clause hung off a noun phrase -- "A set of
+ * taskflow YAMLs, one per stage, which are essentially the prompts that tell the
+ * LLM agent what to do at each step" -- where the head can be the whole unit.
+ * `that` is out for a second reason: as a complementizer it follows a reporting
+ * verb ("said that ..."), which is where the closed lists are weakest.
+ */
+const RELATIVE_CLAUSE = /,\s*(?:which|who|whose)\b/i;
+
+/**
+ * The determiners, after which a verb-shaped word is the noun head.
+ *
+ * The demonstratives are deliberately absent. "This marks the end ..." and "That
+ * leaves one option ..." are ordinary openings whose first word is a demonstrative
+ * *subject*, and reading the verb after it as a noun would refuse them -- the same
+ * mistake `SENTENCE_HEAD_OPENER` records in the other direction. What is left is the
+ * set that cannot be a subject: an article, a possessive, or a quantifier.
+ */
+const NOUN_HEAD_DETERMINER = new Set(
+  "a an the its their his her our your my any each every some no one two three".split(" "),
+);
+
+/** Whether a single token could be a finite verb, read on its own. */
+function verbShaped(token: string): boolean {
+  if (hasPredicate(token)) return true;
+  return /^[a-z]{3,}(?:s|es|ed|ing|d)$/.test(token);
+}
+
+/**
+ * The outside of a relative clause, with its verb-shaped noun heads read as nouns.
+ *
+ * Two operations, both of them about what is *not* the unit's predicate:
+ *
+ *   - everything from the first relativizer to the last comma after it is dropped,
+ *     because that is the clause the unit is hiding its verb in;
+ *   - a verb-shaped word directly after a determiner is dropped, because that is
+ *     where English puts a noun head -- "A set of taskflow YAMLs", "Their reports
+ *     of the incident" -- and `IRREGULAR_PREDICATE` carries `set`, which is a verb
+ *     in "the company set a record" and a noun in "a set of rules".
+ */
+function outsideRelativeClause(text: string): string {
+  const match = RELATIVE_CLAUSE.exec(text);
+  if (!match || match.index === undefined) return text;
+  const prefix = text.slice(0, match.index);
+  const rest = text.slice(match.index + match[0].length);
+  const lastComma = rest.lastIndexOf(",");
+  const tail = lastComma >= 0 ? rest.slice(lastComma + 1) : "";
+  return `${prefix} ${tail}`.trim();
+}
+
+function withoutNounHeads(text: string): string {
+  const tokens = text.split(/\s+/);
+  const kept: string[] = [];
+  for (const [index, token] of tokens.entries()) {
+    const word = token ?? "";
+    const bare = word.replace(/[^A-Za-z']/g, "");
+    const previous = (tokens[index - 1] ?? "").replace(/[^A-Za-z']/g, "");
+    if (bare !== "" && NOUN_HEAD_DETERMINER.has(previous.toLowerCase()) && verbShaped(bare)) {
+      continue;
+    }
+    // A filename or an identifier is not a word of the sentence. The live sibling
+    // of the production item -- "A shell driver (run_fuzzing.sh) that chains the
+    // pipeline stages together." -- is refused by this test only because the
+    // filename is dropped: `PREDICATE_MORPHOLOGY` reads `fuzzing` as a verb, which
+    // would have published the item on the punctuation of its own path. A token
+    // carrying a bracket, an underscore, an internal dot or a digit is code, and
+    // code is not a clause.
+    if (/[()_]|\d|\.\S/.test(word)) continue;
+    kept.push(word);
+  }
+  return kept.join(" ");
+}
+
+/**
+ * A unit whose only predicate is a relative clause's own verb.
+ *
+ * The live shape (deployed origin, 2026-10-14, story 7af726e6, published as the
+ * story's deck):
+ *
+ *   "A set of taskflow YAMLs, one per stage, which are essentially the prompts
+ *    that tell the LLM agent what to do at each step."
+ *
+ * The source wrote that as one item of a bulleted list; the provider flattened the
+ * list into a paragraph, and the item reached the reader as prose. It is a noun
+ * phrase with a relative clause -- the reader is told a list exists and then given
+ * one of its parts with no clause to carry it.
+ *
+ * `hasPredicate` cannot see this, for two reasons that pull in opposite directions
+ * and both matter:
+ *
+ *   - the unit *does* carry a verb, and the predicate test finds it -- `are`, in the
+ *     relative clause -- which is exactly what has to be ignored;
+ *   - a noun head can look like a verb, and the reverse is what let the item past
+ *     the deck's own judge: `IRREGULAR_PREDICATE` carries `set`, and "A set of ..."
+ *     satisfied it.
+ *
+ * So the test reads the material outside the relative clause, with a
+ * determiner-plus-verb-shaped word read as the noun head it is, and refuses the unit
+ * only when nothing outside can be its predicate. Kept whole is every sentence that
+ * resumes after its own relative clause -- "The company set a new record, which
+ * analysts had expected" (a verb, not after a determiner), "A cryptocurrency
+ * exchange ... is being sued ..., which the company says ..." (a predicate before
+ * the clause), "The photographer told Reuters that the image was taken on Monday."
+ * (a complementizer, and a main verb no list carries).
+ *
+ * Measured over the live window (2026-10-14: the newest 200 completed events, 192
+ * published decks, 57 of them carrying a comma-set relative clause): refuses the
+ * production deck above and none of the 57, every one of which is a real sentence.
+ * The same test at the unit boundary refuses 12 of 7,842 live units and 11 of those
+ * are prose, which is why it has no hook there -- see the note in
+ * `unitTextRejection`. The negative controls are pinned in
+ * reader-deck-clause.test.ts, including the two live shapes that share the
+ * production item's grammar without its comma ("A Ukrainian company that got rich
+ * making cameras ... now outfits drones ...", "A Silicon Valley startup that uses
+ * weather balloons and AI ... won a US military contract ..."), which this rule
+ * cannot and must not refuse. Limits, in the same terms the furniture rule records:
+ * 200 events is evidence of narrow observed behaviour, not proof of universal
+ * precision or recall, and this rule must not grow into a general grammar validator.
+ */
+export function noMainClause(text: string): boolean {
+  if (!RELATIVE_CLAUSE.test(text)) return false;
+  const outside = withoutNounHeads(outsideRelativeClause(text));
+  if (hasPredicate(outside)) return false;
+  // A third-person verb the closed stems do not carry ("heads the division", "notes
+  // that ...") arrives as a lowercase word ending in `s`, which is exactly how a
+  // plural noun arrives too -- "tools" in the live sibling
+  // "A set of MCP tools that the agent calls ..., and so on." is what a bare `-s`
+  // morphology test would read as a predicate. The follower is what separates them:
+  // a verb takes an object or a clause, a plural noun in that position takes "and",
+  // a comma or nothing. Erring towards keeping the unit is deliberate: a plural noun
+  // followed by a preposition can still look like a verb here, and that costs a
+  // published fragment, not a refused sentence.
+  return !/\b[a-z]{3,}s\s+(?:the|a|an|its|their|his|her|our|your|that|this|these|those|it|them|to|for|with|from|after|on|in|by|into|at|over|under|about)\b/.test(
+    outside,
+  );
+}
 const NOISE =
   /\b(?:welcome back|weekly column|this week['’]s (?:column|newsletter)|as regular readers know|subscribe to|sign up for|click here|read more|continue reading|cookie policy|all rights reserved|follow us on|share this article|related articles|the coverage centers on|amount mentioned|percentage mentioned|entity mentioned|source count|evidence suggests|nyuz has also covered)\b|\bthe post\b.*\bappeared first on\b|^(?:advertisement|image credit|photo credit|hopefully\b|the takeaway\b|appeared first on\b|(?:apply|register|sign up)\s+(?:now|today|here)\b|put (?:these|those) ideas in practice\b)/i;
 
@@ -2996,6 +3144,19 @@ export function unitTextRejection(
   // category of its own, because that is exactly what the unit stopped being: one
   // sentence. See `sourceSeam` for why the seam cannot be cut back apart.
   if (sourceSeam(text)) return "invalid_sentence";
+  // `noMainClause` deliberately has no hook here. Measured 2026-10-14 over 7,842
+  // live-window units, the shipped rule refuses 12, and 11 of them are ordinary
+  // prose the reader must keep: "Today's epic patch batch dwarfs September's record
+  // of nearly 1,000 fixes, which was already about ten times the normal monthly
+  // patch load from Redmond.", "Consumers fetch data from Buftee ..., like
+  // ClickHouse, which we rely on heavily.", "The attack comes during a particularly
+  // miserable spell for fashion retailers, which seem to be attracting
+  // cybercriminals ...". Each carries a main-clause verb the closed verb lists do
+  // not hold ("dwarfs"), or a main clause the comma cut cannot reach. At the deck
+  // boundary the same test refuses none of the 57 live decks that carry a relative
+  // clause, and that is where the defect was read: a body sentence has the block
+  // before it, and the deck has nothing.
+  //
   // A unit that begins inside a name the source spells in full elsewhere:
   // "Rowe Price, large institutional investors ..." after "Wellington and T.
   // Rowe Price" is the tail of one sentence that an earlier split cut in half at
