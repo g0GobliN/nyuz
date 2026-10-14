@@ -716,6 +716,17 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   bag, and the two previously red `prices.test.ts` cases now pass unchanged. Full suite
   3165/3165 (2026-10-14, `npx vitest run`), `npx tsc --noEmit` clean, lint 0 errors.
 
+- **2026-10-14 — GOB-10 verification: reproduced, judged, and added a price-layer regression
+  test.** The pre-fix failure was reproduced in a scratch worktree by reverting only the
+  `envValue` one-liner; the two `prices.test.ts` cases and the new `runtime-env.test.ts` case
+  failed exactly as described. The committed fix was judged minimal and correct: an explicit bag
+  is authoritative, ambient is read only when the caller had no bag, and every audited explicit-bag
+  call site either passes a full env or intentionally treats a missing name as unconfigured. A new
+  test in [prices.test.ts](../src/lib/server/stripe/prices.test.ts) stubs ambient
+  `STRIPE_PRICE_PLURA_ANNUAL` and asserts `priceIdFor("plura", "year", partial)` returns `null`
+  instead of charging from another context. Re-run: full suite **3166/3166**, `npx tsc --noEmit`
+  clean, lint 0 errors.
+
 ## 7. What is next
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { priceCatalogueConfigured, priceIdFor, resolvePrice, type PriceEnv } from "./prices";
 import { stripePriceMatches, type StripePrice } from "./api";
 
@@ -63,6 +63,15 @@ describe("grandfathered prices", () => {
     // Annual is not set in this env. Refusing is correct; falling back to the
     // monthly id would charge the wrong amount.
     expect(priceIdFor("plura", "year", env)).toBeNull();
+  });
+
+  it("refuses a sale when the price name is missing from the explicit env, even if ambient has it", () => {
+    // The old envValue fallback would complete a partial PriceEnv from
+    // process.env and charge from a configuration the caller never had.
+    vi.stubEnv("STRIPE_PRICE_PLURA_ANNUAL", "price_ambient_annual");
+    const partial: PriceEnv = { STRIPE_PRICE_PLURA_MONTHLY: "price_partial_monthly" };
+    expect(priceIdFor("plura", "year", partial)).toBeNull();
+    expect(priceCatalogueConfigured(partial)).toBe(true);
   });
 });
 
