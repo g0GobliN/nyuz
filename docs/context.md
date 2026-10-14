@@ -1072,3 +1072,36 @@ hooks driving PGlite) and the filesystem-walking `ai/callsites.test.ts` (60s tes
 pass unchanged with `npx vitest run --coverage --maxWorkers=2` (verified 2026-10-11: 41 tests, 64s).
 A red run that names only those files is worker starvation, not a broken change — check whether the
 diff touches them before believing the failure.
+
+- **2026-10-14 — defect 5, the unestablished first person, ruled and landed as a third slice.**
+  `Two vulnerabilities chained together gave us access to ChatGPT and Codex accounts belonging to
+  OpenAI employees.` published on the deployed origin while its own sibling (`We demonstrated …`) was
+  rewritten to `The authors demonstrated …`. **Cause, located rather than guessed:** `resolveNarrator`'s
+  opening guard tested only the subject forms (`I / we / my / our`), so a unit whose only
+  first-person token was an object or possessive pronoun never entered the function and its five
+  resolution steps — whose last step has always been an `ambiguous` refusal — never ran; `VOICE`
+  in `publisherVoice` has the same gap, deliberately, because under `/i` `us` is the country.
+  **A false premise caught in my own probe, twice:** with `/i` the class measured 30; case-exact it is
+  **27 of 7,816 live units**, in three shapes — 6 own-work (all arXiv: "This allows us to harness the
+  accuracy of tree-based models like XGBoost …"), 3 community, 3 newsroom ("she told us during an
+  interview"), 4 company-blog handover, 11 other object pronouns. **A blind substitution was simulated
+  and refused by the data:** it rewrites an audience into a paper's author list in 6 of 17 units,
+  which is a worse defect than the one it fixes. **Reader-facing before the fix:** 200 completed
+  events, 928 published blocks, **7 carrying an object-only first person, none of them own-work**.
+  **Ruling** (ChatGPT `nyuz` project, 2026-10-14): **Option 2 with a strict attribution
+  requirement** — widen the guard case-aware (never `US`), one narrow own-work resolution only where
+  source attribution establishes the actor and the substitution preserves meaning, the verified actor
+  noun rather than a pronoun, community and newsroom voice never substituted to the authors, **no new
+  reason string or counter**, `renameNarratorPronouns` unchanged, Option 3 rejected, and the window
+  rerun against the shipped code. **Landed:** `NARRATOR_OBJECT` + `restoreNarratorBeneficiary` in
+  [reader-evidence.ts](../src/lib/reader-evidence.ts), and the composer's entity path in
+  [editorial.ts](../src/lib/editorial.ts) now asks the same resolver — it was publishing a unit the
+  evidence pass had already refused (the NetBSD story's community sentence, traced rather than
+  assumed). **Re-measured:** 27 candidates → **6 resolved, 21 withheld, 0 preserved**; reader-facing
+  **7 of 928 → 0 of 938 published blocks**; 23 new tests, two of which were deleted because they
+  passed with the fix removed. **Limits, recorded rather than glossed:** community and newsroom voice
+  is withheld, not repaired, so legitimate interview quotes and audience-directed constructions
+  (`shows us that …`) are dropped — whether an audience `us` should publish unchanged is the next
+  question for the arbiter; the resolution's entity-path branch is preventive (0 live cases); and
+  **the overall reader-quality gate stays open**. Full record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-unestablished-first-person--the-defect-the-narrator-resolver-never-saw-2026-10-14-ruled-and-landed).

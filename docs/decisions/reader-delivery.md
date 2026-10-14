@@ -1139,3 +1139,117 @@ no empty-deck artifact.
 still published in body position, the deck is withheld rather than replaced, and 200 events is
 evidence of narrow observed behaviour, not proof of universal precision or recall. **The overall
 reader-quality gate remains open**, exactly as the arbiter restated.
+
+## The unestablished first person — the defect the narrator resolver never saw (2026-10-14, ruled and landed)
+
+**The defect, read on the deployed origin.** The sentence below published as written, while the
+sentence beside it — same source, same excerpt — was already rewritten:
+
+> Two vulnerabilities chained together gave us access to ChatGPT and Codex accounts belonging to
+> OpenAI employees.
+
+Its sibling `We demonstrated …` published as `The authors demonstrated …`. A reader cannot tell who
+`us` is: the page never establishes it.
+
+**Cause, located in the shipped code — not guessed.** `resolveNarrator`'s opening guard tested only
+the subject forms (`I / we / my / our`). A unit whose only first-person token was an object or
+possessive pronoun never entered the function at all, so the five resolution steps behind that guard
+— whose last step has always been an `ambiguous` refusal — never ran on it. The same gap sits in
+`publisherVoice`'s `VOICE` set, which has never carried `us`: under a case-insensitive test it is
+the country.
+
+**A false premise caught in the first measurement, twice.** The first draft of the live probe used
+`/i`, so `us` matched `US` — "the US", "US officials", "the US Army" — and the class measured **30**.
+Corrected case-exact, it is **27 of 7,816 live units** (newest 1,000 articles, 14 days), in three
+shapes:
+
+| shape | live units | what `us` is |
+| --- | --- | --- |
+| own work (`authors/ENABLE`) | 6 | the paper describing its own method ("This allows us to harness the accuracy of tree-based models like XGBoost …", all six arXiv) |
+| community | 3 | an audience or a group ("those of us who actively wish to avoid it", "For us, … was AI") |
+| newsroom recipient | 3 | the outlet's own desk ("… she told us during an interview", "u/cal93_'s latest Reddit update gave us more details …") |
+| handover, company blog | 4 | the source's own engineers ("MoQ gives us the foundation …", "… they do not always tell us …") |
+| other object pronouns | 11 | "sounds to me like", "That to me sounds like", "congratulates me", … |
+
+**The remedy was simulated before it was asked for, and the simulation killed one of the two.** A
+blind third-person substitution — the obvious fix — rewrites an audience into a paper's author list
+("those of us who actively wish to avoid it" → "those of *the authors* who actively wish to avoid
+it") and mis-attributes a Reddit-sourced transaction to the authors, in **6 of 17** units of the
+first (uncorrected) set. That is a worse reader defect than the one it fixes, and it is why the
+ruling below is not "rewrite them".
+
+**The reader-facing population, before the fix.** Composing the live window — 200 completed events,
+**928 published blocks** — **7 blocks** carried an object-only first-person token, and **none of them
+was the own-work shape**: three newsroom, three audience, one the source's own engineers. The class
+that reaches a reader is not the class the resolution targets, which is what made "withhold" the safe
+direction and "resolve" the narrow exception.
+
+**The ruling (ChatGPT `nyuz` project, 2026-10-14, asked with the numbers above).** **Option 2, with a
+strict attribution requirement.** Option 1 (withhold all 27) rejected: "Nyuz should not equate
+caution with indiscriminate suppression." Option 3 (rewrite a newsroom's "told us" into "she said in
+an interview") **rejected outright** for this slice — a newsroom-voice transformation needs its own
+evidence.
+
+- **Guard.** Recognise the first-person subject, object and possessive forms, case-aware, "without
+  matching unrelated words such as US"; the existing resolution flow stays the primary mechanism.
+- **Own-work resolution.** Apply only where source attribution establishes the actor *and* the
+  substitution preserves meaning. The source's identity alone is **not** enough: "the presence of a
+  research-paper source does not, by itself, establish that every first-person plural pronoun refers
+  exclusively to the paper's authors."
+- **Actor noun, never a pronoun.** "Use the verified actor noun for own-work cases; do not introduce
+  an unsupported pronoun" — replacing `us` with `them` "introduces a referent the page has not
+  established".
+- **Community and newsroom voice.** Never substituted to the authors; preserved when the referent is
+  clear under existing rules, otherwise withheld through the existing `ambiguous` path.
+- **No new reason string, no counter change.** "Do not add a reason string, counter, or separate
+  public failure category merely to make the new code look more explicit."
+- **`renameNarratorPronouns` unchanged**, and the defect class belongs in the documentation and the
+  tests rather than in the runtime taxonomy.
+- The 27 is "the observed candidate set for the proposed broader guard, not necessarily the final
+  number of withheld units under Option 2", and the window had to be **rerun against the shipped
+  implementation** with dispositions recorded by class.
+- **The overall reader-quality gate remains open.**
+
+**Landed.** `reader-evidence.ts`: the guard now takes a case-exact object/possessive token test
+(`NARRATOR_OBJECT`, letters-only tokens so `us-west-2` and `/docs/us/install` are not pronouns), and
+one new resolution, `restoreNarratorBeneficiary`, fires only when **both** conditions of the ruling
+hold — the source's identity carries `the authors` (a repository source, `person === "authors"`) and
+the sentence makes the narrator the beneficiary of its own work's enabling verb
+(`lets/allows/enables/permits/leads/helps us`). Everything else object-only falls to the existing
+`ambiguous` refusal, counted as `narrator_ambiguous`. `editorial.ts`: the composer's entity path —
+which rebuilds a sentence straight out of the source excerpt whenever it names an entity — applies
+the **same** resolver, because it was publishing a unit the evidence pass had already refused.
+
+**Re-measured with the shipped implementation.**
+
+- **Dispositions on the live window: 27 candidates → 6 resolved** (every one the arXiv own-work
+  shape, published with `the authors` named) and **21 withheld**, none preserved.
+- **Reader-facing: 7 of 928 published blocks → 0 of 938.** The two survivors of the first
+  post-fix scan were both traced, not assumed: the community sentence named NetBSD, so the
+  composer's entity path published it after the evidence pass had refused it; with that path asking
+  the same resolver, the block is gone. Re-measured with the composed window: **0 object-only
+  first-person blocks**, and the earlier welds (furniture, list-item deck) stay gone.
+- **Verified:** `npx tsc --noEmit` clean; 23 tests in
+  [reader-narrator-object.test.ts](../../src/lib/reader-narrator-object.test.ts) including the six
+  country controls, the quotation gate, the code-token controls and the end-to-end refusal counted as
+  `narrator_ambiguous`; reader-quality + prose-rules + fixture-regression 248 pass; the full suite and
+  the deploy gate as recorded in [context.md](../context.md).
+- **Proven fail-before, not assumed:** with the entity path's narrator step removed, its community
+  test fails; with the guard unwidened, 9 of the 23 fail. Two candidate tests that passed either way
+  were **deleted** rather than kept, because a test that passes with the fix removed proves nothing.
+
+**Not claimed, and the limits this leaves open.**
+
+- **Community and newsroom voice is withheld, not repaired.** 21 of the 27 live candidates are
+  withheld, including legitimate interview quotes ("… she told us during an interview") and
+  audience-directed constructions ("the E-T16 Concept shows us that …", "… will take us inside …").
+  The ruling's preserve-when-the-referent-is-clear clause was implemented as *not rewritten*; whether
+  an audience-addressed `us` should publish unchanged is **not settled by this slice** and is the
+  next question for the arbiter.
+- **The resolution's firing set is tiny** (6 units in a 14-day window, none of which reaches a reader
+  in the composed 200-event window) and its entity-path branch is **preventive**, measured as 0 live
+  cases.
+- **No story-level check** exists that a paragraph opens on a referent the page establishes — this
+  slice is rule-level on one pronoun class.
+- The class was measured on one window; 27 and 6 are observations, not precision and recall. **Reader
+  quality is not 10/10 and the gate stays open.**

@@ -1425,6 +1425,106 @@ function restoreNarratorActor(text: string, person: "author" | "authors"): strin
 }
 
 /**
+ * The object and possessive first-person forms, case-exact.
+ *
+ * Case-exact is the whole point, and it cost this class two drafts to learn: under
+ * a case-insensitive test `us` matches the country -- "the US", "US officials",
+ * "the US Army" -- and 40 of 57 hits in one draft of the live probe were the
+ * country rather than a pronoun, which is how an earlier draft of the class
+ * measured 30 units where there are 17. `NARRATOR_LEFTOVER` below has been
+ * case-sensitive for the same reason since it was written; this set is its
+ * counterpart for the guard.
+ *
+ * A sentence-initial `Us` is carried (`Us four went home`), an all-caps `US` is
+ * not.
+ */
+const NARRATOR_OBJECT = new Set([
+  "me",
+  "us",
+  "mine",
+  "ours",
+  "myself",
+  "ourselves",
+  "Me",
+  "Us",
+  "Mine",
+  "Ours",
+  "Myself",
+  "Ourselves",
+]);
+
+/**
+ * Whether the text carries an object or possessive first-person pronoun.
+ *
+ * Read token by token rather than as a substring, so a pronoun inside a URL, a
+ * path or a hyphenated code token is not a pronoun: `us-west-2`, `/docs/us/
+ * install` and `https://example.com/us` are all in the live window, and three of
+ * its first-draft hits were exactly that. A token has to be letters only to count.
+ */
+function hasFirstPersonObject(text: string): boolean {
+  return text
+    .split(/\s+/)
+    .some((word) => NARRATOR_OBJECT.has(word.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, "")));
+}
+
+/**
+ * The verbs that say the sentence's own work enabled something, with the narrator
+ * as what it enabled.
+ *
+ * Closed on purpose. A general "<verb> us" test would take in the newsroom and the
+ * community as well: "she told us during an interview" and "u/cal93_'s latest
+ * Reddit update gave us more details" are the same grammar with a different
+ * referent, and renaming either to the authors writes a fact the source never
+ * wrote. The enabled-and-derived verbs are the ones a source uses about its own
+ * method, which is the shape the ruling allowed to be resolved.
+ */
+const NARRATOR_BENEFIT = /\b(?:lets?|allows?|enables?|permits?|leads?|helps?)\s+(us)\b/i;
+
+/**
+ * The narrator's sentence with the actor named, reached from an object rather than
+ * a subject pronoun -- or null when naming the actor would be a guess.
+ *
+ * The ruling (2026-10-14, defect 5) drew this boundary, and both halves of the
+ * guard below are its conditions rather than this file's preference:
+ *
+ * - **The actor noun must come from the source's own attribution.** Only a
+ *   repository source carries "the authors" (`person === "authors"` in
+ *   `selectReaderEvidence`, where the source's identity in the attribution is
+ *   decided). A blog or a news desk would be handed "the author" -- a number the
+ *   sentence never states -- so those withhold instead, and the ruling is explicit
+ *   that the source's identity alone is not enough to name an actor.
+ * - **The sentence has to make the narrator the thing its own work enabled.** The
+ *   measured live unit is "This allows us to harness the accuracy of tree-based
+ *   models like XGBoost ..." (arXiv cs.LG), one of six the window carries. A paper
+ *   that says "allows those of us who teach" is not that sentence: the group sits
+ *   between the verb and the pronoun, so the pattern below never matches it, and
+ *   neither the community nor the newsroom shape is ever rewritten to an author.
+ *
+ * Nothing but the actor changes: the verb, its tense and its object are the
+ * source's own words, so the rewrite cannot invent a fact. No pronoun is ever
+ * written -- "gave them access" would name a referent the page never establishes,
+ * which is the defect this resolution exists to avoid rather than to reintroduce.
+ */
+function restoreNarratorBeneficiary(text: string, person: "author" | "authors"): string | null {
+  if (person !== "authors") return null;
+  const benefit = NARRATOR_BENEFIT.exec(text);
+  if (benefit === null) return null;
+  const pronoun = benefit[1] ?? "";
+  // The country is not a pronoun, and the pattern above is case-insensitive so
+  // that a capitalised verb is matched at the start of a sentence.
+  if (pronoun !== "us" && pronoun !== "Us") return null;
+  const at = benefit.index + benefit[0].length - pronoun.length;
+  const named = cleanDeterministicSentence(
+    `${text.slice(0, at)}the authors${text.slice(at + pronoun.length)}`,
+  );
+  if (!hasPredicate(named) || !validDeterministicSentence(named)) return null;
+  // Nothing first-person may survive the rewrite, and no pronoun may be written
+  // in its place: the actor is a noun the source's attribution carries.
+  if (hasFirstPersonObject(named) || /\b(?:I|we|my|our)\b/i.test(named)) return null;
+  return named;
+}
+
+/**
  * The narrator's sentence as a published fact, or null when it is not one.
  *
  * `person` is the source's identity in the attribution: `the author` for a blog or
@@ -1440,7 +1540,18 @@ export function resolveNarrator(
   if (trimmed === "") return null;
   const unquoted = trimmed.replace(/"[^"\n]*"|“[^”\n]*”/g, "");
   // Nothing about the narrator's voice is present: not this function's business.
-  if (!/\b(?:I|we|my|our)\b/i.test(unquoted)) return null;
+  //
+  // The object half of this test is what defect 5 in the reader-quality loop was
+  // missing. The subject regex alone meant a unit whose only first-person token
+  // was an object or possessive pronoun bypassed the whole function -- the five
+  // steps below never ran, and "Two vulnerabilities chained together gave us
+  // access to ChatGPT and Codex accounts belonging to OpenAI employees."
+  // published on the deployed origin while its own sibling ("We demonstrated
+  // ...", same source, same paragraph) was rewritten to "The authors
+  // demonstrated ...". Measured on the live window before the fix: 27 of 7,816
+  // reader units, all of them publishing unclassified, 7 of them reaching a
+  // reader as composed prose.
+  if (!/\b(?:I|we|my|our)\b/i.test(unquoted) && !hasFirstPersonObject(unquoted)) return null;
   // Publication furniture, commentary and loaded colour keep the refusals they
   // already have -- newsletter lines, "we all know", a metaphor standing in for an
   // event -- so the counter that says *why* a sentence went stays accurate. Only
@@ -1551,7 +1662,19 @@ export function resolveNarrator(
   const claim = restoreNarratorActor(trimmed, person);
   if (claim !== null) return { text: claim, kind: "claim" };
 
-  // 5. Anything else: the narrator's subject cannot be restored without guessing.
+  // 5. The source's own work with the narrator as the thing it enables: the same
+  //    rewrite as 4, reached from an object pronoun rather than a subject one.
+  const benefit = restoreNarratorBeneficiary(trimmed, person);
+  if (benefit !== null) return { text: benefit, kind: "claim" };
+
+  // 6. Anything else: the narrator's referent cannot be established without
+  //    guessing. `us` here may be a paper's authors, an outlet's newsroom, an
+  //    audience or a community, and the sentence does not say which -- so it is
+  //    withheld through the path this function has always had, under the reason
+  //    string the taxonomy already carries (`narrator_ambiguous`). Measured
+  //    cost of that choice: 6 of the window's 7 published units, all of them the
+  //    community and newsroom shapes a blind substitution would have
+  //    mis-attributed.
   return { text: "", kind: "ambiguous" };
 }
 

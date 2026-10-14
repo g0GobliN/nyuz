@@ -14,6 +14,7 @@ import {
   keepSample,
   normalizeRelativeTime,
   recoverableContext,
+  resolveNarrator,
   stripUnanchorableTime,
   unitTextRejection,
   unresolvableContext,
@@ -792,6 +793,11 @@ function supplementalEntityFacts(
   );
   story.sourceList.forEach((source, sourceIndex) => {
     const sentences = readerSentences(source.excerpt ?? "");
+    // The identity the evidence pass hands its narrator resolution, computed the
+    // same way from the same field: a paper's authors are plural and a news
+    // desk's narrator is one person. Both paths have to agree about who "us" is,
+    // because this one publishes the source's raw sentence.
+    const person: "author" | "authors" = isRepositorySourceName(source.name) ? "authors" : "author";
     // The same context the evidence pass reads -- the source's whole text -- so
     // every textual rule fires here exactly as it fired there. A rule that
     // needs the source's own words (a newsletter's index, a name cut at an
@@ -855,16 +861,29 @@ function supplementalEntityFacts(
       // as a manual problem" and then, again, "Perhaps predictably for a company
       // that built its success on automated verification, DigiCert doesn't see
       // agent management as a manual problem".
-      const carriesSelected = selection.facts.some((fact) => carries([text], fact.text));
+      // The narrator rule, for the reason the boundary above is here: this path
+      // rebuilds the source's sentence, so a unit the evidence pass refused as an
+      // unestablished first person came back through this one. Measured on the
+      // live window (2026-10-14): "For us, the single most dominant theme in the
+      // talks, the materials, the stands, and even the T-shirts was AI." was
+      // counted as `narrator_ambiguous` and then published by this path, because
+      // the sentence names NetBSD -- and `publisherVoice`'s VOICE set has never
+      // carried `us`, since under a case-insensitive test it matches the country.
+      // A sentence the resolution *does* resolve publishes its resolved form, so
+      // the same fact cannot reach the page twice in two different voices.
+      const narrated = resolveNarrator(text, person);
+      if (narrated?.kind === "ambiguous") continue;
+      const published = narrated === null ? text : cleanDeterministicSentence(narrated.text);
+      const carriesSelected = selection.facts.some((fact) => carries([published], fact.text));
       if (
         !carriesSelected &&
-        unitTextRejection(text, false, sourceContext) === null &&
-        !editorialNoise(text) &&
-        !headingUnit(text) &&
-        !contextDependent(text)
+        unitTextRejection(published, false, sourceContext) === null &&
+        !editorialNoise(published) &&
+        !headingUnit(published) &&
+        !contextDependent(published)
       ) {
         facts.push({
-          text,
+          text: published,
           evidence: [sourceIndex + 1],
           origin: "rss",
           score: 1,
