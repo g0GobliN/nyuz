@@ -1126,6 +1126,11 @@ diff touches them before believing the failure.
   recorded:** the ruling assumed `noMainClause` does not fire on the TCP/IP card line; measured, it
   does — the main clause's verb is the contraction `There's` — so that line is an observed false
   positive of the predicate at this surface, pinned as one, and its real defect (`that` with no
-  antecedent) stays open. **Still open:** that false positive, the GitHub owner/repo reference defect,
+  antecedent) stays open. **Confirmed on the deployed origin** (2026-10-14, after CI run `38524225248`
+  deployed `2b4a80b`, read in the browser panel): the dashboard card for story `7af726e6` now prints
+  "Even projects that have been enrolled in OSS-Fuzz for years can still hide critical bugs …" and the
+  string `taskflow YAMLs` is absent from the page. The preceding slice is confirmed the same way: the
+  story page for `29ad32c2` carries no `gave us` and reads "The authors demonstrated the impact …".
+  **Still open:** that false positive, the GitHub owner/repo reference defect,
   the non-comma list items, and **the overall reader-quality gate**. Full record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-dashboard-card--a-ruled-defect-that-stayed-publishable-on-a-second-surface-2026-10-14-ruled-and-landed).
