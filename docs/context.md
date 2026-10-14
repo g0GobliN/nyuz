@@ -727,6 +727,33 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   instead of charging from another context. Re-run: full suite **3166/3166**, `npx tsc --noEmit`
   clean, lint 0 errors.
 
+- **2026-10-14 — the live product read as a stranger, the biggest reader-visible defect in the
+  sample fixed, and the arbiter's ruling on it.** Five stories were read at the deployed origin
+  (`https://nyuz.grgvishal-gurung17.workers.dev`, 2026-10-14) and three carried defects; the
+  largest was **source furniture welded into published prose**. Four verbatim examples are in
+  [decisions/reader-delivery.md](decisions/reader-delivery.md): a section label and a dateline fused
+  to the sentence under it (`The full chain:…September 18, 2026 Operating as hackers under …`), two
+  sentence-cased subheads welded to their paragraphs (`Model selection Some frontier models …`,
+  `The architecture in one minute Before …`), and one more of the same class found by the
+  live-window scan. The class is already **Critical and never-ship** in the GOB-12 quality contract
+  (§2 criterion 6, §3 row 3); nothing on the GOB-13 triage owned it, and the T1 ruler provably could
+  not see it. `sourceSeam` in [reader-evidence.ts](../src/lib/reader-evidence.ts) now calls
+  `sourceFurnitureHead` — a verbless label ending in `:`/`…` before a month-name date, and a
+  sentence-cased verbless head before a capitalised subordinator/preposition/quantifier — refused as
+  `invalid_sentence` through the one shared predicate, so the evidence pass, the composer's entity
+  path and the fallback deck agree; no new reason string, no counter change, nothing else in the
+  diff. **Measured narrowness:** 1 match in 7,926 live-window units (1,000 articles, 14 days), and it
+  is a true positive; the first draft's 11 prose false positives (`According to The Register`, `The
+  other day I`, `with the A19 chip`, …) are pinned as negative controls in
+  [reader-furniture-seam.test.ts](../src/lib/reader-furniture-seam.test.ts). Verified: full suite
+  **3203/3203** across 188 files, `npx tsc --noEmit` clean, and the local app (127.0.0.1:8080)
+  renders both affected stories with the welds gone and the real facts kept. **The arbiter accepted
+  the slice as landed and narrow** (ChatGPT `nyuz` project, 2026-10-14) and ruled two further
+  defects of the same sample into **separate categories**: an **incomplete explanatory deck** (a
+  relative-clause fragment with no main clause) and an **unestablished first-person voice** (`gave us
+  access` with no antecedent). It explicitly did **not** declare reader quality 10/10 — the gate
+  stays open until those categories are handled and the broader path is re-read.
+
 ## 7. What is next
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates

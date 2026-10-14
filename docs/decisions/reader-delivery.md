@@ -970,3 +970,86 @@ Paragraphs:
 
 The visa-policy and water-restriction snippets are no longer in the extracted text, evidence, or
 composed article. The fact ledger for the fixture reconciles (`lost: 0`).
+
+## Source furniture in published prose — the welded label and dateline (2026-10-14, landed)
+
+**Found by reading the live product as a stranger.** Five stories at the deployed origin
+(`https://nyuz.grgvishal-gurung17.workers.dev`, read 2026-10-14), three carrying defects. GOB-12's
+reader-quality contract already names the class: §2 acceptance criterion 6 ("No source metadata,
+heading furniture, URL fragments, or extraction artefacts appear in prose") and §3 cross-cutting
+row 3 — **Source metadata / extraction furniture in reader prose, Critical**. No T1–T7 item on the
+GOB-13 triage owned it, and the T1 ruler cannot see it: `truncatedSentence` fires only on a
+sentence that *ends* on a month or a function word, and `RAW_URL_WITH_PATH` needs a scheme, `www.`
+or a path. Measured against the in-flight W5/W6 tree before the fix: all four strings below were
+selected by `selectReaderEvidence` as publishable facts.
+
+Verbatim, as a reader received them:
+
+1. `story/29ad32c2` — `The full chain:…September 18, 2026 Operating as hackers under OpenAI's bug
+   bounty program, Hacktron researchers uncovered critical vulnerabilities that granted them access
+   to internal employee tools…`
+2. `story/7af726e6` — `Model selection Some frontier models impose security guardrails on their
+   outputs, according to GitHub.`
+3. `story/7af726e6` — `The architecture in one minute Before getting into the interesting parts, it
+   helps to know how the pieces fit together.`
+4. `story/7af726e6`, same class, found by the live-window scan — `A shelf of diminutive apps With
+   TinyJS, Stroh-Spijer created an "app store" that can be run, natch, from the desktop.`
+
+**What landed.** `sourceSeam` in [reader-evidence.ts](../../src/lib/reader-evidence.ts) now calls
+`sourceFurnitureHead`, two narrow shapes: a verbless label of at most eight words ending in `:` or
+`…` immediately followed by a month-name date; and a sentence-cased, verbless head of 2–6 words
+followed by a capitalised subordinator, preposition or quantifier and a clause that carries a
+predicate. Refused as `invalid_sentence` through the one shared predicate, so the evidence pass,
+the composer's entity path and the fallback deck agree. **No new reason string, no counter change,
+nothing else in the diff.**
+
+**Narrowness, measured.** `tmp/furniture-scan.ts` over the live window — 1,000 articles, 7,926
+units published in the preceding 14 days — matches **one** unit, and it is a true positive (#4
+above). The first draft matched 12 and 11 of them were prose; each is now a pinned negative
+control: `According to The Register`, `In an emailed statement to The Washington Post`, `The other
+day I`, `The number I keep coming back to`, `Some of the researchers The Verge spoke to`, `It's
+powerful, with the A19 chip` (letters-only stripping read the digit token as the article "a"), and
+a dateline at the head of its own sentence. The opener set is therefore subordinators,
+prepositions and quantifiers only — the pronouns and articles that English puts mid-sentence for
+ordinary reasons are out — and digit-bearing tokens are skipped. Controls live in
+[reader-furniture-seam.test.ts](../../src/lib/reader-furniture-seam.test.ts) (14 tests: the 4 live
+positives, 8 prose controls, and an integration case through `selectReaderEvidence` asserting the
+welded fact is absent while the `$6,500 bounty` fact remains published).
+
+**The arbiter's ruling (ChatGPT `nyuz` project, 2026-10-14, asked with the numbers above).**
+**Accept** the slice as landed and narrowly scoped; refusal is the correct remedy for the current
+case and the sentence is **not** to be automatically repaired. Conditions recorded: keep the rule
+narrow, retain every negative control and the integration control, treat a false-positive
+regression as a reader-quality failure, and do not widen the opener set without new evidence.
+Recorded limits: the 1,000-article scan is evidence of narrow observed behaviour, not proof of
+universal precision or recall; the 4 live positives establish the targeted behaviour, not overall
+precision and recall; this rule must not grow into a general grammar validator, which would need
+separate evidence. **The overall reader-quality gate remains open** — this decision addresses one
+failure class, not the state of reader-facing prose.
+
+**Two defects the ruling kept separate** (rejected as published, each its own category, neither to
+be folded into this rule):
+
+- **Incomplete explanatory deck** — `A set of taskflow YAMLs, one per stage, which are essentially
+  the prompts that tell the LLM agent what to do at each step.` A deck that presents itself as
+  explanatory prose while supplying a noun phrase and a relative clause with no main clause. The
+  ruling: prefer recovering the source's complete sentence when it is attributable; allow a minimal
+  grammatical repair only when the meaning is unambiguous and no new claim is introduced;
+  otherwise withhold the deck.
+- **Unestablished first-person voice** — `Two vulnerabilities chained together gave us access to
+  ChatGPT and Codex accounts belonging to OpenAI employees.` The page never establishes who "us" is,
+  and the adjacent sentence was already rewritten (`We demonstrated` → `The authors demonstrated`).
+  The ruling: establish the sentence's source and authorial voice first; if the statement is
+  attributable, convert it to the third person without changing its meaning; if attribution cannot
+  be established, withhold it rather than guess; check adjacent sentences for consistent voice.
+  **Measured before any rule (2026-10-14, `tmp/first-person-scan.ts`, same 1,000-article window):
+  1,355 of 5,646 publishable units carry a first-person token — and most are legitimate** (a quoted
+  speaker: `"no early warning from our partners"`; a reviewer's own voice in a first-person piece:
+  `I'll admit that it stressed me out the first time I watched it, too.`). A blanket first-person
+  refusal would delete reporting and quotations; the ruler for this class has to read the selection
+  path's own context (the quote flag, the narrator resolution) rather than the text alone.
+
+**Not claimed.** That reader quality is 10/10 — the arbiter explicitly declined that. What is
+claimed is measured: four reader-visible welds are refused by a rule that matches one unit in
+7,926, `npx tsc --noEmit` is clean, the full suite passes 3,203 tests, and the local app renders
+both affected stories with the welds gone and the real facts kept.

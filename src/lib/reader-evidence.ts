@@ -391,14 +391,151 @@ function headingSeam(text: string): string | null {
 }
 
 /**
+ * A label and a dateline welded to the sentence under them.
+ *
+ * The live shape (deployed origin, 2026-10-14, story 29ad32c2):
+ *
+ *   "The full chain:…September 18, 2026 Operating as hackers under OpenAI's bug
+ *    bounty program, Hacktron researchers uncovered critical vulnerabilities …"
+ *
+ * The source published a section label and a date stamp above its own paragraph,
+ * the feed flattened the three into one run, and the reader got the label and the
+ * date inside a published fact. `headingSeam` cannot see it: the punctuation
+ * between the pieces (`.`, `:`, `…`) is exactly what tells it a real clause
+ * boundary went past.
+ *
+ * Narrow by construction. The label must end in a colon or an ellipsis, must not
+ * carry a predicate of its own -- "The company said: September 18, 2026 …" keeps
+ * its phrase, because `said` is a verb -- may not run longer than eight words,
+ * and a month-name date must follow it immediately. A unit that merely *contains*
+ * a date, or opens on one ("September 18, 2026 was the day …"), is untouched.
+ */
+const MONTH_NAME_DATE =
+  /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},\s*\d{4}\b/;
+
+function labelDatelineHead(text: string): string | null {
+  const match = MONTH_NAME_DATE.exec(text);
+  if (!match || match.index === undefined || match.index === 0) return null;
+  const head = text.slice(0, match.index).trimEnd();
+  if (head.length > 72) return null;
+  if (!/(?:[:…]|\.\.\.)$/.test(head)) return null;
+  const words = head.split(/\s+/).filter((word) => /[A-Za-z0-9]/.test(word));
+  if (words.length < 2 || words.length > 8) return null;
+  if (hasPredicate(head.replace(/\s*[:…]+$/, ""))) return null;
+  return `${head} ${match[0]}`;
+}
+
+/** A word a sentence-cased heading can be made of: lowercase, unpunctuated. */
+const SENTENCE_HEAD_WORD = /^[a-z][a-z'’-]*$/;
+
+/**
+ * The clause openers this seam accepts, which is `CLAUSE_OPENER` minus the ones
+ * English puts mid-sentence for ordinary reasons.
+ *
+ * Measured, not assumed. The first draft reused the whole set and matched 12 of
+ * 7,926 live-window units, 11 of them prose: "According to The Register …",
+ * "In an emailed statement to The Washington Post …", "The other day I …",
+ * "The number I keep coming back to …", "So as I understand …". Every one of
+ * those turned on a pronoun ("I") or on the definite article that the name of a
+ * publication or a body begins with ("The Register", "The Washington Post") --
+ * and a capitalised "The" after a lowercase word is the most ordinary thing in
+ * news prose. What is left is the class that cannot sit mid-sentence without
+ * punctuation: a subordinator, a preposition or a quantifier. The live true
+ * positives are "Some" ("Model selection Some frontier models …") and "Before"
+ * ("The architecture in one minute Before getting into …"), and the sample's one
+ * other hit, "A shelf of diminutive apps With TinyJS, …", is the same weld.
+ *
+ * Dropped: I, you, it, they, he, she, we, i, the, a, an, this, that, these,
+ * those, there, here, another, such, one, two, three, both, all, each, every,
+ * no, not, many, most, some -- the pronouns, the articles and the demonstratives.
+ */
+const SENTENCE_HEAD_OPENER = new Set(
+  (
+    "for with in on as to at from by into about over under during after before when while " +
+    "because if since although though some many most all each every both another such " +
+    "other others no not there here one two three"
+  ).split(" "),
+);
+
+/**
+ * The same weld `headingSeam` looks for, in the casing a blog subhead uses.
+ *
+ * Two live shapes (deployed origin, 2026-10-14, story 7af726e6):
+ *
+ *   "Model selection Some frontier models impose security guardrails on their
+ *    outputs, according to GitHub."
+ *   "The architecture in one minute Before getting into the interesting parts,
+ *    it helps to know how the pieces fit together."
+ *
+ * `headingSeam` requires the heading's non-first word capitalised
+ * ("... Introduction Track All attendees ..."), which is how a Title Cased
+ * heading looks; a subhead written in sentence case ("Model selection") misses
+ * it, and the label ships inside the fact.
+ *
+ * Narrow by construction: the head is at most six words, is sentence-cased
+ * throughout -- so a proper name inside it ("The novel Beloved Before …") is not
+ * a subhead and stays -- holds no verb form at all, and is followed by a
+ * capitalised clause opener and a clause with a predicate of its own. Refused
+ * rather than cut, because the head is furniture and the clause's own subject is
+ * not recoverable from it.
+ */
+function sentenceCasedHeadingSeam(text: string): string | null {
+  const tokens = text.split(/\s+/);
+  if (tokens.length < 5) return null;
+  for (let index = 1; index < tokens.length; index += 1) {
+    const raw = tokens[index] ?? "";
+    // A token carrying a digit is not an English word: `A19` reads as `a` under
+    // a letters-only strip and matched "with the A19 chip" as prose before this.
+    if (/\d/.test(raw)) continue;
+    const word = raw.replace(/[^A-Za-z']/g, "");
+    if (!/^[A-Z][a-z]*$/.test(word) || !SENTENCE_HEAD_OPENER.has(word.toLowerCase())) continue;
+    // Punctuation between the two words is a clause boundary, so there is no seam:
+    // "... was dead. In New York, he said" is two sentences the splitter kept.
+    if (/[.!?;:,]/.test(tokens[index - 1] ?? "")) continue;
+    const head = tokens.slice(0, index);
+    if (head.length < 2 || head.length > 6) continue;
+    if (!/^[A-Z][a-z'’-]*$/.test(tokens[0] ?? "")) continue;
+    if (
+      !head.slice(1).every((token) => SENTENCE_HEAD_WORD.test(token.replace(/[^A-Za-z'’-]/g, "")))
+    )
+      continue;
+    // `VERB_FORM` rather than `hasPredicate`: the stem list behind the latter
+    // reads a noun as a verb ("selection" off `select`), and a subhead is exactly
+    // a noun phrase -- "Model selection" must not be treated as a clause.
+    const headText = head.join(" ").replace(/\bto\s+\w+/gi, "");
+    if (VERB_FORM.test(headText)) continue;
+    if (!hasPredicate(tokens.slice(index).join(" "))) continue;
+    return `${head.join(" ")} ${tokens[index]}`;
+  }
+  return null;
+}
+
+/**
+ * The furniture a source welded to the front of its own sentence, if any.
+ *
+ * Exported so the audit can count the class and a test can pin the shape rather
+ * than the string, exactly as `sourceSeam` is.
+ */
+export function sourceFurnitureHead(text: string): string | null {
+  return labelDatelineHead(text) ?? sentenceCasedHeadingSeam(text);
+}
+
+/**
  * The seam, if this unit contains one: two source blocks published as one sentence.
  *
  * Returns the offending fragment rather than a boolean so the reason a fact was
  * refused can name it, and so a regression test can assert on the shape instead of
  * on "this string is bad".
+ *
+ * Three source blocks count: a heading glued to the prose under it
+ * (`headingSeam`), a session credit inventory (`creditInventory`), and the
+ * label-and-dateline head a feed flattens above its own paragraph
+ * (`sourceFurnitureHead`). Each is the same defect at the reader's end -- a unit
+ * that stopped being one sentence -- so each is refused at the same boundary and
+ * for the same reason.
  */
 export function sourceSeam(text: string): string | null {
-  return headingSeam(text) ?? creditInventory(text)?.run ?? null;
+  return headingSeam(text) ?? creditInventory(text)?.run ?? sourceFurnitureHead(text) ?? null;
 }
 const NOISE =
   /\b(?:welcome back|weekly column|this week['’]s (?:column|newsletter)|as regular readers know|subscribe to|sign up for|click here|read more|continue reading|cookie policy|all rights reserved|follow us on|share this article|related articles|the coverage centers on|amount mentioned|percentage mentioned|entity mentioned|source count|evidence suggests|nyuz has also covered)\b|\bthe post\b.*\bappeared first on\b|^(?:advertisement|image credit|photo credit|hopefully\b|the takeaway\b|appeared first on\b|(?:apply|register|sign up)\s+(?:now|today|here)\b|put (?:these|those) ideas in practice\b)/i;
