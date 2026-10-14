@@ -195,6 +195,66 @@ describe("publisher furniture never becomes an article sentence", () => {
       expect(unitTextRejection(text, false), text).toBeNull();
     }
   });
+
+  it("refuses a masthead byline that is a grammatical sentence", () => {
+    // Read on the deployed origin, 2026-10-14: the story page for `7a1a7f98`
+    // opened on "Sayem Ahmed is the Subscription Editor at Tom's Hardware." as
+    // its *deck*. Every author-bio entry above is verbless, so a byline with a
+    // copula passed every predicate -- measured on that exact string,
+    // `editorialNoise`, `publisherVoice` and `sourceSeam` were all negative --
+    // and it entered at extraction as `article_evidence` unit 1. The arbiter
+    // ruled the copular shape into the existing furniture rule (2026-10-14,
+    // option A) after this measurement: 1,000 live articles / 3,997 units gave
+    // 3 matches, all three TechCrunch masthead lines, 0 reporting sentences.
+    for (const text of [
+      "Sayem Ahmed is the Subscription Editor at Tom's Hardware.",
+      "Zack Whittaker is the security editor at TechCrunch.",
+      "Tim De Chant is a senior climate reporter at TechCrunch.",
+      "Jane Doe is a senior writer at Wired.",
+      "Kenji Ito was the editor at Nikkei.",
+    ]) {
+      expect(publisherFurniture(text), text).toBe(true);
+      expect(editorialNoise(text), text).toBe(true);
+      expect(unitTextRejection(text, false), text).toBe("editorial_noise");
+    }
+  });
+
+  it("keeps reporting that identifies someone by role", () => {
+    // The arbiter's controls, verbatim, plus the shape it warned about: a name
+    // plus a job title is not furniture. A masthead line stops after the outlet;
+    // these continue, or put the role in an appositive with no copula.
+    for (const text of [
+      "The editor at Tom's Hardware said the company would respond.",
+      "Sayem Ahmed, the Subscription Editor at Tom's Hardware, said the feature would launch next month.",
+      "Maya Chen is the reporter who broke the story, and she said the filing came on Friday.",
+      "Maya Chen is the reporter at The Verge who broke the story on Friday.",
+      "Sayem Ahmed is the Subscription Editor at Tom's Hardware and he also writes about GPUs.",
+      "Maria Santos is the director of research at Stanford and led the study.",
+    ]) {
+      expect(publisherFurniture(text), text).toBe(false);
+      expect(editorialNoise(text), text).toBe(false);
+      expect(unitTextRejection(text, false), text).toBeNull();
+    }
+  });
+
+  it("records what the byline shape costs and where it stops", () => {
+    // Both are deliberate, and both are pinned so a later widening is a decision
+    // rather than a surprise. The shape matches on capitalisation -- a masthead
+    // line is sentence-cased -- so a lowercased sentence cannot open with a name
+    // and match; and a byline followed by more text in the same unit is not
+    // refused, because the pattern is the line that *ends* after the outlet. The
+    // measured window held no such unit: all 3 matches were the whole unit.
+    expect(publisherFurniture("she is the editor at Wired.")).toBe(false);
+    expect(
+      publisherFurniture(
+        "Sayem Ahmed is the Subscription Editor at Tom's Hardware. He also writes about GPUs.",
+      ),
+    ).toBe(false);
+    // An organisation subject with a publication role is the shape's known cost:
+    // measured at 0 occurrences in 3,997 live units, and refused rather than
+    // exempted so the exception cannot hide a real byline.
+    expect(publisherFurniture("Acme Corp is the publisher at Scale.")).toBe(true);
+  });
 });
 
 describe("a cut-off extraction seam is not a sentence", () => {

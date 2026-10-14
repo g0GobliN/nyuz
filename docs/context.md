@@ -827,22 +827,19 @@ alert side is held to the same standard in its own terms — a breaking, importa
 silence otherwise. The R1 order below still stands and is still the blocking set; it is just no
 longer the answer to "what work do I take", because reader quality outranks all of it.
 
-**The reader-quality work in flight: one ruled slice held back, and one live defect awaiting a
-ruling.** The reference class was measured (0 of 932 published blocks open on an ungrounded reference;
-10 of 684 card lines carry one) and **ruled Option 1** — apply the existing shared predicate at the
-card-summary boundary with lazy recovery. It is **not landed**, on purpose: recovery for one of the ten
-refused card lines returns a **staff byline**, so making the card ask the predicate would print
-"Sayem Ahmed is the Subscription Editor at Tom's Hardware." as a card summary. That byline is itself a
-**live reader-visible defect**: the story page for `7a1a7f98` opens on it as its deck, it entered at
-extraction as `article_evidence` unit 1, and it passes `editorialNoise`, `publisherVoice` and
-`sourceSeam` because every byline entry in the closed `PUBLISHER_FURNITURE` list is verbless while this
-one has a copula. **No rule has been written for it** — adding a shape to a closed furniture list
-changes what ships, so the case (with its options) is with the arbiter, and it outranks the card slice
-because a reader meets it today. Also open: the TCP/IP and GitHub owner/repo reference defects, absent
-from the current window and needing their own re-read; the non-comma list items kept as a recorded
-limit; and the two measured false positives of `recoverableContext` (a card line resolved by its own
-headline, and "Those demands" whose antecedent is the paragraph above). The GTA 6 memecoin suspicion
-was **refuted** — its provenance is the story's own source. The gate stays **open**; nothing here is
+**The reader-quality work in flight: the byline slice landed, the card slice still held.** The live
+masthead byline is **fixed and verified on the live data** — the story `7a1a7f98` no longer opens on
+it, the second live instance is gone with it, and the change touched **2 of 200** stories in a frozen
+before/after with no defect counter moving. What remains comes straight from the rulings: (1) the
+card-context slice is **ruled (Option 1) but held** until the recovery-validation change lands, since
+the arbiter ruled that the **shared furniture boundary must participate in card recovery validation** —
+otherwise one refused card line would recover *into* a byline; (2) the older GitHub-owner/repo and
+TCP/IP reference defects are absent from the current window and need their own re-read; (3) the
+non-comma list-item limitation stays a documented limit, to be reassessed against verified
+source-to-output examples; (4) two measured false positives of `recoverableContext` are recorded — a
+card line resolved by its own headline, and "Those demands" whose antecedent is the paragraph above;
+and (5) the GTA 6 memecoin suspicion is **closed as refuted** — its provenance is the story's own
+source, and the arbiter removed it from the active queue. The gate stays **open**; nothing here is
 10/10.
 
 **The arbiter's order, ruled 2026-10-12 (R1 — [decisions/product-readiness.md](decisions/product-readiness.md)).**
@@ -1203,5 +1200,36 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   `f0562126`) and published at deck selection; measured on that exact string, `editorialNoise`,
   `publisherVoice` and `sourceSeam` **all pass it**, because every byline entry in the closed
   `PUBLISHER_FURNITURE` list is verbless and this one has a copula. No rule was built — adding a shape
-  to a closed furniture list changes what ships — and the case is with the arbiter. Full record:
+  to a closed furniture list changes what ships —  and the case is with the arbiter. Full record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-ruling-on-that-measurement-2026-10-14-received).
+
+- **2026-10-14 — the copular byline ruled (Option A) and landed through the existing furniture
+  boundary.** The arbiter ruled the bounded role-and-affiliation shape into `PUBLISHER_FURNITURE`
+  rather than a new rule, with **no new reason string and no counter change**, and required a
+  measurement first. **Measured before it shipped:** the newest 1,000 articles / 478 `article_evidence`
+  rows / **3,997 units** gave **3 matches, all three publisher masthead bylines** ("Zack Whittaker is
+  the security editor at TechCrunch." twice, "Tim De Chant is a senior climate reporter at
+  TechCrunch.") and **0 legitimate reporting sentences**; the arbiter's four controls all behaved, and a
+  **second live instance** turned up in a body rather than a deck (*Niobia takes the guesswork out of
+  some of tech's most expensive mistakes*). **Two drafts were wrong and both are recorded:** the first
+  was case-sensitive and blind to the capitalised role it was written for ("is the **Subscription
+  Editor** at …"), the second refused "Maya Chen is the reporter at The Verge who broke the story on
+  Friday." — reporting. What separates them is that **a masthead line ends after the outlet**; the
+  roles carry their own first-letter classes because under `i` the `\p{Lu}` in the name and outlet is
+  case-folded too. **Landed:** `PUBLISHER_BYLINE` plus `publisherFurniture` as the single union, with
+  `publisherSelfReference` and `editorialNoise` calling it so no call site misses the shape. **Cost,
+  measured on one frozen 200-story corpus before/after and attributed to this change alone** (the
+  shared worktree carries another agent's hunks in the same file, so the comparison was run by
+  applying only these hunks to a clean worktree at `c0e55e0`): **2 of 200 stories changed — exactly the
+  two bylines** (−10 and −8 words, one paragraph fewer in the second), every reader-visible defect
+  counter identical, **0 stories lost 25+ words, 0 became empty**; the 1,000-article corpus is from a
+  later window than the live defect, which is why the defect's own story is verified separately on the
+  deployed origin. **Verified:** `npx tsc --noEmit` clean, 3 new tests (5 refused forms, 6 reporting
+  controls, 2 pinned limits), the file's suite at 163 tests, the five boundary suites at 275, and with
+  the rule in place the story `7a1a7f98` opens on "The global race to deploy capable closed and
+  open-weight models marches on …" instead of the byline. **Still open:** the body of that story still
+  reads "according to Hardware"; the card-context slice stays held until the recovery-validation
+  change (the arbiter ruled the shared furniture boundary **must** participate in recovery validation)
+  and its deployment are verified; the older GitHub-slug and TCP/IP cases and the non-comma list-item
+  limitation are untouched. The gate stays **open**. Full record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#ruled-and-landed-the-copular-byline-refused-through-the-existing-furniture-boundary-2026-10-14).

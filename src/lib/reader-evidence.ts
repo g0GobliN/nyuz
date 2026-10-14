@@ -800,12 +800,62 @@ const PUBLISHER_FURNITURE = new RegExp(
 );
 
 /**
+ * The copular publisher byline: a masthead line that is a grammatical sentence.
+ *
+ * Every author-bio entry in `PUBLISHER_FURNITURE` above is *verbless* ("has
+ * written more than N articles", "founded the site in 2004"), which is the shape
+ * that list was written for. On 2026-10-14 a reader-facing story opened on a
+ * masthead line that *has* a verb, so it passed every grammar test and every
+ * predicate: measured on that exact string, `editorialNoise`, `publisherVoice`
+ * and `sourceSeam` all returned negative, and it entered at extraction as
+ * `article_evidence` unit 1 of a Tom's Hardware article before being published as
+ * the deck.
+ *
+ * The shape, and nothing wider (the arbiter's ruling of 2026-10-14, option A): a
+ * name, a copula, an optional article, a bounded role phrase whose role comes
+ * from a closed publication-role set, an affiliation -- and the sentence **ends
+ * there**. A masthead line stops after the outlet; reporting continues, which is
+ * what keeps "Sayem Ahmed, the Subscription Editor at Tom's Hardware, said the
+ * feature would launch next month." and "Maya Chen is the reporter at The Verge
+ * who broke the story on Friday." eligible. **A name plus a job title is not
+ * furniture**, so a sentence that merely identifies someone by role is not this.
+ *
+ * Measured before it was added, on 1,000 live articles and 3,997 evidence units:
+ * **3 matches, all three publisher masthead bylines ("Zack Whittaker is the
+ * security editor at TechCrunch." twice, "Tim De Chant is a senior climate
+ * reporter at TechCrunch."), 0 legitimate reporting sentences**, with the
+ * ruling's own controls held. Case sensitivity is deliberate and the roles carry
+ * their own first-letter classes: under the `i` flag `\p{Lu}` is case-folded too,
+ * which would let a lowercased sentence open with a name and match.
+ */
+const PUBLISHER_BYLINE_ROLES = [
+  "editor",
+  "writer",
+  "reporter",
+  "correspondent",
+  "contributor",
+  "analyst",
+  "reviewer",
+  "journalist",
+  "columnist",
+  "author",
+  "founder",
+  "publisher",
+]
+  .map((role) => `[${role.charAt(0).toUpperCase()}${role.charAt(0)}]${role.slice(1)}`)
+  .join("|");
+const PUBLISHER_BYLINE = new RegExp(
+  String.raw`^\p{Lu}[\p{L}'\u2019.-]+(?:\s+\p{Lu}[\p{L}'\u2019.-]+){0,2}\s+(?:is|are|was)\s+(?:(?:the|a|an)\s+)?(?:\w+\s+){0,2}(?:${PUBLISHER_BYLINE_ROLES})\s+at\s+\p{Lu}[\p{L}'\u2019.&-]*(?:\s+(?:&|and)?\s*\p{Lu}[\p{L}'\u2019.&-]*){0,2}\s*[.!?]?\s*$`,
+  "u",
+);
+
+/**
  * Whether a candidate sentence is the publication talking about itself or
  * selling something, rather than reporting. Exported so the enrichment pass and
  * the composer both read one rule.
  */
 export function publisherFurniture(text: string): boolean {
-  return PUBLISHER_FURNITURE.test(text);
+  return PUBLISHER_FURNITURE.test(text) || PUBLISHER_BYLINE.test(text);
 }
 
 /**
@@ -836,7 +886,7 @@ const PUBLISHER_SOLICITATION =
  * names, and a missing name is a worse defect than a stray one.
  */
 export function publisherSelfReference(text: string): boolean {
-  return NOISE.test(text) || PUBLISHER_FURNITURE.test(text) || PUBLISHER_SOLICITATION.test(text);
+  return NOISE.test(text) || publisherFurniture(text) || PUBLISHER_SOLICITATION.test(text);
 }
 
 /**
@@ -1118,7 +1168,7 @@ export function editorialNoise(text: string): boolean {
     publisherVoice(text) ||
     COMMENTARY.test(text) ||
     SOURCE_COLOUR.test(text) ||
-    PUBLISHER_FURNITURE.test(text)
+    publisherFurniture(text)
   );
 }
 

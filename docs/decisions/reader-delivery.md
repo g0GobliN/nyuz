@@ -1508,3 +1508,65 @@ measurement was drafted around that candidate shape and has not been reported as
 story's other problems are accounted for: the same page's body also reads "according to Hardware"
 (a truncated outlet name) and its blocks open mid-digest. **The overall reader-quality gate remains
 open.**
+
+### Ruled and landed: the copular byline refused through the existing furniture boundary (2026-10-14)
+
+**The ruling.** Option A, with a bounded role-and-affiliation pattern: extend `PUBLISHER_FURNITURE` to
+recognise the copular byline shape — a name, a copula, an optional article, a tightly bounded role
+phrase from a closed role set, an affiliation — refused through the existing shared boundary and
+reason taxonomy, with **no new refusal reason and no counter change**. Option B rejected (it contains
+the symptom and leaves the furniture eligible elsewhere in the article); Option C rejected (a premium
+roundup explains the input but does not make a byline an acceptable news-story opening); Option D
+rejected as too broad to start with. The ruling is explicit that **a name plus a job title is not
+evidence of furniture**, and that false positives are to be fixed by narrowing the pattern rather than
+by exempting the one observed sentence.
+
+**The measurement it required, and what it found.** Population: the newest **1,000 articles, 478
+`article_evidence` rows, 3,997 units**, plus the 200-story composer window. Result: **3 matches, all
+three publisher masthead bylines** — "Zack Whittaker is the security editor at TechCrunch." (twice,
+from two different articles) and "Tim De Chant is a senior climate reporter at TechCrunch." — and **0
+legitimate reporting sentences**. The arbiter's four named controls all behaved: the live byline is
+refused, and "The editor at Tom's Hardware said the company would respond.", "Sayem Ahmed, the
+Subscription Editor at Tom's Hardware, said the feature would launch next month." and "Maya Chen is the
+reporter who broke the story …" all stay eligible. A second live instance was found by the same
+measurement: the story *Niobia takes the guesswork out of some of tech's most expensive mistakes*
+publishes "Zack Whittaker is the security editor at TechCrunch." **in its body**, not its deck.
+
+**Two drafts were wrong, and both are recorded because the fix for one is the rule's shape.** The
+first pattern was **case-sensitive and therefore blind to the defect**: it matched "is the security
+editor at TechCrunch" and walked straight past "is the **Subscription Editor** at Tom's Hardware",
+because a capitalised role is not `editor`. The second draft refused "Maya Chen is the reporter at The
+Verge who broke the story on Friday." — reporting, and exactly what the arbiter warned about. What
+separates them is that **a masthead line ends after the outlet and reporting continues**, so the shape
+is required to end there. The roles carry their own first-letter classes rather than the `i` flag,
+because under `i` the `\p{Lu}` in the name and outlet start is case-folded too and a lowercased
+sentence could open with a name and match.
+
+**Landed.** `reader-evidence.ts`: `PUBLISHER_BYLINE`, measured and documented in place, and
+`publisherFurniture` becomes the single union (`PUBLISHER_FURNITURE.test(text) ||
+PUBLISHER_BYLINE.test(text)`), with `publisherSelfReference` and `editorialNoise` changed to call it so
+no call site can miss the shape. No new reason string, no counter change, nothing else in the diff.
+
+**Verified.** `npx tsc --noEmit` clean; 3 new tests in
+[reader-prose-rules.test.ts](../../src/lib/reader-prose-rules.test.ts) covering the five refused forms,
+the six reporting controls and the two pinned limits (a lowercased sentence, and a byline followed by
+more text in the same unit); the suite at **163 tests**, and the five boundary suites
+(reader-quality, fixture-regression, card-summary, understand, editorial) at **275 tests**, all
+passing. **On the live data with the rule in place:** both byline strings return
+`publisherFurniture=true`, `editorialNoise=true`, `publisherSelfReference=true`; the six controls return
+false; the story `7a1a7f98` now opens on "The global race to deploy capable closed and open-weight
+models marches on …" with the byline gone; and *Niobia* no longer publishes its byline either. The
+before/after snapshot of one frozen corpus is recorded in [context.md](../context.md).
+
+**Pinned cost, so a later widening is a decision.** An organisation subject with a publication role
+("Acme Corp is the publisher at Scale.") is refused — measured at **0 occurrences in 3,997 live
+units**, and refused rather than exempted so the exception cannot hide a real byline. A byline followed
+by more text inside the same unit is not refused, because the pattern is the line that ends after the
+outlet; the measured window held no such unit.
+
+**Not claimed.** That bylines are handled in general — this is the copular sentence-opening shape only,
+and the verbless ones were already covered; that the *story* `7a1a7f98` is now good — its body still
+reads "according to Hardware" and opens mid-digest; that the card slice may land (it stays held until
+the recovery-validation change and deployment are verified, per the ruling); or that the older
+GitHub-slug and TCP/IP cases and the non-comma list-item limitation are addressed. **The overall
+reader-quality gate remains open.**
