@@ -51,7 +51,7 @@ import {
 } from "./pipeline/source-text";
 import { stripFrontedConnector } from "./pipeline/news-signals";
 import { relatedContext } from "./related-events";
-import { repeats } from "./understand";
+import { briefingText, repeats } from "./understand";
 
 function sentence(text: string): string {
   const clean = cleanDeterministicSentence(text);
@@ -2351,6 +2351,43 @@ export function composeFromSources(
  */
 export function composeArticle(story: Story): ReaderArticle {
   return composeArticleWithDiagnostics(story).article;
+}
+
+/**
+ * The opening sentence a story actually publishes, for a card whose stored
+ * summary the deck predicate refuses.
+ *
+ * The card and the story page must not have different standards for trustworthy
+ * prose. When `cardSummaryRefused` refuses the stored event summary, the card
+ * asks for this instead -- and what it gets is the article's own opening block,
+ * through the same composition path the story page renders, never a sentence
+ * built here and never a rewrite of the refused text. The arbiter's ruling of
+ * 2026-10-14 (option 2, lazy recovery) is explicit that the replacement "must
+ * come from the same validated content path that determines what the story page
+ * publishes", and that a different voice from the stored summary is acceptable
+ * while correctness and attribution are not negotiable.
+ *
+ * Returns "" when the article publishes nothing usable, or when the opening it
+ * does publish is itself refused: the card then withholds its summary line and
+ * keeps its headline and sources, which is the behaviour it already has for a
+ * furniture summary. Nothing here composes twice or falls back to body prose
+ * chosen because it reads well.
+ *
+ * Cost is the composer's own, measured at 150-220 ms per story in the component
+ * that already pays it, which is why the caller pays it only for the rare
+ * refused card -- 1 of 686 summary lines in the measured window -- rather than
+ * for every card in the feed.
+ */
+export function recoverCardSummary(story: Story): string {
+  const article = composeArticle(story);
+  const opening = [
+    article.deck.text,
+    ...article.paragraphs.map((paragraph) => paragraph.text),
+  ].find((block) => block.trim() !== "");
+  if (opening === undefined || noMainClause(opening)) return "";
+  const text = briefingText(opening);
+  if (text === "" || noMainClause(text)) return "";
+  return text;
 }
 /**
  * The same composition, plus the counters behind it.

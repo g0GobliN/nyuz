@@ -1253,3 +1253,84 @@ the **same** resolver, because it was publishing a unit the evidence pass had al
   slice is rule-level on one pronoun class.
 - The class was measured on one window; 27 and 6 are observations, not precision and recall. **Reader
   quality is not 10/10 and the gate stays open.**
+
+## The dashboard card — a ruled defect that stayed publishable on a second surface (2026-10-14, ruled and landed)
+
+**Found by reading the live product, not by a suite.** The story page for `7af726e6` was clean after
+the deck slice — it opened on its real first sentence and the source's list item was gone from the
+body — while the **dashboard card for the same story still printed that item as its summary line**:
+
+> A set of taskflow YAMLs, one per stage, which are essentially the prompts that tell the LLM agent
+> what to do at each step.
+
+A reader who never opens the story reads exactly the sentence the story page had refused.
+
+**Cause, verified rather than inferred.** The card renders `briefingText(story.what)`, and `story.what`
+is the stored event summary (`events.what_happened`), written from a feed `description`. Measured on
+that exact string: `noMainClause(...)` is **true**, and `briefingText(...)` returned the string
+unchanged. The deck boundary refuses this unit; the card surface had never asked.
+
+**Population.** Newest 1,000 complete events: **686 cards print a summary line and 1 line is refused**
+by the predicate. The live case is older than that window and is on today's dashboard, which is why a
+recent-window count is not an inventory — the same lesson the ruling drew.
+
+**Recovery was measured before it was offered, not assumed.** For both refused lines the composer
+publishes a usable opening sentence: `7af726e6` → "Even projects that have been enrolled in OSS-Fuzz
+for years can still hide critical bugs …"; `d8661ad9` → "Windows 2.0 is a DOS shell that runs on a
+dual-floppy 8086 PC …". Cost, from the codebase's own comment: composition is deterministic at
+**150–220 ms** per story and the home feed renders 17 cards, so composing every card is not
+affordable; recovery is paid only by a card whose stored line is refused (1 in 686).
+
+**The ruling (ChatGPT `nyuz` project, 2026-10-14, asked with the numbers above).** **Option 2, lazy
+recovery.** Option 1 (withhold at the card) rejected as the preference "when recovery is available";
+Option 3 (write-time cleanup plus a data pass) **deferred** as a separate hardening decision, not part
+of this slice.
+
+- **Order of operations, which is where the first implementation went wrong:** read the stored value,
+  evaluate it with the existing `noMainClause`, render unchanged only if it passes, and compose only
+  if it is refused. My first cut checked `briefingText` first and consulted the predicate only when
+  the fast path came back empty — which rendered the refused line exactly as before, and the card test
+  caught it.
+- **The replacement must come from the same validated path as the story page**, must satisfy the
+  reader-quality rules before rendering, and no sentence may be built here. A different voice from
+  `events.what_happened` is acceptable; correctness and attribution are not negotiable.
+- **If recovery fails, the card withholds the line** and keeps its headline, sources and everything
+  else valid. **Do not retry recursively; do not bypass the checks to give every card a summary.**
+- **The card is in scope, the predicate is reused, no second predicate is created** for cards, and the
+  classification stays **separate from `sourceFurnitureHead`**.
+- **No background job and no full-table migration** in this slice.
+
+**Landed.** `understand.ts`: `cardSummaryRefused` reports the refusal (rather than applying it), so a
+caller can recover instead of withhold; `normalizeSummary`'s own reasons are deliberately excluded, so
+a furniture summary keeps the behaviour it already had. `editorial.ts`: `recoverCardSummary` returns
+the article's first published block, refuses to return one the predicate refuses, and returns `""`
+when there is nothing valid. `story-card.tsx`: the predicate runs first, the stored line is the fast
+path, and the composition is memoized on the story.
+
+**A prediction in the ruling that the data contradicts, reported rather than quietly worked around.**
+The ruling states of the TCP/IP card line — "There's not much of that and not much by way of standards,
+which is why a young programmer is rather excited by an emerging contender called TCP/IP." — that it
+"has one [main clause]" and that `noMainClause` therefore does not catch it. **Measured, it does
+catch it**: `noMainClause` is `true` for that exact string, because the main clause's verb is the
+contraction `There's`, which none of the closed verb lists carries. That makes it an **observed false
+positive of the predicate at this surface**, and it is pinned as one in
+[card-summary.test.ts](../../src/lib/card-summary.test.ts) together with the ruling's own instruction
+that the real defect there — `that` with no antecedent in standalone card prose — stays a **separate,
+open** class. Recovery contains it (the card prints the article's opening instead), which is
+containment, not a fix. The false positive is also the honest cost of reusing the predicate: it would
+refuse a legitimate sentence whose main verb is a contraction.
+
+**Verified.** `npx tsc --noEmit` clean; lint clean on the changed files; 7 unit tests in
+[card-summary.test.ts](../../src/lib/card-summary.test.ts) and 3 card-level tests in
+[story-card.test.ts](../../src/components/dashboard/story-card.test.ts) — the card test **failed on
+the first implementation** (the refused line was printed) and passes with the predicate first, which
+is its fail-before evidence; the full suite and deploy gate as recorded in
+[context.md](../context.md). Reader-facing confirmation on the deployed origin is the last step and is
+recorded in the same work-log entry.
+
+**Not claimed.** That the card surface is now free of defective summaries — the measured window is
+1,000 events and the live defect was outside it; that the TCP/IP line is fixed (it is contained, and
+its real defect is open); that the GitHub owner/repo reference ("The argument is just a GitHub
+owner/repo slug.") is addressed — the ruling names it a separate context-dependency defect; or that
+the non-comma list items are resolved — the ruling keeps that a recorded limitation until an actual
+published failure is demonstrated. **The overall reader-quality gate remains open.**

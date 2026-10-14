@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useMemo } from "react";
 import {
   AlertCircle,
   Bookmark,
@@ -8,12 +9,13 @@ import {
   ThumbsUp,
   VolumeX,
 } from "lucide-react";
+import { recoverCardSummary } from "@/lib/editorial";
 import { becauseYouFollow } from "@/lib/matching";
 import { sourceCount, type Story } from "@/lib/story";
 import type { FeedbackState, Vote } from "@/lib/feedback-store";
 import { formatStoryTime } from "@/lib/story-time";
 import { cn } from "@/lib/utils";
-import { briefingText } from "@/lib/understand";
+import { briefingText, cardSummaryRefused } from "@/lib/understand";
 
 const TONE: Record<Story["importance"], string> = {
   High: "text-signal border-signal/40",
@@ -52,6 +54,28 @@ export function StoryCard({
   // question, from the reader's chosen topics — never a significance claim.
   const because = becauseYouFollow(matched);
   const provenance = story.personalization?.explanation ?? because;
+  /**
+   * The summary line. The stored event summary is the fast path -- it costs
+   * nothing and it is what nearly every card prints.
+   *
+   * The slower path exists because the card and the story page must not have
+   * different standards for trustworthy prose: this card used to publish the
+   * GitHub Taskflow list item as its summary while the story page had withheld
+   * it as an incomplete explanatory statement (2026-10-14). When the deck
+   * predicate refuses the stored line, the card recovers the story's own opening
+   * published sentence instead of printing the refused text, and withholds the
+   * line entirely when there is nothing valid to recover. Composing is 150-220
+   * ms, and it happens only for a card whose stored line was refused (1 of 686
+   * summary lines measured), which is also why it is memoized on the story the
+   * way the article component memoizes its own composition.
+   */
+  const summary = useMemo(() => {
+    // The predicate comes first, and that order is the ruling's: a stored line
+    // the deck boundary refuses must not be rendered just because the fast path
+    // can render it -- which is exactly how this defect shipped once.
+    if (!cardSummaryRefused(story.what)) return briefingText(story.what);
+    return recoverCardSummary(story);
+  }, [story]);
 
   return (
     <article className="reveal rounded-3xl border border-hairline bg-surface p-6 sm:p-7">
@@ -83,12 +107,12 @@ export function StoryCard({
         </h2>
       </Link>
 
-      {/* An event whose feed description was furniture has no summary to show.
-          The card prints its headline and its sources instead of a credit. */}
-      {briefingText(story.what) ? (
-        <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">
-          {briefingText(story.what)}
-        </p>
+      {/* An event whose feed description was furniture has no summary to show,
+          and neither has one whose stored summary the deck predicate refused and
+          whose story publishes nothing valid to recover. The card prints its
+          headline and its sources instead of a credit. */}
+      {summary ? (
+        <p className="mt-3 text-[14px] leading-relaxed text-muted-foreground">{summary}</p>
       ) : null}
 
       {/*

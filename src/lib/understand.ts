@@ -4,6 +4,7 @@ import {
   centralTokens,
   editorialNoise,
   isCutSentence,
+  noMainClause,
   normalizeSummary,
   selectReaderEvidence,
 } from "./reader-evidence";
@@ -757,6 +758,35 @@ function wordCount(text: string): number {
 }
 
 /** A bounded, de-duplicated briefing body for both new and legacy events. */
+/**
+ * Whether the stored event summary is a statement the deck boundary refuses.
+ *
+ * The card surface and the story page must not disagree about trustworthy prose:
+ * the same malformed unit that was withheld from a story page (2026-10-14, the
+ * GitHub Taskflow list item) kept publishing as the dashboard card's summary
+ * line, because the card reads the stored event summary directly and never
+ * called the rule. Measured on the live window: of 1,000 complete events, 686
+ * cards print a summary line and 1 line is refused by this predicate.
+ *
+ * The refusal is *reported* rather than applied here, so a caller can recover
+ * instead of withhold: the card composes the story and prints the opening
+ * sentence the article actually published, which is a stronger reader outcome
+ * than an empty line (the arbiter's ruling of 2026-10-14, option 2).
+ *
+ * `normalizeSummary`'s own reasons are excluded on purpose: a furniture summary
+ * already has its own behaviour at the card, and this test exists to add one
+ * reason, not to reclassify the others.
+ *
+ * Known limit: the whole stored line is tested, as the deck is tested as a unit,
+ * so a multi-sentence summary whose *first* sentence is a fragment is not caught
+ * here. The measured window carries no such line.
+ */
+export function cardSummaryRefused(text: string): boolean {
+  const summary = normalizeSummary(text);
+  if (summary.reason !== null) return false;
+  return noMainClause(summary.text);
+}
+
 export function briefingText(text: string, maxWords = 90): string {
   // The event summary this renders is written from a feed's `description` field,
   // which is not always an article: it is also where providers put media

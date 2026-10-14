@@ -1105,3 +1105,27 @@ diff touches them before believing the failure.
   question for the arbiter; the resolution's entity-path branch is preventive (0 live cases); and
   **the overall reader-quality gate stays open**. Full record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-unestablished-first-person--the-defect-the-narrator-resolver-never-saw-2026-10-14-ruled-and-landed).
+
+- **2026-10-14 — the ruled deck defect was still publishing on the dashboard card, and is now
+  recovered there.** Read on the deployed origin: the story page for `7af726e6` opened on its real
+  first sentence with the list item gone from the body, while the **card for the same story still
+  printed that item as its summary line**. Cause verified, not inferred: the card renders
+  `briefingText(story.what)` and `story.what` is the stored event summary, so the card never asked the
+  deck predicate — `noMainClause` on that exact string is `true` and `briefingText` returned it
+  unchanged. **Population:** newest 1,000 complete events → 686 cards with a summary line, 1 refused;
+  the live case is older than that window, which is why a recent-window count is not an inventory.
+  **Recovery measured before it was offered:** both refused lines have a usable opening published
+  sentence, and composition costs 150–220 ms, so it is paid only by a refused card. **Ruling**
+  (ChatGPT `nyuz` project, 2026-10-14): **option 2, lazy recovery** — predicate first, stored line as
+  the fast path, compose only on refusal, print the story's own opening published sentence, withhold
+  the line if nothing valid is recoverable, reuse `noMainClause` rather than adding a card predicate,
+  keep the classification separate from `sourceFurnitureHead`, no recursive retry, and **no write-time
+  migration in this slice**. **Landed:** `cardSummaryRefused` and `recoverCardSummary` with the card's
+  predicate-first path; 7 unit tests and 3 card tests, the card test having failed on the first
+  implementation (it printed the refused line), which is its fail-before evidence. **A correction
+  recorded:** the ruling assumed `noMainClause` does not fire on the TCP/IP card line; measured, it
+  does — the main clause's verb is the contraction `There's` — so that line is an observed false
+  positive of the predicate at this surface, pinned as one, and its real defect (`that` with no
+  antecedent) stays open. **Still open:** that false positive, the GitHub owner/repo reference defect,
+  the non-comma list items, and **the overall reader-quality gate**. Full record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-dashboard-card--a-ruled-defect-that-stayed-publishable-on-a-second-surface-2026-10-14-ruled-and-landed).
