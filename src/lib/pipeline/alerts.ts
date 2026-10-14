@@ -20,7 +20,7 @@ import type { BreakingMode, Database } from "@/lib/supabase/types";
 import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
 import { flushDeliveries, queuedChannels, deliveryTargets } from "./digest";
 import { FLASH_POLICY, ageHours } from "./freshness";
-import { IMPORTANT_FLOOR } from "./alert-floor";
+import { IMPORTANT_FLOOR, assessAlertFloor } from "./alert-floor";
 import { alertEligible } from "./subject-significance";
 import { assessReadiness } from "./readiness";
 import type { ReaderSource } from "../reader-evidence";
@@ -382,7 +382,19 @@ export async function fireAlerts(db: Db, options: AlertOptions): Promise<AlertRe
       sourceKinds: event.sourceKinds,
       sources: event.sources,
     });
-    if (verdict.ready) return true;
+    if (verdict.ready) {
+      // The shape floor, after the briefing's own gate. An alert is a stronger
+      // claim than a briefing story: a shape the briefing would publish still
+      // must not interrupt a phone when nothing developed (roadmap advertorial,
+      // product newsletter, hobby hack, personal blog, price piece).
+      const floor = assessAlertFloor({
+        title: event.title,
+        whatHappened: event.whatHappened,
+      });
+      if (floor.ready) return true;
+      withheldKinds.add(floor.kind);
+      return false;
+    }
     withheldKinds.add(verdict.kind);
     return false;
   });

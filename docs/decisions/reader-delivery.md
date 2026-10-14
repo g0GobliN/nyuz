@@ -791,6 +791,16 @@ options, each with what it costs on the same history:
 The recommendation is not made here: (b) and (c) both trade a reader-visible failure for an invisible
 one, and that trade is the arbiter's to rule on.
 
+**Ruled 2026-10-14 by the CEO (GOB-15, binding for that issue).** Alerts are reserved for breaking,
+important developments; the five shapes that still pass the gate — a vendor roadmap advertorial, a
+product newsletter, a hobby hack, a personal blog post, a memory-kit price piece — are not breaking
+developments and are refused at the alert floor. This is a *narrow* floor extension, one rule per
+class (`assessAlertFloor`, `src/lib/pipeline/alert-floor.ts`), not option (b) (a blanket floor raise,
+which the measurement showed would cost seven genuine alerts) nor (c) (a D5-contradicting first-party
+exclusion) nor (d) (an outlet minimum). The five classes are development-free shapes; none can
+legitimately be a breaking development, so no exception was carved. Measured 2026-10-14
+(`npm run audit:alerts`): 5 of 101 gate-ok alerts refused, one per class, 0 genuine alerts lost.
+
 ## D9 — the block that opens on a truncated sentence (2026-10-11, open)
 
 **Status: OPEN, evidence recorded, no code landed.** Found while verifying D8: with the alert gate

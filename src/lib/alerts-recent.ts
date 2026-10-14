@@ -57,6 +57,43 @@ export type AlertDeliveryRow = {
   delivered_at: string | null;
 };
 
+/**
+ * The whole-alert delivery outcome, derived from the per-channel rows.
+ *
+ * This is the separation the alert status model was missing: `digests.status`
+ * is the generation lifecycle (`scheduled` → `generating` → `ready` → `sent`
+ * / `failed`) and it says nothing honest about whether the reader was reached
+ * on each channel. The per-channel truth is `deliveries.status`
+ * (`queued`/`sent`/`failed`/`bounced`); the whole-alert outcome is a pure
+ * function of it, in four states:
+ *
+ *   - `success` — every channel delivered (at least one `sent`, no `failed`,
+ *     none still `queued`)
+ *   - `partial` — some channel delivered and another failed (at least one
+ *     `sent`, at least one `failed`, none `queued`)
+ *   - `failed`  — no channel delivered (no `sent`, no `queued`)
+ *   - `pending` — delivery still in flight (at least one `queued`)
+ *
+ * `digests.status` is deliberately not read here. An alert whose email arrived
+ * and whose push then failed stays `ready` forever under the old model, which
+ * is exactly the conflation this fixes: the outcome is answerable from the
+ * deliveries alone, whether or not the digest's own status was reconciled.
+ */
+export type AlertDeliveryOutcome = "success" | "partial" | "failed" | "pending";
+
+export function alertDeliveryOutcome(
+  deliveries: readonly AlertDeliveryRow[],
+): AlertDeliveryOutcome {
+  const sent = deliveries.some((row) => row.status === "sent");
+  const failed = deliveries.some((row) => row.status === "failed" || row.status === "bounced");
+  const queued = deliveries.some((row) => row.status === "queued");
+
+  if (queued) return "pending";
+  if (sent && failed) return "partial";
+  if (sent) return "success";
+  return "failed";
+}
+
 export type AlertItemRow = {
   digest_id: string;
   event_id: string;
@@ -100,6 +137,8 @@ export type SentAlert = {
  * `ready` for ever — reading the digest's own status would hide an alert the
  * reader demonstrably received. Reading one arbitrary delivery row, which is
  * what this replaced, would show a failed push beside an email that arrived.
+ * The four-way whole-alert state behind this is `alertDeliveryOutcome`; the
+ * reader list shows `success` and `partial`, and hides `failed` and `pending`.
  *
  * `hasMore` answers "is there anything beyond this list", which is the only
  * thing the Alerts page needs in order to decide whether offering history

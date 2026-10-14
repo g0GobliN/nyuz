@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fireAlerts } from "./alerts";
+import { assessAlertFloor } from "./alert-floor";
 import { asDb, FakeDb, type Row } from "@/lib/test-support/fake-db";
 
 /**
@@ -221,4 +222,69 @@ describe("an alert clears the gate a briefing story clears", () => {
     expect(created(db)).toHaveLength(0);
     expect(db.rows("digests")).toHaveLength(0);
   });
+});
+
+describe("an alert clears the shape floor a briefing story does not have", () => {
+  // A shape the briefing gate publishes -- a development-free title with a
+  // readable body -- still must not interrupt a phone. These are the five
+  // classes the CEO ruling reserves alerts against: each seed passes
+  // `assessReadiness` (multi-fact excerpt) and is refused only by
+  // `assessAlertFloor`, which is the property that was missing before this fix.
+
+  const SHAPES: EventSeed[] = [
+    {
+      id: "77777777-7777-4777-8777-777777777777",
+      title: "Whose roadmap is your software estate running on?",
+      whatHappened: "A vendor's end-of-support dates and license changes arrive on its schedule.",
+      importance: 7,
+      excerpt: GOOD_EXCERPT,
+    },
+    {
+      id: "88888888-8888-4888-8888-888888888888",
+      title: "Gremlin now uses AI to break distributed systems faster",
+      whatHappened: "A chaos engineering vendor now uses AI to break distributed systems faster.",
+      importance: 7,
+      excerpt: GOOD_EXCERPT,
+    },
+    {
+      id: "99999999-9999-4999-8999-999999999999",
+      title: "PS5 hack delivers native PS2 disc support and 4K upscaling where Sony refused to",
+      whatHappened: "A console hack delivers native PS2 disc support and 4K upscaling.",
+      importance: 6,
+      excerpt: GOOD_EXCERPT,
+    },
+    {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      title: "2026.41: It's Not You, It's Me",
+      whatHappened: "A personal newsletter edition about a company's position in the market.",
+      importance: 6,
+      excerpt: GOOD_EXCERPT,
+    },
+    {
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      title: "Customer sends two-stick $16,000 DDR5 memory kit to repair shop",
+      whatHappened: "A customer sends a two-stick $16,000 DDR5 memory kit to a repair shop.",
+      importance: 6,
+      excerpt: GOOD_EXCERPT,
+    },
+  ];
+
+  for (const seed of SHAPES) {
+    it(`withholds a ${seed.title}`, async () => {
+      const db = alertDb([seed]);
+      const report = await fireAlerts(asDb(db), {
+        userId: READER,
+        now: NOW,
+        hits: hits([seed]),
+      });
+      expect(created(db)).toHaveLength(0);
+      expect(report.withheld).toBe(1);
+      expect(report.withheldKinds).toHaveLength(1);
+      // The shape floor is the only thing that refused it: readiness passed.
+      const verdict = assessAlertFloor({ title: seed.title });
+      expect(verdict.ready).toBe(false);
+      if (verdict.ready) throw new Error("unreachable: shape floor admitted a refused shape");
+      expect(report.withheldKinds).toEqual([verdict.kind]);
+    });
+  }
 });

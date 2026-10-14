@@ -3,6 +3,7 @@ import {
   ALERT_CANDIDATE_FACTOR,
   ALERT_HISTORY_PAGE,
   RECENT_ALERT_LIMIT,
+  alertDeliveryOutcome,
   groupAlertsByMonth,
   isAlertCursor,
   selectDeliveredAlerts,
@@ -23,6 +24,40 @@ function sent(id: string, at: string | null, channel = "email"): AlertDeliveryRo
   void channel;
   return { digest_id: id, status: "sent", delivered_at: at };
 }
+
+function failed(id: string): AlertDeliveryRow {
+  return { digest_id: id, status: "failed", delivered_at: null };
+}
+
+function queued(id: string): AlertDeliveryRow {
+  return { digest_id: id, status: "queued", delivered_at: null };
+}
+
+describe("alertDeliveryOutcome", () => {
+  it("is success when every channel delivered", () => {
+    expect(alertDeliveryOutcome([sent("a", "2026-09-09T10:00:00Z")])).toBe("success");
+    expect(
+      alertDeliveryOutcome([
+        sent("a", "2026-09-09T10:00:00Z", "email"),
+        sent("a", "2026-09-09T10:01:00Z", "push"),
+      ]),
+    ).toBe("success");
+  });
+
+  it("is partial when one channel delivered and another failed", () => {
+    expect(alertDeliveryOutcome([sent("a", "2026-09-09T10:00:00Z"), failed("a")])).toBe("partial");
+  });
+
+  it("is failed when no channel delivered", () => {
+    expect(alertDeliveryOutcome([failed("a")])).toBe("failed");
+    expect(alertDeliveryOutcome([])).toBe("failed");
+  });
+
+  it("is pending while any channel is still queued", () => {
+    expect(alertDeliveryOutcome([queued("a")])).toBe("pending");
+    expect(alertDeliveryOutcome([sent("a", "2026-09-09T10:00:00Z"), queued("a")])).toBe("pending");
+  });
+});
 
 describe("selectDeliveredAlerts", () => {
   it("keeps only alerts a channel actually delivered", () => {

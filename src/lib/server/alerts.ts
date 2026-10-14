@@ -66,12 +66,20 @@ async function readAlerts(
 
   // The cursor narrows the read; the window still bounds it. A `before` from an
   // edited URL can only ever ask for LESS than the entitlement, never more.
+  //
+  // Deliberately no `digests.status` filter. The status column conflates the
+  // generation lifecycle with delivery (an alert whose email arrived and whose
+  // push failed stays `ready` forever), so it is not a test of whether an alert
+  // was delivered. The honest state is `selectDeliveredAlerts`, which reads the
+  // per-channel `deliveries` rows — the same rows this query fetches below —
+  // and shows only alerts a channel actually reached. Alert digests are only
+  // ever `ready`, `sent` or `failed`, so the wider read costs nothing and the
+  // delivery-based filter is the whole of the truth.
   let query = db
     .from("digests")
     .select("digest_id, scheduled_for")
     .eq("user_id", userId)
     .eq("kind", "alert")
-    .in("status", ["ready", "sent"])
     .gte("scheduled_for", windowStart);
   if (before) query = query.lt("scheduled_for", before);
 

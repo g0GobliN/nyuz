@@ -727,6 +727,37 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   instead of charging from another context. Re-run: full suite **3166/3166**, `npx tsc --noEmit`
   clean, lint 0 errors.
 
+- **2026-10-14 — GOB-15: the alert shape floor and the alert status model (stream C).** Two
+  reader-facing defects from the GOB-13 triage, both in the alert surface.
+
+  **T2 — non-news alerts still reach phones.** After the D8 gate, five development-free shapes
+  passed: a vendor roadmap advertorial (importance 7), a product newsletter (7), a hobby hack (6), a
+  personal blog post (6), a memory-kit price piece (6). The CEO ruled (in this issue, binding) that
+  alerts are reserved for breaking, important developments and these five classes are refused at the
+  alert floor. Landed the narrowest floor extension — `assessAlertFloor` in
+  [alert-floor.ts](../src/lib/pipeline/alert-floor.ts), one rule per class, run after `assessReadiness`
+  in `fireAlerts` — with fail-before tests pinning each recorded sample and guard cases keeping the
+  important developments (KillSec, US disrupts, Nvidia guides, Super Micro, FBI arrest, etc.). The
+  ruling is recorded in [reader-delivery.md](decisions/reader-delivery.md) §D8. Measured 2026-10-14
+  (`npm run audit:alerts`, now printing the shape floor): **5 of 101 gate-ok alerts refused**, one per
+  class (hobby-hack, personal-blog, price-piece, product-newsletter, roadmap-advertorial), 0 genuine
+  alerts lost.
+
+  **T3 — the 69 alerts stuck at `ready`.** `digests.status` conflated whole-alert completion with
+  per-channel delivery, and `server/alerts.ts:74` read it. The honest model separates the two:
+  `alertDeliveryOutcome` in [alerts-recent.ts](../src/lib/alerts-recent.ts) derives the whole-alert
+  state — success / partial / failed / pending — from the per-channel `deliveries` rows, and the
+  reader query no longer filters on `digests.status`. On 2026-10-14 the live table held 70
+  `kind='alert'` digests stuck at `ready`, every one terminal: 39 with a sent delivery (the reader
+  was reached) and 31 with only failed deliveries. Migration
+  [0117_alert_delivery_reconcile.sql](../supabase/migrations/0117_alert_delivery_reconcile.sql)
+  reconciles them additively — UPDATE only, no rows added or removed — mapping `ready`+sent → `sent`
+  and `ready`+all-failed → `failed`, with the full mapping and rollback note in the file. No
+  external reader of the old alert statuses broke: `reader-alert-audit.ts` reads `kind='alert'`
+  without a status filter, and the operator-facing `operations.ts` / `analytics.ts` counts only get
+  more honest after the reconciliation. Full suite **3219/3219**, `npx tsc --noEmit` clean (both
+  configs), lint clean.
+
 - **2026-10-14 — the live product read as a stranger, the biggest reader-visible defect in the
   sample fixed, and the arbiter's ruling on it.** Five stories were read at the deployed origin
   (`https://nyuz.grgvishal-gurung17.workers.dev`, 2026-10-14) and three carried defects; the

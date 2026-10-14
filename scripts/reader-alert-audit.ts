@@ -33,6 +33,7 @@
  */
 
 import { IMPORTANT_FLOOR, withinFlashWindow } from "@/lib/pipeline/alerts";
+import { assessAlertFloor } from "@/lib/pipeline/alert-floor";
 import { FLASH_POLICY, ageHours } from "@/lib/pipeline/freshness";
 import { assessReadiness } from "@/lib/pipeline/readiness";
 import { PLAN_LIMITS, allowedBreaking } from "@/lib/plans";
@@ -455,6 +456,8 @@ main(async () => {
     const sentVerdicts: Record<string, number> = {};
     const sentRefused: { title: string; kind: string; reason: string }[] = [];
     const gateByEvent = new Map<string, string>();
+    const floorByEvent = new Map<string, string>();
+    const floorRefused: { title: string; kind: string; reason: string }[] = [];
     for (const story of sentCoverage) {
       const verdict = assessReadiness({
         title: story.title,
@@ -467,8 +470,18 @@ main(async () => {
       const key = verdict.ready ? "ready" : verdict.kind;
       sentVerdicts[key] = (sentVerdicts[key] ?? 0) + 1;
       gateByEvent.set(story.id, key);
-      if (verdict.ready) continue;
-      sentRefused.push({ title: story.title, kind: verdict.kind, reason: verdict.reason });
+      if (verdict.ready) {
+        // The shape floor the alert path now asks, after the briefing's gate.
+        // A shape the briefing would publish still must not interrupt a phone.
+        const floor = assessAlertFloor({ title: story.title, whatHappened: story.what });
+        floorByEvent.set(story.id, floor.ready ? "ready" : floor.kind);
+        if (!floor.ready) {
+          floorRefused.push({ title: story.title, kind: floor.kind, reason: floor.reason });
+        }
+      } else {
+        floorByEvent.set(story.id, "-");
+        sentRefused.push({ title: story.title, kind: verdict.kind, reason: verdict.reason });
+      }
     }
 
     for (const item of ordered.slice(0, SHOW)) {
@@ -476,11 +489,14 @@ main(async () => {
       const sentAt = generatedById.get(item.digest_id) ?? "";
       const ageAtSend = event && sentAt ? hours(occurred(event), new Date(sentAt)) : null;
       const gate = gateByEvent.get(item.event_id) ?? "novel";
+      const floor = floorByEvent.get(item.event_id);
+      const floorTag =
+        floor !== undefined && floor !== "ready" && floor !== "-" ? `  floor ${floor}` : "";
       say(
         `  ${sentAt.slice(0, 16)} user=${(userIdByDigest.get(item.digest_id) ?? "").slice(0, 8)} ` +
           `imp=${String(event?.importance ?? "?").padStart(2)} ` +
           `age-at-send=${ageAtSend === null ? "n/a" : `${ageAtSend.toFixed(1)}h`} ` +
-          `${gate === "ready" ? "  gate ok" : `gate ${gate}`.padEnd(9)} ` +
+          `${gate === "ready" ? "  gate ok" : `gate ${gate}`.padEnd(9)}${floorTag} ` +
           `${short(event?.title ?? item.event_id, 55)}`,
       );
     }
@@ -497,6 +513,28 @@ main(async () => {
       say(rowLine(`    ${kind}`, count));
     }
     for (const entry of sentRefused.slice(0, SHOW)) {
+      say(`  · [${entry.kind}] ${short(entry.title, 70)}\n      ${short(entry.reason, 100)}`);
+    }
+
+    // The shape floor, which the alert path now asks after the briefing's gate.
+    // This is the answer to "do the five shapes still reach phones": each kind
+    // below is a development-free shape the phone would no longer be interrupted
+    // for, and the gate-ok alerts that carry none of them still send.
+    const floorCounts: Record<string, number> = {};
+    for (const kind of floorByEvent.values()) {
+      if (kind === "ready" || kind === "-") continue;
+      floorCounts[kind] = (floorCounts[kind] ?? 0) + 1;
+    }
+    say(
+      rowLine(
+        "  of the gate-ok, refused by the alert shape floor",
+        `${floorRefused.length} of ${sentVerdicts["ready"] ?? 0}`,
+      ),
+    );
+    for (const [kind, count] of Object.entries(floorCounts).sort()) {
+      say(rowLine(`    ${kind}`, count));
+    }
+    for (const entry of floorRefused.slice(0, SHOW)) {
       say(`  · [${entry.kind}] ${short(entry.title, 70)}\n      ${short(entry.reason, 100)}`);
     }
 
