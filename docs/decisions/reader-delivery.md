@@ -1334,3 +1334,177 @@ its real defect is open); that the GitHub owner/repo reference ("The argument is
 owner/repo slug.") is addressed — the ruling names it a separate context-dependency defect; or that
 the non-comma list items are resolved — the ruling keeps that a recorded limitation until an actual
 published failure is demonstrated. **The overall reader-quality gate remains open.**
+
+## The unestablished reference, measured before any rule (2026-10-14; ruled the same day, see below)
+
+The card ruling of the same day left three things open and required measurement **before** a rule
+changes: the *TCP/IP standalone-reference defect*, the *unestablished GitHub owner/repository
+reference* ("The argument is just a GitHub owner/repo slug.") and the non-comma list-item limitation.
+It also gave the standing instruction that the predicate is not to be changed to make a sample look
+better. This entry is the measurement that instruction asked for. **No rule has been written and no
+product behaviour changed for this class.**
+
+**Provenance.** `scripts/tsrun.mjs tmp/context-opening-classify.ts --limit 200` (scratch probe, not
+committed), 2026-10-14. Two **live** windows, so the numbers are a reading of the product at that
+moment and drift from the morning's count (927 → 932 published blocks, 686 → 684 card lines):
+
+- the body — the newest **200 completed events** through the composer's own loader
+  (`loadCorpusEvents`), which is what `reader-composer-audit` reads, giving every published deck and
+  paragraph (932 blocks); and
+- the card — the newest **1,000 complete `events` rows**, each rendered through `briefingText`, giving
+  every card summary line (684 lines, 10 of them carrying an unresolvable reference).
+
+**The body is not where this class bites. 0 of 932 published blocks open the page on an ungrounded
+reference.** Every hit from the looser count is *mid-body*, and reading the block printed immediately
+before each one accounts for them:
+
+| hit (mid-body)                                                  | the block before it                             | reading     |
+| --------------------------------------------------------------- | ----------------------------------------------- | ----------- |
+| "This type of psychological intimidation …"                      | the extortion paragraph                         | established |
+| "That year, the RHEL 10 release went further"                    | "in 2024, its ubiquity was looking threatened"   | established |
+| "This sounds similar to the kind of rack-scale AI equipment …"   | the rack-scale systems paragraph                | established |
+| "That legal fight escalated after the government cleared …"      | golf-course opposition                          | weak        |
+| "He's also investigated ransomware attacks …"                    | the Europol paragraph — "He" is not in it       | ungrounded  |
+| "Those demands include their memecoin reaching a $30 million …"  | 30 FPS and "Cyberleek", inside the GTA 6 story  | see below   |
+
+A rule built on this evidence would refuse ordinary anaphora whose antecedent is the paragraph above —
+three of the six are exactly that — which is why the body is not proposed for a rule on these numbers.
+
+**The card is where it bites, and the headline is the confounder.** The card prints only a headline
+above the line, so the line is all the context a reader gets. 10 of 684 lines (1.5%), in three shapes:
+
+- **(a) six hits, paper-abstract prose** — "These results establish credal geometry as a principled
+  framework …", "These results show that executable diagnosis fills gaps …", "The result is a unified,
+  inference-time, retraining-free sampler …", "These constraints are directly compatible with existing
+  analysis frameworks …", "These results connect balance objectives to sampling accuracy …", "These
+  results establish fixed-point flow matching …". Each sits under **the paper's own title**, so
+  "these results" is arguably established by the headline; whether a topically-identical headline
+  establishes a deictic reference is a judgement call that belongs to the arbiter, not to a rule.
+- **(b) two hits resolved outright by the headline, not defects** — "Neither Egypt nor Sudan has
+  commented …" under "Dozens of gold prospectors killed in strikes on Egypt-Sudan border"; "Her epic
+  ride — carrying her injured dad on her $20 hot pink bicycle — made headlines" under "A heroic,
+  7-day bike ride made this teen a global star. Where is she now?".
+- **(c) two hits unresolvable however the headline is read** — "While the figure on its surface sounds
+  significant, the estimated lease price is around 43% less than an Nvidia H100 leased at $2.80 per
+  hour" (neither the figure nor its surface is ever given) and "Those were among the descriptions more
+  than three dozen mathematicians reached for in conversations with The Verge" (the descriptions are
+  exactly what the card does not carry).
+
+**The two strings the ruling named are not in this window at all.** Neither "The argument is just a
+GitHub owner/repo slug." nor the TCP/IP reference appears in any of the 932 published blocks or 684
+card lines; both belong to stories older than the newest 200. So the ruling's "TCP/IP
+standalone-reference defect — open; containment is not a fix" cannot be re-confirmed from this window;
+re-reading that story is a separate action, not a number this measurement carries.
+
+**A separate anomaly, flagged and untouched.** The GTA 6 story publishes "Those demands include their
+memecoin reaching a $30 million valuation, perhaps hinting at their true motivation." with the block
+before it about 30 FPS and "Cyberleek". That is not only an ungrounded reference — it reads as a fact
+belonging to a different story, which is a contamination question rather than an anaphora one.
+
+**The four options put to the arbiter.** (1) Apply the existing shared predicate at the card boundary
+— the same `contextDependent && !recoverableContext` test the fact selector already runs — refused
+through the existing reason taxonomy, with the card slice's lazy-recovery remedy; one surface, no new
+rule, target shapes (a) + (c). (2) The same only where the headline does not name the referent, so (a)
+survives and only (c) is caught — stricter, but it needs a definition of "the headline names the
+referent". (3) No rule; keep the measurement as a limit. (4) Extend to the body as well — recommended
+against on the 0-of-932 finding.
+
+**Not claimed.** That this class is handled, that any of the 10 card lines has been fixed, that the
+TCP/IP or GitHub owner/repo defects are addressed, or that the body is free of ungrounded references —
+0 of 932 *page-opening* blocks is a reading of one 200-event window, not a proof. **The overall
+reader-quality gate remains open.**
+
+### The ruling on that measurement (2026-10-14, received)
+
+**Option 1, with a strict scope boundary.** Apply the existing shared predicate at the card-summary
+boundary and lazily recover refused summaries from validated published content. **Option 2 rejected**
+for now: a headline-resolution check would be "another unvalidated rule", and there is already a
+shared predicate and an established recovery mechanism. **Option 4 rejected**: the body evidence does
+not support a body-wide refusal rule, because a rule on those seven mid-body hits would refuse
+ordinary anaphora whose antecedent is the paragraph above. The boundary the ruling draws: *cards*
+evaluate context against what the card actually displays (headline plus summary line); *article bodies*
+allow references whose antecedents are established in preceding published content; *page-opening
+blocks* keep being monitored, with the explicit warning not to infer universal safety from zero
+observed cases. It requires `contextDependent && !recoverableContext` and the existing reason taxonomy,
+forbids broadening the predicate to catch the report's examples, and requires both the `noMainClause`
+fallback and the context check at the card boundary — they are distinct classes and neither replaces
+the other.
+
+**Closure conditions, which make the slice conditional rather than done.** The predicate must run at
+the card boundary; recovery must be validated; **all 10 measured examples must receive explicit
+dispositions** individually, not as a class — the two headline-resolved ones, the six paper-title
+ones and the two unresolved ones; any legitimate summary the predicate refuses must be recorded as a
+false positive even when recovery contains it ("containment is not proof that the classification was
+correct"); and the deployed behaviour must be verified. Closure of this slice must not be presented as
+closure of the reader-quality gate.
+
+**Order of work it set.** (1) Investigate the GTA 6 / memecoin block's provenance. (2) Complete the
+card-context slice with the 10 dispositions. (3) Measure the older GitHub-slug and TCP/IP cases
+directly. (4) Reassess non-comma list-item leakage against verified source-to-output examples. It
+explicitly did not authorise a change to the shared predicate.
+
+**The dispositions, measured with the shipped predicates** (`tmp/card-context-dispositions.ts`,
+`tmp/card-context-recovery.ts`, newest 1,000 complete events):
+
+| # | line                                                     | shape                    | `contextDependent` | `recoverableContext` | refused | recovered card line |
+| - | -------------------------------------------------------- | ------------------------ | ------------------ | -------------------- | ------- | ------------------- |
+| 1 | "These results show that executable diagnosis fills …"    | paper abstract           | true               | false                | yes     | "Embodied coding agents construct robot policies …" |
+| 2 | "The result is a unified, inference-time sampler …"       | paper abstract           | true               | false                | yes     | "Robots must generate trajectories that remain faithful …" |
+| 3 | "These constraints are directly compatible with …"        | paper abstract           | true               | false                | yes     | "Quadratic constraints (QCs) are widely used …" |
+| 4 | "These results establish credal geometry …"               | paper abstract           | true               | false                | yes     | "Prediction-set size offers a coarse summary …" |
+| 5 | "These results establish fixed-point flow matching …"     | paper abstract           | true               | false                | yes     | "In maximum entropy and behaviour-constrained RL …" |
+| 6 | "These results connect balance objectives to …"           | paper abstract           | true               | false                | yes     | "A comprehensive theory linking nonzero balance loss …" |
+| 7 | "Neither Egypt nor Sudan has commented …"                 | headline-resolved (FP)   | true               | false                | yes     | "At least 72 civilians … killed in air strikes …" |
+| 8 | "Her epic ride — carrying her injured dad …"              | headline-resolved (FP)   | true               | false                | yes     | "Promises were made — financial help, a training career …" |
+| 9 | "While the figure on its surface sounds significant …"    | unresolvable             | true               | false                | yes     | **"Sayem Ahmed is the Subscription Editor at Tom's Hardware."** |
+| 10 | "Those were among the descriptions …"                    | unresolvable             | true               | false                | yes     | "For all their different reactions, researchers agreed …" |
+
+Refusal counts on that window: 683 summary lines, **1 refused by `noMainClause` today**, **10 refused by
+the shared context predicate**, **0 by both** — the overlap is empty, which is the ruling's claim that
+the classes are distinct, measured. Recovery was validated for all 10: **10 recovered, 0 withheld, and
+0 recovered lines still carrying the defect.** Items 7 and 8 are **false positives of the predicate at
+this surface**: each line *is* resolvable, but only by the headline above it, and `recoverableContext`
+reads the line alone, so it does not recognise them as recoverable. Recovery contains both, which is
+containment and not a fix, exactly as the ruling requires to be recorded.
+
+**Why the slice is not landed: recovery for item 9 returns a byline.** Making the card ask the
+predicate would print "Sayem Ahmed is the Subscription Editor at Tom's Hardware." on that card — a
+byline is not a summary line, so the change cannot ship as written. The defect is upstream of the card
+and is recorded below; the card slice waits on how that byline is handled, because the same string is
+its recovery input.
+
+## A staff byline published as the deck, live (2026-10-14, read on the deployed origin, not fixed)
+
+**Read as a stranger on the deployed origin.** The story page for `7a1a7f98-ced5-4179-8c66-28a52211b73d`
+("This week on Tom's Hardware Premium: October 10, 2026") opens on:
+
+> Sayem Ahmed is the Subscription Editor at Tom's Hardware.[1]
+
+A masthead byline is the first thing the reader meets, as the story's deck, with a citation marker on
+it.
+
+**Provenance, from the rows.** `articles` for that event: one row (`f0562126-0ee0-4da8-8cf0-ec2c743370e6`,
+Tom's Hardware, `…/this-week-on-toms-hardware-premium-october-10-2026-tencent-grabs-bargain-chip`),
+excerpt present and carrying no byline. `article_evidence` for that article: **status `enriched`, 12
+units, and `UNIT 1` is that exact byline**. The composer receives the same story — one `sourceList`
+entry, 12 `enrichedEvidence` units, unit 1 the byline — and publishes it as the deck. So the line
+entered at **extraction** (the enrichment pass kept the masthead line as an evidence unit) and was
+published at **deck selection**; it is not an association error and not a card-surface error.
+
+**Cause, measured rather than guessed.** The rule that owns publisher furniture is
+`PUBLISHER_FURNITURE` in [reader-evidence.ts](../../src/lib/reader-evidence.ts), reached through
+`editorialNoise` and `sourceSeam`. Measured on the exact string: **`editorialNoise` false,
+`publisherVoice` false, `sourceSeam` null** — every existing predicate passes it. The list's
+author-bio entries are all **verbless** ("has written more than N articles", "founded the site in
+2004", "is also the lead developer"), which is the shape the list was written for; this one has a
+copula — "**is** the Subscription Editor at …" — so it is a grammatical sentence and passes every
+grammar test. A candidate shape was scoped for measurement (`is|are|was` + article + up to two words +
+a role from a closed role set, requiring an affiliation after it) but **no rule was built**: adding a
+shape to a closed furniture list changes what ships, which is the arbiter's call, and the case was put
+to it with these numbers.
+
+**Not claimed.** That this is the only such byline, or that the shape's breadth is known — the breadth
+measurement was drafted around that candidate shape and has not been reported as evidence. That the
+story's other problems are accounted for: the same page's body also reads "according to Hardware"
+(a truncated outlet name) and its blocks open mid-digest. **The overall reader-quality gate remains
+open.**

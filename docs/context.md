@@ -827,6 +827,24 @@ alert side is held to the same standard in its own terms — a breaking, importa
 silence otherwise. The R1 order below still stands and is still the blocking set; it is just no
 longer the answer to "what work do I take", because reader quality outranks all of it.
 
+**The reader-quality work in flight: one ruled slice held back, and one live defect awaiting a
+ruling.** The reference class was measured (0 of 932 published blocks open on an ungrounded reference;
+10 of 684 card lines carry one) and **ruled Option 1** — apply the existing shared predicate at the
+card-summary boundary with lazy recovery. It is **not landed**, on purpose: recovery for one of the ten
+refused card lines returns a **staff byline**, so making the card ask the predicate would print
+"Sayem Ahmed is the Subscription Editor at Tom's Hardware." as a card summary. That byline is itself a
+**live reader-visible defect**: the story page for `7a1a7f98` opens on it as its deck, it entered at
+extraction as `article_evidence` unit 1, and it passes `editorialNoise`, `publisherVoice` and
+`sourceSeam` because every byline entry in the closed `PUBLISHER_FURNITURE` list is verbless while this
+one has a copula. **No rule has been written for it** — adding a shape to a closed furniture list
+changes what ships, so the case (with its options) is with the arbiter, and it outranks the card slice
+because a reader meets it today. Also open: the TCP/IP and GitHub owner/repo reference defects, absent
+from the current window and needing their own re-read; the non-comma list items kept as a recorded
+limit; and the two measured false positives of `recoverableContext` (a card line resolved by its own
+headline, and "Those demands" whose antecedent is the paragraph above). The GTA 6 memecoin suspicion
+was **refuted** — its provenance is the story's own source. The gate stays **open**; nothing here is
+10/10.
+
 **The arbiter's order, ruled 2026-10-12 (R1 — [decisions/product-readiness.md](decisions/product-readiness.md)).**
 The blocking set comes first; D8/D9 continue only where the work is independent and does not
 obscure the current measurements:
@@ -1134,3 +1152,56 @@ diff touches them before believing the failure.
   **Still open:** that false positive, the GitHub owner/repo reference defect,
   the non-comma list items, and **the overall reader-quality gate**. Full record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-dashboard-card--a-ruled-defect-that-stayed-publishable-on-a-second-surface-2026-10-14-ruled-and-landed).
+
+- **2026-10-14 — the reference class measured before any rule, and the measurement moved it off the
+  body.** The card ruling left three things open and required measurement **before** a rule changes;
+  this is that measurement, with **no rule written and no product behaviour changed**. Window (live,
+  so it drifts from the morning's count — 927 → 932 blocks, 686 → 684 lines):
+  `scripts/tsrun.mjs tmp/context-opening-classify.ts --limit 200`, the newest 200 completed events
+  through the composer's own loader, plus the newest 1,000 `events` rows rendered through
+  `briefingText`. **Result:** of **932 published blocks, 0 open the page on an ungrounded reference** —
+  every hit is mid-body, and reading the block printed immediately before each one shows three of the
+  six are ordinary anaphora the paragraph above establishes, which is why the body is not proposed for
+  a rule on these numbers. On the **card** surface, 10 of 684 lines (1.5%) carry one: six are
+  paper-abstract prose ("These results establish …") sitting under the paper's own title, so whether
+  that headline establishes the reference is the open judgement; two are resolved outright by their
+  headline ("Neither Egypt nor Sudan …" under the Egypt-Sudan headline, "Her epic ride …" under "this
+  teen"); and two are unresolvable however the headline is read ("While the figure on its surface
+  sounds significant …", "Those were among the descriptions …"). **The two strings the ruling named by
+  hand are not in this window at all** — neither "The argument is just a GitHub owner/repo slug." nor
+  the TCP/IP reference appears in any published block or card line, so that open item cannot be
+  re-confirmed from it. **A separate anomaly, flagged and untouched:** the GTA 6 story publishes the
+  memecoin-demands line, which reads as another story's fact — contamination, not anaphora. Four
+  numbered options (card-boundary reuse of the shared predicate with lazy recovery / a
+  resolving-headline check first / no rule / extend to the body) were put to the arbiter and the
+  ruling is **pending**. Full record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-unestablished-reference-measured-before-any-rule-2026-10-14-ruled-the-same-day-see-below).
+
+- **2026-10-14 — the ruling arrived (Option 1), the GTA 6 contamination suspicion was refuted by its
+  own provenance, and a live byline was found on the story page.** The arbiter ruled **Option 1** for
+  the card — apply the existing shared predicate at the card-summary boundary with lazy recovery,
+  Option 2 rejected as an unvalidated new classifier, **Option 4 rejected** on the 0-of-932 body
+  finding — and made the slice conditional on the 10 measured examples each getting a disposition, on
+  recovery being validated, and on any legitimate summary the predicate refuses being recorded as a
+  false positive. Ruled order of work: GTA 6 provenance first, then the card slice, then the older
+  GitHub-slug and TCP/IP cases, then non-comma list leakage. **Measured dispositions:** 683 card lines;
+  1 refused by `noMainClause`, 10 by the shared context predicate, **0 by both** (the classes are
+disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's title, 2 are resolved
+  by their headline — and `recoverableContext` does not see that, so they are **false positives of the
+  predicate at this surface**, contained by recovery — and 2 are unresolvable however the headline is
+  read; **recovery validated on all 10: 10 recovered, 0 withheld, 0 recovered lines still defective.**
+  **The slice is deliberately NOT landed:** recovery for one of the 10 returns
+  "Sayem Ahmed is the Subscription Editor at Tom's Hardware.", so making the card ask the predicate
+  would print a byline as a card summary — the same string is that card's recovery input. **The GTA 6
+  suspicion is refuted:** the memecoin sentence is in the GTA 6 story's *own* single source (Tom's
+  Hardware, `articles.excerpt`) and appears in exactly 1 article across the scanned corpus; the
+  paragraph above it ends "…has threatened to leak the entire game if **their demands** are not met",
+  so the referent *is* on the page one block earlier and the block is ordinary anaphora — which also
+  means `recoverableContext` produced a measured false positive there. **A live defect found instead,**
+  read on the deployed origin: the story page for `7a1a7f98` opens on a masthead byline as its deck,
+  entered at extraction as `article_evidence` **UNIT 1** (status `enriched`, 12 units, article
+  `f0562126`) and published at deck selection; measured on that exact string, `editorialNoise`,
+  `publisherVoice` and `sourceSeam` **all pass it**, because every byline entry in the closed
+  `PUBLISHER_FURNITURE` list is verbless and this one has a copula. No rule was built — adding a shape
+  to a closed furniture list changes what ships — and the case is with the arbiter. Full record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-ruling-on-that-measurement-2026-10-14-received).
