@@ -57,4 +57,15 @@ describe("envValue", () => {
   it("is undefined for a name nobody set", () => {
     expect(envValue("NYUZ_TEST_ONLY")).toBeUndefined();
   });
+
+  it("does not fill a missing name from ambient when an explicit bag was given", () => {
+    process.env["NYUZ_TEST_ONLY"] = "from-node";
+    setWorkerEnv({ NYUZ_TEST_ONLY: "from-worker" });
+    // A handler given bindings must see a missing name as missing: falling
+    // back would hide a misconfigured secret behind a value from another
+    // context (the leak that made partial price fixtures read the developer's
+    // .env and price a plan that was never configured).
+    expect(envValue("NYUZ_TEST_ONLY", {})).toBeUndefined();
+    expect(envValue("NYUZ_TEST_ONLY", { OTHER: "x" })).toBeUndefined();
+  });
 });

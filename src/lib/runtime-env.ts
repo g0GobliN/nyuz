@@ -69,5 +69,6 @@ export function ambientEnv(): EnvBag {
  * secret behind a stale value from another context.
  */
 export function envValue(key: string, explicit?: EnvBag): string | undefined {
-  return explicit?.[key] ?? ambientEnv()[key];
+  if (explicit !== undefined) return explicit[key];
+  return ambientEnv()[key];
 }

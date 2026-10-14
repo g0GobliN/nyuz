@@ -698,6 +698,24 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   captured Guardian case directly. Decision recorded in
   [decisions/reader-delivery.md](decisions/reader-delivery.md#gob-6--guardian-newsletter-sidebar-boundary-2026-10-13).
 
+- **2026-10-14 — envValue stops leaking ambient config past an explicit bag.** The two
+  `prices.test.ts` grandfathering tests were red on `main` (pre-existing, reproduced by stashing
+  all worktree changes): a fixture that configured only legacy prices reported the catalogue as
+  configured, and an env with no annual price still resolved one. Root cause was not the price
+  table but `envValue` in [runtime-env.ts](../src/lib/runtime-env.ts) — `explicit?.[key] ??
+  ambientEnv()[key]` fell back to `process.env` for any name missing from an explicitly passed
+  bag, so under vitest a partial `PriceEnv` was silently completed from the developer's `.env`
+  (which sets all four `STRIPE_PRICE_*` names). That is exactly the failure the function's own
+  docstring forbids: "a scheduled handler that was given bindings should not silently fall back
+  to a different source for one missing name, because that hides a misconfigured secret behind a
+  stale value from another context". Now an explicit bag is authoritative — missing means missing
+  — and ambient is consulted only when the caller had no bag to thread. Consequence: a missing
+  price name refuses the sale (`priceIdFor` returns null) instead of charging from another
+  context's configuration. Controls: new case in
+  [runtime-env.test.ts](../src/lib/runtime-env.test.ts) pinning no-ambient-fill for an explicit
+  bag, and the two previously red `prices.test.ts` cases now pass unchanged. Full suite
+  3165/3165 (2026-10-14, `npx vitest run`), `npx tsc --noEmit` clean, lint 0 errors.
+
 ## 7. What is next
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates
