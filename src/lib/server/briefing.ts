@@ -5,6 +5,7 @@ import { z } from "zod";
 import { scoreRelatedEvent } from "@/lib/related-events";
 import { rankEventTopics } from "@/lib/pipeline/topic-assign";
 import { reasonFor } from "@/lib/pipeline/inclusion";
+import { deliveredSummary } from "@/lib/reader-summary";
 import { assessReadiness } from "@/lib/pipeline/readiness";
 import { signedInOnly } from "./guard";
 import { countOrThrow } from "@/lib/supabase/count";
@@ -123,7 +124,7 @@ export const loadMatches = createServerFn({ method: "GET" })
         {
           eventId: row.event_id,
           title: event.title,
-          whatHappened: event.what_happened ?? "",
+          whatHappened: deliveredSummary(event.what_happened) ?? "",
           importance: event.importance ?? 0,
           novelty: event.novelty ?? 0,
           relevance: row.relevance,
@@ -541,7 +542,7 @@ async function relatedEventsFor(
     .map(({ event: e }) => ({
       id: e.id,
       title: e.title,
-      summary: e.what_happened,
+      summary: deliveredSummary(e.what_happened) ?? "",
       publishedAt: e.first_seen_at,
     }));
 }
@@ -1299,7 +1300,11 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
         id: event.id,
         org: coverage[0]?.name ?? topics.get(id)?.[0] ?? "Unattributed",
         title: event.title,
-        what: event.what_happened,
+        // The line the reader sees, guarded at the join: a stored summary the
+        // shared boundary refuses is withheld here rather than printed (see
+        // reader-summary.ts). `lead` above stays the raw text, because topic
+        // ranking is internal and must not change with what may be shown.
+        what: deliveredSummary(event.what_happened) ?? "",
         why: "",
         importance: importanceBand(event.importance),
         score: {

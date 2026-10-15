@@ -1619,6 +1619,25 @@ than replaced. **For the three-day target, 10/10 means zero known reader-quality
 acceptance sample, with missing content reported separately.** The reader-quality gate stays open until
 that is measured on the delivered surface, which is now the only surface that counts.
 
+### The withhold clause, landed at the join (2026-10-15)
+
+The ruling's second requirement -- *a summary failing validation is withheld, never replaced by the raw
+feed description* -- is now in force on the delivery path, ahead of the composed artifact, because it is
+the half that also reaches the rows already stored: [reader-summary.ts](../../src/lib/reader-summary.ts)
+is asked wherever a stored summary becomes a line a reader sees ([briefing.ts](../../src/lib/server/briefing.ts)
+`hydrateEvents`, `loadMatches`, `relatedEventsFor`). It asks the three checks the ruling names --
+sentence admissibility (which carries the development-record rule), publisher furniture, context
+recoverability -- and deliberately **not** `noMainClause`, whose scope the arbiter fixed at the deck
+boundary. **Measured on the delivered surface, three times, 21 days: 20 briefings delivered, 297 items
+delivered, 289 carrying a line, 10 of those withheld, 8 of the 20 briefings (40%) affected**; a wider
+union including the deck-scoped rule reaches 11 of 297, so the excluded rule would have added exactly
+one line. The cost is stated, not hidden: items showing no line rise from 8 to **18 of 297 (6.06%)**,
+an explained increase that the acceptance criteria report separately from a defect. Two delivered lines
+remain **recorded true negatives** -- a commit line with a single pull-request reference, and a flattened
+list item -- because widening either is a decision this log has not taken. The measurement itself is now
+reproducible: `npm run audit:delivered-summary` names the predicate behind every refusal, after a first
+tally taken from a scratch file could not be reproduced when its predicate set mattered.
+
 ### The welded label, measured before any rule (2026-10-15)
 
 **The arbiter's disposition was "measure first; then extend the existing shared helper if the evidence

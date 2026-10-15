@@ -34,7 +34,17 @@ story can be withheld on one surface and delivered on another.**
    `src/lib/pipeline/inclusion.ts` (its step 6 is already "an empty string, which
    `digest_items.why_it_matters` ... leaves unset").
 
-## The slice to build
+## Already landed (do not rebuild it)
+
+The **withhold half** of the ruling is in force: `deliveredSummary` in `src/lib/reader-summary.ts` is
+asked at the join every reader surface reads through, so a stored summary the boundaries refuse is
+withheld rather than printed -- re-measured at 10 of 289 delivered lines withheld, 8 of 20 briefings
+affected, and the missing-line rate rising from 8 to 18 of 297 (6.06%) as an explained cost. Its tests
+record two delivered lines as **true negatives** (a single-reference commit line, a flattened list
+item); widening either is an arbiter decision, not a code change to slip in. `npm run
+audit:delivered-summary` reproduces the measurement and names the predicate behind each refusal.
+
+## The slice left to build
 
 At **briefing build time** (inside the digest build path, `src/lib/pipeline/digest.ts`), per item:
 

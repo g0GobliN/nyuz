@@ -836,6 +836,26 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   "Meta") is never matched on its own. Anchoring cost nothing on the 676-line control set. Verified:
   `npx tsc --noEmit` clean, 245 focused tests green, `npm run ci` green before the push.
 
+- **2026-10-15 — the ruling's withhold clause landed on the delivery path, and the measurement is now
+  reproducible.** `deliveredSummary` in [reader-summary.ts](../src/lib/reader-summary.ts) is asked at
+  the join every reader surface reads through ([briefing.ts](../src/lib/server/briefing.ts)
+  `hydrateEvents`, `loadMatches`, `relatedEventsFor`): a stored summary the reader-content boundaries
+  refuse is **withheld rather than printed**, which is the arbiter's contract for a line that fails
+  validation. It asks exactly the checks the ruling names -- sentence admissibility, publisher
+  furniture, context recoverability -- and **not** `noMainClause`, which stays deck-scoped as ruled.
+  **Re-measured on the delivered surface** (`digests` + `digest_items` + `deliveries`, 21 days, three
+  runs, now by [the audit](../scripts/reader-delivered-summary-audit.ts) -- a scratch file was used the
+  first time and its predicate set could not be reproduced, which is why this one names the predicate
+  behind every refusal): **20 briefings delivered, 297 items delivered, 289 carrying a line, 10 of
+  those withheld by the guard, 8 of the 20 briefings (40%) affected**; a wider union including the
+  deck-scoped rule reaches 11 of 297. Cost stated plainly: items showing no line rise from 8 to **18 of
+  297 (6.06%)** -- an explained increase, which the acceptance criteria require be reported rather
+  than hidden. Two delivered lines are **recorded true negatives** in the suite (a single-pull-request
+  commit line, a flattened list item); widening either is an arbiter decision on a fresh measurement,
+  not a silent change. Remaining half of the ruling, still next: **compose the valid line at briefing
+  build time and store it with provenance**, so a withheld item is delivered with a good line instead
+  of none.
+
 - **2026-10-15 — the root cause ruled, and the measurement that had never been taken.** The owner
   asked why reader quality is not rising after a month of slices, rather than accepting another
   refusal rule; the arbiter was asked the same question and agreed with the answer. **Measured on the
