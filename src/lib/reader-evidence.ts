@@ -890,6 +890,60 @@ export function publisherSelfReference(text: string): boolean {
 }
 
 /**
+ * A development record reaching a reader as a summary: a commit trailer, or a changelog dump.
+ *
+ * Measured on the live window (2026-10-15, newest 1,000 complete events) as part of the arbiter's
+ * first intervention of that day's ruling, which chose the commit-record class over the
+ * punctuation seam because 16 of the 17 welded-label lines reaching readers were development
+ * records on cards whose own headline was the commit sha:
+ *
+ * > Models: drop the t_embd expand of the embedding graphs (#30461) These graphs only produce …
+ * > Vulkan: Optimize pool_2d when the pooling window is large (#30119) When the window is larger …
+ * > Ggml: Change default visibility of symbols to hidden (#30014) See discussion in #29997.
+ * > Assisted-by: Codex.
+ *
+ * Scoped to the two shapes that are records rather than prose, and no wider. The scope measurement:
+ * 35 cards print a summary line on a sha/version headline, 15 of those carry development metadata,
+ * and **none of the 15 is refused by any existing path** (`unitTextRejection` null, furniture
+ * false, noise false for all 15 -- the shared boundary simply did not know the shape). Origin: the
+ * text is the stored event summary, not an extracted unit -- 4 of 15 openings appear in the
+ * article excerpt and **0 in `article_evidence`** -- so this belongs at the reader-content
+ * boundary, not in extraction.
+ *
+ * The controls are the point, and they are what keeps this narrow (all measured clean, plus the
+ * kernel-policy sentence below, which a loose trailer test refuses and this one does not):
+ *
+ * - the trailer is **anchored**, because a trailer named inside reporting prose is reporting:
+ *   "Currently there is a policy requirement for Linux kernel patches where AI tools contributed,
+ *   they should be documented with an Assisted-by: tag, the maintainers said." stays eligible.
+ * - a single `#NNNNN` reference is not a record. `(#30461)` alone flags four lines that are
+ *   otherwise ordinary sentences, and a reported sentence may cite a pull request, so a dump needs
+ *   **two**. The same threshold carries the changelog items.
+ * - the measured vocabulary is never the test: "Models", "Vulkan", "Ggml" and "Meta" appear in
+ *   legitimate reporting and none of them is matched on its own. "Meta released its first frontier
+ *   model, Muse Wonder, on Monday." stays eligible, as do "Google released Chrome 141 on Tuesday,
+ *   and its changelog lists 42 security fixes." and "The fix landed in commit 4f2a1b9 and ships in
+ *   version 2.4 next month, the maintainer said."
+ *
+ * No new reason string and no new counter: this rides the existing `editorial_noise` family the
+ * reader-content boundary already refuses through, and the established remedy applies unchanged --
+ * the card recovers validated published content or withholds the line.
+ */
+const DEVELOPMENT_TRAILER =
+  /^(?:assisted-by|signed-off-by|co-authored-by|co-developed-by|reviewed-by|tested-by|acked-by|reported-by|suggested-by)\s*:/i;
+const CHANGELOG_ITEM = /\b(?:chore|test|tests|docs|style|refactor|perf|build|ci|revert)\s*:/gi;
+const CHANGELOG_REF = /#\d{3,}/g;
+
+/** Whether a sentence is a commit record or a changelog dump rather than reporting. */
+export function developmentRecord(text: string): boolean {
+  const trimmed = text.trim();
+  if (DEVELOPMENT_TRAILER.test(trimmed)) return true;
+  const items = trimmed.match(CHANGELOG_ITEM)?.length ?? 0;
+  const refs = trimmed.match(CHANGELOG_REF)?.length ?? 0;
+  return items >= 2 || refs >= 2;
+}
+
+/**
  * Whether one sentence is prose the reader may be shown.
  *
  * The single definition both reader surfaces ask. The Read page reaches it
@@ -911,7 +965,11 @@ export function publisherSelfReference(text: string): boolean {
  * drop a sentence the pipeline would keep.
  */
 export function admissibleReaderSentence(text: string): boolean {
-  return !publisherSelfReference(text) && unitTextRejection(text, false) === null;
+  return (
+    !publisherSelfReference(text) &&
+    !developmentRecord(text) &&
+    unitTextRejection(text, false) === null
+  );
 }
 
 /**
@@ -3145,6 +3203,57 @@ export function unbalancedBrackets(text: string): boolean {
   return pairs.some(
     ([open, close]) => (text.match(open)?.length ?? 0) !== (text.match(close)?.length ?? 0),
   );
+}
+
+/**
+ * The TLDs that make a bare dotted word read as a web address rather than a name.
+ *
+ * Kept in `reader-evidence` because the evidence pass refuses raw URLs before
+ * they become facts. The list is deliberately short; see `RAW_URL_WITH_PATH`.
+ */
+const WEB_TLD = "(?:com|org|net|io|ai|app|dev|gov|edu|co|uk|jp|us|news|blog|xyz|me|info|site|sh)";
+
+/**
+ * A URL published as prose (the D9 ruler).
+ *
+ * Three shapes: a scheme, a `www.` prefix, or a bare host with a recognised TLD.
+ */
+export const RAW_URL = new RegExp(
+  `\\b(?:https?:\\/\\/[^\\s]+|www\\.[^\\s]+|[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.${WEB_TLD}(?:\\/[^\\s]*)?)`,
+  "i",
+);
+
+/**
+ * The narrower defect class used by the shipping rule.
+ *
+ * Bare domains such as "WordPress.com" are often ordinary nouns; the defects the
+ * owner flagged carried a path or scheme. The rule therefore refuses only this
+ * shape, leaving the audit's wider `RAW_URL` ruler to count addresses for review.
+ */
+export const RAW_URL_WITH_PATH = new RegExp(
+  `\\b(?:https?:\\/\\/[^\\s]+|www\\.[^\\s]+|[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.${WEB_TLD}\\/[^\\s]*)`,
+  "i",
+);
+
+/**
+ * Words a sentence cannot end on, so the period is a clipping cut rather than a
+ * stop. Months and a short list of forward-binding function words.
+ */
+const DANGLING_TAIL =
+  /(?:\b(?:Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\.|\b(?:the|a|an|and|or|but|of|between|into|during)\.)$/i;
+
+/**
+ * A sentence that ends where prose cannot.
+ *
+ * Returns the offending sentence or ""; bounded by a length floor so a bare date
+ * or short line is not called truncated.
+ */
+export function truncatedSentence(sentence: string): string {
+  const trimmed = sentence.trim();
+  if (!DANGLING_TAIL.test(trimmed)) return "";
+  const words = trimmed.split(/\s+/).filter((word) => /[\p{L}\p{N}]/u.test(word)).length;
+  if (words < 5) return "";
+  return trimmed;
 }
 
 /**

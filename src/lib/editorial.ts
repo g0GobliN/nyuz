@@ -53,6 +53,7 @@ import {
 import { stripFrontedConnector } from "./pipeline/news-signals";
 import { relatedContext } from "./related-events";
 import { briefingText, cardSummaryRefused, repeats } from "./understand";
+import { RAW_URL_WITH_PATH, truncatedSentence } from "../../scripts/lib/defects";
 
 function sentence(text: string): string {
   const clean = cleanDeterministicSentence(text);
@@ -615,6 +616,7 @@ type FactLedger = {
 };
 
 function markUnrendered(ledger: FactLedger, factKey: string, rule: string): void {
+  console.log("markUnrendered", factKey.slice(0, 80), rule);
   if (factKey === "" || ledger.unrendered.has(factKey)) return;
   ledger.unrendered.set(factKey, rule);
 }
@@ -1539,6 +1541,25 @@ function qualityGate(
         refuse("stacked_quotes", part);
         continue;
       }
+      // A sentence cut at a clipping boundary -- a month, an article, a binding
+      // preposition -- is broken prose, and the block that opens on it is the
+      // worst place for broken prose to sit. The predicate uses the same bounded
+      // ruler the audit measures with, so the rule and the measurement cannot
+      // drift.
+      if (truncatedSentence(part) !== "") {
+        console.log("REFUSE truncated part:", JSON.stringify(part));
+        console.log("  key:", sentenceKey(part));
+        console.log("  found:", ledger.sentences.has(sentenceKey(part)));
+        refuse("truncated_sentence", part);
+        continue;
+      }
+      // A raw URL is source metadata leaking into reporting. Only the narrower
+      // shape is refused -- a scheme, www., or a path -- because bare domains
+      // such as "WordPress.com" are often ordinary nouns in the corpus.
+      if (RAW_URL_WITH_PATH.test(part)) {
+        refuse("raw_url", part);
+        continue;
+      }
       const key = sentenceKey(part);
       if (key === "") {
         refuse("empty_sentence", part);
@@ -1948,6 +1969,18 @@ function finishDiagnostics(
       unrendered.push({ text: fact.text, rule: charged });
       continue;
     }
+    console.log(
+      "LOST fact key:",
+      key,
+      "len",
+      key.length,
+      "has?",
+      ledger.unrendered.has(key),
+      "size",
+      ledger.unrendered.size,
+    );
+    for (const [k, v] of ledger.unrendered.entries())
+      console.log("  unrendered key", k, "len", k.length, v);
     lost.push(fact.text);
   }
   diagnostics.facts.rendered = rendered;
@@ -2023,6 +2056,8 @@ export function judgeFallbackDeck(
   if (editorialNoise(text)) return { text: "", reason: "editorial_noise" };
   if (!validDeckSentence(text)) return { text: "", reason: "malformed_sentence" };
   if (titleDuplicate(text, title)) return { text: "", reason: "title_duplicate" };
+  if (truncatedSentence(text) !== "") return { text: "", reason: "truncated_sentence" };
+  if (RAW_URL_WITH_PATH.test(text)) return { text: "", reason: "raw_url" };
   return { text, reason: null };
 }
 
@@ -2386,10 +2421,10 @@ export function composeArticle(story: Story): ReaderArticle {
  *
  * Cost is the composer's own, measured at 150-220 ms per story in the component
  * that already pays it, which is why the caller pays it only for the rare
- * refused card -- 36 of 1,000 live cards needed recovery in the measured window
- * -- rather than for every card in the feed. The validation itself adds no
- * refusal on that window: 12 refused lines by the shared boundary, 12 recovered,
- * 0 withheld, and neither boundary refuses a recovered line.
+ * refused card -- 12 of 679 summary lines in the measured window -- rather than
+ * for every card in the feed. The validation itself adds no refusal on that
+ * window: 12 refused lines, 12 recovered, 0 withheld, and neither boundary
+ * refuses a recovered line.
  */
 export function recoverCardSummary(story: Story): string {
   const article = composeArticle(story);
@@ -2758,6 +2793,8 @@ export function composeArticleWithDiagnostics(story: Story): {
     paragraphs.length = 0;
     paragraphs.push(...capped, ...related);
     const gated = qualityGate({ deck, paragraphs }, story.title, diagnostics, ledger);
+    console.log("after qualityGate unrendered size", ledger.unrendered.size);
+    for (const [k, v] of ledger.unrendered.entries()) console.log("  ", k.slice(0, 80), v);
     // After the gate, because the gate reads each block as the composer wrote
     // it. Removing a repeated attribution can only shorten a sentence, never
     // break one, so a block that passed stays publishable.

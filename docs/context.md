@@ -818,6 +818,24 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   rendered page (no empty-deck artifact). Full record with the ruled limits:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-incomplete-deck-a-published-list-item--ruled-and-landed-2026-10-14).
 
+- **2026-10-15 — the commit-record class refused at the shared reader-content boundary (ruled, landed).**
+  The arbiter's first intervention of that day's ruling, chosen over the punctuation seam because the
+  delivered lines are development records on cards whose own headline is the commit sha. Scope, all
+  measured on the live window (newest 1,000 complete events): **35 cards print a summary line on a
+  sha/version headline, 15 of them carry development metadata, and none of the 15 was refused by any
+  existing path**; the text is the stored event summary, not an extracted unit (4 of 15 openings appear
+  in the excerpt, **0 in `article_evidence`**). Landed: `developmentRecord` in
+  [reader-evidence.ts](../src/lib/reader-evidence.ts), carried by the existing `editorial_noise` family
+  through `admissibleReaderSentence` -- no new reason string and no new counter, so the established
+  remedy applies unchanged (the card recovers validated published content or withholds the line).
+  **The controls are what keep it narrow:** the trailer is anchored, because
+  "Currently there is a policy requirement for Linux kernel patches where AI tools contributed, they
+  should be documented with an Assisted-by: tag, the maintainers said." is reporting and stays
+  eligible (that sentence is the measured false positive a loose test refuses); a single `#NNNNN` is
+  not a record, so a dump needs two; and the measured vocabulary ("Models", "Vulkan", "Ggml",
+  "Meta") is never matched on its own. Anchoring cost nothing on the 676-line control set. Verified:
+  `npx tsc --noEmit` clean, 245 focused tests green, `npm run ci` green before the push.
+
 - **2026-10-15 — the root cause ruled, and the measurement that had never been taken.** The owner
   asked why reader quality is not rising after a month of slices, rather than accepting another
   refusal rule; the arbiter was asked the same question and agreed with the answer. **Measured on the

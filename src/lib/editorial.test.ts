@@ -893,3 +893,86 @@ describe("a preview of something that has already happened", () => {
     expect(diagnostics.qualityGate.stalePreviewRefusals).toBe(0);
   });
 });
+
+describe("T1 — truncated-sentence and raw-URL prose is never published", () => {
+  const bodyText = (article: { paragraphs: { text: string }[] }) =>
+    article.paragraphs.map((p) => p.text).join(" ");
+
+  it("refuses a sentence cut at a month boundary", () => {
+    const story = makeStory({
+      title: "FBI arrests founder of ransomware negotiation firm",
+      what: "The FBI arrested the founder of a ransomware negotiation firm.",
+      sourceList: [
+        {
+          name: "Krebs on Security",
+          at: "10:00",
+          excerpt:
+            "The FBI arrested the founder in Philadelphia. Investigators found the meeting at the Loews Philadelphia Hotel between Oct.",
+        },
+      ],
+    });
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+
+    expect(bodyText(article)).not.toContain("between Oct.");
+    expect(diagnostics.sentences.reasons["truncated_sentence"] ?? 0).toBeGreaterThanOrEqual(1);
+  });
+
+  it("refuses a sentence cut at a binding preposition", () => {
+    const story = makeStory({
+      title: "Super Micro co-conspirator pleads guilty",
+      what: "A co-conspirator pleaded guilty in the Super Micro smuggling case.",
+      sourceList: [
+        {
+          name: "The Register",
+          at: "10:00",
+          excerpt:
+            "A co-conspirator pleaded guilty in the Super Micro smuggling case. Sun is also expected to be sentenced on Sept.",
+        },
+      ],
+    });
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+
+    expect(bodyText(article)).not.toContain("sentenced on Sept.");
+    expect(diagnostics.sentences.reasons["truncated_sentence"] ?? 0).toBeGreaterThanOrEqual(1);
+  });
+
+  it("refuses a raw URL with a path published as reporting", () => {
+    const story = makeStory({
+      title: "Boeing to sell subsidiary for $10.55 billion",
+      what: "Boeing agreed to sell part of its business.",
+      sourceList: [
+        {
+          name: "Krebs on Security",
+          at: "10:00",
+          excerpt:
+            "Boeing agreed to sell part of its business for $10.55 billion. Investors.boeing.com/investors/news/press-release-details/2025/Boeing/default.aspx Am wondering what ransomware negotiations he was involved in.",
+        },
+      ],
+    });
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+
+    expect(bodyText(article)).not.toContain("Investors.boeing.com");
+    expect(diagnostics.sentences.reasons["raw_url"] ?? 0).toBeGreaterThanOrEqual(1);
+  });
+
+  it("keeps an install-script URL inside a code block when it carries the story", () => {
+    // This is the other recorded defect shape: a shell snippet whose URL has a
+    // path. It should still be refused as raw-URL leakage, not treated as code.
+    const story = makeStory({
+      title: "Bun releases Windows installer",
+      what: "Bun shipped a Windows installer.",
+      sourceList: [
+        {
+          name: "Bun Blog",
+          at: "10:00",
+          excerpt:
+            'Bun shipped a Windows installer. Windows: powershell -c "irm bun.sh/install.ps1|iex".',
+        },
+      ],
+    });
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+
+    expect(bodyText(article)).not.toContain("bun.sh/install.ps1");
+    expect(diagnostics.sentences.reasons["raw_url"] ?? 0).toBeGreaterThanOrEqual(1);
+  });
+});

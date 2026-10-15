@@ -116,6 +116,9 @@ type Totals = {
   doubleSpace: number;
   doubleQuotes: number;
   bareQuoteSentence: number;
+  truncatedLeads: number;
+  rawUrls: number;
+  rawUrlDefects: number;
   selectedFacts: number;
   renderedFacts: number;
   lostFacts: number;
@@ -162,6 +165,9 @@ function emptyTotals(): Totals {
     doubleSpace: 0,
     doubleQuotes: 0,
     bareQuoteSentence: 0,
+    truncatedLeads: 0,
+    rawUrls: 0,
+    rawUrlDefects: 0,
     selectedFacts: 0,
     renderedFacts: 0,
     lostFacts: 0,
@@ -378,7 +384,17 @@ main(async () => {
     twoQuotes: boolean;
   })[] = [];
   /** The blocks carrying two quoted passages, so the second row is readable too. */
-  const twoQuoteBlocks: string[] = [];
+  const twoQuoteBlocks: (DEFECTS.StackedQuoteEvidence & {
+    title: string;
+    position: string;
+    block: string;
+  })[] = [];
+  /** Published blocks whose opening sentence is cut at a clipping boundary. */
+  const truncatedLeadBlocks: string[] = [];
+  /** Published blocks that carry a raw URL as prose. */
+  const rawUrlBlocks: string[] = [];
+  /** Published blocks that carry the narrower URL-with-path defect. */
+  const rawUrlDefectBlocks: string[] = [];
   /** Which rule accounts for the unrendered facts, across the corpus. */
   const dispositions: Record<string, number> = {};
   const changed: Changed[] = [];
@@ -676,9 +692,32 @@ main(async () => {
       .map((entity) => entity.name)
       .sort((a, b) => b.length - a.length);
     for (const [index, block] of blocks.entries()) {
+      const truncated = DEFECTS.truncatedLead(block);
+      if (truncated !== "") {
+        totals.truncatedLeads += 1;
+        truncatedLeadBlocks.push(`${event.title} · ${truncated}`);
+      }
+      if (DEFECTS.RAW_URL.test(block)) {
+        totals.rawUrls += 1;
+        rawUrlBlocks.push(`${event.title} · ${block}`);
+      }
+      if (DEFECTS.RAW_URL_WITH_PATH.test(block)) {
+        totals.rawUrlDefects += 1;
+        rawUrlDefectBlocks.push(`${event.title} · ${block}`);
+      }
       if (TWO_QUOTES.test(block)) {
         totals.doubleQuotes += 1;
-        twoQuoteBlocks.push(`${event.title} · ${block}`);
+        twoQuoteBlocks.push({
+          ...DEFECTS.stackedQuoteEvidence({
+            page: blocks,
+            index,
+            names: entityNames,
+            unrendered: diagnostics.facts.unrendered,
+          }),
+          title: event.title,
+          position: index === 0 ? "deck" : `paragraph ${index}`,
+          block,
+        });
       }
       if (!DEFECTS.OPENS_ON_QUOTE.test(block)) continue;
       totals.bareQuoteSentence += 1;
@@ -735,8 +774,23 @@ main(async () => {
   say(row("context-dependent openings", totals.unresolvedContext));
   for (const entry of contextOpenings) say(`  ${clip(entry, 240)}`);
   say(row("double spaces", totals.doubleSpace));
+  say(row("truncated lead", totals.truncatedLeads));
+  for (const entry of truncatedLeadBlocks) say(`  ${clip(entry, 240)}`);
+  say(row("raw URL in published prose", totals.rawUrls));
+  for (const entry of rawUrlBlocks) say(`  ${clip(entry, 240)}`);
+  say(row("  of those, URL with path or scheme (defect class)", totals.rawUrlDefects));
+  for (const entry of rawUrlDefectBlocks) say(`    ${clip(entry, 240)}`);
   say(row("two quotes in one block", totals.doubleQuotes));
-  for (const entry of twoQuoteBlocks) say(`  ${clip(entry, 240)}`);
+  for (const entry of twoQuoteBlocks) {
+    say(`  [${entry.class}] ${entry.position} · ${entry.title}`);
+    say(`      ${clip(entry.block, 220)}`);
+    say(
+      `      speaker=${entry.attribution === "" ? "not named" : entry.attribution} (${entry.where})` +
+        (entry.refusedRule === "" ? "" : ` charged as ${entry.refusedRule}`),
+    );
+    if (entry.attributionSentence !== "") say(`      in: ${clip(entry.attributionSentence, 200)}`);
+    if (entry.duplicateOf !== "") say(`      repeats above: ${clip(entry.duplicateOf, 160)}`);
+  }
   // The two quote rows are diagnostics, and the arbiter's ruling of 2026-10-11
   // (option (a)) is why they are printed with their classification rather than as
   // a work queue: a block opening on quoted speech is not a defect, a block the

@@ -297,6 +297,18 @@ export const RAW_URL = new RegExp(
 );
 
 /**
+ * The narrower defect class: a URL that carries a scheme, a `www.` prefix, or a
+ * path. Bare domains such as "Orkut.com" or "WordPress.com" are still addresses,
+ * but the frozen corpus showed them used as ordinary nouns; the two defects the
+ * owner flagged were a press-release path and an install script path. The rule
+ * therefore refuses only the shape a reader cannot mistake for prose.
+ */
+export const RAW_URL_WITH_PATH = new RegExp(
+  `\\b(?:https?:\\/\\/[^\\s]+|www\\.[^\\s]+|[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.${WEB_TLD}\\/[^\\s]*)`,
+  "i",
+);
+
+/**
  * The words a sentence cannot end on, so their period is a cut and not a stop.
  *
  * Two families, and they are the ones a clipping boundary leaves behind:
@@ -521,4 +533,19 @@ export function quoteOpeningEvidence(input: {
     duplicateOf,
     refusedRule,
   };
+}
+
+/**
+ * The same classification, applied to a block that carries two quotations.
+ *
+ * The D4 ruling (2026-10-11) defined the defect for quote openings; the 9
+ * two-quote blocks are the sibling queue. They are judged by the same question
+ * -- can the reader resolve who is speaking, and is any sentence a repeat -- so
+ * the classifier is reused rather than duplicated.
+ */
+export type StackedQuoteEvidence = QuoteOpeningEvidence;
+export function stackedQuoteEvidence(
+  input: Parameters<typeof quoteOpeningEvidence>[0],
+): StackedQuoteEvidence {
+  return quoteOpeningEvidence(input);
 }
