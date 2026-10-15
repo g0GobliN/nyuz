@@ -7,6 +7,7 @@ import {
   noMainClause,
   normalizeSummary,
   selectReaderEvidence,
+  unresolvedContextOpening,
 } from "./reader-evidence";
 
 export type CoverageDepth = "thin" | "normal" | "rich";
@@ -773,8 +774,21 @@ function wordCount(text: string): number {
  * sentence the article actually published, which is a stronger reader outcome
  * than an empty line (the arbiter's ruling of 2026-10-14, option 2).
  *
+ * Two classes, and neither replaces the other (the arbiter's ruling of
+ * 2026-10-14 on the card-context measurement): the deck predicate above, and the
+ * shared reference predicate `unresolvedContextOpening` -- `contextDependent &&
+ * !recoverableContext`, the one definition the deck rule and the fact selector
+ * already ask. A card line is read on its own, with no paragraph above it, so a
+ * demonstrative or a fronted clause whose antecedent is not on the card is
+ * refused here; the *body* keeps allowing references the paragraph above
+ * establishes, which is why this predicate lives at the surface rather than in a
+ * widened rule. Measured on the live window (2026-10-15, newest 1,000 complete
+ * events, 679 cards printing a summary line): 12 lines refused by the context
+ * predicate, 1 by the deck predicate, and the overlap empty -- the ruling's
+ * claim that the classes are distinct, measured.
+ *
  * `normalizeSummary`'s own reasons are excluded on purpose: a furniture summary
- * already has its own behaviour at the card, and this test exists to add one
+ * already has its own behaviour at the card, and this test exists to add a
  * reason, not to reclassify the others.
  *
  * Known limit: the whole stored line is tested, as the deck is tested as a unit,
@@ -784,7 +798,7 @@ function wordCount(text: string): number {
 export function cardSummaryRefused(text: string): boolean {
   const summary = normalizeSummary(text);
   if (summary.reason !== null) return false;
-  return noMainClause(summary.text);
+  return noMainClause(summary.text) || unresolvedContextOpening(summary.text);
 }
 
 export function briefingText(text: string, maxWords = 90): string {

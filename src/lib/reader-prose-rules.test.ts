@@ -2328,5 +2328,50 @@ describe("an instruction is not a claim", () => {
       expect(isCutSentence('He said "we are leaving"')).toBe(false);
       expect(isCutSentence("   ")).toBe(false);
     });
+
+    it("Refuses a sentence a provider truncated with a terminal ellipsis", () => {
+      // The arbiter's ruling of 2026-10-15. Ten of the 24 card lines the shared
+      // sentence boundary refused were this shape, and it refuses them as
+      // `trailing_ellipsis` while this helper -- whose contract is to drop cut
+      // content -- read the final `.` of the ellipsis as a full stop. The live
+      // card line is the first fixture below.
+      expect(
+        isCutSentence(
+          "FreeType 2.15 is now available for this widely-used font rendering library used across many different operating systems and software applications...",
+        ),
+      ).toBe(true);
+      expect(
+        isCutSentence(
+          "With Firefox 158 released, Firefox 159 is now in beta ahead of its official release in two weeks...",
+        ),
+      ).toBe(true);
+      // The typographic ellipsis, which is the same truncation in a different
+      // code point.
+      expect(
+        isCutSentence(
+          "Many x86 platform driver improvements have been queuing ahead of the upcoming Linux 7.4 merge window…",
+        ),
+      ).toBe(true);
+    });
+
+    it("leaves a terminal full stop, exclamation and question mark alone", () => {
+      expect(isCutSentence("The council approved the plan.")).toBe(false);
+      expect(isCutSentence("The council approved the plan!")).toBe(false);
+      expect(isCutSentence("Did the council approve the plan?")).toBe(false);
+    });
+
+    it("does not call a complete sentence cut because it contains an ellipsis", () => {
+      // The ruling's own boundary: terminal only. An ellipsis the author wrote
+      // inside a finished sentence is punctuation, not truncation, and the
+      // sentence is published.
+      expect(
+        isCutSentence(
+          "He paused... then finished the sentence, and the council approved the plan.",
+        ),
+      ).toBe(false);
+      expect(
+        isCutSentence("The report said the work was ongoing… and the council approved it anyway."),
+      ).toBe(false);
+    });
   });
 });

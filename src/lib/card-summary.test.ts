@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { recoverCardSummary } from "./editorial";
+import {
+  admissibleReaderSentence,
+  publisherFurniture,
+  unitTextRejection,
+  unresolvedContextOpening,
+} from "./reader-evidence";
 import type { Story } from "./story";
 import { briefingText, cardSummaryRefused } from "./understand";
 
@@ -118,5 +124,126 @@ describe("recovery prints the sentence the article actually published", () => {
     // withholds rather than printing the same class of text it just refused.
     const out = recoverCardSummary(story(LIST_ITEM, LIST_ITEM));
     expect(out === "" || !cardSummaryRefused(out)).toBe(true);
+  });
+
+  it("refuses to recover a line the shared sentence boundary refuses", () => {
+    // The arbiter's hold on the card-context slice (2026-10-14): recovery "must
+    // participate in the shared validation boundary", because without it a
+    // refused card line recovered straight into a byline. Measured on the live
+    // window before the furniture rule learned the copular shape: recovery for
+    // the "While the figure on its surface sounds significant …" card returned
+    // the masthead line below, verbatim, as the card's summary.
+    const BYLINE = "Sayem Ahmed is the Subscription Editor at Tom's Hardware.";
+    expect(publisherFurniture(BYLINE)).toBe(true);
+    expect(unitTextRejection(BYLINE, false)).toBe("editorial_noise");
+    expect(admissibleReaderSentence(BYLINE)).toBe(false);
+    // The gap this closes is real and still measured: the byline is *not*
+    // refused by the card's own two classes, so `briefingText` would print it
+    // unchanged if it ever arrived as a stored summary, and only the shared
+    // boundary in `recoverCardSummary` stands between the two.
+    expect(briefingText(BYLINE)).toBe(BYLINE);
+    expect(cardSummaryRefused(BYLINE)).toBe(false);
+    // A story whose published opening is the byline recovers nothing at all.
+    expect(recoverCardSummary(story(BYLINE, BYLINE))).toBe("");
+  });
+});
+
+describe("the card refuses a reference the reader cannot resolve on the card", () => {
+  /** Live stored summaries, verbatim, from the 2026-10-15 window. */
+  const PAPER_ABSTRACT =
+    "These results establish credal geometry as a principled framework for quantifying conformal uncertainty and understanding its limitations.";
+  const PAPER_OPENS = "Prediction-set size offers a coarse summary of conformal uncertainty.";
+  const FRONTED =
+    "While the figure on its surface sounds significant, the estimated lease price is around 43% less than an Nvidia H100 leased at $2.80 per hour on a one-year contract.";
+  /** Live, and resolvable — but only by the headline above it. */
+  const HEADLINE_RESOLVED =
+    "Neither Egypt nor Sudan has commented on the alleged strikes on an artisanal mining camp on Saturday.";
+
+  it("refuses the shared context predicate, and it does not replace the deck test", () => {
+    // One definition, already exported: `contextDependent && !recoverableContext`.
+    // The card reads a line on its own, so a demonstrative or a fronted clause
+    // whose antecedent is not on the card is refused here -- while the article
+    // body keeps allowing references the paragraph above establishes.
+    expect(unresolvedContextOpening(PAPER_ABSTRACT)).toBe(true);
+    expect(unresolvedContextOpening(FRONTED)).toBe(true);
+    expect(cardSummaryRefused(PAPER_ABSTRACT)).toBe(true);
+    expect(cardSummaryRefused(FRONTED)).toBe(true);
+    // The deck class is unchanged and still fires on its own fixture.
+    expect(cardSummaryRefused(LIST_ITEM)).toBe(true);
+    // And a line whose referent is on it stays on the fast path.
+    const complete =
+      "Negotiators walked out after midnight, then returned to the table before morning briefings went out.";
+    expect(cardSummaryRefused(complete)).toBe(false);
+  });
+
+  it("recovers the paper's own opening rather than the abstract's self-reference", () => {
+    const out = recoverCardSummary(story(PAPER_ABSTRACT, PAPER_OPENS));
+    expect(out).toContain("Prediction-set size offers a coarse summary of conformal uncertainty");
+    expect(out).not.toMatch(/^These results/);
+  });
+
+  it("drops a description a provider truncated, before any boundary has to", () => {
+    // The arbiter's ruling of 2026-10-15 extended `isCutSentence` for exactly
+    // this: ten of the 24 measured card lines were a feed description truncated
+    // with an ellipsis, and the card's own cut test read the ellipsis as a full
+    // stop. The required outcome is that they "no longer reach readers through
+    // the card summary", and the card holds nothing back by dropping them --
+    // the stored line is not the story, and the next test recovers one.
+    const truncated = [
+      "FreeType 2.15 is now available for this widely-used font rendering library used across many different operating systems and software applications...",
+      "With Firefox 158 released, Firefox 159 is now in beta ahead of its official release in two weeks...",
+    ];
+    for (const line of truncated) {
+      expect(briefingText(line), line).toBe("");
+      expect(admissibleReaderSentence(line), line).toBe(false);
+    }
+    // A complete multi-sentence block that merely ends its last sentence in an
+    // ellipsis keeps everything before it: the cut sentence goes, the block does
+    // not.
+    const mixed =
+      "The council approved the plan on Tuesday. Members then adjourned ahead of the budget vote...";
+    expect(briefingText(mixed)).toBe("The council approved the plan on Tuesday.");
+  });
+
+  it("refuses every other shape of the measured set, recovery intact", () => {
+    // One per shape, verbatim from the live window. These are the lines the
+    // shared sentence boundary refuses while the card's own two classes do not,
+    // so this is the class the 2026-10-15 option-1 ruling is about.
+    const shapes = [
+      // A commit record carrying its author's email, on a card whose own
+      // headline was often the commit sha.
+      "Ggml: simplify backend search path error handling (#28367) Signed-off-by: Adrien Gallouët angt@huggingface.co.",
+      // A raw media payload.
+      '@avstorm via X" data-has-syndication-rights="1" src="https://platform.theverge.com/wp-content/uploads/sites/2/2026/10/apple-music.jpeg" />.',
+      // Marketing copy addressed to the reader.
+      "Learn how Google DeepMind and GovTech Singapore uses lightweight on-device Gemma models to intercept conversational scams in private chats with zero cloud data egress.",
+      // A claim resting on an unnamed collective.
+      "Experts say there is no evidence that Russian trolls have been affected by Ukraine's Yandex attacks.",
+      // A quotation whose speaker is not named.
+      '"Not a single drop has come through our taps for the last three months," a local tells the BBC.',
+    ];
+    for (const shape of shapes) {
+      expect(briefingText(shape), shape).not.toBe("");
+      expect(admissibleReaderSentence(shape), shape).toBe(false);
+      // The remedy is the existing one: recover, or withhold. Never the refused
+      // text, and never a line that is itself refused.
+      const recovered = recoverCardSummary(story(shape, PAPER_OPENS));
+      expect(recovered === "" || !cardSummaryRefused(recovered), shape).toBe(true);
+      expect(recovered, shape).not.toContain(shape.slice(0, 30));
+    }
+  });
+
+  it("records the headline-resolved line as a false positive of the predicate", () => {
+    // The line *is* resolvable -- by the headline above it -- and
+    // `recoverableContext` reads the line alone, so it does not recognise that.
+    // The verdict stands (the ruling rejected a headline-resolution check as
+    // "another unvalidated rule") and recovery contains it. Containment is not
+    // proof that the classification was correct, so it is pinned as a false
+    // positive rather than counted as a catch.
+    expect(cardSummaryRefused(HEADLINE_RESOLVED)).toBe(true);
+    const out = recoverCardSummary(
+      story(HEADLINE_RESOLVED, "At least 72 civilians have been killed."),
+    );
+    expect(out).not.toContain("Neither Egypt nor Sudan");
   });
 });

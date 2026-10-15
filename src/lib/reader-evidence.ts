@@ -3039,6 +3039,21 @@ export function isCutSentence(text: string): boolean {
   // A quotation is quoted, not sentence-shaped: a unit ending in a closing mark
   // is the speaker's words, which the composer prints as they were said.
   if (/["”]$/.test(trimmed)) return false;
+  // A terminal ellipsis is a cut, not a full stop.
+  //
+  // Providers truncate a feed description with `...` or `…`, and the
+  // terminal-punctuation test below read that as a finished sentence -- so a
+  // card printed "FreeType 2.15 is now available for this widely-used font
+  // rendering library used across many different operating systems and software
+  // applications..." to a reader. Measured on the live window (2026-10-15): ten
+  // of the 24 card lines the shared sentence boundary refused were this shape,
+  // and it refuses them as `trailing_ellipsis` -- so the classifier knew and
+  // this helper, whose contract is to drop cut content, did not.
+  //
+  // Terminal only. An ellipsis inside an otherwise complete sentence is the
+  // author's own punctuation and does not make the sentence cut (the arbiter's
+  // ruling of 2026-10-15, which asked for exactly that boundary and no wider).
+  if (/(?:…|\.\.\.)[)\]"”']*$/.test(trimmed)) return true;
   if (!/[.!?][)\]"”']*$/.test(trimmed)) return true;
   return /(?:^|\s)(?:[A-Z]\.)+$/.test(trimmed);
 }

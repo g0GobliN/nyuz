@@ -15,6 +15,7 @@ import { sourceCount, type Story } from "@/lib/story";
 import type { FeedbackState, Vote } from "@/lib/feedback-store";
 import { formatStoryTime } from "@/lib/story-time";
 import { cn } from "@/lib/utils";
+import { admissibleReaderSentence, normalizeSummary } from "@/lib/reader-evidence";
 import { briefingText, cardSummaryRefused } from "@/lib/understand";
 
 const TONE: Record<Story["importance"], string> = {
@@ -65,16 +66,43 @@ export function StoryCard({
    * predicate refuses the stored line, the card recovers the story's own opening
    * published sentence instead of printing the refused text, and withholds the
    * line entirely when there is nothing valid to recover. Composing is 150-220
-   * ms, and it happens only for a card whose stored line was refused (1 of 686
-   * summary lines measured), which is also why it is memoized on the story the
-   * way the article component memoizes its own composition.
+   * ms, and it happens only for a card whose stored line was refused -- 13 of
+   * 679 summary lines in the 2026-10-15 window, and 24 more once the shared
+   * sentence boundary is asked -- which is also why it is memoized on the story
+   * the way the article component memoizes its own composition.
+   *
+   * Two checks, and the boundary is the wider one (the arbiter's ruling of
+   * 2026-10-15, option 1). `cardSummaryRefused` owns the card's own two classes,
+   * the deck predicate and the reference predicate. `admissibleReaderSentence`
+   * is the shared boundary the story page and the email both ask, and asking it
+   * here is what refuses the rest of the measured set: a feed description
+   * truncated with an ellipsis, a commit record carrying its author's email
+   * (whose card headline was often a commit sha), a raw media payload, marketing
+   * copy, an unsupported attribution or an unattributed quotation -- **24 of 679
+   * live card lines were printing text that boundary refuses.** The order is the
+   * ruling's too: the checks come first, so a refused line is never rendered
+   * just because the fast path can render it.
    */
   const summary = useMemo(() => {
-    // The predicate comes first, and that order is the ruling's: a stored line
-    // the deck boundary refuses must not be rendered just because the fast path
-    // can render it -- which is exactly how this defect shipped once.
-    if (!cardSummaryRefused(story.what)) return briefingText(story.what);
-    return recoverCardSummary(story);
+    const raw = story.what.trim();
+    // No stored line at all is not a refusal to remedy: most events carry none,
+    // and composing one here would pay 150-220 ms for every such card in a feed.
+    if (raw === "") return "";
+    const stored = briefingText(raw);
+    if (stored === "") {
+      // `briefingText` withheld the line, and the two reasons are different
+      // decisions. Provider furniture or a metadata leak keeps its own
+      // behaviour at the card and recovers nothing (the ruling of 2026-10-14).
+      // A block it cut is the shared boundary's `trailing_ellipsis` refusal, so
+      // it goes down the same recovery path as any other refused line -- the
+      // ruling of 2026-10-15, whose test is that a truncated description "no
+      // longer reaches readers through the card summary".
+      if (normalizeSummary(raw).reason !== null) return "";
+      return recoverCardSummary(story);
+    }
+    if (cardSummaryRefused(raw) || !admissibleReaderSentence(stored))
+      return recoverCardSummary(story);
+    return stored;
   }, [story]);
 
   return (

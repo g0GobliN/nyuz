@@ -1,6 +1,7 @@
 import type { Story } from "@/lib/story";
 import type { ArticleParagraph, ReaderArticle } from "@/lib/reader-article";
 import {
+  admissibleReaderSentence,
   alreadyAttributed,
   attributeToOwnSource,
   centralTokens,
@@ -51,7 +52,7 @@ import {
 } from "./pipeline/source-text";
 import { stripFrontedConnector } from "./pipeline/news-signals";
 import { relatedContext } from "./related-events";
-import { briefingText, repeats } from "./understand";
+import { briefingText, cardSummaryRefused, repeats } from "./understand";
 
 function sentence(text: string): string {
   const clean = cleanDeterministicSentence(text);
@@ -2373,10 +2374,22 @@ export function composeArticle(story: Story): ReaderArticle {
  * furniture summary. Nothing here composes twice or falls back to body prose
  * chosen because it reads well.
  *
+ * The replacement is held to two boundaries, and both are the point of the
+ * arbiter's hold on this slice (2026-10-14): `cardSummaryRefused`, so a recovery
+ * cannot print the class the card was refusing, and `admissibleReaderSentence`,
+ * the shared boundary the story page and the email both ask -- **without it, a
+ * refused card line recovered straight into a byline**. Measured rather than
+ * assumed: on the live window the byline "Sayem Ahmed is the Subscription Editor
+ * at Tom's Hardware." is `publisherFurniture` true and `unitTextRejection`
+ * `editorial_noise`, and recovery for that card returned it verbatim until the
+ * furniture rule learned the copular shape and this check asked for it.
+ *
  * Cost is the composer's own, measured at 150-220 ms per story in the component
  * that already pays it, which is why the caller pays it only for the rare
- * refused card -- 1 of 686 summary lines in the measured window -- rather than
- * for every card in the feed.
+ * refused card -- 36 of 1,000 live cards needed recovery in the measured window
+ * -- rather than for every card in the feed. The validation itself adds no
+ * refusal on that window: 12 refused lines by the shared boundary, 12 recovered,
+ * 0 withheld, and neither boundary refuses a recovered line.
  */
 export function recoverCardSummary(story: Story): string {
   const article = composeArticle(story);
@@ -2384,9 +2397,9 @@ export function recoverCardSummary(story: Story): string {
     article.deck.text,
     ...article.paragraphs.map((paragraph) => paragraph.text),
   ].find((block) => block.trim() !== "");
-  if (opening === undefined || noMainClause(opening)) return "";
+  if (opening === undefined) return "";
   const text = briefingText(opening);
-  if (text === "" || noMainClause(text)) return "";
+  if (text === "" || cardSummaryRefused(text) || !admissibleReaderSentence(text)) return "";
   return text;
 }
 /**

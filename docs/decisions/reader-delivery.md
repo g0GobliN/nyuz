@@ -1473,6 +1473,92 @@ byline is not a summary line, so the change cannot ship as written. The defect i
 and is recorded below; the card slice waits on how that byline is handled, because the same string is
 its recovery input.
 
+## The card asks the shared sentence boundary, and a terminal ellipsis is a cut (2026-10-15, ruled and landed)
+
+**The card-context slice closed, and a wider class found on the same surface.** The ruling of
+2026-10-14 held the card slice until recovery was validated; the validation is implemented as ruled
+and the measurement that closed it exposed 24 more lines the card was printing.
+
+**The held slice, implemented.** `recoverCardSummary` now refuses a recovered block that
+`cardSummaryRefused` refuses **or** that `admissibleReaderSentence` refuses -- the shared boundary the
+story page and the email both ask. Measured on the byline: `publisherFurniture` true,
+`unitTextRejection` `editorial_noise`, `admissibleReaderSentence` false, so a refused card line can no
+longer recover *into* a byline. The card-context predicate is live at the card boundary:
+`cardSummaryRefused` is the deck predicate **or** the shared `unresolvedContextOpening`
+(`contextDependent && !recoverableContext`), one exported definition, no card-specific rule.
+
+**Before/after on one live window** (newest 1,000 complete events, 679 cards printing a summary line,
+2026-10-15): **before 1 refused, after 13 refused, 13 recovered, 0 withheld, overlap empty.** The 13
+dispositions, individually as the ruling required: 9 whose referent is not on the card (6 paper
+abstracts opening "These results…", "The result is…", "These constraints…"; "Those handhelds are
+designed to be…"; "These look like they may be Meta's first Fable class models"; one fronted "While
+the figure on its surface sounds significant…"), 2 headline-resolved **false positives** ("Neither
+Egypt nor Sudan has commented…", "Her epic ride — carrying her injured dad…") recorded rather than
+counted as catches, 1 the TCP/IP contraction false positive already pinned, 1 deck-class line.
+Recovered lines still carrying the defect: **0**.
+
+**The new class: 24 of 679 live card lines print text the shared sentence boundary refuses.** Not one
+was an artefact of asking a sentence question of a block: **24 of 24 fail on their first sentence and
+0 fail only as a whole block.** Reasons: 14 `invalid_sentence` (10 of them a feed description a
+provider truncated mid-thought with an ellipsis), 5 refused by the shared furniture/self-reference
+screen (commit records carrying the author's email, on cards whose own headline was often a commit
+sha), 2 `imperative_instruction`, 1 `unverifiable_attribution`, 1 `unassigned_quote`, 1
+`unresolved_context`. Verbatim: "FreeType 2.15 is now available for this widely-used font rendering
+library used across many different operating systems and software applications…"; "Ggml: simplify
+backend search path error handling (#28367) Signed-off-by: Adrien Gallouët
+angt@huggingface.co." on the card whose headline is "b11606"; `@avstorm via X"
+data-has-syndication-rights="1" src="https://platform.theverge.com/…" />.`; "Learn how Google DeepMind
+and GovTech Singapore uses lightweight on-device Gemma models to intercept conversational scams…";
+"Experts say there is no evidence that Russian trolls have been affected by Ukraine's Yandex
+attacks."; `"Not a single drop has come through our taps for the last three months," a local tells the
+BBC.`; "Python 3.15.0 added to actions/python-versions."
+
+**The ruling (ChatGPT `nyuz` project, 2026-10-15).** **Option 1** for the 24: apply the existing shared
+sentence-admissibility boundary to the stored card summary before rendering, keep the fast path when it
+passes, lazily compose when it fails, validate the recovery candidate against the same checks, and
+withhold the summary if nothing valid exists -- "do not create new reason strings, a card-only sentence
+classifier, or a new fallback that bypasses existing validation." Option 2 (narrow to the obvious
+shapes) rejected: it would knowingly leave truncated descriptions and unsupported attributions in
+production when the existing boundary already identifies them. Options 3 and 4 rejected: write-time
+cleanup leaves stored rows exposed, and recording without intervening leaves identified failures
+reaching readers. **Terminal ellipses: extend `isCutSentence`**, not a card-only rule -- the helper's
+contract says cut content is dropped, and it was reading the final `.` of an ellipsis as a full stop;
+the boundary the ruling drew is terminal-only, so an internal ellipsis does not make a finished
+sentence cut. **The byline gap stays open** until the shared furniture classification refuses the
+actual string, demonstrated by a regression test rather than by a sample containing no such row.
+
+**Landed.** `reader-evidence.ts`: `isCutSentence` refuses a terminal `...` or `…` (terminal only, and
+the comment records the measurement and the ruling). `understand.ts`: `cardSummaryRefused` adds the
+shared `unresolvedContextOpening` to the deck predicate. `editorial.ts`: `recoverCardSummary`
+validates through `cardSummaryRefused` **and** `admissibleReaderSentence` before returning.
+`story-card.tsx`: the card's order is `briefingText`, then the two boundaries, then recovery or
+withhold; a stored line `briefingText` cut takes the same recovery path, while provider furniture and
+metadata keep the withhold-without-composition behaviour the earlier ruling gave them.
+
+**Verified.** `npx tsc --noEmit` clean; lint clean on every changed file; **8 new tests fail on the
+previous tree and pass on this one** (2 card-boundary tests in
+[card-summary.test.ts](../../src/lib/card-summary.test.ts), the ellipsis tests in
+[reader-prose-rules.test.ts](../../src/lib/reader-prose-rules.test.ts), and 5 card-level tests in
+[story-card.test.ts](../../src/components/dashboard/story-card.test.ts)) -- that failure set is the
+fail-before evidence. Suites: 192 tests in the three changed files and 243 in the six boundary suites,
+all passing. **Post-change counts on the same live window**, mirroring the component's own order:
+**643 cards on the fast path, 36 needing recovery (13 card predicate, 13 shared boundary, 10 a block
+`briefingText` cut), 18 recovered, 18 withheld, 0 recovered-but-refused**, and **36 compositions paid
+of 1,000 events** -- the bounded cost the ruling asked to be measured. The withheld 18 are 5 commit
+records, 1 raw payload, 1 imperative, 1 unsupported attribution, 10 truncated blocks whose stories
+publish no usable opening of their own.
+
+**The byline gap, now closed by demonstration.** The new card check closes the path the ruling refused
+to accept on assertion, and the regression test is the demonstration: with the card's own two classes
+false for the byline (`cardSummaryRefused` false, `briefingText` unchanged), the shared boundary is
+what refuses it, and the card recovers the story's opening instead of printing it.
+
+**Not claimed.** That the card surface is clean -- 18 cards withhold their summary line by design and
+that is a reader-facing loss the ruling accepted as the correct trade against printing refused text;
+that the article bodies are clean; that the older GitHub-slug and non-comma list-item items are
+addressed; that write-time cleanup of stored summaries is done (the ruling keeps it a separate later
+decision). **The overall reader-quality gate remains open.**
+
 ## A staff byline published as the deck, live (2026-10-14, read on the deployed origin, not fixed)
 
 **Read as a stranger on the deployed origin.** The story page for `7a1a7f98-ced5-4179-8c66-28a52211b73d`

@@ -827,13 +827,32 @@ alert side is held to the same standard in its own terms — a breaking, importa
 silence otherwise. The R1 order below still stands and is still the blocking set; it is just no
 longer the answer to "what work do I take", because reader quality outranks all of it.
 
+**The card surface now asks the shared sentence boundary (2026-10-15, ruled and landed).** Both card
+classes are closed as ruled: recovery validates through the shared boundary (`admissibleReaderSentence`)
+as well as the card predicate, so a refused line cannot recover *into* a byline, and `cardSummaryRefused`
+carries the shared reference predicate (`unresolvedContextOpening`) at the card. Measured on one live
+window (newest 1,000 complete events, 679 cards printing a line): the context class went **1 refused →
+13**, all 13 dispositioned, 0 recovered lines still carrying the defect. The same measurement found a
+wider class — **24 of 679 card lines printed text the shared boundary refuses** (10 a description a
+provider truncated, 5 commit records carrying an author email, 1 raw media payload, 2 marketing
+imperatives, 1 unsupported attribution, 1 unattributed quote, 1 context line), **24 of 24 failing on
+their first sentence**. The arbiter ruled **option 1** (2026-10-15): apply the existing shared boundary
+before rendering, recover lazily, withhold if nothing valid is recoverable, no new reason or card-only
+classifier — and **extend `isCutSentence`** so a *terminal* ellipsis is cut content, terminal only.
+Post-change counts on the same window: **643 fast path, 36 needing recovery, 18 recovered, 18 withheld,
+0 recovered-but-refused, 36 compositions paid of 1,000 events**. 8 new tests fail on the previous tree
+and pass on this one. **Still open:** the 18 withheld cards (a deliberate trade, not a fix), the write-time
+cleanup of stored summaries (a separate later decision), the article bodies, and the older GitHub-slug and
+non-comma list-item items.
+
 **The reader-quality work in flight: the byline slice landed, the card slice still held.** The live
 masthead byline is **fixed and verified on the live data** — the story `7a1a7f98` no longer opens on
 it, the second live instance is gone with it, and the change touched **2 of 200** stories in a frozen
-before/after with no defect counter moving. What remains comes straight from the rulings: (1) the
-card-context slice is **ruled (Option 1) but held** until the recovery-validation change lands, since
-the arbiter ruled that the **shared furniture boundary must participate in card recovery validation** —
-otherwise one refused card line would recover *into* a byline; (2) the older GitHub-owner/repo and
+before/after with no defect counter moving. The card slice's own hold was **released by the arbiter on
+2026-10-15**, its conditions met: recovery is validated through the shared boundary, the 10 measured
+examples carry explicit dispositions, and the two false positives are recorded. What remains comes
+straight from the rulings: (1) the card slice is **landed** as ruled — see the entry above — with the
+byline gap closed by demonstration rather than by assertion; (2) the older GitHub-owner/repo and
 TCP/IP reference defects are absent from the current window and need their own re-read; (3) the
 non-comma list-item limitation stays a documented limit, to be reassessed against verified
 source-to-output examples; (4) two measured false positives of `recoverableContext` are recorded — a

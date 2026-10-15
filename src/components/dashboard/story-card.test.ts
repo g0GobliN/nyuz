@@ -2,8 +2,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { EMPTY_FEEDBACK, type FeedbackState } from "@/lib/feedback-store";
+import { admissibleReaderSentence } from "@/lib/reader-evidence";
 import { STORIES } from "@/lib/sample-data";
 import type { Story } from "@/lib/story";
+import { cardSummaryRefused } from "@/lib/understand";
 import { StoryCard } from "./story-card";
 
 /**
@@ -152,6 +154,70 @@ describe("StoryCard — significance vs provenance", () => {
       const html = render(withSource(ordinary, OPENING));
       expect(html).toContain("Negotiators walked out after midnight");
       expect(html).not.toContain("OSS-Fuzz");
+    });
+
+    /**
+     * The arbiter's ruling of 2026-10-15, option 1. Measured on 679 live card
+     * lines: 24 were printing text the shared sentence boundary refuses -- a
+     * description truncated with an ellipsis, a commit record carrying its
+     * author's email, a raw media payload, marketing copy, an unsupported
+     * attribution, an unattributed quotation. Every one failed on its first
+     * sentence, so none of it was an artefact of asking a sentence question of a
+     * block. The card asks that boundary now, before rendering.
+     */
+    it("recovers instead of printing a line the shared sentence boundary refuses", () => {
+      const COMMIT =
+        "Ggml: simplify backend search path error handling (#28367) Signed-off-by: Adrien Gallouët angt@huggingface.co.";
+      const MARKETING =
+        "Learn how Google DeepMind and GovTech Singapore uses lightweight on-device Gemma models to intercept conversational scams in private chats with zero cloud data egress.";
+      for (const stored of [COMMIT, MARKETING]) {
+        expect(admissibleReaderSentence(stored)).toBe(false);
+        const html = render(withSource(stored, OPENING));
+        expect(html).toContain("Even projects that have been enrolled in OSS-Fuzz");
+        expect(html).not.toContain(stored.slice(0, 30));
+      }
+    });
+
+    it("recovers for a description a provider truncated, rather than printing it", () => {
+      // Truncation is a refusal like the others, so it takes the same remedy:
+      // the card prints the story's own opening sentence, never the sentence the
+      // provider cut off mid-thought.
+      const TRUNCATED =
+        "FreeType 2.15 is now available for this widely-used font rendering library used across many different operating systems and software applications...";
+      const html = render(withSource(TRUNCATED, OPENING));
+      expect(html).not.toContain("software applications");
+      expect(html).toContain("Even projects that have been enrolled in OSS-Fuzz");
+    });
+
+    it("keeps the furniture path withholding, and never composes for it", () => {
+      // The one class that keeps its own behaviour: a stored line that is
+      // provider furniture is withheld without composing anything, even though
+      // the story has an opening sentence available.
+      const html = render(withSource("Photograph: Alexandra Topping/The Guardian.", OPENING));
+      expect(html).not.toContain("Photograph: Alexandra Topping");
+      expect(html).not.toContain("OSS-Fuzz");
+    });
+
+    it("withholds the line when a refused summary has nothing valid to recover", () => {
+      const RAW_MARKUP =
+        '@avstorm via X" data-has-syndication-rights="1" src="https://platform.theverge.com/wp-content/uploads/sites/2/2026/10/apple-music-new-old-icon.jpeg? quality=90&strip=all" />.';
+      expect(admissibleReaderSentence(RAW_MARKUP)).toBe(false);
+      const html = render(withSource(RAW_MARKUP, ""));
+      expect(html).not.toContain("data-has-syndication-rights");
+      expect(html).toContain(base.title);
+    });
+
+    it("does not print a stored publisher byline, and recovers the story's opening", () => {
+      // The byline gap the ruling refused to count as closed by assertion. The
+      // card's own two classes do not refuse this string -- measured -- so the
+      // shared furniture boundary is what closes the path, and this test fails
+      // if that check is removed, because the fast path would print it.
+      const BYLINE = "Sayem Ahmed is the Subscription Editor at Tom's Hardware.";
+      expect(cardSummaryRefused(BYLINE)).toBe(false);
+      expect(admissibleReaderSentence(BYLINE)).toBe(false);
+      const html = render(withSource(BYLINE, OPENING));
+      expect(html).not.toContain("Subscription Editor");
+      expect(html).toContain("Even projects that have been enrolled in OSS-Fuzz");
     });
   });
 
