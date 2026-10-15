@@ -1559,6 +1559,31 @@ records, **0** raw markup payloads, **0** marketing imperatives and **0** email 
 is still the recovered OSS-Fuzz sentence from the previous slice. The post-change counts above are the
 code path measured on the same live window; this is the reader-facing read.
 
+### The welded label, measured before any rule (2026-10-15)
+
+**The arbiter's disposition was "measure first; then extend the existing shared helper if the evidence
+supports the bounded colon-heading pattern. No implementation is authorized before that
+measurement."** It is measured, and the measurement changes the question.
+
+**Population:** the newest 1,000 complete events, 676 stored card lines, on the deployed build.
+**18 lines carry a welded label** (a bounded capitalised run, a colon, no space) and **17 of the 18
+still reach a reader** -- the deployed card fix refuses only one of them, because these carry no email
+address and are otherwise well-formed English. A raw-match count would have been misleading in the
+other direction too: 3 further lines carry the *spaced* label the existing rule already removes.
+
+**What the 17 are is the finding.** 16 of them are commit or changelog subjects reaching a reader as a
+card summary, on cards whose own headline is the commit sha: `Models: drop the t_embd expand of the
+embedding graphs (#30461) These graphs only produce embeddings…`, `Vulkan: Optimize pool_2d when the
+pooling window is large (#30119) When the window is larger than a subgroup…`, `Ggml: Change default
+visibility of symbols to hidden (#30014) See discussion in #29997.`, `Assisted-by: Codex.`, on headlines
+`b11619`, `b11603`, `b11563`, `b11575`. The remaining one is a deal line (`Gaming A16 Pro: was $2149.99
+now $1449.00.`). So the punctuation seam is the **symptom**; the class is **commit-record and changelog
+lines published as card summaries**, which the deployed fix reaches only when they carry an email.
+
+**The live example is not in this window**, which repeats the lesson the earlier rulings drew: the
+Circana line is an older event, and a recent-window count is not an inventory. Neither the seam nor the
+commit-record class is addressed by this measurement, and no rule was built from it.
+
 **A defect the live read found, recorded before it is fixed.** Card 16 of that briefing opens on
 `From Circana's US Retail Tracking Service:For 2026 YTD ending August, Xbox hardware unit sales are
 down 33% versus a year ago.` -- a source label welded to the sentence under it **and no space at the
