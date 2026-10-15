@@ -1,5 +1,22 @@
 # Handoff: the validated summary artifact (the ruled root-cause fix)
 
+**Status 2026-10-15: both halves of the ruling are landed and the arbiter has ruled on this slice.**
+The withhold half is in force at the join, and the composed half is built and stored —
+`digest_items.summary` (0118), composed at briefing build time through `recoverCardSummary`'s own path
+and read at the delivery join (the email's translated path included: a translation of a refused line is
+withheld in every language). Ruled the same day: **Q1 = A** — an alert's explanation stays a paragraph
+under the alert's own contract, no code change; **Q2 = A first** — wait up to 24 hours after the deploy
+for a natural briefing build, with a labelled controlled build for a reader whose channels are empty as
+the approved fallback; **historical backfill and universal summary composition are not authorized**.
+The measurement, the scope and the ruling are recorded in
+[decisions/reader-delivery.md](decisions/reader-delivery.md#the-composed-half-of-the-ruling-landed-2026-10-15);
+the section below is kept as the specification the slice was built from, so the two can be compared.
+What is *not* yet observed live is a delivered row carrying an artifact: that comes from the first
+briefing built after the deploy, and `npm run audit:delivered-summary -- --deploy-at <iso>` reports it
+from then on, split into the historical and post-deploy cohorts the ruling requires. The briefing
+denominator was corrected in the same measurement: 13 of the 20 "delivered" briefings actually reached a
+reader (the other 7 have only failed deliveries), so the affected-briefing rate is 8 of 13 = 61.5%.
+
 State as of 2026-10-15, `main` at the commit that lands this file. Everything below is verified or
 cited; nothing here is an assumption. Read [decisions/reader-delivery.md](decisions/reader-delivery.md)
 for the ruling and [context.md](context.md) §6-7 for the state it lands in.
@@ -60,7 +77,7 @@ reader's request. Build time is where the pipeline already composes the same art
 gate, so the recovered line is nearly free there and must be persisted (with the revision it was
 composed from, the provenance the ruling asks for) for the surfaces to read.
 
-## The slice left to build
+## The slice that was built (kept as the specification it was built from)
 
 At **briefing build time** (inside the digest build path, `src/lib/pipeline/digest.ts`), per item:
 

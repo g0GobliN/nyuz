@@ -852,37 +852,102 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   297 (6.06%)** -- an explained increase, which the acceptance criteria require be reported rather
   than hidden. Two delivered lines are **recorded true negatives** in the suite (a single-pull-request
   commit line, a flattened list item); widening either is an arbiter decision on a fresh measurement,
-  not a silent change. Remaining half of the ruling, still next: **compose the valid line at briefing
-  build time and store it with provenance**, so a withheld item is delivered with a good line instead
-  of none.
+  not a silent change. The other half of the ruling — **compose the valid line at briefing build time
+  and store it with provenance**, so a withheld item is delivered with a good line instead of none —
+  landed the same day; see the next entry.
+
+- **2026-10-15 — the composed half of the ruling landed: the item's own validated line is stored, and read.**
+  The withhold half stopped a refused stored line reaching a reader; this half gives the item the line it
+  should have had. At briefing build time (`generateOne` in [digest.ts](../src/lib/pipeline/digest.ts)) an
+  item whose stored line the delivery boundary refuses is **composed through the existing path** —
+  `composedSummaryArtifact` → `recoveredSummaryFromSources` in
+  [reader-summary.ts](../src/lib/reader-summary.ts) → [editorial.ts](../src/lib/editorial.ts), which is
+  `recoverCardSummary`'s own extraction and validation, **not a second composer** — validated by the same
+  three checks the guard asks, and stored in `digest_items.summary` (migration
+  `0118_digest_item_summary.sql`) in the same statement as `delivered_revision`, which is the provenance:
+  the revision the line was composed from. Read at the joins the reader surfaces go through
+  (`storiesFromDigest` → `hydrateEvents` in [briefing.ts](../src/lib/server/briefing.ts) for the home
+  feed, the briefing page and the archive; `loadMailItems` for the email). **Scope, exactly:** only a
+  refused (or empty) stored line composes; an admissible line is stored unchanged, so no line a reader
+  could already read was altered; where the composition publishes nothing acceptable the artifact is
+  `null` and the item ships with no line — the raw description is never substituted. **Measured on the
+  delivered surface** (`npm run audit:delivered-summary`, 21 days, 2026-10-15, migration applied and
+  **before any briefing was built by the new code**): 34 briefings built / **20 delivered**, **297 items**,
+  279 carrying a line, **10 stored lines refused (3.37%; 3.58% of the 279 carrying one)**, **0 replaced by
+  a composed line and 10 still with none**, **0 valid artifacts delivered** (nothing built yet), 8 items
+  with no stored line at all, **18 of 297 (6.06%) delivered with no line**, **8 of the 13 briefings that
+  reached a reader (61.5%) carrying one**, and **raw fallbacks 0 — the gate holds**. **The briefing
+  denominator was corrected in the same slice**: the 20/297 baseline was recorded as "a `deliveries`
+  row exists", and 7 of those 20 briefings have **only failed** deliveries (13 sent, 20 failed rows), so
+  the reader-facing denominator is 13 briefings and the affected rate is 61.5%, not 40% — the audit now
+  headlines the reader-facing number and prints the earlier one beside it, labelled, so nothing is
+  silently swapped. The item-level numbers are unchanged (all 297 items sit in the 13 sent briefings).
+  The audit's recompute over those 18 (labelled
+  as a recomputation, not the delivered surface) found **16 are stories today's readiness gate would not
+  ship at all** (12 `unbriefable`, 2 `build-number`, 2 `primary-source`) and the 2 it still ships **both
+  get a valid composed line, none left empty** — which is why no backfill of delivered history is
+  proposed. Fail-before proof: with the composition removed the build-side test fails exactly as the
+  defect describes (`expected null to be 'OpenAI released a reasoning model thi…'`). The translated email
+  path — the one join the boundaries cannot judge themselves, because they ask English grammar — was
+  measured too: 60 days, **694 delivered items, 106 carrying a refused English line, and 0 of those on
+  a digest whose reader is not on English; `event_translations` holds 0 rows** (three readers, all `en`),
+  so nothing reached a reader that way; the rule (`deliveredTranslatedLine`) prints the artifact first,
+  prints a translation only for a line the boundary admits, and withholds a refused line in every
+  language — the class closed by construction rather than repaired. **The same audit now reports the one
+  delivered surface the withhold half did not reach — a breaking alert — and it was measured rather
+  than assumed:** an alert's reader-facing text is `digest_items.why_it_matters`,
+  written by `create_alert_delivery` as `p_why: event.whatHappened || event.title`, and it is both the
+  alert email's body paragraph and the Alerts page's explanation. Over 60 days: **184 alerts delivered,
+  26 of their lines (14.13%) refused by the sentence boundary, 0 carrying an artifact** — but **20 of
+  those 26 refuse only because an alert's line is not one sentence** (a paragraph, not a line: the
+  alert's text is admitted by the fire gate, not by the sentence boundary), and **every line that is a
+  defect in any class (5) sits on an event today's fire gate refuses**, so **0 are deliverable by any
+  current path** (21-day window: 44 delivered, 3 refused, 0 live). The alert surface therefore has no
+  live violation to repair, and it has no composed half either; whether it should get one (a new
+  `create_alert_delivery` parameter), be read through the delivery boundary (which would withhold the
+  alert's own explanation), or stay as the fire-gate-admitted body class is an **open question for the
+  arbiter**, recorded with the numbers in
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-other-delivered-surface-measured-the-same-day-a-breaking-alert).
+  Verified: `npm run ci` green on the final tree — typecheck (app and scripts), eslint, **3,294 tests in
+  193 files** with the coverage floor held, the production build, the PWA install self-test, the
+  route-walk self-test, the origin self-test and **e2e 30/30** — plus the focused files for this slice
+  (`reader-summary`, `digest-summary-artifact`, `digest`, `digest-delivery`, `digest-cost-safety`,
+  `briefing-timing`, `story-flow`) and the live audit re-run. **Ruled 2026-10-15 (recorded
+  in the decision log): Q1 = A** — an alert's explanation stays a paragraph under the alert's own contract
+  (`assessReadiness` + `assessAlertFloor`), no code change; **Q2 = A first** — wait up to 24 hours after
+  the deploy for a natural briefing build, with the controlled build for a reader whose channels are
+  empty approved only as the labelled fallback; **historical backfill and universal summary composition
+  are not authorized**; overall reader-quality gate **open**. Full record with the two questions this
+  leaves for the arbiter (repair-scope vs full coverage; backfill vs age out):
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-composed-half-of-the-ruling-landed-2026-10-15).
 
 - **2026-10-15 — the root cause ruled, and the measurement that had never been taken.** The owner
   asked why reader quality is not rising after a month of slices, rather than accepting another
   refusal rule; the arbiter was asked the same question and agreed with the answer. **Measured on the
-delivered surface** (`digests` + `digest_items` + `deliveries`, last 21 days): **57 briefings built,
-341 items handed to a reader, 12 items (3.5%) carrying a line a boundary refuses, 14 more with no
-line, and 14 of 57 briefings (25%) containing at least one refused item.** The cause: **the summary
-line a reader receives in a briefing is the feed's own description, not composed prose** — of 15
-commit-record lines on the delivered surface, **0** opened `article_evidence` and 4 came from the
-excerpt — so the story page (which composes and validates) and the briefing, dashboard and email
-(which do not) enforce different standards, and an item the story page had **withheld** was delivered
-in a briefing anyway. Every past slice closed one shape at one surface while the delivery input
-stayed unvalidated, which is why the class supply kept refilling (1/686 → 13/679 → 24/679 → 18 → 15 on
-consecutive days). **Ruled (ChatGPT `nyuz` project): option 1 with a contract — the summary must be a
-validated artifact built at briefing time through the existing composition path, stored with
-provenance, and withheld rather than falling back to raw feed text — and option 4 as the primary
-acceptance criterion: delivery-level metrics, with the release gate that the count of raw fallbacks
-is zero.** The provenance hook already exists (`events.material_revision`,
-`digest_items.delivered_revision`, migration 0099). **Next: implement the validated-summary artifact; nothing else is next until the delivered surface is
-measured clean.** The trace that preceded it is finished and it changed the design: **`digest_items`
-stores no summary at all** — its only generated text is `why_it_matters` — so every surface the reader
-sees reaches **the same raw column through a read-time join** (`digest_items.event_id →
-events.what_happened`: [briefing.ts](../src/lib/server/briefing.ts) lines 105-126, 522-544, 1259-1302,
-[digest.ts](../src/lib/pipeline/digest.ts) 2094-2179, [alerts.ts](../src/lib/pipeline/alerts.ts)
-538-580, [history.ts](../src/lib/server/history.ts) 184). There is nothing per-surface to reconcile, so **one validated artifact read at that
-join fixes the dashboard, the briefing, the email and alerts together**, and the digest build path is
-where it is produced. Slice, withhold semantics, baseline to beat and gate:
-[reader-summary-artifact-handoff.md](reader-summary-artifact-handoff.md). Full record:
+  delivered surface** (`digests` + `digest_items` + `deliveries`, last 21 days): **57 briefings built,
+  341 items handed to a reader, 12 items (3.5%) carrying a line a boundary refuses, 14 more with no
+  line, and 14 of 57 briefings (25%) containing at least one refused item.** The cause: **the summary
+  line a reader receives in a briefing is the feed's own description, not composed prose** — of 15
+  commit-record lines on the delivered surface, **0** opened `article_evidence` and 4 came from the
+  excerpt — so the story page (which composes and validates) and the briefing, dashboard and email
+  (which do not) enforce different standards, and an item the story page had **withheld** was delivered
+  in a briefing anyway. Every past slice closed one shape at one surface while the delivery input
+  stayed unvalidated, which is why the class supply kept refilling (1/686 → 13/679 → 24/679 → 18 → 15 on
+  consecutive days). **Ruled (ChatGPT `nyuz` project): option 1 with a contract — the summary must be a
+  validated artifact built at briefing time through the existing composition path, stored with
+  provenance, and withheld rather than falling back to raw feed text — and option 4 as the primary
+  acceptance criterion: delivery-level metrics, with the release gate that the count of raw fallbacks
+  is zero.** The provenance hook already exists (`events.material_revision`,
+  `digest_items.delivered_revision`, migration 0099). **Next: implement the validated-summary artifact; nothing else is next until the delivered surface is
+  measured clean.** The trace that preceded it is finished and it changed the design: **`digest_items`
+  stores no summary at all** — its only generated text is `why_it_matters` — so every surface the reader
+  sees reaches **the same raw column through a read-time join** (`digest_items.event_id →
+  events.what_happened`: [briefing.ts](../src/lib/server/briefing.ts) lines 105-126, 522-544, 1259-1302,
+  [digest.ts](../src/lib/pipeline/digest.ts) 2094-2179, [alerts.ts](../src/lib/pipeline/alerts.ts)
+  538-580, [history.ts](../src/lib/server/history.ts) 184). There is nothing per-surface to reconcile, so **one validated artifact read at that
+  join fixes the dashboard, the briefing, the email and alerts together**, and the digest build path is
+  where it is produced. Slice, withhold semantics, baseline to beat and gate:
+  [reader-summary-artifact-handoff.md](reader-summary-artifact-handoff.md). Full record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-root-cause-ruled-an-enforcement-gap-between-ingestion-and-delivery-2026-10-15).
 
 ## 7. What is next
@@ -896,7 +961,7 @@ longer the answer to "what work do I take", because reader quality outranks all 
 
 **The card surface now asks the shared sentence boundary (2026-10-15, ruled and landed).** Both card
 classes are closed as ruled: recovery validates through the shared boundary (`admissibleReaderSentence`)
-as well as the card predicate, so a refused line cannot recover *into* a byline, and `cardSummaryRefused`
+as well as the card predicate, so a refused line cannot recover _into_ a byline, and `cardSummaryRefused`
 carries the shared reference predicate (`unresolvedContextOpening`) at the card. Measured on one live
 window (newest 1,000 complete events, 679 cards printing a line): the context class went **1 refused →
 13**, all 13 dispositioned, 0 recovered lines still carrying the defect. The same measurement found a
@@ -905,7 +970,7 @@ provider truncated, 5 commit records carrying an author email, 1 raw media paylo
 imperatives, 1 unsupported attribution, 1 unattributed quote, 1 context line), **24 of 24 failing on
 their first sentence**. The arbiter ruled **option 1** (2026-10-15): apply the existing shared boundary
 before rendering, recover lazily, withhold if nothing valid is recoverable, no new reason or card-only
-classifier — and **extend `isCutSentence`** so a *terminal* ellipsis is cut content, terminal only.
+classifier — and **extend `isCutSentence`** so a _terminal_ ellipsis is cut content, terminal only.
 Post-change counts on the same window: **643 fast path, 36 needing recovery, 18 recovered, 18 withheld,
 0 recovered-but-refused, 36 compositions paid of 1,000 events**. 8 new tests fail on the previous tree
 and pass on this one. **Confirmed on the deployed origin** (2026-10-15, CI run `38670490754` deployed
@@ -1283,17 +1348,17 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   **The slice is deliberately NOT landed:** recovery for one of the 10 returns
   "Sayem Ahmed is the Subscription Editor at Tom's Hardware.", so making the card ask the predicate
   would print a byline as a card summary — the same string is that card's recovery input. **The GTA 6
-  suspicion is refuted:** the memecoin sentence is in the GTA 6 story's *own* single source (Tom's
+  suspicion is refuted:** the memecoin sentence is in the GTA 6 story's _own_ single source (Tom's
   Hardware, `articles.excerpt`) and appears in exactly 1 article across the scanned corpus; the
   paragraph above it ends "…has threatened to leak the entire game if **their demands** are not met",
-  so the referent *is* on the page one block earlier and the block is ordinary anaphora — which also
+  so the referent _is_ on the page one block earlier and the block is ordinary anaphora — which also
   means `recoverableContext` produced a measured false positive there. **A live defect found instead,**
   read on the deployed origin: the story page for `7a1a7f98` opens on a masthead byline as its deck,
   entered at extraction as `article_evidence` **UNIT 1** (status `enriched`, 12 units, article
   `f0562126`) and published at deck selection; measured on that exact string, `editorialNoise`,
   `publisherVoice` and `sourceSeam` **all pass it**, because every byline entry in the closed
   `PUBLISHER_FURNITURE` list is verbless and this one has a copula. No rule was built — adding a shape
-  to a closed furniture list changes what ships —  and the case is with the arbiter. Full record:
+  to a closed furniture list changes what ships — and the case is with the arbiter. Full record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-ruling-on-that-measurement-2026-10-14-received).
 
 - **2026-10-14 — the copular byline ruled (Option A) and landed through the existing furniture
@@ -1303,8 +1368,8 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   rows / **3,997 units** gave **3 matches, all three publisher masthead bylines** ("Zack Whittaker is
   the security editor at TechCrunch." twice, "Tim De Chant is a senior climate reporter at
   TechCrunch.") and **0 legitimate reporting sentences**; the arbiter's four controls all behaved, and a
-  **second live instance** turned up in a body rather than a deck (*Niobia takes the guesswork out of
-  some of tech's most expensive mistakes*). **Two drafts were wrong and both are recorded:** the first
+  **second live instance** turned up in a body rather than a deck (_Niobia takes the guesswork out of
+  some of tech's most expensive mistakes_). **Two drafts were wrong and both are recorded:** the first
   was case-sensitive and blind to the capitalised role it was written for ("is the **Subscription
   Editor** at …"), the second refused "Maya Chen is the reporter at The Verge who broke the story on
   Friday." — reporting. What separates them is that **a masthead line ends after the outlet**; the

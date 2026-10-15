@@ -1,7 +1,9 @@
+import { recoveredSummaryFromSources } from "./editorial";
 import {
   admissibleReaderSentence,
   editorialNoise,
   unresolvedContextOpening,
+  type ReaderSource,
 } from "./reader-evidence";
 
 /**
@@ -47,4 +49,94 @@ export function deliveredSummary(text: string | null | undefined): string | null
   if (editorialNoise(trimmed)) return null;
   if (unresolvedContextOpening(trimmed)) return null;
   return trimmed;
+}
+
+/**
+ * The line an item is delivered with: the composed artifact when it has one, the
+ * event's own stored line otherwise, and nothing when neither may be shown.
+ *
+ * This is the only place a reader surface resolves an item's summary, and it is
+ * asked at every join that turns a stored row into a line -- the home feed, the
+ * briefing, the digest archive and the email. The order is the ruling's: the
+ * artifact first, because where it exists it is the composed, validated line, and
+ * the raw column second, guarded exactly as it was before the artifact existed, so
+ * an item built before this slice keeps the behaviour it already had.
+ *
+ * Both halves are asked through `deliveredSummary`, which is what keeps the
+ * **raw fallback** at zero by construction: a refused raw description is withheld
+ * whether or not an artifact exists, never printed as a fallback.
+ */
+export function deliveredLine(
+  stored: { summary?: string | null } | null | undefined,
+  raw: string | null | undefined,
+): string {
+  return deliveredSummary(stored?.summary) ?? deliveredSummary(raw) ?? "";
+}
+
+/**
+ * The line for an item on a **translated** digest: the composed artifact when the
+ * item has one, the cached translation of its own line when that line is one the
+ * boundary admits, and nothing otherwise.
+ *
+ * **Why the translation is not simply preferred.** The boundaries ask English
+ * grammar, so a translated copy of a line the boundary refuses passes them
+ * trivially -- it is the refused line in another language, and printing it is the
+ * same defect one locale over. Before the artifact existed the email path printed
+ * exactly that: `translated?.whatHappened ?? event.what_happened ?? ""`, with the
+ * guard asked only on the English column it was replacing. The rule here is
+ * therefore: a translation is printed only when the English line it translates is
+ * admissible, and a refused one is withheld in every language.
+ *
+ * Measured before this was written, 2026-10-15, 60 days (`digests` +
+ * `digest_items` + `deliveries`): **694 delivered items, 106 of them carrying a
+ * refused English line, and 0 of those on a digest whose reader is not on
+ * English** -- the three readers with preferences are all `en`, and
+ * `event_translations` holds **0 rows**. So no reader has received one, and this
+ * closes the class by construction rather than repairing a delivered row. That an
+ * artifact is composed in English and is not itself translated is recorded as the
+ * open question it is (decisions/reader-delivery.md): with no non-English reader,
+ * inventing a translation path for it would be a decision without a subject.
+ */
+export function deliveredTranslatedLine(
+  stored: { summary?: string | null } | null | undefined,
+  raw: string | null | undefined,
+  translated: string | null | undefined,
+): string {
+  const artifact = deliveredSummary(stored?.summary);
+  if (artifact !== null) return artifact;
+  const own = deliveredSummary(raw);
+  if (own === null) return "";
+  return translated?.trim() ? translated.trim() : own;
+}
+
+/**
+ * The validated summary line the briefing build stores for an item, or `null`
+ * when the item needs no artifact.
+ *
+ * **When it composes.** Only for a line the boundary above refuses. An item whose
+ * own stored line is admissible is delivered with that line, exactly as before,
+ * so this slice cannot change what a reader sees for a line nobody objected to --
+ * and it costs the composer nothing on the ~96% of items that pass, which matters
+ * because the build shares a 10 ms CPU budget per invocation with everything else
+ * (`docs/decisions/cpu-killed-invocations.md`).
+ *
+ * **When it withholds.** `null` is also the answer when the composition publishes
+ * nothing the boundary accepts. The item then ships with no summary line, which is
+ * the ruling's trade: a card with a line missing costs the reader less than a card
+ * printing the raw feed description, and the raw description is never substituted.
+ *
+ * `null` therefore means "no artifact", which the read path resolves back to the
+ * item's own line -- guarded there too, so the two meanings of `null` (not needed,
+ * nothing composed) both end in the right place.
+ */
+export function composedSummaryArtifact(input: {
+  title: string;
+  sources: ReaderSource[];
+  publishedAt?: string | null | undefined;
+  whatHappened?: string | null | undefined;
+}): string | null {
+  if (deliveredSummary(input.whatHappened) !== null) return null;
+  return deliveredSummary(
+    recoveredSummaryFromSources(input.title, input.sources, { publishedAt: input.publishedAt }),
+  );
 }

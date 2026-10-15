@@ -2427,7 +2427,44 @@ export function composeArticle(story: Story): ReaderArticle {
  * refuses a recovered line.
  */
 export function recoverCardSummary(story: Story): string {
-  const article = composeArticle(story);
+  return recoveredOpeningOfArticle(composeArticle(story));
+}
+
+/**
+ * The same recovery for a caller that has a headline and its coverage but no
+ * story row -- the briefing build, which composes the line it stores for an
+ * item whose own stored summary a boundary refuses.
+ *
+ * One extraction, one set of rules: this and `recoverCardSummary` both go
+ * through `recoveredOpeningOfArticle`, so the line a card recovers and the line
+ * the pipeline stores cannot drift into two standards. The composition itself is
+ * the same `composeFromSources` the readiness gate asks, over the same inputs, so
+ * the stored line is the article the reader's page would publish.
+ *
+ * Deliberately no `whatHappened`: the story's own stored summary is not a
+ * candidate for replacing itself. `composeFromSources` leaves the shell's `what`
+ * empty, which is exactly what the readiness gate passes, so the fallback-deck
+ * path cannot hand back the refused text under a new name -- a later block the
+ * composer published is the replacement, and when there is none the item is
+ * withheld as before.
+ */
+export function recoveredSummaryFromSources(
+  title: string,
+  sources: ReaderSource[],
+  options: ComposeFromSourcesOptions = {},
+): string {
+  return recoveredOpeningOfArticle(composeFromSources(title, sources, options).article);
+}
+
+/**
+ * The first non-empty block the article publishes, held to the boundaries a
+ * reader-facing summary line is held to.
+ *
+ * Empty when the article published nothing, or when what it published is refused
+ * by the deck predicate, the shared sentence boundary, or the block cutter -- a
+ * recovery may never print the class it was recovering from.
+ */
+function recoveredOpeningOfArticle(article: ReaderArticle): string {
   const opening = [
     article.deck.text,
     ...article.paragraphs.map((paragraph) => paragraph.text),

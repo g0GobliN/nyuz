@@ -794,7 +794,7 @@ one, and that trade is the arbiter's to rule on.
 **Ruled 2026-10-14 by the CEO (GOB-15, binding for that issue).** Alerts are reserved for breaking,
 important developments; the five shapes that still pass the gate — a vendor roadmap advertorial, a
 product newsletter, a hobby hack, a personal blog post, a memory-kit price piece — are not breaking
-developments and are refused at the alert floor. This is a *narrow* floor extension, one rule per
+developments and are refused at the alert floor. This is a _narrow_ floor extension, one rule per
 class (`assessAlertFloor`, `src/lib/pipeline/alert-floor.ts`), not option (b) (a blanket floor raise,
 which the measurement showed would cost seven genuine alerts) nor (c) (a D5-contradicting first-party
 exclusion) nor (d) (an outlet minimum). The five classes are development-free shapes; none can
@@ -930,6 +930,7 @@ apply the boundary. Ordinary article content, other headings, and all composer c
 unchanged.
 
 **Validation.**
+
 - New unit tests in [html-text.test.ts](../../src/lib/pipeline/html-text.test.ts): the heading cuts
   the run list; variants with curly apostrophe and trailing colon are honoured; headings that merely
   contain the phrase are not cut; headings inside stripped furniture tags (`aside`) are ignored;
@@ -942,7 +943,7 @@ unchanged.
 - Focused test run: `npx vitest run src/lib/pipeline/html-text.test.ts src/lib/reader-fixture-regression.test.ts`
   passes (59 tests).
 - The frozen corpus was not present in this workspace (`tmp/` empty), so `npm run audit:reader --
-  --corpus tmp/corpus-after.json` could not be re-run. The fixture exercises the captured case
+--corpus tmp/corpus-after.json` could not be re-run. The fixture exercises the captured case
   directly; the existing corpus is unaffected because the change applies at extraction time, not to
   stored excerpts.
 
@@ -989,21 +990,21 @@ reader-quality contract already names the class: §2 acceptance criterion 6 ("No
 heading furniture, URL fragments, or extraction artefacts appear in prose") and §3 cross-cutting
 row 3 — **Source metadata / extraction furniture in reader prose, Critical**. No T1–T7 item on the
 GOB-13 triage owned it, and the T1 ruler cannot see it: `truncatedSentence` fires only on a
-sentence that *ends* on a month or a function word, and `RAW_URL_WITH_PATH` needs a scheme, `www.`
+sentence that _ends_ on a month or a function word, and `RAW_URL_WITH_PATH` needs a scheme, `www.`
 or a path. Measured against the in-flight W5/W6 tree before the fix: all four strings below were
 selected by `selectReaderEvidence` as publishable facts.
 
 Verbatim, as a reader received them:
 
 1. `story/29ad32c2` — `The full chain:…September 18, 2026 Operating as hackers under OpenAI's bug
-   bounty program, Hacktron researchers uncovered critical vulnerabilities that granted them access
-   to internal employee tools…`
+bounty program, Hacktron researchers uncovered critical vulnerabilities that granted them access
+to internal employee tools…`
 2. `story/7af726e6` — `Model selection Some frontier models impose security guardrails on their
-   outputs, according to GitHub.`
+outputs, according to GitHub.`
 3. `story/7af726e6` — `The architecture in one minute Before getting into the interesting parts, it
-   helps to know how the pieces fit together.`
+helps to know how the pieces fit together.`
 4. `story/7af726e6`, same class, found by the live-window scan — `A shelf of diminutive apps With
-   TinyJS, Stroh-Spijer created an "app store" that can be run, natch, from the desktop.`
+TinyJS, Stroh-Spijer created an "app store" that can be run, natch, from the desktop.`
 
 **What landed.** `sourceSeam` in [reader-evidence.ts](../../src/lib/reader-evidence.ts) now calls
 `sourceFurnitureHead`, two narrow shapes: a verbless label of at most eight words ending in `:` or
@@ -1041,13 +1042,13 @@ failure class, not the state of reader-facing prose.
 be folded into this rule):
 
 - **Incomplete explanatory deck** — `A set of taskflow YAMLs, one per stage, which are essentially
-  the prompts that tell the LLM agent what to do at each step.` A deck that presents itself as
+the prompts that tell the LLM agent what to do at each step.` A deck that presents itself as
   explanatory prose while supplying a noun phrase and a relative clause with no main clause. The
   ruling: prefer recovering the source's complete sentence when it is attributable; allow a minimal
   grammatical repair only when the meaning is unambiguous and no new claim is introduced;
   otherwise withhold the deck.
 - **Unestablished first-person voice** — `Two vulnerabilities chained together gave us access to
-  ChatGPT and Codex accounts belonging to OpenAI employees.` The page never establishes who "us" is,
+ChatGPT and Codex accounts belonging to OpenAI employees.` The page never establishes who "us" is,
   and the adjacent sentence was already rewritten (`We demonstrated` → `The authors demonstrated`).
   The ruling: establish the sentence's source and authorial voice first; if the statement is
   attributable, convert it to the third person without changing its meaning; if attribution cannot
@@ -1070,7 +1071,7 @@ both affected stories with the welds gone and the real facts kept.
 2026-10-14, was:
 
 > `A set of taskflow YAMLs, one per stage, which are essentially the prompts that tell the LLM agent
-> what to do at each step.`
+what to do at each step.`
 
 It is not a truncated sentence. It is one item of the source's own **bulleted list**. The GitHub blog
 post writes a lead-in and three items — "There are three layers: a shell driver
@@ -1079,18 +1080,18 @@ list into one paragraph, and the composer published the middle item as the story
 two siblings are still published in the body, where the lead-in carries them:
 
 > `For the fuzzing task flow, the authors use Claude Sonnet 5 by default because it passed all of
-> their internal tests without issues. There are three layers: A shell driver (run_fuzzing.sh) that
-> chains the pipeline stages together. A set of MCP tools that the agent calls to actually do the
-> work: run AFL, compile a harness, store a crash, read a coverage report, and so on.`
+their internal tests without issues. There are three layers: A shell driver (run_fuzzing.sh) that
+chains the pipeline stages together. A set of MCP tools that the agent calls to actually do the
+work: run AFL, compile a harness, store a crash, read a coverage report, and so on.`
 
 **Rulers measured before any rule** (live window: the newest 1,000 articles, 14 days, 7,870 units;
 three drafts, and the numbers killed two of them):
 
-| draft | shape | live-window result |
-| --- | --- | --- |
-| v1 | no predicate before the relativizer | **82 matches, every one ordinary prose** — "Today's epic patch batch dwarfs September's record of nearly 1,000 fixes, which was already …" ("dwarfs" is invisible to the closed verb lists) |
-| v2/v3 | + verb morphology, any relativizer | 91 matches, still dominated by prose — "We present ToFu, a tool-aware framework that …" (complementizer `that`) |
-| shipped | the relativizer must be **set off by a comma**, and the material outside it read with determiner-plus-verb-shaped noun heads masked | **12 of 7,842**, 11 of them prose ("Consumers fetch data …, like ClickHouse, which we rely on heavily.") |
+| draft   | shape                                                                                                                               | live-window result                                                                                                                                                                          |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| v1      | no predicate before the relativizer                                                                                                 | **82 matches, every one ordinary prose** — "Today's epic patch batch dwarfs September's record of nearly 1,000 fixes, which was already …" ("dwarfs" is invisible to the closed verb lists) |
+| v2/v3   | + verb morphology, any relativizer                                                                                                  | 91 matches, still dominated by prose — "We present ToFu, a tool-aware framework that …" (complementizer `that`)                                                                             |
+| shipped | the relativizer must be **set off by a comma**, and the material outside it read with determiner-plus-verb-shaped noun heads masked | **12 of 7,842**, 11 of them prose ("Consumers fetch data …, like ClickHouse, which we rely on heavily.")                                                                                    |
 
 **What landed.** `noMainClause` in [reader-evidence.ts](../../src/lib/reader-evidence.ts): a unit whose
 only predicate is a comma-set relative clause's own verb. It reads the material outside the clause and
@@ -1124,7 +1125,7 @@ hide the original failure". **Record the non-comma limitation explicitly and do 
 on current evidence — the two live shapes that share the item's grammar without the comma ("A
 Ukrainian company that got rich … now outfits drones …", "A Silicon Valley startup that uses weather
 balloons … won a US military contract …") are complete sentences and are kept, pinned as controls.
-Also ruled: an empty deck is acceptable as a *containment* outcome for this defect, not proof that an
+Also ruled: an empty deck is acceptable as a _containment_ outcome for this defect, not proof that an
 empty deck is always the best reader experience; that broader question stays open. **No widening** of
 the rule without new evidence.
 
@@ -1163,17 +1164,17 @@ the country.
 Corrected case-exact, it is **27 of 7,816 live units** (newest 1,000 articles, 14 days), in three
 shapes:
 
-| shape | live units | what `us` is |
-| --- | --- | --- |
-| own work (`authors/ENABLE`) | 6 | the paper describing its own method ("This allows us to harness the accuracy of tree-based models like XGBoost …", all six arXiv) |
-| community | 3 | an audience or a group ("those of us who actively wish to avoid it", "For us, … was AI") |
-| newsroom recipient | 3 | the outlet's own desk ("… she told us during an interview", "u/cal93_'s latest Reddit update gave us more details …") |
-| handover, company blog | 4 | the source's own engineers ("MoQ gives us the foundation …", "… they do not always tell us …") |
-| other object pronouns | 11 | "sounds to me like", "That to me sounds like", "congratulates me", … |
+| shape                       | live units | what `us` is                                                                                                                      |
+| --------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| own work (`authors/ENABLE`) | 6          | the paper describing its own method ("This allows us to harness the accuracy of tree-based models like XGBoost …", all six arXiv) |
+| community                   | 3          | an audience or a group ("those of us who actively wish to avoid it", "For us, … was AI")                                          |
+| newsroom recipient          | 3          | the outlet's own desk ("… she told us during an interview", "u/cal93_'s latest Reddit update gave us more details …")             |
+| handover, company blog      | 4          | the source's own engineers ("MoQ gives us the foundation …", "… they do not always tell us …")                                    |
+| other object pronouns       | 11         | "sounds to me like", "That to me sounds like", "congratulates me", …                                                              |
 
 **The remedy was simulated before it was asked for, and the simulation killed one of the two.** A
 blind third-person substitution — the obvious fix — rewrites an audience into a paper's author list
-("those of us who actively wish to avoid it" → "those of *the authors* who actively wish to avoid
+("those of us who actively wish to avoid it" → "those of _the authors_ who actively wish to avoid
 it") and mis-attributes a Reddit-sourced transaction to the authors, in **6 of 17** units of the
 first (uncorrected) set. That is a worse reader defect than the one it fixes, and it is why the
 ruling below is not "rewrite them".
@@ -1192,7 +1193,7 @@ evidence.
 
 - **Guard.** Recognise the first-person subject, object and possessive forms, case-aware, "without
   matching unrelated words such as US"; the existing resolution flow stays the primary mechanism.
-- **Own-work resolution.** Apply only where source attribution establishes the actor *and* the
+- **Own-work resolution.** Apply only where source attribution establishes the actor _and_ the
   substitution preserves meaning. The source's identity alone is **not** enough: "the presence of a
   research-paper source does not, by itself, establish that every first-person plural pronoun refers
   exclusively to the paper's authors."
@@ -1243,7 +1244,7 @@ the **same** resolver, because it was publishing a unit the evidence pass had al
 - **Community and newsroom voice is withheld, not repaired.** 21 of the 27 live candidates are
   withheld, including legitimate interview quotes ("… she told us during an interview") and
   audience-directed constructions ("the E-T16 Concept shows us that …", "… will take us inside …").
-  The ruling's preserve-when-the-referent-is-clear clause was implemented as *not rewritten*; whether
+  The ruling's preserve-when-the-referent-is-clear clause was implemented as _not rewritten_; whether
   an audience-addressed `us` should publish unchanged is **not settled by this slice** and is the
   next question for the arbiter.
 - **The resolution's firing set is tiny** (6 units in a 14-day window, none of which reaches a reader
@@ -1338,8 +1339,8 @@ published failure is demonstrated. **The overall reader-quality gate remains ope
 ## The unestablished reference, measured before any rule (2026-10-14; ruled the same day, see below)
 
 The card ruling of the same day left three things open and required measurement **before** a rule
-changes: the *TCP/IP standalone-reference defect*, the *unestablished GitHub owner/repository
-reference* ("The argument is just a GitHub owner/repo slug.") and the non-comma list-item limitation.
+changes: the _TCP/IP standalone-reference defect_, the _unestablished GitHub owner/repository
+reference_ ("The argument is just a GitHub owner/repo slug.") and the non-comma list-item limitation.
 It also gave the standing instruction that the predicate is not to be changed to make a sample look
 better. This entry is the measurement that instruction asked for. **No rule has been written and no
 product behaviour changed for this class.**
@@ -1355,17 +1356,17 @@ moment and drift from the morning's count (927 → 932 published blocks, 686 →
   every card summary line (684 lines, 10 of them carrying an unresolvable reference).
 
 **The body is not where this class bites. 0 of 932 published blocks open the page on an ungrounded
-reference.** Every hit from the looser count is *mid-body*, and reading the block printed immediately
+reference.** Every hit from the looser count is _mid-body_, and reading the block printed immediately
 before each one accounts for them:
 
-| hit (mid-body)                                                  | the block before it                             | reading     |
-| --------------------------------------------------------------- | ----------------------------------------------- | ----------- |
-| "This type of psychological intimidation …"                      | the extortion paragraph                         | established |
-| "That year, the RHEL 10 release went further"                    | "in 2024, its ubiquity was looking threatened"   | established |
-| "This sounds similar to the kind of rack-scale AI equipment …"   | the rack-scale systems paragraph                | established |
-| "That legal fight escalated after the government cleared …"      | golf-course opposition                          | weak        |
-| "He's also investigated ransomware attacks …"                    | the Europol paragraph — "He" is not in it       | ungrounded  |
-| "Those demands include their memecoin reaching a $30 million …"  | 30 FPS and "Cyberleek", inside the GTA 6 story  | see below   |
+| hit (mid-body)                                                  | the block before it                            | reading     |
+| --------------------------------------------------------------- | ---------------------------------------------- | ----------- |
+| "This type of psychological intimidation …"                     | the extortion paragraph                        | established |
+| "That year, the RHEL 10 release went further"                   | "in 2024, its ubiquity was looking threatened" | established |
+| "This sounds similar to the kind of rack-scale AI equipment …"  | the rack-scale systems paragraph               | established |
+| "That legal fight escalated after the government cleared …"     | golf-course opposition                         | weak        |
+| "He's also investigated ransomware attacks …"                   | the Europol paragraph — "He" is not in it      | ungrounded  |
+| "Those demands include their memecoin reaching a $30 million …" | 30 FPS and "Cyberleek", inside the GTA 6 story | see below   |
 
 A rule built on this evidence would refuse ordinary anaphora whose antecedent is the paragraph above —
 three of the six are exactly that — which is why the body is not proposed for a rule on these numbers.
@@ -1411,7 +1412,7 @@ against on the 0-of-932 finding.
 
 **Not claimed.** That this class is handled, that any of the 10 card lines has been fixed, that the
 TCP/IP or GitHub owner/repo defects are addressed, or that the body is free of ungrounded references —
-0 of 932 *page-opening* blocks is a reading of one 200-event window, not a proof. **The overall
+0 of 932 _page-opening_ blocks is a reading of one 200-event window, not a proof. **The overall
 reader-quality gate remains open.**
 
 ### The ruling on that measurement (2026-10-14, received)
@@ -1421,10 +1422,10 @@ boundary and lazily recover refused summaries from validated published content. 
 for now: a headline-resolution check would be "another unvalidated rule", and there is already a
 shared predicate and an established recovery mechanism. **Option 4 rejected**: the body evidence does
 not support a body-wide refusal rule, because a rule on those seven mid-body hits would refuse
-ordinary anaphora whose antecedent is the paragraph above. The boundary the ruling draws: *cards*
-evaluate context against what the card actually displays (headline plus summary line); *article bodies*
-allow references whose antecedents are established in preceding published content; *page-opening
-blocks* keep being monitored, with the explicit warning not to infer universal safety from zero
+ordinary anaphora whose antecedent is the paragraph above. The boundary the ruling draws: _cards_
+evaluate context against what the card actually displays (headline plus summary line); _article bodies_
+allow references whose antecedents are established in preceding published content; _page-opening
+blocks_ keep being monitored, with the explicit warning not to infer universal safety from zero
 observed cases. It requires `contextDependent && !recoverableContext` and the existing reason taxonomy,
 forbids broadening the predicate to catch the report's examples, and requires both the `noMainClause`
 fallback and the context check at the card boundary — they are distinct classes and neither replaces
@@ -1446,24 +1447,24 @@ explicitly did not authorise a change to the shared predicate.
 **The dispositions, measured with the shipped predicates** (`tmp/card-context-dispositions.ts`,
 `tmp/card-context-recovery.ts`, newest 1,000 complete events):
 
-| # | line                                                     | shape                    | `contextDependent` | `recoverableContext` | refused | recovered card line |
-| - | -------------------------------------------------------- | ------------------------ | ------------------ | -------------------- | ------- | ------------------- |
-| 1 | "These results show that executable diagnosis fills …"    | paper abstract           | true               | false                | yes     | "Embodied coding agents construct robot policies …" |
-| 2 | "The result is a unified, inference-time sampler …"       | paper abstract           | true               | false                | yes     | "Robots must generate trajectories that remain faithful …" |
-| 3 | "These constraints are directly compatible with …"        | paper abstract           | true               | false                | yes     | "Quadratic constraints (QCs) are widely used …" |
-| 4 | "These results establish credal geometry …"               | paper abstract           | true               | false                | yes     | "Prediction-set size offers a coarse summary …" |
-| 5 | "These results establish fixed-point flow matching …"     | paper abstract           | true               | false                | yes     | "In maximum entropy and behaviour-constrained RL …" |
-| 6 | "These results connect balance objectives to …"           | paper abstract           | true               | false                | yes     | "A comprehensive theory linking nonzero balance loss …" |
-| 7 | "Neither Egypt nor Sudan has commented …"                 | headline-resolved (FP)   | true               | false                | yes     | "At least 72 civilians … killed in air strikes …" |
-| 8 | "Her epic ride — carrying her injured dad …"              | headline-resolved (FP)   | true               | false                | yes     | "Promises were made — financial help, a training career …" |
-| 9 | "While the figure on its surface sounds significant …"    | unresolvable             | true               | false                | yes     | **"Sayem Ahmed is the Subscription Editor at Tom's Hardware."** |
-| 10 | "Those were among the descriptions …"                    | unresolvable             | true               | false                | yes     | "For all their different reactions, researchers agreed …" |
+| #   | line                                                   | shape                  | `contextDependent` | `recoverableContext` | refused | recovered card line                                             |
+| --- | ------------------------------------------------------ | ---------------------- | ------------------ | -------------------- | ------- | --------------------------------------------------------------- |
+| 1   | "These results show that executable diagnosis fills …" | paper abstract         | true               | false                | yes     | "Embodied coding agents construct robot policies …"             |
+| 2   | "The result is a unified, inference-time sampler …"    | paper abstract         | true               | false                | yes     | "Robots must generate trajectories that remain faithful …"      |
+| 3   | "These constraints are directly compatible with …"     | paper abstract         | true               | false                | yes     | "Quadratic constraints (QCs) are widely used …"                 |
+| 4   | "These results establish credal geometry …"            | paper abstract         | true               | false                | yes     | "Prediction-set size offers a coarse summary …"                 |
+| 5   | "These results establish fixed-point flow matching …"  | paper abstract         | true               | false                | yes     | "In maximum entropy and behaviour-constrained RL …"             |
+| 6   | "These results connect balance objectives to …"        | paper abstract         | true               | false                | yes     | "A comprehensive theory linking nonzero balance loss …"         |
+| 7   | "Neither Egypt nor Sudan has commented …"              | headline-resolved (FP) | true               | false                | yes     | "At least 72 civilians … killed in air strikes …"               |
+| 8   | "Her epic ride — carrying her injured dad …"           | headline-resolved (FP) | true               | false                | yes     | "Promises were made — financial help, a training career …"      |
+| 9   | "While the figure on its surface sounds significant …" | unresolvable           | true               | false                | yes     | **"Sayem Ahmed is the Subscription Editor at Tom's Hardware."** |
+| 10  | "Those were among the descriptions …"                  | unresolvable           | true               | false                | yes     | "For all their different reactions, researchers agreed …"       |
 
 Refusal counts on that window: 683 summary lines, **1 refused by `noMainClause` today**, **10 refused by
 the shared context predicate**, **0 by both** — the overlap is empty, which is the ruling's claim that
 the classes are distinct, measured. Recovery was validated for all 10: **10 recovered, 0 withheld, and
 0 recovered lines still carrying the defect.** Items 7 and 8 are **false positives of the predicate at
-this surface**: each line *is* resolvable, but only by the headline above it, and `recoverableContext`
+this surface**: each line _is_ resolvable, but only by the headline above it, and `recoverableContext`
 reads the line alone, so it does not recognise them as recoverable. Recovery contains both, which is
 containment and not a fix, exactly as the ruling requires to be recorded.
 
@@ -1483,7 +1484,7 @@ and the measurement that closed it exposed 24 more lines the card was printing.
 `cardSummaryRefused` refuses **or** that `admissibleReaderSentence` refuses -- the shared boundary the
 story page and the email both ask. Measured on the byline: `publisherFurniture` true,
 `unitTextRejection` `editorial_noise`, `admissibleReaderSentence` false, so a refused card line can no
-longer recover *into* a byline. The card-context predicate is live at the card boundary:
+longer recover _into_ a byline. The card-context predicate is live at the card boundary:
 `cardSummaryRefused` is the deck predicate **or** the shared `unresolvedContextOpening`
 (`contextDependent && !recoverableContext`), one exported definition, no card-specific rule.
 
@@ -1575,11 +1576,11 @@ chipmaking and EDA at Tom's Hardware Premium AI Chip Design Week…"; "v16.4.0-c
 #99249 remove some redundant tests…"; "These results show that direct robustness, adversarial transfer,
 and deployment efficiency are distinct properties of compressed E…".
 
-**The cause, which the arbiter accepted in these words:** *"Nyuz has a reader-quality enforcement gap
+**The cause, which the arbiter accepted in these words:** _"Nyuz has a reader-quality enforcement gap
 between ingestion and delivery. The story page uses validated, composed reader content, while the summary
 line delivered through briefings can originate from a raw feed description. As a result, a story can be
 rejected or repaired on one surface while its unvalidated source description reaches readers through
-another."* **Proven** (its list): a raw feed description reaches a delivered briefing without passing the
+another."_ **Proven** (its list): a raw feed description reaches a delivered briefing without passing the
 validated path; at least one delivered item had already been withheld on the story page; several
 materially different classes reached readers; surface-specific fixes alone did not prevent the others;
 and the event-tail metrics are insufficient as the primary measure of reader quality. **Hypothesis, to be
@@ -1621,8 +1622,8 @@ that is measured on the delivered surface, which is now the only surface that co
 
 ### The withhold clause, landed at the join (2026-10-15)
 
-The ruling's second requirement -- *a summary failing validation is withheld, never replaced by the raw
-feed description* -- is now in force on the delivery path, ahead of the composed artifact, because it is
+The ruling's second requirement -- _a summary failing validation is withheld, never replaced by the raw
+feed description_ -- is now in force on the delivery path, ahead of the composed artifact, because it is
 the half that also reaches the rows already stored: [reader-summary.ts](../../src/lib/reader-summary.ts)
 is asked wherever a stored summary becomes a line a reader sees ([briefing.ts](../../src/lib/server/briefing.ts)
 `hydrateEvents`, `loadMatches`, `relatedEventsFor`). It asks the three checks the ruling names --
@@ -1648,7 +1649,7 @@ measurement."** It is measured, and the measurement changes the question.
 **18 lines carry a welded label** (a bounded capitalised run, a colon, no space) and **17 of the 18
 still reach a reader** -- the deployed card fix refuses only one of them, because these carry no email
 address and are otherwise well-formed English. A raw-match count would have been misleading in the
-other direction too: 3 further lines carry the *spaced* label the existing rule already removes.
+other direction too: 3 further lines carry the _spaced_ label the existing rule already removes.
 
 **What the 17 are is the finding.** 16 of them are commit or changelog subjects reaching a reader as a
 card summary, on cards whose own headline is the commit sha: `Models: drop the t_embd expand of the
@@ -1735,7 +1736,7 @@ legitimate reporting sentences**. The arbiter's four named controls all behaved:
 refused, and "The editor at Tom's Hardware said the company would respond.", "Sayem Ahmed, the
 Subscription Editor at Tom's Hardware, said the feature would launch next month." and "Maya Chen is the
 reporter who broke the story …" all stay eligible. A second live instance was found by the same
-measurement: the story *Niobia takes the guesswork out of some of tech's most expensive mistakes*
+measurement: the story _Niobia takes the guesswork out of some of tech's most expensive mistakes_
 publishes "Zack Whittaker is the security editor at TechCrunch." **in its body**, not its deck.
 
 **Two drafts were wrong, and both are recorded because the fix for one is the rule's shape.** The
@@ -1761,7 +1762,7 @@ more text in the same unit); the suite at **163 tests**, and the five boundary s
 passing. **On the live data with the rule in place:** both byline strings return
 `publisherFurniture=true`, `editorialNoise=true`, `publisherSelfReference=true`; the six controls return
 false; the story `7a1a7f98` now opens on "The global race to deploy capable closed and open-weight
-models marches on …" with the byline gone; and *Niobia* no longer publishes its byline either. The
+models marches on …" with the byline gone; and _Niobia_ no longer publishes its byline either. The
 before/after snapshot of one frozen corpus is recorded in [context.md](../context.md).
 
 **Pinned cost, so a later widening is a decision.** An organisation subject with a publication role
@@ -1771,8 +1772,186 @@ by more text inside the same unit is not refused, because the pattern is the lin
 outlet; the measured window held no such unit.
 
 **Not claimed.** That bylines are handled in general — this is the copular sentence-opening shape only,
-and the verbless ones were already covered; that the *story* `7a1a7f98` is now good — its body still
+and the verbless ones were already covered; that the _story_ `7a1a7f98` is now good — its body still
 reads "according to Hardware" and opens mid-digest; that the card slice may land (it stays held until
 the recovery-validation change and deployment are verified, per the ruling); or that the older
 GitHub-slug and TCP/IP cases and the non-comma list-item limitation are addressed. **The overall
 reader-quality gate remains open.**
+
+## The composed half of the ruling, landed (2026-10-15)
+
+**What was missing.** The withhold half (above) stopped a refused stored line reaching a reader, and
+that is the half that also covers rows already delivered. It could not _give_ the item the line it
+should have had: an item whose stored description is refused was delivered with **no line at all**,
+measured at 10 of 289 delivered lines carrying one. The ruling's contract is explicit that a failing
+summary is withheld _rather than replaced by the raw description_, and that the valid line is
+**composed through the existing composition path at briefing build time and stored with the revision
+it came from**. That is this slice.
+
+**Where it composes, and why there.** In `generateOne` ([digest.ts](../../src/lib/pipeline/digest.ts)),
+in the same statement that writes the item, through `composedSummaryArtifact` →
+`recoveredSummaryFromSources` ([reader-summary.ts](../../src/lib/reader-summary.ts) →
+[editorial.ts](../../src/lib/editorial.ts)) — which is `recoverCardSummary`'s own extraction and
+validation, not a second composer. The alternatives were rejected on the record: composing per card
+at read time costs 150–220 ms _per card_ on the reader's request path, which shares the free plan's
+per-invocation CPU budget; composing for every item at build time pays for a line 96% of which no
+boundary ever objected to.
+
+**Scope, stated exactly.** The build composes **only for an item whose stored line the delivery
+boundary refuses** (including an item with no stored line at all). An item whose line is admissible
+is stored unchanged, so this slice cannot change a line nobody objected to. Where the composition
+publishes nothing the delivery boundary accepts, the artifact is `null` and the item ships with no
+line — the ruling's trade — and the raw description is **never** substituted. The artifact is
+validated by the same three checks the guard asks (`deliveredSummary`), not only by the card
+boundary, so a recovered line that the delivery boundary would refuse is withheld rather than stored.
+
+**The translated path, closed by construction.** The boundaries ask English grammar, and the email path
+used to prefer `translated.whatHappened` while the guard was asked only on the English column it
+replaced — so a translated copy of a refused line passed the boundaries trivially and printed: the
+same defect one locale over. Measured before the rule was written (2026-10-15, 60 days): **694
+delivered items, 106 of them carrying a refused English line, and 0 of those on a digest whose reader
+is not on English** — the three readers with preferences are all `en`, and `event_translations` holds
+**0 rows**. So nothing has reached a reader this way; the rule (`deliveredTranslatedLine` in
+[reader-summary.ts](../../src/lib/reader-summary.ts)) prints the artifact first, prints a translation
+only when the English line it translates is one the boundary admits, and withholds a refused line in
+every language. **Not claimed:** that an artifact is a translated line — it is composed in English and
+is not itself translated, and with no non-English reader there is no subject to measure a translation
+path against. That is a question for the arbiter when a non-English reader exists, not a change to
+make now.
+
+**Storage and provenance.** `digest_items.summary` (0118), nullable, written in the same statement as
+`delivered_revision` — which _is_ the provenance: the event material revision the line was composed
+from. No second column is needed because the two values are written together for one revision. Every
+pre-existing row keeps `NULL`, which resolves to exactly its previous behaviour, and nothing rewrites
+delivered history. Read at the joins the reader surfaces go through:
+`storiesFromDigest` → `hydrateEvents` ([briefing.ts](../../src/lib/server/briefing.ts)) for the home
+feed, the briefing page and the digest archive, and `loadMailItems` for the email. Surfaces with no
+digest in hand (the matches feed, saved stories, search) have no artifact to read and keep the guarded
+behaviour they had.
+
+**Measured on the delivered surface** (`npm run audit:delivered-summary`, 21 days, 2026-10-15, after
+0118 was applied and **before any briefing was built by the new code** — so this is the honest
+before):
+
+| line                                                          | value                                             |
+| ------------------------------------------------------------- | ------------------------------------------------- |
+| briefings built / delivered, items delivered                  | 34 / **20**, **297**                              |
+| items carrying a line                                         | 279 (289 = 297 − the 8 with no stored line)       |
+| **valid composed artifact delivered**                         | **0 of 297 (0.00%)** — nothing built yet          |
+| stored lines a boundary refuses                               | **10 of 297 (3.37%)**; of 279 carrying one: 3.58% |
+| → replaced by a valid composed line / still with no line      | 0 / **10**                                        |
+| items with no stored line at all                              | 8 of 297 (2.69%)                                  |
+| items delivered with no line                                  | **18 of 297 (6.06%)**                             |     | briefings carrying at least one item with no line | **8 of 20 (40%)** |
+| **raw fallbacks (a refused stored line printed to a reader)** | **0 — the gate holds**                            |
+
+**Denominators corrected the same day, before this was pushed.** The briefing denominator above is
+"a `deliveries` row exists", which is the definition the 20/297 baseline was recorded with — but it
+is not "a reader received it": measured 2026-10-15, of those 20 briefings **7 have only `failed`
+deliveries** (13 `sent` rows, 20 `failed`), so 7 are briefings no reader ever received (each of them
+empty — the 297 items all sit in the 13 that were sent, which is why the item-level numbers do not
+move). The reader-facing denominator is therefore **13 briefings delivered**, and on it the affected
+rate is **8 of 13 = 61.5%**, not 40%. `npm run audit:delivered-summary` now headlines the reader-facing
+denominator and prints the earlier one beside it, labelled, so the rebased baseline is visible instead
+of silently swapped; the alert section has always used `sent`. Nothing else in the table changes.
+
+**The recompute, and the finding it produced.** Because no row can carry an artifact until the code
+is deployed, the audit recomposes the 18 no-line items from the same inputs the build uses, labelled
+as a recomputation rather than as the delivered surface: **16 of the 18 are stories today's readiness
+gate would not ship at all** (12 `unbriefable`, 2 `build-number`, 2 `primary-source`), so no artifact
+would ever be stored for them; of the 2 the gate still ships, **both get a valid composed line and
+none is left empty**. The 16 are the honest explanation of the residual missing-line rate in this
+window: they are rows built when the gate and the coverage differed from today's, and their missing
+line is a symptom of a story with no publishable material rather than of a refused line that could
+have been recovered. That is also why **no backfill of delivered history is proposed**: mechanically
+repairing those rows would mint lines today's product would not store, and it would rewrite the
+archive of what was sent.
+
+**Not claimed.** That the composed half has been observed on a live briefing **row** — the first row
+carrying an artifact comes from the first briefing built after the deploy, and the audit reports it
+(`valid composed artifact delivered`) from then on; until then the live evidence is the recompute
+above. That the artifact is byte-identical to what the card would have recovered: the build composes
+from `loadBriefs`' source list, which carries no `article_evidence` units, while the card composes
+from the hydrated page which does — both go through the same extraction and the same boundaries, so
+both are valid lines, and the two can be different valid sentences for the same story. That missing
+lines are zero: 8 items in this window have no stored line at all, and an item whose composition
+publishes nothing still ships with none. **The overall reader-quality gate remains open.**
+
+**Two questions this slice puts to the arbiter, with the numbers above.**
+
+1. **Repair-scope or full coverage?** A: repair only (landed) — 10 of 297 items in the window get a
+   composed line instead of none, no admissible line changes, ~3% of items pay the composition.
+   B: every item's stored line is replaced by the composed artifact — one standard across the
+   product, at the cost of rewriting the delivered line for the 279 items whose own line a reader
+   can already read, and of composing for every shipped item on the free-plan CPU budget.
+2. **Backfill the delivered history, or let it age out?** A: no backfill (landed) — the 18 items stay
+   as they are, and 16 of them are stories today's gate would not ship. B: a one-off repair of the
+   refused-and-empty rows in history, which would put a line on rows built before this slice but
+   rewrites what the archive says was sent.
+
+### The other delivered surface, measured the same day: a breaking alert
+
+The ruling's covered surfaces name the alert. An alert stores no summary of its own either:
+`create_alert_delivery` writes the event's own description into `digest_items.why_it_matters`
+(`p_why: event.whatHappened || event.title` in [alerts.ts](../../src/lib/pipeline/alerts.ts)), and that
+one text is what the reader gets twice over — the alert email's body paragraph and the Alerts page's
+explanation (`why` in [alerts-recent.ts](../../src/lib/alerts-recent.ts), rendered by
+[alerts/index.tsx](../../src/routes/dashboard/alerts/index.tsx)). It is the same raw column the
+briefing joins, and it was the one join the withhold half did not reach, so it was measured rather
+than assumed.
+
+**Measured** (`npm run audit:delivered-summary`, which now reports this surface beside the briefing
+one; 60 days for the wider sample, then the default 21-day window for the gate line):
+
+| line                                                                                                                | 60 days                                                                                                          | 21 days                       |
+| ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| alerts delivered / items delivered                                                                                  | 184 / 184                                                                                                        | 44 / 44                       |
+| carrying a stored artifact (`digest_items.summary`)                                                                 | **0**                                                                                                            | **0**                         |
+| lines the sentence boundary refuses                                                                                 | **26 of 184 (14.13%)**                                                                                           | 3 of 44 (6.82%)               |
+| → of those, refused only because an alert's line is not one sentence                                                | 20 (`unitTextRejection: invalid_sentence`)                                                                       | 1                             |
+| → a defect in any class (development record, editorial noise, unresolved-context opening, publisher self-reference) | 5 (1 + 2 + 2)                                                                                                    | 2                             |
+| **→ a defect in any class AND admitted by today's fire gate**                                                       | **0 — every one of the 5 comes from an event `assessReadiness` refuses today (`unbriefable`, `primary-source`)** | **0** (both `primary-source`) |
+
+**What that says, exactly.** The alert's reader-facing text is **not the same artifact class** as a
+briefing line. A briefing line is one sentence and is held to the sentence boundary; an alert's text is
+the alert body, admitted by the fire gate (`assessReadiness` and `assessAlertFloor`) before the alert is
+created — which is why most of the sentence-boundary refusals here are the class difference (a
+two-sentence paragraph is not a sentence) rather than a defect. The class that _is_ a defect in any
+class is covered: every such line in the sample is on an event the fire gate refuses today, so no
+current path can deliver one, and the audit prints that as a count (must-be-zero) rather than an
+assertion. What the alert surface does **not** have is the composed half: no artifact is stored for an
+alert, and its text is not composed through the reader path at all.
+
+**The question that leaves.** Should an alert's text be (A) left as the fire-gate-admitted body class
+it is, with the sentence boundary deliberately not applied and the live-violation count printed as
+above (no code change today); (B) composed and validated at alert build time through the same
+`composedSummaryArtifact` path and stored beside the item — which needs a new parameter on
+`create_alert_delivery` (a migration) and pays the composition on the alert path; or (C) read through
+the delivery boundary like a briefing line, which would withhold the alert's explanation for the 14%
+whose stored paragraph is not a single sentence, and withhold the email body with it. The measurement
+above is the evidence for the ruling; nothing is implemented pending it, and **no history is
+rewritten**.
+
+**Ruled 2026-10-15 — Q1: A. Q2: A, with B approved as a falsifiable fallback.** Verbatim dispositions:
+_"Q1: A approved. Keep alert explanations as paragraphs under the alert-specific contract. No code
+change today."_ and _"Q2: A approved first. Wait up to 24 hours after deployment for a natural build. If
+none arrives, B is approved with the safeguards above."_ **Historical backfill: not authorized.
+Universal summary composition: not authorized. The overall reader-quality gate remains open.**
+
+The ruling's safeguards, and where each is satisfied:
+
+| safeguard                                                                          | where                                                                          |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| keep the live-violation count separate from the sentence-boundary diagnostic count | the audit prints them as two lines, never summed                               |
+| the live-violation count must be zero under the alert's own contract               | measured 0 of 44 (21 days) and 0 of 184 (60 days)                              |
+| keep checking the fire gate **and** the paragraph's defect classes                 | the audit asks both per line and prints the class beside the disposition       |
+| preserve the alert email and Alerts page behaviour                                 | no alert-path code changed                                                     |
+| a blocked example must show its **actual** disposition, not its event category     | the audit prints `[class] refused by readiness today (kind) :: title` per line |
+
+The last row is the caveat the ruling attached to the measurement: the five delivered lines that are
+a defect in any class are now printed with the class that flags each of them _and_ the fire gate's own
+verdict on that line's text, so the zero is a measured per-line disposition rather than an inference
+from the event's category. **What the 24-hour window means here:** the deploy happens with the push
+that lands this slice, and the first row carrying an artifact comes from the first briefing built by
+the new code; if no briefing is built within 24 hours of the deploy, the ruled fallback is one
+controlled build for a reader whose channels are empty — stored normally, nothing sent, labelled as a
+controlled verification run in the evidence and never reported as a natural delivery.

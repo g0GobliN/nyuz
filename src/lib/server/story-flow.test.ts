@@ -414,6 +414,56 @@ describe("reader flows never buy background synthesis", () => {
     // "keeps significance and provenance apart in every shape".
   });
 
+  it("delivers the item's composed artifact for a stored line a boundary refuses", async () => {
+    // The composed half of the 2026-10-15 ruling, read at the join the reader's
+    // surfaces go through. Before this slice the card showed a refused line or
+    // nothing at all; the artifact written beside the item is now the line.
+    const db = bundledDb();
+    seedPendingNews(db);
+    await run(startFirstBriefing, db);
+    const digestId = db.rows("digests")[0]!["digest_id"] as string;
+    const eventId = db.rows("user_events")[0]!["event_id"] as string;
+    const event = db.rows("events").find((e) => e["id"] === eventId)!;
+    event["what_happened"] =
+      "Explore more than 20 announcements from OpenAI DevDay 2026 and see what we are building next.";
+    db.rows("digest_items").push({
+      digest_id: digestId,
+      event_id: eventId,
+      position: 0,
+      why_it_matters: "It moves the deadline the whole industry is working to.",
+      summary:
+        "OpenAI released a new model for developers, with documentation and availability details published today, according to OpenAI News.",
+    });
+
+    const stories = (await run(loadDigestStories, db, { digestId })) as Story[];
+    expect(stories[0]?.what).toBe(
+      "OpenAI released a new model for developers, with documentation and availability details published today, according to OpenAI News.",
+    );
+  });
+
+  it("shows no line, and never the raw description, when the refused item has no artifact", async () => {
+    // The raw fallback this ruling keeps at zero. A row built before the artifact
+    // existed -- or one whose composition published nothing acceptable -- delivers
+    // no line at all, which is the trade the ruling makes: a card with no line
+    // costs the reader less than a card printing the raw feed description.
+    const db = bundledDb();
+    seedPendingNews(db);
+    await run(startFirstBriefing, db);
+    const digestId = db.rows("digests")[0]!["digest_id"] as string;
+    const eventId = db.rows("user_events")[0]!["event_id"] as string;
+    db.rows("events").find((e) => e["id"] === eventId)!["what_happened"] = "Assisted-by: Codex.";
+    db.rows("digest_items").push({
+      digest_id: digestId,
+      event_id: eventId,
+      position: 0,
+      why_it_matters: "It moves the deadline the whole industry is working to.",
+      summary: null,
+    });
+
+    const stories = (await run(loadDigestStories, db, { digestId })) as Story[];
+    expect(stories[0]?.what).toBe("");
+  });
+
   it("still shows the quiet-day empty state when nothing matched since the skip", async () => {
     const db = bundledDb();
     seedPendingNews(db);

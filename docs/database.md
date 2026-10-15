@@ -85,7 +85,7 @@ however convenient it looks at the time.
 | -------------- | ------------------------------------------------------------------ |
 | `user_events`  | Match results plus durable `briefed_at` deduplication. Pruned on the plan window (0067) |
 | `digests`      | One per user per scheduled slot. `skipped` is a real success state. **Readable only inside `history_window_start()`** (0067) |
-| `digest_items` | `why_it_matters` — the only per-user generated text                |
+| `digest_items` | `why_it_matters`, plus the composed `summary` artifact (0118) and the `delivered_revision` it was composed from |
 | `deliveries`   | Per channel, with attempts and retry                               |
 
 ### Feedback

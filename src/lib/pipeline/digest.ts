@@ -44,6 +44,7 @@ import { capFor } from "@/lib/density";
 import { reasonFor } from "./inclusion";
 import { assessReadiness } from "./readiness";
 import type { ReaderSource } from "../reader-evidence";
+import { composedSummaryArtifact, deliveredTranslatedLine } from "../reader-summary";
 import { needsTranslation, toLanguageTag, type LanguageTag } from "@/lib/languages";
 import { translateEvents, type TranslatableEvent, type TranslatedText } from "./translate";
 import { mailGrafs } from "@/lib/article-body";
@@ -996,6 +997,25 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   const revisionOf = new Map(
     considered.map((match) => [match.eventId, match.materialRevision] as const),
   );
+  // The composed summary artifact -- the composed half of the arbiter's ruling,
+  // written beside the item it belongs to (0118).
+  //
+  // This is the only place a stored summary is *composed*, and it is the point
+  // where the pipeline already composes the article for the item: the readiness
+  // gate above composed the same story through the same path from the same
+  // inputs, and the readiness verdict is what admitted this item. Composing here
+  // rather than at read time is deliberate: the reader's request path runs on the
+  // same free-plan CPU budget the cron does, and recovery costs 150-220 ms per
+  // story, so a read-time composition would be paid by whoever opened a briefing
+  // (the card pays it only for a refused card, and says so at
+  // `src/components/dashboard/story-card.tsx`).
+  //
+  // Only an item whose own stored line the delivery boundary refuses pays for it.
+  // An item carrying an admissible line needs no artifact and keeps printing what
+  // it always printed, so this cannot change a line nobody objected to. Where the
+  // composition publishes nothing acceptable the artifact is null and the item
+  // ships with no line at all -- the ruling's trade, and the raw feed description
+  // is never substituted for it.
   const rows = ready.map((brief, position) => ({
     digest_id: due.digest_id,
     event_id: brief.eventId,
@@ -1003,8 +1023,16 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     why_it_matters: byImpact.get(brief.eventId) ?? "",
     // Stamped per item, so delivery history answers "which revision did this
     // reader get" without a join and without depending on the event still
-    // being in the corpus.
+    // being in the corpus. It is also the artifact's provenance: the line below
+    // is composed from the material as it stands in this same write, and the two
+    // fields are written together.
     delivered_revision: revisionOf.get(brief.eventId) ?? 0,
+    summary: composedSummaryArtifact({
+      title: brief.title,
+      sources: brief.sources,
+      publishedAt: brief.publishedAt,
+      whatHappened: brief.whatHappened,
+    }),
   }));
 
   const { error } = await db
@@ -2102,7 +2130,7 @@ async function loadMailItems(db: Db, digestId: string, language: LanguageTag): P
   const { data, error } = await db
     .from("digest_items")
     .select(
-      "event_id, position, why_it_matters, events ( title, what_happened, before_state, after_state )",
+      "event_id, position, why_it_matters, summary, events ( title, what_happened, before_state, after_state )",
     )
     .eq("digest_id", digestId)
     .order("position", { ascending: true });
@@ -2142,7 +2170,11 @@ async function loadMailItems(db: Db, digestId: string, language: LanguageTag): P
         title: translated?.title ?? title,
         why: translated?.impact ?? row.why_it_matters,
         grafs: mailGrafs({
-          what: translated?.whatHappened ?? event?.what_happened ?? "",
+          // Resolved through the delivery seam, so this path cannot print a
+          // refused line: the composed artifact leads, a translation is printed
+          // only for a line the boundary admits, and a refused one is withheld in
+          // every language (reader-summary.ts).
+          what: deliveredTranslatedLine(row, event?.what_happened, translated?.whatHappened),
           before: translated?.beforeState ?? event?.before_state ?? "",
           after: translated?.afterState ?? event?.after_state ?? "",
           excerpts: excerpts.get(row.event_id) ?? [],

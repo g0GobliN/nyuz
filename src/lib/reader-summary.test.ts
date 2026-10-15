@@ -1,5 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { deliveredSummary } from "./reader-summary";
+import {
+  composedSummaryArtifact,
+  deliveredLine,
+  deliveredSummary,
+  deliveredTranslatedLine,
+} from "./reader-summary";
+
+/**
+ * Coverage the composer can publish a real opening from. One outlet, dated, with
+ * two ordinary sentences -- what a briefing item's own coverage looks like.
+ */
+const SOURCES = [
+  {
+    name: "The Verge",
+    headline: "OpenAI ships a reasoning model",
+    excerpt:
+      "OpenAI released a reasoning model this morning, published alongside API documentation and a pricing page. The lab said the model is available to existing customers today.",
+  },
+];
+
+/** A delivered line a boundary refuses, verbatim from the measured set. */
+const REFUSED_RAW =
+  "Explore more than 20 announcements from OpenAI DevDay 2026 and see what we are building next.";
 
 /**
  * Every string below was measured, not assumed: the first scratch measurement of the delivered
@@ -95,5 +117,126 @@ describe("the summary a reader may be shown", () => {
     const line =
       "A set of taskflow YAMLs, one per stage, which are essentially the prompts that tell the LLM agent what to do at each step.";
     expect(deliveredSummary(line)).toBe(line);
+  });
+});
+
+/**
+ * The composed half of the same ruling: where the stored line is refused, the
+ * item's own composed artifact is what the reader receives.
+ *
+ * `composedSummaryArtifact` is what the briefing build calls per shipped item
+ * (digest.ts), and `deliveredLine` is what every reader surface resolves through
+ * (briefing.ts, the email path, the audit). Both are pinned here so the build and
+ * the read cannot drift into two standards -- the defect the ruling names.
+ */
+describe("the composed summary artifact", () => {
+  it("is composed from the item's own coverage when its stored line is refused", () => {
+    expect(deliveredSummary(REFUSED_RAW)).toBeNull();
+    const artifact = composedSummaryArtifact({
+      title: "OpenAI ships a reasoning model",
+      sources: SOURCES,
+      publishedAt: "2026-10-15T06:00:00Z",
+      whatHappened: REFUSED_RAW,
+    });
+    // Measured, not asserted loosely: this is the sentence the composer
+    // publishes for this coverage, with its own attribution.
+    expect(artifact).toBe(
+      "OpenAI released a reasoning model this morning, published alongside API documentation and a pricing page, according to The Verge.",
+    );
+    expect(deliveredSummary(artifact)).toBe(artifact);
+    expect(artifact).not.toBe(REFUSED_RAW);
+  });
+
+  it("composes nothing at all when the coverage publishes nothing -- and then stores nothing", () => {
+    // The other half of the ruling's trade: a composition that publishes nothing
+    // acceptable leaves the item with no line. It is never the raw description.
+    expect(
+      composedSummaryArtifact({
+        title: "OpenAI ships a reasoning model",
+        sources: [],
+        publishedAt: null,
+        whatHappened: REFUSED_RAW,
+      }),
+    ).toBeNull();
+  });
+
+  it("pays for nothing when the stored line is one a reader may already read", () => {
+    const line = "Anthropic released its first frontier model, Muse Wonder, on Monday.";
+    expect(
+      composedSummaryArtifact({
+        title: "OpenAI ships a reasoning model",
+        sources: SOURCES,
+        publishedAt: "2026-10-15T06:00:00Z",
+        whatHappened: line,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("the line an item is delivered with", () => {
+  it("prefers the item's own artifact over the event's stored line", () => {
+    const artifact = "The lab said the model is available to existing customers today.";
+    const raw = "Anthropic shipped a model on Monday, the company said.";
+    expect(deliveredLine({ summary: artifact }, raw)).toBe(artifact);
+  });
+
+  it("falls back to the stored line when there is no artifact", () => {
+    const raw = "Anthropic shipped a model on Monday, the company said.";
+    expect(deliveredLine({ summary: null }, raw)).toBe(raw);
+    expect(deliveredLine(null, raw)).toBe(raw);
+  });
+
+  it("withholds a refused stored line even with no artifact, and never substitutes the raw text", () => {
+    // The raw fallback this ruling exists to keep at zero: no artifact, a refused
+    // stored line, and the result is no line -- not the refused text.
+    expect(deliveredLine({ summary: null }, REFUSED_RAW)).toBe("");
+    expect(deliveredLine({ summary: null }, "")).toBe("");
+    expect(deliveredLine({ summary: null }, null)).toBe("");
+  });
+
+  it("ignores a stored artifact that is itself refused", () => {
+    // Defence in depth: a row written by an older or broken writer cannot put a
+    // refused line on a reader's screen through the artifact column. What is left
+    // is the item's own line, resolved exactly as it was before this slice --
+    // printed when a boundary accepts it, withheld when one refuses it.
+    expect(deliveredLine({ summary: REFUSED_RAW }, "Anthropic shipped a model.")).toBe(
+      "Anthropic shipped a model.",
+    );
+    expect(deliveredLine({ summary: REFUSED_RAW }, REFUSED_RAW)).toBe("");
+  });
+});
+
+/**
+ * The translated email path, which is the one join the boundaries cannot reach
+ * themselves: they ask English grammar, so a translated copy of a refused line
+ * passes them. Measured before the rule was written (2026-10-15, 60 days): 694
+ * delivered items, 106 carrying a refused English line, **0 of them on a digest
+ * whose reader is not on English**, and `event_translations` holding 0 rows -- so
+ * nothing has reached a reader this way, and the rule closes it by construction.
+ */
+describe("the line an item is delivered with on a translated digest", () => {
+  const TRANSLATION = "これは、配信された拒否された行の翻訳です。";
+
+  it("prints the composed artifact rather than the translation of a refused line", () => {
+    const artifact = "The lab said the model is available to existing customers today.";
+    expect(deliveredTranslatedLine({ summary: artifact }, REFUSED_RAW, TRANSLATION)).toBe(artifact);
+  });
+
+  it("withholds a translation of a refused line, in every language", () => {
+    // The defect this closes: the English column is refused, while the translated
+    // copy of it -- which no boundary can judge -- was printed in its place.
+    expect(deliveredTranslatedLine({ summary: null }, REFUSED_RAW, TRANSLATION)).toBe("");
+    expect(deliveredTranslatedLine(null, REFUSED_RAW, TRANSLATION)).toBe("");
+  });
+
+  it("still prefers the cached translation of a line a reader may read", () => {
+    const raw = "Anthropic shipped a model on Monday, the company said.";
+    expect(deliveredTranslatedLine({ summary: null }, raw, TRANSLATION)).toBe(TRANSLATION);
+    expect(deliveredTranslatedLine({ summary: null }, raw, "")).toBe(raw);
+    expect(deliveredTranslatedLine({ summary: null }, raw, null)).toBe(raw);
+  });
+
+  it("withholds an item whose stored line is empty even when a translation exists", () => {
+    expect(deliveredTranslatedLine({ summary: null }, "", TRANSLATION)).toBe("");
   });
 });

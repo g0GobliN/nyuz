@@ -878,6 +878,15 @@ export type DigestItem = {
    * the digest itself is purged.
    */
   delivered_revision: number;
+  /**
+   * The validated composed summary line this item was delivered with (0118),
+   * written at briefing build time beside `delivered_revision` — which is the
+   * revision it was composed from. NULL means there is no artifact: either the
+   * item's own stored line was admissible, or the composition published nothing
+   * acceptable. Resolved by `deliveredLine` in `reader-summary.ts`, which never
+   * substitutes the raw feed description.
+   */
+  summary: string | null;
 };
 
 export type Delivery = {

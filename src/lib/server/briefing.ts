@@ -5,7 +5,7 @@ import { z } from "zod";
 import { scoreRelatedEvent } from "@/lib/related-events";
 import { rankEventTopics } from "@/lib/pipeline/topic-assign";
 import { reasonFor } from "@/lib/pipeline/inclusion";
-import { deliveredSummary } from "@/lib/reader-summary";
+import { deliveredLine, deliveredSummary } from "@/lib/reader-summary";
 import { assessReadiness } from "@/lib/pipeline/readiness";
 import { signedInOnly } from "./guard";
 import { countOrThrow } from "@/lib/supabase/count";
@@ -939,14 +939,18 @@ async function headlinesFor(db: Db, digestIds: string[]): Promise<Map<string, st
 async function storiesFromDigest(db: Db, digestId: string): Promise<Story[]> {
   const { data, error } = await db
     .from("digest_items")
-    .select("event_id, position, why_it_matters")
+    // `summary` is the item's own composed artifact (0118). It rides with the
+    // item because that is what it belongs to: the reader's line for this
+    // delivery, composed from the revision `delivered_revision` names.
+    .select("event_id, position, why_it_matters, summary")
     .eq("digest_id", digestId)
     .order("position", { ascending: true });
   if (error) throw new Error(`reading digest_items: ${error.message}`);
   const items = data ?? [];
   const why = new Map(items.map((i) => [i.event_id, i.why_it_matters] as const));
   const order = items.map((i) => i.event_id);
-  const stories = await hydrateEvents(db, order);
+  const summaries = new Map(items.map((i) => [i.event_id, i.summary] as const));
+  const stories = await hydrateEvents(db, order, summaries);
   // Digests archive what was sent, so a stored `why_it_matters` is the truth
   // for what the email said — until it is a line the ladder has since retired
   // (the follow fallback, the subject line), which `whyLinesFor` recomputes
@@ -1267,7 +1271,21 @@ type EventBits = {
   analysed_at: string | null;
 };
 
-async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
+async function hydrateEvents(
+  db: Db,
+  eventIds: string[],
+  /**
+   * The composed artifact each item was delivered with, by event id (0118).
+   *
+   * A digest-context caller passes it, so the line a reader sees is the one the
+   * build validated for that delivery. A caller with no digest in hand -- the
+   * matches feed, saved stories, search -- passes nothing, and the item's own
+   * stored line is resolved the way it always was, refused at the join if a
+   * boundary refuses it. Never composed here: this runs on the reader's request
+   * path, inside the free plan's per-invocation CPU budget.
+   */
+  summaries: ReadonlyMap<string, string | null> | null = null,
+): Promise<Story[]> {
   if (eventIds.length === 0) return [];
 
   const { data: events, error } = await db
@@ -1300,11 +1318,12 @@ async function hydrateEvents(db: Db, eventIds: string[]): Promise<Story[]> {
         id: event.id,
         org: coverage[0]?.name ?? topics.get(id)?.[0] ?? "Unattributed",
         title: event.title,
-        // The line the reader sees, guarded at the join: a stored summary the
-        // shared boundary refuses is withheld here rather than printed (see
-        // reader-summary.ts). `lead` above stays the raw text, because topic
-        // ranking is internal and must not change with what may be shown.
-        what: deliveredSummary(event.what_happened) ?? "",
+        // The line the reader sees: the item's composed artifact when it has
+        // one, the event's own stored line otherwise, and nothing when neither
+        // may be shown (reader-summary.ts). `lead` above stays the raw text,
+        // because topic ranking is internal and must not change with what may be
+        // shown.
+        what: deliveredLine({ summary: summaries?.get(id) ?? null }, event.what_happened),
         why: "",
         importance: importanceBand(event.importance),
         score: {
