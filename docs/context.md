@@ -912,7 +912,12 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   193 files** with the coverage floor held, the production build, the PWA install self-test, the
   route-walk self-test, the origin self-test and **e2e 30/30** — plus the focused files for this slice
   (`reader-summary`, `digest-summary-artifact`, `digest`, `digest-delivery`, `digest-cost-safety`,
-  `briefing-timing`, `story-flow`) and the live audit re-run. **Ruled 2026-10-15 (recorded
+  `briefing-timing`, `story-flow`) and the live audit re-run. **Landed and deployed:** `a82a8c0`, CI run
+  `38693464587` green end to end on the runner (all four test shards, coverage floor, browser smoke on
+  the built Worker) and the **deploy job completed 2026-10-15T06:42:45Z**; the post-deploy window the
+  ruling allows runs to **2026-10-16T06:42:45Z**, and `npm run audit:delivered-summary -- --deploy-at
+  2026-10-15T06:42:45Z` now reports the two cohorts (post-deploy cohort: 0 rows, recorded at deploy
+  time so the next measurement can only move it). **Ruled 2026-10-15 (recorded
   in the decision log): Q1 = A** — an alert's explanation stays a paragraph under the alert's own contract
   (`assessReadiness` + `assessAlertFloor`), no code change; **Q2 = A first** — wait up to 24 hours after
   the deploy for a natural briefing build, with the controlled build for a reader whose channels are

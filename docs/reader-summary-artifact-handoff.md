@@ -17,6 +17,41 @@ from then on, split into the historical and post-deploy cohorts the ruling requi
 denominator was corrected in the same measurement: 13 of the 20 "delivered" briefings actually reached a
 reader (the other 7 have only failed deliveries), so the affected-briefing rate is 8 of 13 = 61.5%.
 
+## Where the post-deploy verification stands (read this first in a fresh thread)
+
+- **Landed and deployed:** `a82a8c0`, CI run `38693464587` green, deploy job finished
+  **2026-10-15T06:42:45Z**. The 24-hour window the ruling allows ends **2026-10-16T06:42:45Z**.
+- **The natural build so far:** the 07:30Z slot built two briefings at 07:20:22Z and 07:20:26Z and both
+  are **`skipped` with 0 items** (quiet days), so the repair path was **not** exercised — the ruling is
+explicit that a new digest alone is not evidence. The third reader's slot is **22:30Z**, inside the
+  window.
+- **What to run when a briefing with items is built:**
+  `npm run audit:delivered-summary -- --deploy-at 2026-10-15T06:42:45Z` — the post-deploy cohort line
+  must show `composed artifacts >= 1`, `stored lines refused == repaired`, `raw fallbacks 0`; then read
+  the rendered briefing page for that reader in the browser and compare the line to `digest_items.summary`
+  (the ruling wants rendered text, not only database flags).
+- **The ruled sequence (2026-10-15, arbiter: C):** let the **22:30Z** natural slot run first (it has
+  been `failed`/0 items/"missed slot by 121-132 minutes" for five days — the free-plan CPU condition,
+  not content). If it skips, fails, produces zero items, or builds items **without** exercising
+  composition, run **one** controlled build immediately; the 24-hour deadline (2026-10-16T06:42:45Z) is
+  an outer limit, not a requirement to wait idly.
+- **The controlled build, exactly as ruled:** `npm run pipeline -- digest --user <the JST reader>
+  --now --skip-send` — the real reader, the normal production path, `skipSend` (authorized although no
+  reader has empty channels). **One run only**; no repeated runs until one passes. Then confirm **no
+  delivery rows** were created, and report it as a **controlled build**, never as a natural delivery:
+  digest id, build time, which candidates were selected and why, which items triggered composition,
+  whether the artifacts passed all three checks, `delivered_revision` per artifact, the text **read back
+  through the reader path**, whether any refused raw line appeared as a fallback, and the disposition of
+  every item whose composition yielded nothing. Keep three cohorts separate — historical pre-deploy
+  delivery, controlled post-deploy build, actual post-deploy delivery — and never count a stored
+  artifact as a delivered one.
+- **Already ruled, do not rebuild:** alert text stays a paragraph under the alert contract (Q1 = A);
+  backfill of delivered history and universal summary composition are **not authorized**.
+- **Also recorded 2026-10-15, measured and not acted on:** the repair-only scope leaves ~1% of printing
+  lines multi-sentence (3 of 279 delivered, 8 of 838 card lines); a live story page carries one dropped
+  determiner (*“Department's plan …”*) with no population measured. Both live in
+  [decisions/reader-delivery.md](decisions/reader-delivery.md).
+
 State as of 2026-10-15, `main` at the commit that lands this file. Everything below is verified or
 cited; nothing here is an assumption. Read [decisions/reader-delivery.md](decisions/reader-delivery.md)
 for the ruling and [context.md](context.md) §6-7 for the state it lands in.

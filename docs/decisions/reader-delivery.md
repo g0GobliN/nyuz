@@ -1921,6 +1921,75 @@ current path can deliver one, and the audit prints that as a count (must-be-zero
 assertion. What the alert surface does **not** have is the composed half: no artifact is stored for an
 alert, and its text is not composed through the reader path at all.
 
+**One worry measured and closed the same day, so it does not become a slice.**
+
+Reading the live dashboard
+at 2026-10-15T06:1xZ found one card whose line was a three-sentence feed description the boundaries
+accept (a GitHub post: *“Even projects that have been enrolled in OSS-Fuzz for years … In other words,
+fuzzing still needs a human in the loop. The argument is just a GitHub owner/repo slug.”*) — i.e. the
+class the repair-only scope leaves alone, since nothing refuses it. Measured as a population rather than
+extrapolated from that card, 21 days, with the same resolver:
+
+| surface                                                      | printing a line | more than one sentence | longer than 220 chars |
+| ------------------------------------------------------------ | --------------- | ---------------------- | --------------------- |
+| delivered items (a briefing reached a reader)                | 279             | **3 (1.08%)**          | 54 (19%)              |
+| card lines that pass every boundary (the matches feed)        | 838             | **8 (0.95%)**          | 168 (20%)             |
+
+The class is ~1% of both surfaces, and what it mostly is not is *damage*: the multi-sentence samples
+are ordinary two-sentence reporting (a security brief's first two sentences), not fragments, and the
+long ones are single long sentences. So the repair-only scope the arbiter chose leaves about one item in
+a hundred printing the feed's own wording, which is a scope observation to carry, **not** a defect class
+with a population that would justify a slice now. Recorded here so the next session does not have to
+re-read the live product to find out.
+
+**One finding from the same live read, unmeasured, recorded rather than acted on:** the story page for
+`ddb5277d` (UK government/PAC) carries a paragraph opening *“Department's plan is to get that down to 2.8
+percent by 2028-29”* — a determiner dropped by the composer, so the sentence opens as a typo in an
+otherwise clean article. One instance, no population measured, and it is composition output rather than a
+delivered summary line: it belongs to whichever slice looks at the composer's own sentences, and it needs
+a count before a rule.
+
+### The post-deploy verification vehicle, ruled 2026-10-15: wait for the 22:30Z slot, then one controlled build
+
+**The evidence that produced the question.** The 07:30Z slot built two briefings (07:20:22Z, 07:20:26Z)
+and both are `skipped` with **0 items** — quiet days — so no composition was attempted, and a new digest
+alone is not evidence. The only natural slot left inside the 24-hour window was the third reader's
+22:30Z, and that slot had produced **`failed` with 0 items and "missed slot by 121-132 minutes; not
+sent"** on five consecutive days (2026-10-10…-14) — the recorded free-plan CPU-budget condition
+(`docs/decisions/cpu-killed-invocations.md`), not a content defect. That reader's candidates do carry
+the class: **60 unbriefed matches, 4 with a refused stored line and 1 with no stored line at all**.
+
+**Ruled: C — allow the 22:30Z natural attempt to run, then run one controlled build immediately if it
+does not qualify.** Verbatim: *"Decision: C — wait for the 22:30Z slot, then run the controlled build
+immediately if the natural attempt produces no qualifying evidence."* The 24-hour deadline remains an
+outer limit *"not a requirement to wait idly when the evidence already shows that the natural path is
+unlikely to exercise the repair code"*. A failed, empty or composition-free run **does not satisfy the
+checkpoint** and must not be classified as a quality pass.
+
+**The controlled build, and its one deviation.** Authorized as `skipSend` with the **real reader** on the
+normal production path — the pipeline's own switch, `npm run pipeline -- digest --user <id> --now
+--skip-send`, which is documented as "the same functions the scheduled Worker calls, with the same
+arguments" and "write the briefing, do not email it". The deviation from B-as-written is stated
+openly because **no reader has empty notification channels** (two email, one email+push): the ruling
+authorizes `skipSend` for exactly this reason. Safeguards, verbatim: no email or push notification; **no
+delivery rows**; the digest and items persisted through the normal path; labelled a controlled
+verification build and never a natural delivery; **no** bypassing readiness, no changed candidate set,
+no manufactured content; no rewriting of historical deliveries; **one** controlled build authorized —
+not repeated runs until one passes.
+
+**What it must establish, and what it cannot.** The ruling requires, for the resulting digest: its id,
+build timestamp and controlled-run designation; which candidates were selected and why; which selected
+items triggered composition; whether the artifacts passed all three checks; whether each was persisted
+with the correct `delivered_revision`; **the actual text read back through the reader path**; whether any
+refused raw description appeared as a fallback; and what happened to each item where composition
+yielded nothing acceptable. The three supplied examples are to be inspected as regression cases
+**without presuming their dispositions before the validators run**. And the ruling is explicit that
+because `skipSend` creates no delivery rows, this is a **build-and-storage** result: it can verify
+composition, persistence, provenance and the read path, but **not** successful reader delivery, which
+the natural path must still show separately. Findings must be reported in three separate cohorts —
+historical pre-deploy delivery, controlled post-deploy build, actual post-deploy reader delivery —
+never combined into one rate, and a stored artifact must never be counted as a delivered artifact.
+
 **The question that leaves.** Should an alert's text be (A) left as the fire-gate-admitted body class
 it is, with the sentence boundary deliberately not applied and the live-violation count printed as
 above (no code change today); (B) composed and validated at alert build time through the same
