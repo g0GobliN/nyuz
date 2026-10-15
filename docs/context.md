@@ -818,6 +818,29 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   rendered page (no empty-deck artifact). Full record with the ruled limits:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-incomplete-deck-a-published-list-item--ruled-and-landed-2026-10-14).
 
+- **2026-10-15 — the root cause ruled, and the measurement that had never been taken.** The owner
+  asked why reader quality is not rising after a month of slices, rather than accepting another
+  refusal rule; the arbiter was asked the same question and agreed with the answer. **Measured on the
+delivered surface** (`digests` + `digest_items` + `deliveries`, last 21 days): **57 briefings built,
+341 items handed to a reader, 12 items (3.5%) carrying a line a boundary refuses, 14 more with no
+line, and 14 of 57 briefings (25%) containing at least one refused item.** The cause: **the summary
+line a reader receives in a briefing is the feed's own description, not composed prose** — of 15
+commit-record lines on the delivered surface, **0** opened `article_evidence` and 4 came from the
+excerpt — so the story page (which composes and validates) and the briefing, dashboard and email
+(which do not) enforce different standards, and an item the story page had **withheld** was delivered
+in a briefing anyway. Every past slice closed one shape at one surface while the delivery input
+stayed unvalidated, which is why the class supply kept refilling (1/686 → 13/679 → 24/679 → 18 → 15 on
+consecutive days). **Ruled (ChatGPT `nyuz` project): option 1 with a contract — the summary must be a
+validated artifact built at briefing time through the existing composition path, stored with
+provenance, and withheld rather than falling back to raw feed text — and option 4 as the primary
+acceptance criterion: delivery-level metrics, with the release gate that the count of raw fallbacks
+is zero.** The provenance hook already exists (`events.material_revision`,
+`digest_items.delivered_revision`, migration 0099). **Next: finish the trace of the briefing
+construction path (`what_happened` selection, digest creation, whether the email reads the same
+record), then implement the validated-summary artifact; nothing else is next until the delivered
+surface is measured clean.** Full record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-root-cause-ruled-an-enforcement-gap-between-ingestion-and-delivery-2026-10-15).
+
 ## 7. What is next
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates

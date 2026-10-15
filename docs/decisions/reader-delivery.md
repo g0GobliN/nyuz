@@ -1559,6 +1559,66 @@ records, **0** raw markup payloads, **0** marketing imperatives and **0** email 
 is still the recovered OSS-Fuzz sentence from the previous slice. The post-change counts above are the
 code path measured on the same live window; this is the reader-facing read.
 
+## The root cause, ruled: an enforcement gap between ingestion and delivery (2026-10-15)
+
+**The owner's question, put to the arbiter as a discussion rather than another slice:** why is reader
+quality not going up, and what actually makes the reader side not 10/10? The measurement that had never
+been taken is the one that answers it -- **the delivered briefings**, not a tail of newest events.
+`digests` + `digest_items` + `deliveries`, last 21 days: **57 briefings built, 341 items handed to a
+reader, 12 items (3.5%) carrying a line a boundary refuses, 14 more (4.1%) with no line at all, and 14
+of 57 briefings (25%) containing at least one refused item.** Verbatim from delivered briefings:
+"A set of taskflow YAMLs, one per stage, which are essentially the prompts that tell the LLM agent what
+to do at each step." (an item the story page had **already withheld**); "[b11207] Hexagon: support tiled
+Q4_0 and Q8_0 GET_ROWS (#29511) hexagon: support tiled Q4_0 and Q8_0 GET_ROWS hex-get-rows: fix macros";
+"Explore more than 20 announcements from OpenAI DevDay 2026…"; "Discover where AI is innovating in
+chipmaking and EDA at Tom's Hardware Premium AI Chip Design Week…"; "v16.4.0-canary.59 :: Followup from
+#99249 remove some redundant tests…"; "These results show that direct robustness, adversarial transfer,
+and deployment efficiency are distinct properties of compressed E…".
+
+**The cause, which the arbiter accepted in these words:** *"Nyuz has a reader-quality enforcement gap
+between ingestion and delivery. The story page uses validated, composed reader content, while the summary
+line delivered through briefings can originate from a raw feed description. As a result, a story can be
+rejected or repaired on one surface while its unvalidated source description reaches readers through
+another."* **Proven** (its list): a raw feed description reaches a delivered briefing without passing the
+validated path; at least one delivered item had already been withheld on the story page; several
+materially different classes reached readers; surface-specific fixes alone did not prevent the others;
+and the event-tail metrics are insufficient as the primary measure of reader quality. **Hypothesis, to be
+tested rather than debated:** that most of the defect supply comes from that raw path, and that validated
+summary generation removes most of it. **Why this is the answer to "why is quality not going up":** every
+slice of the last weeks was a refusal rule at one surface while the delivery path's input was never
+validated, so each closed shape was replaced by the next -- measured as the ratchet 1/686, 13/679,
+24/679, 18 welded labels, 15 development records on consecutive days.
+
+**Ruled: option 1 approved with a contract, and option 4 approved as the primary acceptance criterion.**
+At briefing build time: resolve the item to its story and source material; generate or recover the summary
+**through the existing validated composition path**; apply the applicable checks (sentence admissibility,
+publisher furniture, context recoverability, attribution); **store the validated result with provenance**;
+and **if validation fails, withhold the summary rather than falling back to the raw feed description**. At
+delivery time the dashboard, the briefing and the email consume that artifact, no surface may silently
+substitute the raw description, existing fast paths may stay only when they demonstrably use a valid
+artifact, recovery may not retry without bound, and it may not introduce an association error. No second
+composer and no AI-writing path: the product's contract stays deterministic reader-facing prose. **Before
+choosing storage or migration mechanics, trace the briefing construction path end to end** -- where
+`what_happened` is selected, when digests and `digest_items` are created, whether the email consumes the
+same record as the dashboard, whether an already-built digest can retain an old raw summary after deploy,
+and whether a retry can restore the raw summary. **The trace so far:** the briefing reads
+`what_happened` in [briefing.ts](../../src/lib/server/briefing.ts) (`loadHomeFeed` reads `digest_items`),
+and the provenance hook the contract asks for already exists -- `events.material_revision` and
+`digest_items.delivered_revision` from migration [0099](../../supabase/migrations/0099_revision_delivery.sql)
+record which revision of the event material a reader actually received.
+
+**Acceptance criteria, named by the ruling:** delivered defective-summary rate, defective-item delivery
+rate, missing-summary rate, affected-briefing rate, valid-summary availability, and a raw-fallback count
+that **must be zero** -- each reported with numerator and denominator, and the denominator not switched
+between reports (the 12 of 341 is 3.52% of all delivered items and 3.67% of the 327 that carry a summary;
+they answer different questions). **Release gate:** zero known refused summaries in the defined delivery
+acceptance sample, zero raw-description fallbacks, no unexplained increase in missing summaries, no
+regression in story association, source attribution or provenance, correct behaviour across dashboard,
+briefing and email, and tests proving an invalid or unavailable validated summary is **withheld** rather
+than replaced. **For the three-day target, 10/10 means zero known reader-quality violations in the release
+acceptance sample, with missing content reported separately.** The reader-quality gate stays open until
+that is measured on the delivered surface, which is now the only surface that counts.
+
 ### The welded label, measured before any rule (2026-10-15)
 
 **The arbiter's disposition was "measure first; then extend the existing shared helper if the evidence
