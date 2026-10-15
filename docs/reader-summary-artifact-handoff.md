@@ -44,6 +44,22 @@ record two delivered lines as **true negatives** (a single-reference commit line
 item); widening either is an arbiter decision, not a code change to slip in. `npm run
 audit:delivered-summary` reproduces the measurement and names the predicate behind each refusal.
 
+## The seam the composed half must use (found 2026-10-15, do not re-search it)
+
+The existing composition path for a refused line is **`recoverCardSummary(story)`** in
+`src/lib/editorial.ts:2429`, which calls `composeArticle(story)` and takes the first non-empty block of
+`deck.text` / the paragraphs, refusing it through `briefingText`, `cardSummaryRefused` and
+`admissibleReaderSentence` before returning -- empty string when the story publishes nothing valid. The
+card already recovers through it (`src/components/dashboard/story-card.tsx:101` and `:104`).
+
+**Why the composed line must be stored and must not be composed at read time:** the card's own comment
+records the cost -- 150-220 ms for every such card in a feed -- and the Worker runs on the free plan's
+10 ms CPU budget per invocation (the recorded constraint, `docs/decisions/cpu-killed-invocations.md`).
+`hydrateEvents` is on the request path, so composing there for the withheld items would be paid by a
+reader's request. Build time is where the pipeline already composes the same article for the readiness
+gate, so the recovered line is nearly free there and must be persisted (with the revision it was
+composed from, the provenance the ruling asks for) for the surfaces to read.
+
 ## The slice left to build
 
 At **briefing build time** (inside the digest build path, `src/lib/pipeline/digest.ts`), per item:
