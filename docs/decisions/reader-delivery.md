@@ -1553,11 +1553,27 @@ to accept on assertion, and the regression test is the demonstration: with the c
 false for the byline (`cardSummaryRefused` false, `briefingText` unchanged), the shared boundary is
 what refuses it, and the card recovers the story's opening instead of printing it.
 
+**Confirmed on the deployed origin** (2026-10-15, after CI run `38670490754` deployed `372e184`, read
+in the browser panel): the dashboard's 16 cards carry **0** ellipsis-truncated lines, **0** commit
+records, **0** raw markup payloads, **0** marketing imperatives and **0** email addresses, and card 03
+is still the recovered OSS-Fuzz sentence from the previous slice. The post-change counts above are the
+code path measured on the same live window; this is the reader-facing read.
+
+**A defect the live read found, recorded before it is fixed.** Card 16 of that briefing opens on
+`From Circana's US Retail Tracking Service:For 2026 YTD ending August, Xbox hardware unit sales are
+down 33% versus a year ago.` -- a source label welded to the sentence under it **and no space at the
+seam**, on a card whose headline is the same story. This is the heading-label class `stripHeadingLabel`
+owner: it removes a label when the continuation is capitalised and the label is a bounded capitalised
+run, and this one is five words starting with `From`, so it survives. It is a reader-visible defect on
+the live product, it is **not** covered by the ruling above, and it is the next case for the arbiter
+rather than a change to make under this slice's authority.
+
 **Not claimed.** That the card surface is clean -- 18 cards withhold their summary line by design and
 that is a reader-facing loss the ruling accepted as the correct trade against printing refused text;
 that the article bodies are clean; that the older GitHub-slug and non-comma list-item items are
 addressed; that write-time cleanup of stored summaries is done (the ruling keeps it a separate later
-decision). **The overall reader-quality gate remains open.**
+decision); or that the welded-label defect above is addressed. **The overall reader-quality gate
+remains open.**
 
 ## A staff byline published as the deck, live (2026-10-14, read on the deployed origin, not fixed)
 

@@ -841,9 +841,16 @@ before rendering, recover lazily, withhold if nothing valid is recoverable, no n
 classifier — and **extend `isCutSentence`** so a *terminal* ellipsis is cut content, terminal only.
 Post-change counts on the same window: **643 fast path, 36 needing recovery, 18 recovered, 18 withheld,
 0 recovered-but-refused, 36 compositions paid of 1,000 events**. 8 new tests fail on the previous tree
-and pass on this one. **Still open:** the 18 withheld cards (a deliberate trade, not a fix), the write-time
-cleanup of stored summaries (a separate later decision), the article bodies, and the older GitHub-slug and
-non-comma list-item items.
+and pass on this one. **Confirmed on the deployed origin** (2026-10-15, CI run `38670490754` deployed
+`372e184`; the gate was green first: typecheck, lint, 3,263 tests, coverage ratchet, build, PWA, route
+walk, origin self-test, e2e 30/30): the dashboard's 16 cards carry **0** truncated lines, **0** commit
+records, **0** raw markup, **0** marketing imperatives and **0** email addresses. **Still open:** the 18
+withheld cards (a deliberate trade, not a fix), the write-time cleanup of stored summaries (a separate
+later decision), the article bodies, the older GitHub-slug and non-comma list-item items, and **a new
+live defect found by that read** — card 16 of the briefing opens on `From Circana's US Retail Tracking
+Service:For 2026 YTD ending August, …`, a source label welded to its sentence with no space at the seam
+(the heading-label class `stripHeadingLabel` owns; it survives because the label is five words starting
+with "From"). That one is for the arbiter, not for this slice's authority.
 
 **The reader-quality work in flight: the byline slice landed, the card slice still held.** The live
 masthead byline is **fixed and verified on the live data** — the story `7a1a7f98` no longer opens on
