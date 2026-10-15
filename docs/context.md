@@ -853,10 +853,16 @@ validated artifact built at briefing time through the existing composition path,
 provenance, and withheld rather than falling back to raw feed text — and option 4 as the primary
 acceptance criterion: delivery-level metrics, with the release gate that the count of raw fallbacks
 is zero.** The provenance hook already exists (`events.material_revision`,
-`digest_items.delivered_revision`, migration 0099). **Next: finish the trace of the briefing
-construction path (`what_happened` selection, digest creation, whether the email reads the same
-record), then implement the validated-summary artifact; nothing else is next until the delivered
-surface is measured clean.** Full record:
+`digest_items.delivered_revision`, migration 0099). **Next: implement the validated-summary artifact; nothing else is next until the delivered surface is
+measured clean.** The trace that preceded it is finished and it changed the design: **`digest_items`
+stores no summary at all** — its only generated text is `why_it_matters` — so every surface the reader
+sees reaches **the same raw column through a read-time join** (`digest_items.event_id →
+events.what_happened`: [briefing.ts](../src/lib/server/briefing.ts) lines 105-126, 522-544, 1259-1302,
+[digest.ts](../src/lib/pipeline/digest.ts) 2094-2179, [alerts.ts](../src/lib/pipeline/alerts.ts)
+538-580, [history.ts](../src/lib/server/history.ts) 184). There is nothing per-surface to reconcile, so **one validated artifact read at that
+join fixes the dashboard, the briefing, the email and alerts together**, and the digest build path is
+where it is produced. Slice, withhold semantics, baseline to beat and gate:
+[reader-summary-artifact-handoff.md](reader-summary-artifact-handoff.md). Full record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-root-cause-ruled-an-enforcement-gap-between-ingestion-and-delivery-2026-10-15).
 
 ## 7. What is next
