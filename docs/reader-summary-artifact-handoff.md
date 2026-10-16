@@ -17,6 +17,18 @@ from then on, split into the historical and post-deploy cohorts the ruling requi
 denominator was corrected in the same measurement: 13 of the 20 "delivered" briefings actually reached a
 reader (the other 7 have only failed deliveries), so the affected-briefing rate is 8 of 13 = 61.5%.## Where the post-deploy verification stands (read this first in a fresh thread)
 
+- **2026-10-16 (Day 2 of 3): the CPU-budget slice is landed on top of this checkpoint, and the arbiter
+  ruled it.** Generation is now resumable across Cron ticks (0119,
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-ruled-slice-a-briefing-built-across-cron-ticks-2026-10-16-ruled-and-landed)):
+  `select` → `screen` → `gate` (two briefs a tick) → `write`, with the snapshot frozen, a materially
+  revised story dropped-and-recorded rather than shipped with the wrong provenance, and `briefed_at`
+  written only in the final stage. The 15:00Z controlled build A stays authorised but is no longer the
+  only evidence available: with this landed, the reader's **22:30Z slot tonight (2026-10-16) is the
+  natural attempt that answers the delivery gate**, and it is the one to read first — the digest row
+  should show `generation_progress` advancing each minute and the briefing arriving a few minutes late
+  rather than not at all. If it still produces nothing, the residual cause is `select`/`screen`
+  (~0.93 s / ~1.19 s, each above the ~710 ms observed ceiling), and option B is the ruled next slice.
+
 - **Landed and deployed:** `a82a8c0` (deploy finished **2026-10-15T06:42:45Z**) and the email-join slice
   `9ff000d`. **The checkpoint is recorded as OVERDUE**: the 24-hour window ended 2026-10-16T06:42:45Z,
   and A is expected at about 15:00Z on 2026-10-16, ~8h17m later. Do not reset that clock.

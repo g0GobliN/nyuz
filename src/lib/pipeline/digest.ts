@@ -634,6 +634,10 @@ type DueRow = {
   generation_attempts: number;
   kind: string | null;
   generation_started_at: string | null;
+  /** Where a build that spans several ticks got to (0119). `unknown` on
+   * purpose: it is JSON off the wire and every read of it goes through
+   * `readGenerationProgress`, which is total. */
+  generation_progress?: unknown;
 };
 
 /**
@@ -650,7 +654,7 @@ async function loadDue(db: Db, now: Date, options: DigestOptions): Promise<DueRo
   let query = db
     .from("digests")
     .select(
-      "digest_id, user_id, scheduled_for, status, generation_deferred_until, generation_attempts, kind, generation_started_at",
+      "digest_id, user_id, scheduled_for, status, generation_deferred_until, generation_attempts, kind, generation_started_at, generation_progress",
     )
     .lte("scheduled_for", windowOpen)
     .or(`status.eq.scheduled,and(status.eq.generating,generated_at.is.null)`)
@@ -666,6 +670,14 @@ async function loadDue(db: Db, now: Date, options: DigestOptions): Promise<DueRo
   return ((data ?? []) as DueRow[]).filter((row) => {
     if (row.status === "scheduled") return true;
     if (row.status !== "generating") return false;
+    // A build that has written its progress is due *now*, not after a lease:
+    // `generation_progress` (0119) is the build's own cursor, and a cursor is
+    // the statement that there is work left to do. Waiting `GENERATION_LEASE_MINUTES`
+    // would turn a twenty-two-tick build into one that takes twice as long, and
+    // the lease answers a different question anyway — it is there so a *claim*
+    // whose worker never came back can be retaken, and a row with a cursor has
+    // already come back.
+    if (readGenerationProgress(row.generation_progress) !== null) return true;
     // `generating` with no `generated_at` is a claim whose worker has not come
     // back. Whether it may be retaken is a question about the *claim's* age, and
     // `generation_started_at` is when the claim was made — the column exists
@@ -741,14 +753,7 @@ type EventBrief = {
 };
 
 async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise<DigestOutcome> {
-  const base = {
-    userId: due.user_id,
-    digestId: due.digest_id,
-    scheduledFor: due.scheduled_for,
-    items: 0,
-    tokens: 0,
-    sent: 0,
-  };
+  const base = outcomeOf(due);
 
   const now = options.now ?? new Date();
   const lateByMs = now.getTime() - Date.parse(due.scheduled_for);
@@ -780,16 +785,456 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
     return { ...base, decision: "paused", detail: "briefings paused" };
   }
 
-  const claimed = await claimDigest(db, due, options);
-  if (claimed !== "held") {
-    return { ...base, decision: "held", detail: claimed };
+  const carried = readGenerationProgress(due.generation_progress);
+
+  // A dry run writes nothing, so it cannot be resumed on the next tick: it runs
+  // the whole build in this invocation, exactly as it did before this slice.
+  if (options.dryRun === true) {
+    return advanceGeneration(db, due, prefs, carried ?? progressFor(now), options, false);
   }
 
+  // A build that has written its progress is *resumed*, not claimed again. The
+  // claim is what starts a build, and re-taking one would overwrite
+  // `generation_started_at` — the clock the briefing's timing record is read
+  // from, and the column the daily-briefing guard reads.
+  if (carried === null) {
+    const claimed = await claimDigest(db, due, options);
+    if (claimed !== "held") {
+      return { ...base, decision: "held", detail: claimed };
+    }
+  }
+
+  return advanceGeneration(db, due, prefs, carried ?? progressFor(now), options, true);
+}
+
+/**
+ * How many briefs one invocation may put through the readiness gate.
+ *
+ * The gate is where a briefing's CPU goes, and the reason a reader with a large
+ * pool has been getting nothing. Measured 2026-10-16 on the reader whose 22:30Z
+ * slot six nights running was killed: `assessReadiness` costs a **median 338 ms
+ * of CPU per brief** (range 9.6 ms to 1,744 ms, tracking excerpt size) — 15.5 s
+ * for the 37 candidates that briefing considered — against a Workers-free record
+ * whose observed success ceiling is ~710 ms (`cpuTimeUs`, 2026-10-11: the kills
+ * cluster in the 9.5–10 ms bucket and 767 scheduled invocations that day still
+ * succeeded above 10 ms, the largest at 709,805 µs).
+ *
+ * Two, because two median briefs (~676 ms) are the largest whole number that
+ * fits inside that ceiling beside the tick's own reads and writes. What it costs
+ * is latency, never correctness: a 25-story briefing becomes about thirteen gate
+ * ticks, so it arrives ten to twenty minutes after its slot instead of never —
+ * which the arbiter ruled acceptable on 2026-10-16, provided the delivery is
+ * reliable and complete. Option B (a precomputed verdict per event, which
+ * removes this term entirely) is the ruled target; this slice is the mechanical
+ * one that keeps every gate exactly as it was.
+ *
+ * Deliberately not configurable. A briefing that ships faster by gating four
+ * briefs a tick is a briefing that ships by overrunning the budget that was
+ * killing it.
+ */
+const GATE_BRIEFS_PER_INVOCATION = 2;
+
+/**
+ * The set size past which a stage is a tick of its own.
+ *
+ * Every stage's cost is proportional to the set it had to look at, and the
+ * measurements say by how much: selection is ~0.9 ms per match (930 ms to rank
+ * a thousand), screening ~32 ms per candidate (1.2 s across 37), and the
+ * readiness gate a median 338 ms per brief. Twelve is where a set that fits
+ * inside a tick and a set that does not are furthest apart — the largest set any
+ * stage was measured to walk in one tick is the whole briefing (37 candidates,
+ * 1.2 s, still over), and the smallest real reader's is a handful.
+ *
+ * A *count*, not a clock, and that is the point. A wall-clock budget in a
+ * function this side of the database would make "did this briefing finish in one
+ * invocation" depend on the machine that ran it, which is a property no test can
+ * assert and no operator can reason about. A count of the set the stage already
+ * walked is the same number everywhere, and it is the number that decides the
+ * cost in the first place.
+ *
+ * What it buys, concretely, on the reader whose 22:30Z slot six nights running
+ * was killed (1,000 matches → 37 candidates): selection and screening each take
+ * a tick of their own, then the gate takes two briefs a tick. A reader whose
+ * build already fitted in one invocation — a handful of matches, a queue inside
+ * this limit — still finishes in one, unchanged.
+ */
+const TICK_SET_LIMIT = 12;
+
+/**
+ * What the build records for a candidate it can no longer speak for.
+ *
+ * A story materially revised between two ticks is a different story from the one
+ * the snapshot froze and the gate passed, so it is dropped from this briefing
+ * rather than shipped with a line composed from newer material and a revision
+ * that says older. It is never dropped silently: the kind is recorded on the
+ * digest beside the readiness kinds, the item is not marked briefed, and the
+ * story therefore leads the reader's next briefing.
+ */
+const CHANGED_KIND = "revised_since_generation_started";
+
+/**
+ * A briefing under construction, as the tick before this one left it.
+ *
+ * One column (0119) rather than a table, because this is a cursor and not a
+ * record: the briefings it belongs to live in `digests` and `digest_items`, and
+ * nothing else reads this. What it has to be is *complete*, because resuming is
+ * only safe if it says exactly what has already been decided — the snapshot's
+ * ranking, the verdicts taken against it, and the revision each verdict was
+ * taken against.
+ */
+type GenerationCandidate = {
+  eventId: string;
+  relevance: number;
+  matchedAt: string;
+  /** `events.material_revision` when the snapshot was frozen. */
+  revision: number;
+};
+
+type GenerationStage = "select" | "screen" | "gate" | "write";
+
+type GenerationProgress = {
+  v: 1;
+  stage: GenerationStage;
+  /**
+   * The instant the snapshot was frozen. Ranking is a pure function of it, so
+   * persisting it is what makes the order a later tick resumes against the same
+   * order the first tick produced — the arbiter's "ranking must be deterministic
+   * for a given generation snapshot".
+   */
+  snapshotAt: string;
+  /**
+   * How many matches selection ranked. Carried because it is the measure of
+   * what selection cost, and therefore of whether the stage that ranked it gets
+   * a tick of its own.
+   */
+  pool: number;
+  /** The considered set, in ranked order: every story this briefing is about. */
+  candidates: GenerationCandidate[];
+  /** Twin survivors of `candidates`, in order. The gate walks this. */
+  queue: GenerationCandidate[];
+  /** Index into `queue` the gate resumes at. */
+  cursor: number;
+  /** Verdicts so far: `kind` null means ready to ship. */
+  verdicts: { eventId: string; kind: string | null }[];
+  /** Invocations that have advanced this build. */
+  ticks: number;
+  /** When this progress was last written. */
+  heartbeatAt: string;
+};
+
+type StageStep =
+  | { kind: "continue"; progress: GenerationProgress; detail: string }
+  | { kind: "done"; outcome: DigestOutcome };
+
+function progressFor(now: Date): GenerationProgress {
+  return {
+    v: 1,
+    stage: "select",
+    snapshotAt: now.toISOString(),
+    pool: 0,
+    candidates: [],
+    queue: [],
+    cursor: 0,
+    verdicts: [],
+    ticks: 0,
+    heartbeatAt: now.toISOString(),
+  };
+}
+
+function candidateOf(match: MatchRow): GenerationCandidate {
+  return {
+    eventId: match.eventId,
+    relevance: match.relevance,
+    matchedAt: match.matchedAt,
+    revision: match.materialRevision,
+  };
+}
+
+/**
+ * The `MatchRow` a candidate rebuilds into, for the reads that take one.
+ *
+ * Only the three fields `loadBriefs` reads are carried. An event's significance,
+ * clock and delivery revision are read from the database in that call, and
+ * inventing them here would give every one of them a second source.
+ */
+function matchRowOf(candidate: GenerationCandidate): MatchRow {
+  return {
+    eventId: candidate.eventId,
+    relevance: candidate.relevance,
+    matchedAt: candidate.matchedAt,
+    eventAt: null,
+    importance: 0,
+    novelty: 0,
+    materialRevision: candidate.revision,
+    deliveredRevision: 0,
+  };
+}
+
+function jsonOrNull(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function nonNegativeInt(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+}
+
+function candidatesOf(value: unknown): GenerationCandidate[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const row = item as Partial<GenerationCandidate> | null;
+    if (row === null || typeof row !== "object" || typeof row.eventId !== "string") return [];
+    return [
+      {
+        eventId: row.eventId,
+        relevance: typeof row.relevance === "number" ? row.relevance : 0,
+        matchedAt: typeof row.matchedAt === "string" ? row.matchedAt : "",
+        revision: nonNegativeInt(row.revision),
+      },
+    ];
+  });
+}
+
+function verdictsOf(value: unknown): { eventId: string; kind: string | null }[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const row = item as { eventId?: unknown; kind?: unknown } | null;
+    if (row === null || typeof row !== "object" || typeof row.eventId !== "string") return [];
+    // A verdict that cannot be read is a verdict to withhold on, never to ship
+    // on: the one direction this must not fail in is admitting an ungated item.
+    const kind = row.kind === null ? null : typeof row.kind === "string" ? row.kind : CHANGED_KIND;
+    return [{ eventId: row.eventId, kind }];
+  });
+}
+
+/**
+ * The progress a digest row carries, or null when it carries none.
+ *
+ * The read is total. A record this build cannot parse is *no record*, and the
+ * briefing starts again rather than resuming from a cursor nothing can vouch
+ * for — the failure that matters is a briefing resumed into a half-remembered
+ * snapshot — and it cannot loop, because the restart writes a valid record over
+ * the unreadable one.
+ */
+function readGenerationProgress(value: unknown): GenerationProgress | null {
+  const raw = (
+    typeof value === "string" ? jsonOrNull(value) : value
+  ) as Partial<GenerationProgress> | null;
+  if (raw === null || typeof raw !== "object") return null;
+  if (raw.v !== 1) return null;
+  const stage = raw.stage;
+  if (stage !== "select" && stage !== "screen" && stage !== "gate" && stage !== "write")
+    return null;
+  return {
+    v: 1,
+    stage,
+    snapshotAt: typeof raw.snapshotAt === "string" ? raw.snapshotAt : new Date().toISOString(),
+    pool: nonNegativeInt(raw.pool),
+    candidates: candidatesOf(raw.candidates),
+    queue: candidatesOf(raw.queue),
+    cursor: nonNegativeInt(raw.cursor),
+    verdicts: verdictsOf(raw.verdicts),
+    ticks: nonNegativeInt(raw.ticks),
+    heartbeatAt: typeof raw.heartbeatAt === "string" ? raw.heartbeatAt : new Date().toISOString(),
+  };
+}
+
+/**
+ * Records where a briefing got to, and keeps it claimable by the next tick.
+ *
+ * `status` is set back to `generating` here rather than left where it was: a
+ * build whose stage failed goes back through `failGeneration`, which requeues a
+ * digest as `scheduled` while keeping its progress — and a row that carries live
+ * progress is a row whose build is in flight whatever its status says.
+ */
+async function writeGenerationProgress(
+  db: Db,
+  digestId: string,
+  progress: GenerationProgress,
+): Promise<void> {
+  const { error } = await db
+    .from("digests")
+    .update({
+      status: "generating",
+      generation_progress: {
+        ...progress,
+        ticks: progress.ticks + 1,
+        heartbeatAt: new Date().toISOString(),
+      },
+    })
+    .eq("digest_id", digestId);
+  if (error) throw new Error(`recording generation progress: ${error.message}`);
+}
+
+/** The outcome a tick reports before it knows what became of the briefing. */
+const outcomeOf = (due: DueRow): Omit<DigestOutcome, "decision" | "detail"> => ({
+  userId: due.user_id,
+  digestId: due.digest_id,
+  scheduledFor: due.scheduled_for,
+  items: 0,
+  tokens: 0,
+  sent: 0,
+});
+
+/**
+ * Builds one reader's briefing, in bounded steps, across as many invocations as
+ * it takes.
+ *
+ * ---------------------------------------------------------------------------
+ * Why this is a state machine and not a function
+ * ---------------------------------------------------------------------------
+ *
+ * A briefing used to be built by one invocation that did everything: rank the
+ * reader's matches, drop the twins, gate every candidate through the readiness
+ * check, compose the items and write them. Measured 2026-10-16, that costs about
+ * 17.7 s of CPU on a reader with a thousand unbriefed matches, against a Workers
+ * free-plan CPU budget whose observed success ceiling is ~710 ms. The build did
+ * not fail — it was killed, every night, at the gate, and the reader received
+ * nothing (six consecutive nights; see `decisions/reader-delivery.md`).
+ *
+ * So the build is cut at its own stage boundaries and each boundary is written
+ * down: `select` ranks and freezes the snapshot, `screen` drops the twins,
+ * `gate` decides a bounded number of briefs, `write` composes and stores the
+ * items and queues the delivery. A tick advances as many stages as its budget
+ * allows and leaves the rest to the next one, one minute later.
+ *
+ * ---------------------------------------------------------------------------
+ * What resuming may not change
+ * ---------------------------------------------------------------------------
+ *
+ * Every gate is the same code in the same order, over the same inputs: ranking
+ * against the frozen snapshot instant, twin suppression over the same set, the
+ * readiness gate on the same fields, the cap applied to the ready list before
+ * the Q4 line gate, and `briefed_at` written only in the final stage, only for
+ * stories this build actually decided about. A story the snapshot selected but
+ * this build could not decide about — materially revised since the snapshot, or
+ * unreadable — is recorded as withheld under its own kind and left unbriefed, so
+ * it leads the next briefing instead of being lost.
+ *
+ * A full build of the same inputs therefore produces the same briefing the
+ * single-tick build produced, which is what the resume tests assert.
+ */
+async function advanceGeneration(
+  db: Db,
+  due: DueRow,
+  prefs: PrefRow,
+  progress: GenerationProgress,
+  options: DigestOptions,
+  persist: boolean,
+): Promise<DigestOutcome> {
+  let state = progress;
+
+  for (;;) {
+    // The stage that is about to run. The tick boundary is asked about it rather
+    // than about the state it leaves behind, because the boundary is a judgement
+    // about the work just done.
+    const running = state.stage;
+    let step: StageStep;
+    try {
+      step = await generationStep(db, due, prefs, state, options);
+    } catch (error) {
+      if (persist !== true) throw error;
+      // The failure is this tick's, not the build's: the progress stays where it
+      // is and the next tick resumes at the same stage. `failGeneration` counts
+      // it, and three of them is a build that is broken rather than unlucky.
+      const detail = error instanceof Error ? error.message : String(error);
+      const outcome = await failGeneration(db, due, `generation: ${detail}`, 0);
+      return {
+        ...outcomeOf(due),
+        decision: outcome === "failed" ? "failed" : "deferred",
+        detail: `generation: ${detail}`,
+      };
+    }
+
+    if (step.kind === "done") return step.outcome;
+    state = step.progress;
+
+    // A dry run writes nothing, so there is no state for a later tick to resume
+    // from: it runs the whole build here, as it did before this slice.
+    if (persist !== true) continue;
+
+    // Written after *every* stage, not only at the tick boundary: the boundary is
+    // about how much one invocation may do, and a kill is not obliged to wait
+    // for it. A tick that dies mid-build has still recorded every stage it
+    // finished, so the next one resumes at the stage after it rather than losing
+    // the whole tick's work.
+    await writeGenerationProgress(db, due.digest_id, state);
+
+    if (stageIsItsOwnTick(running, state)) {
+      return { ...outcomeOf(due), decision: "deferred", detail: step.detail };
+    }
+  }
+}
+
+/**
+ * Whether the stage that just ran looked at a set too large to share a tick.
+ *
+ * Asked of the state the stage produced, and by the set that stage walked: the
+ * pool for selection, the considered set for screening, the queue for the gate.
+ * "write" is never asked — it is the last stage, and the briefing is finished
+ * when it returns.
+ *
+ * The gate is asked about the *queue*, not about its own chunk, because its
+ * chunks are already bounded at `GATE_BRIEFS_PER_INVOCATION`: a queue inside the
+ * limit means the whole gate fits in this tick and the briefing may as well be
+ * finished in it, and a queue beyond it means one chunk a tick.
+ */
+function stageIsItsOwnTick(ran: GenerationStage, progress: GenerationProgress): boolean {
+  switch (ran) {
+    case "select":
+      return progress.pool > TICK_SET_LIMIT;
+    case "screen":
+      return progress.candidates.length > TICK_SET_LIMIT;
+    case "gate":
+      return progress.queue.length > TICK_SET_LIMIT;
+    case "write":
+      return false;
+  }
+}
+
+async function generationStep(
+  db: Db,
+  due: DueRow,
+  prefs: PrefRow,
+  progress: GenerationProgress,
+  options: DigestOptions,
+): Promise<StageStep> {
+  switch (progress.stage) {
+    case "select":
+      return selectStage(db, due, prefs, progress, options);
+    case "screen":
+      return screenStage(db, due, progress);
+    case "gate":
+      return gateStage(db, due, progress);
+    case "write":
+      return writeStage(db, due, prefs, progress, options);
+  }
+}
+
+/**
+ * Stage 1 — the snapshot: who this briefing is about, in what order.
+ *
+ * Runs once per build. The instant it runs at is written into the progress, and
+ * no later stage ranks anything, which is what makes the order a snapshot rather
+ * than a moving target: relevance decays, the freshness bands move, and a build
+ * that re-ranked between ticks could gate one set of stories and compose another.
+ */
+async function selectStage(
+  db: Db,
+  due: DueRow,
+  prefs: PrefRow,
+  progress: GenerationProgress,
+  options: DigestOptions,
+): Promise<StageStep> {
+  const now = new Date(progress.snapshotAt);
   const plan = await planFor(db, due.user_id);
   const cap = capFor(prefs.density, plan);
   const matches = await loadMatches(db, due.user_id);
   const already = await alreadyBriefed(db, due.user_id);
-  const ranked = selectItems(matches, already, matches.length, options.now ?? new Date(), "daily");
+  const ranked = selectItems(matches, already, matches.length, now, "daily");
   const distinct = await suppressDeliveredDuplicates(
     db,
     due.user_id,
@@ -815,10 +1260,37 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
       await finish(db, due.digest_id, "skipped", 0, 0);
       await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
     }
-    return { ...base, decision: "skipped", detail: "nothing matched since the last briefing" };
+    return {
+      kind: "done",
+      outcome: {
+        ...outcomeOf(due),
+        decision: "skipped",
+        detail: "nothing matched since the last briefing",
+      },
+    };
   }
 
-  const loaded = await loadBriefs(db, considered);
+  return {
+    kind: "continue",
+    progress: {
+      ...progress,
+      stage: "screen",
+      pool: matches.length,
+      candidates: considered.map(candidateOf),
+    },
+    detail: `snapshot froze ${considered.length} candidates out of ${matches.length}`,
+  };
+}
+
+/**
+ * Stage 2 — twin suppression, once, over the whole considered set.
+ *
+ * Before this was a stage it shared a tick with selection, and the two together
+ * cost about 2.1 s of CPU on a large pool: a tick of its own rather than a term
+ * added to every tick that gates.
+ */
+async function screenStage(db: Db, due: DueRow, progress: GenerationProgress): Promise<StageStep> {
+  const loaded = await loadBriefs(db, progress.candidates.map(matchRowOf));
   // One story per briefing. The corpus can hold the same event as four events
   // when four outlets phrase it differently and the paraphrase predicate — which
   // is precise and refuses them — has not joined them; showing the reader four
@@ -833,16 +1305,52 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // the last word below, so a dropped twin is replaced, never missed.
   const deliveredTwins = await deliveredTwinTitles(db, due.user_id);
   const briefs = suppressDeliveredTwins(suppressStoryTwins(loaded), deliveredTwins);
+  const kept = new Set(briefs.map((brief) => brief.eventId));
+  // The queue is the twin survivors in snapshot order, which is what the gate
+  // walks and what the cap is finally applied to.
+  const queue = progress.candidates.filter((candidate) => kept.has(candidate.eventId));
 
-  // Reader-readiness gate (readiness.ts). Rejects only provably non-news
-  // shapes — empty summaries, build numbers, commit messages, bylines,
-  // newsletter containers, commerce posts — never short real news. Withheld
-  // items are stamped `briefed_at` below alongside the shipped ones so a
-  // machine artifact does not resurface on every cycle, but no `digest_items`
-  // row is written for them and they count toward nothing.
-  let ready: EventBrief[] = [];
-  const withheld: { eventId: string; kind: string }[] = [];
-  for (const brief of briefs) {
+  return {
+    kind: "continue",
+    progress: { ...progress, stage: "gate", queue, cursor: 0, verdicts: [] },
+    detail: `${queue.length} of ${progress.candidates.length} stories survived twin suppression`,
+  };
+}
+
+/**
+ * Stage 3 — the readiness gate, a bounded number of briefs per invocation.
+ *
+ * Reader-readiness (readiness.ts) rejects only provably non-news shapes — empty
+ * summaries, build numbers, commit messages, bylines, newsletter containers,
+ * commerce posts — never short real news. It is also the most expensive thing
+ * this stage does, which is why this loop is the one that is sliced.
+ *
+ * Withheld items are stamped `briefed_at` in the final stage alongside the
+ * shipped ones, so a machine artifact does not resurface on every cycle; here
+ * they are recorded as dispositions — the item count and the kinds — rather than
+ * dropped.
+ */
+async function gateStage(db: Db, due: DueRow, progress: GenerationProgress): Promise<StageStep> {
+  const chunk = progress.queue.slice(progress.cursor, progress.cursor + GATE_BRIEFS_PER_INVOCATION);
+  const verdicts = [...progress.verdicts];
+
+  const briefs = await loadBriefs(db, chunk.map(matchRowOf));
+  const byId = new Map(briefs.map((brief) => [brief.eventId, brief] as const));
+  // One read for the chunk, not one per candidate: this decides whether the
+  // stories the snapshot froze are still the stories on the table.
+  const revisions = await currentRevisions(
+    db,
+    due.user_id,
+    chunk.map((candidate) => candidate.eventId),
+  );
+
+  for (const candidate of chunk) {
+    const brief = byId.get(candidate.eventId);
+    const revision = revisions.get(candidate.eventId);
+    if (brief === undefined || revision === undefined || revision !== candidate.revision) {
+      verdicts.push({ eventId: candidate.eventId, kind: CHANGED_KIND });
+      continue;
+    }
     const verdict = assessReadiness({
       title: brief.title,
       whatHappened: brief.whatHappened,
@@ -851,24 +1359,108 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
       sourceKinds: brief.sourceKinds,
       publishedAt: brief.publishedAt,
     });
-    if (verdict.ready) ready.push(brief);
-    else withheld.push({ eventId: brief.eventId, kind: verdict.kind });
+    verdicts.push({ eventId: candidate.eventId, kind: verdict.ready ? null : verdict.kind });
+  }
+
+  const cursor = progress.cursor + chunk.length;
+  return {
+    kind: "continue",
+    progress: {
+      ...progress,
+      stage: cursor >= progress.queue.length ? "write" : "gate",
+      cursor,
+      verdicts,
+    },
+    detail: `gated ${cursor} of ${progress.queue.length} stories`,
+  };
+}
+
+/**
+ * Stage 4 — the briefing: the cap, the shared lines, the stored artifact, and
+ * the delivery.
+ *
+ * This is the single-tick build's tail, unchanged in what it decides: the cap
+ * has the last word over the ready list, an item without a story-specific
+ * why-line is withheld rather than filled (Q4, ruled 2026-10-12), the composed
+ * summary artifact is written beside the item it belongs to (0118), `briefed_at`
+ * is stamped here and only here, and the delivery is queued after `finish` — so
+ * a briefing is dispatched the moment it is complete, even when that is a few
+ * minutes after the slot it belongs to.
+ */
+async function writeStage(
+  db: Db,
+  due: DueRow,
+  prefs: PrefRow,
+  progress: GenerationProgress,
+  options: DigestOptions,
+): Promise<StageStep> {
+  const base = outcomeOf(due);
+  const plan = await planFor(db, due.user_id);
+  const cap = capFor(prefs.density, plan);
+
+  const verdictOf = new Map(progress.verdicts.map((v) => [v.eventId, v.kind] as const));
+  const ready: GenerationCandidate[] = [];
+  const withheld: { eventId: string; kind: string }[] = [];
+  for (const candidate of progress.queue) {
+    const kind = verdictOf.get(candidate.eventId);
+    // No verdict at all means the gate never reached this story — impossible on
+    // a complete walk, and recorded rather than assumed away if it happens.
+    if (kind === undefined) {
+      withheld.push({ eventId: candidate.eventId, kind: CHANGED_KIND });
+    } else if (kind === null) {
+      ready.push(candidate);
+    } else {
+      withheld.push({ eventId: candidate.eventId, kind });
+    }
   }
   // The twin drop and the gate both run after the cap, so the cap has the last
   // word: the reader asked for `cap` stories, never more.
   if (ready.length > cap) ready.splice(cap);
-  // Recomputed after the Q4 gate below: the gate adds to `withheld`, and the
-  // note must carry every disposition or the record is incomplete.
+
+  // The gate decided each story against the revision the snapshot froze. A story
+  // revised since then is a different story, and shipping it would put a line
+  // composed from the new material under a `delivered_revision` that says old —
+  // so it is dropped here, recorded, and left unbriefed to lead the next
+  // briefing. One read for the whole ready set.
+  const revisions = await currentRevisions(
+    db,
+    due.user_id,
+    ready.map((candidate) => candidate.eventId),
+  );
+  const briefsById = new Map(
+    (await loadBriefs(db, ready.map(matchRowOf))).map((brief) => [brief.eventId, brief] as const),
+  );
+  const carrying: EventBrief[] = [];
+  // Stories this stage dropped for itself, as opposed to the ones the gate
+  // already withheld. They are the ones whose verdict said *ready*, so the
+  // stamping below has to be told about them separately or they would be marked
+  // briefed here and never lead the next briefing.
+  const dropped = new Set<string>();
+  for (const candidate of ready) {
+    const brief = briefsById.get(candidate.eventId);
+    if (brief === undefined || revisions.get(candidate.eventId) !== candidate.revision) {
+      withheld.push({ eventId: candidate.eventId, kind: CHANGED_KIND });
+      dropped.add(candidate.eventId);
+      continue;
+    }
+    carrying.push(brief);
+  }
   let withheldNote = withheldNoteOf(withheld);
-  if (ready.length === 0 && briefs.length > 0) {
+
+  if (carrying.length === 0 && progress.queue.length > 0) {
     if (options.dryRun !== true) {
-      await finish(db, due.digest_id, "skipped", 0, 0);
+      await finish(db, due.digest_id, "skipped", 0, 0, withheldNote);
       await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
     }
     return {
-      ...base,
-      decision: "skipped",
-      detail: withheldNote ? `nothing reader-ready (${withheldNote})` : "nothing readable matched",
+      kind: "done",
+      outcome: {
+        ...base,
+        decision: "skipped",
+        detail: withheldNote
+          ? `nothing reader-ready (${withheldNote})`
+          : "nothing readable matched",
+      },
     };
   }
 
@@ -903,7 +1495,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // briefing that now spends nothing should say so with a zero rather than by
   // the field disappearing.
   const tokens = 0;
-  const impacts = await completedImpacts(db, ready);
+  const impacts = await completedImpacts(db, carrying);
 
   const stored = new Map(impacts.map((item) => [item.eventId, item.text] as const));
   // The whole ladder from one call, over the event's own stored fields — see
@@ -911,7 +1503,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // line states a fact about the story, and the reader's own follow graph is
   // rendered separately, under `personalizationFor`.
   const byImpact = new Map(
-    ready.map((brief) => {
+    carrying.map((brief) => {
       const reason = reasonFor({
         storedImpact: stored.get(brief.eventId) ?? null,
         beforeState: brief.beforeState,
@@ -932,15 +1524,15 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // and its event id, so the disposition is auditable and no item ever
   // disappears silently. Not a confirmed violation of the ladder (rung 6 stays
   // honest silence); a stricter shipping decision at the final quality gate.
-  for (const brief of ready) {
+  for (const brief of carrying) {
     if ((byImpact.get(brief.eventId) ?? "") === "") {
       withheld.push({ eventId: brief.eventId, kind: GATED_KIND });
     }
   }
-  ready = ready.filter((brief) => (byImpact.get(brief.eventId) ?? "") !== "");
+  const shipping = carrying.filter((brief) => (byImpact.get(brief.eventId) ?? "") !== "");
   withheldNote = withheldNoteOf(withheld);
 
-  const unexplained = ready.filter((brief) => !stored.get(brief.eventId)).length;
+  const unexplained = shipping.filter((brief) => !stored.get(brief.eventId)).length;
   // How many shipped cards carry no stored shared impact and are riding on a
   // derived rung. The "without a specific line" count is gone with the old
   // honesty-bar measurement: it measured exactly the items Q4 now withholds,
@@ -953,29 +1545,35 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // Withholding can empty a briefing the readiness gate passed. That is the
   // quiet morning the ruling accepts — it takes the same path as a briefing
   // nothing was ready for.
-  if (ready.length === 0) {
+  if (shipping.length === 0) {
     if (options.dryRun !== true) {
       await finish(db, due.digest_id, "skipped", 0, 0, noteOf(enrichment, withheldNote));
       await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
     }
     return {
-      ...base,
-      tokens,
-      decision: "skipped",
-      detail: `nothing carried a story-specific line (${withheldNote ?? ""})`,
+      kind: "done",
+      outcome: {
+        ...base,
+        tokens,
+        decision: "skipped",
+        detail: `nothing carried a story-specific line (${withheldNote ?? ""})`,
+      },
     };
   }
 
   if (options.dryRun === true) {
     return {
-      ...base,
-      items: ready.length,
-      tokens,
-      decision: "generated",
-      detail:
-        withheldNote !== null
-          ? `${ready.length} stories (dry run, ${withheldNote})`
-          : `${ready.length} stories (dry run)`,
+      kind: "done",
+      outcome: {
+        ...base,
+        items: shipping.length,
+        tokens,
+        decision: "generated",
+        detail:
+          withheldNote !== null
+            ? `${shipping.length} stories (dry run, ${withheldNote})`
+            : `${shipping.length} stories (dry run)`,
+      },
     };
   }
 
@@ -995,7 +1593,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // shared explanation yet carries an empty one — `why_it_matters` is
   // `not null default ''`, and the templates already render a story without it.
   const revisionOf = new Map(
-    considered.map((match) => [match.eventId, match.materialRevision] as const),
+    ready.map((candidate) => [candidate.eventId, candidate.revision] as const),
   );
   // The composed summary artifact -- the composed half of the arbiter's ruling,
   // written beside the item it belongs to (0118).
@@ -1016,7 +1614,7 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // composition publishes nothing acceptable the artifact is null and the item
   // ships with no line at all -- the ruling's trade, and the raw feed description
   // is never substituted for it.
-  const rows = ready.map((brief, position) => ({
+  const rows = shipping.map((brief, position) => ({
     digest_id: due.digest_id,
     event_id: brief.eventId,
     position,
@@ -1041,10 +1639,13 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   if (error) {
     const outcome = await failGeneration(db, due, `writing items: ${error.message}`, tokens);
     return {
-      ...base,
-      tokens,
-      decision: outcome === "failed" ? "failed" : "deferred",
-      detail: `writing items: ${error.message}`,
+      kind: "done",
+      outcome: {
+        ...base,
+        tokens,
+        decision: outcome === "failed" ? "failed" : "deferred",
+        detail: `writing items: ${error.message}`,
+      },
     };
   }
 
@@ -1052,19 +1653,25 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
   // briefing is all revision 0, and a briefing containing a material update is
   // one extra statement. The durable marker and the revision it refers to are
   // always written together.
-  // Stamped over every brief the matcher picked, withheld included: the gate
-  // only withholds provable non-news, so nothing here is a developing story
-  // waiting for corroboration, and stamping keeps it from looping forever.
-  // `loaded`, not `briefs`: a story dropped as a twin shipped under the event
-  // that kept its slot, and stamping it stops it returning tomorrow as a
-  // different-looking duplicate.
+  //
+  // Stamped over every story the snapshot selected that this build actually
+  // decided about — withheld included: the gate only withholds provable
+  // non-news, so nothing here is a developing story waiting for corroboration,
+  // and stamping keeps it from looping forever.
+  //
+  // `candidates`, not `shipping`: a story dropped as a twin shipped under the
+  // event that kept its slot, and stamping it stops it returning tomorrow as a
+  // different-looking duplicate. What is *not* stamped is a story this build
+  // could not decide about — revised under the snapshot, or unreadable — which
+  // stays unbriefed and leads the next briefing instead of disappearing.
   const briefedAt = new Date().toISOString();
   const byRevision = new Map<number, string[]>();
-  for (const brief of loaded) {
-    const revision = revisionOf.get(brief.eventId) ?? 0;
-    const bucket = byRevision.get(revision);
-    if (bucket) bucket.push(brief.eventId);
-    else byRevision.set(revision, [brief.eventId]);
+  for (const candidate of progress.candidates) {
+    const kind = verdictOf.get(candidate.eventId);
+    if (kind === undefined || kind === CHANGED_KIND || dropped.has(candidate.eventId)) continue;
+    const bucket = byRevision.get(candidate.revision);
+    if (bucket) bucket.push(candidate.eventId);
+    else byRevision.set(candidate.revision, [candidate.eventId]);
   }
   for (const [revision, eventIds] of byRevision) {
     await db
@@ -1074,20 +1681,58 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
       .in("event_id", eventIds);
   }
 
-  await finish(db, due.digest_id, "ready", ready.length, tokens, noteOf(enrichment, withheldNote));
+  await finish(
+    db,
+    due.digest_id,
+    "ready",
+    shipping.length,
+    tokens,
+    noteOf(enrichment, withheldNote),
+  );
   await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
 
   const notes = [enrichment, withheldNote].filter((note): note is string => note !== null);
   return {
-    ...base,
-    items: ready.length,
-    tokens,
-    decision: "generated",
-    detail:
-      notes.length > 0
-        ? `${ready.length} stories (${notes.join("; ")})`
-        : `${ready.length} stories`,
+    kind: "done",
+    outcome: {
+      ...base,
+      items: shipping.length,
+      tokens,
+      decision: "generated",
+      detail:
+        notes.length > 0
+          ? `${shipping.length} stories (${notes.join("; ")})`
+          : `${shipping.length} stories`,
+    },
   };
+}
+
+/**
+ * `events.material_revision` for these candidates, as they stand now.
+ *
+ * The snapshot froze a revision per candidate and this is the read that notices
+ * one moved. Deliberately the *event's* clock and nothing about the reader: a
+ * story that was materially revised between two ticks is a different story from
+ * the one the gate passed.
+ */
+async function currentRevisions(
+  db: Db,
+  userId: string,
+  eventIds: string[],
+): Promise<Map<string, number>> {
+  const found = new Map<string, number>();
+  if (eventIds.length === 0) return found;
+  const { data, error } = await db
+    .from("user_events")
+    .select("event_id, events ( material_revision )")
+    .eq("user_id", userId)
+    .in("event_id", eventIds);
+  if (error) throw new Error(`reading candidate revisions: ${error.message}`);
+  for (const row of data ?? []) {
+    const event = row.events as { material_revision?: number } | null;
+    found.set(row.event_id, event?.material_revision ?? 0);
+  }
+  return found;
 }
 
 /**
@@ -1260,6 +1905,10 @@ async function finish(
       // thing to look at when a reader asks why theirs read thin.
       generation_failure_reason: note,
       generated_at: new Date().toISOString(),
+      // The build is finished, so its cursor goes: a `ready` or `skipped` digest
+      // that still carried one would be resumed by the next tick and build the
+      // briefing a second time.
+      generation_progress: null,
     })
     .eq("digest_id", digestId);
 
@@ -1299,6 +1948,10 @@ async function failGeneration(
       generation_failure_reason: reason,
       generation_tokens: tokens,
       generated_at: exhausted ? new Date().toISOString() : null,
+      // A requeued build keeps its cursor and resumes where it stopped; only a
+      // build that is given up on loses it, and then only because the row can no
+      // longer be resumed anyway.
+      ...(exhausted ? { generation_progress: null } : {}),
     })
     .eq("digest_id", due.digest_id);
   if (error) throw new Error(`recording digest failure: ${error.message}`);
@@ -1319,6 +1972,9 @@ async function expireSlot(db: Db, digestId: string, lateMinutes: number): Promis
       status: "failed",
       generated_at: new Date().toISOString(),
       generation_failure_reason: `missed slot by ${lateMinutes} minutes; not sent`,
+      // A closed slot has nothing left to resume: the stories are unbriefed and
+      // lead the next briefing, which is what the failure reason says.
+      generation_progress: null,
     })
     .eq("digest_id", digestId);
   if (error) throw new Error(`expiring digest: ${error.message}`);

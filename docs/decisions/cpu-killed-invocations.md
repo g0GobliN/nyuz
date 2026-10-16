@@ -242,3 +242,20 @@ current and small. Nothing ships → the pool grows → the gate costs more → 
 options and their costs are recorded in
 [reader-delivery.md](reader-delivery.md#the-next-slices-first-measurement-where-the-briefing-builds-cpu-goes-2026-10-16-measured-design-question-open),
 where the slice is being ruled.
+
+
+## 2026-10-16 — the ruled slice: generation made resumable, so a kill costs a stage
+
+**Landed with 0119.** The build is cut at its own stage boundaries (`select`, `screen`, `gate`,
+`write`), each boundary is written to `digests.generation_progress`, and `loadDue` treats a row
+carrying progress as due immediately rather than after `GENERATION_LEASE_MINUTES` — the lease answers
+"may a dead claim be retaken", and a row with a cursor has already come back. The gate takes two
+briefs per invocation, and a stage whose set exceeded 12 gets a tick of its own.
+
+Why a count and not a clock: a wall-clock budget would make "did this briefing finish in one
+invocation" depend on the machine that ran it, which no test can assert and no operator can reason
+about, and it would push every reader whose build already fits one tick into several. The whole
+ruling, the stage-by-stage costs and the residual risk (`select` ~0.93 s and `screen` ~1.19 s on this
+reader are each still above the ~710 ms success ceiling, so option B remains the next slice) are
+recorded in
+[reader-delivery.md](reader-delivery.md#the-ruled-slice-a-briefing-built-across-cron-ticks-2026-10-16-ruled-and-landed).

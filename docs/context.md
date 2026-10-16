@@ -110,7 +110,7 @@ must-be-zero lines are the acceptance test.
 | Blog, site content, feature flags            | Built                                                                                                                                                                                                               |
 | Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                                                                                                                                                                             |
 | Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                               |
-| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly                                                                                                                                                             |
+| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing |
 | Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled to stay (R1)                                                                                                                                                   |
 | **Briefing email actually delivered**        | **BROKEN — two causes in sequence** (see §7): 125 failures for `Missing EMAIL_UNSUBSCRIBE_SECRET` (26 Aug → 11 Sep), then 128 for the Resend 401 (11 Sep → today, current); nothing accepted since 2026-08-26T22:59 |
 | Reader article (deterministic composer)      | Built, under active quality work (see §5)                                                                                                                                                                           |
@@ -1005,6 +1005,35 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   bypassing readiness, duplication or composition → demonstrate completion → verify selection,
   artifacts and delivery). Full record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-daily-guard-blocks-the-controlled-build-a-and-b-read-only-runs-instead-2026-10-16).
+
+  **2026-10-16 — the ruled CPU-budget slice: a briefing is built across Cron ticks (0119).** The
+  arbiter ruled Option C as the target architecture and Option A as the slice to land first, with the
+  reader's backlog briefable only under the existing selection and shipping rules (no sweep, no
+  higher cap, no special recovery rule), a briefing arriving minutes late acceptable if reliable and
+  complete, precomputed per-event verdicts deferred to after tomorrow's release decision, and the cap
+  at 25. Landed: `digests.generation_progress` carries the build's cursor, the build is cut at its own
+  stage boundaries (`select` → `screen` → `gate` → `write`), `loadDue` resumes a row that carries
+  progress on the next tick instead of waiting out `GENERATION_LEASE_MINUTES`, the readiness gate
+  takes `GATE_BRIEFS_PER_INVOCATION` (2) briefs an invocation, and a stage whose set exceeded
+  `TICK_SET_LIMIT` (12) gets a tick of its own. The snapshot is frozen (the instant it was ranked at
+  plus each candidate's `material_revision` are persisted, so nothing re-ranks between ticks); a story
+  materially revised between ticks is dropped from this briefing, recorded as
+  `revised_since_generation_started` and left unbriefed so it leads the next one; `briefed_at` is
+  written only in the write stage and only for stories this build took a verdict on; a stage that
+  throws keeps the cursor; and items are written, `finish`ed and delivered in that order, so the
+  briefing becomes visible only when complete. **Why it was needed:** one invocation built the whole
+  briefing, and on the reader whose 22:30Z slot was killed six nights running (1,000 unbriefed
+  matches) that build costs ~17.7 s of CPU against an observed Workers-free success ceiling of
+  ~710 ms (`cpuTimeUs`, 2026-10-11) — the gate alone is 15.5 s, a median 338 ms per brief. **Why a
+  count and not a clock:** a wall-clock budget would make "did this finish in one invocation" a
+  property of the machine, and every reader whose build already fitted in one tick still finishes in
+  one. **Verified:** 10 new tests in `src/lib/pipeline/digest-resume.test.ts` (fail-before), including
+  the arbiter's equivalence — the same five stories built from a small pool in one invocation, a large
+  pool in two and a large candidate set across eleven ship item for item the same briefing — and the
+  eight digest-related suites at 97 passing. **Not verified:** the Worker's own per-tick `cpuTimeUs`,
+  and the residual that `select` (~0.93 s) and `screen` (~1.19 s) are each still above the ~710 ms
+  ceiling on that reader's pool, which is what option B (deferred to after the release decision) is
+  for. Full record: [decisions/reader-delivery.md](decisions/reader-delivery.md#the-ruled-slice-a-briefing-built-across-cron-ticks-2026-10-16-ruled-and-landed).
 
 ## 7. What is next
 

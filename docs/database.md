@@ -86,6 +86,7 @@ however convenient it looks at the time.
 | `user_events`  | Match results plus durable `briefed_at` deduplication. Pruned on the plan window (0067) |
 | `digests`      | One per user per scheduled slot. `skipped` is a real success state. **Readable only inside `history_window_start()`** (0067) |
 | `digest_items` | `why_it_matters`, plus the composed `summary` artifact (0118) and the `delivered_revision` it was composed from |
+| `digests` | `generation_progress` (0119) — the cursor of a briefing build that spans several Cron ticks: the frozen candidate snapshot with each candidate's `material_revision`, the twin survivors, and the readiness gate's verdicts so far. NULL means no build is in flight |
 | `deliveries`   | Per channel, with attempts and retry                               |
 
 ### Feedback

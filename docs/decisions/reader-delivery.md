@@ -2168,3 +2168,83 @@ build is killed.**
 **Not claimed:** that the laptop numbers are the Worker's; that option B alone fits (it does not, on
 this measurement — parse plus dedup is still ~0.5 s); or that the gate's cost is a defect — it is the
 briefability contract doing its job, on a pool that six silent nights made abnormally large.
+
+
+## The ruled slice: a briefing built across Cron ticks (2026-10-16, ruled and landed)
+
+**RULED 2026-10-16 (Day 2 of 3; the release decision is 2026-10-17).** The arbiter's words:
+_"Decision 1: Option C is the target architecture; implement Option A first. Decision 2: Yes, the
+22:30Z reader's backlog may be briefed, but only under the existing selection and shipping rules. Do
+not introduce a backlog sweep, higher cap, or special recovery rule in this slice."_ Disposition as
+ruled: resumable generation **approved**; a briefing arriving minutes after its nominal slot
+**acceptable if the delivery is reliable and complete**; precomputing the verdict per event (option B)
+**deferred until after the release decision**; the normal shipping cap **remains 25**; a backlog sweep
+or a temporary cap increase **not authorized**; a special first-briefing-after-silence rule **not
+authorized**. The objective it set for Day 2, verbatim: _"restore reliable delivery without changing
+what qualifies as news worth delivering. Make the generation process resumable, prove it preserves
+the existing gates, and let tomorrow's evidence—not the deadline itself—determine whether the release
+is ready."_
+
+**What was wrong, in one paragraph.** One invocation built a whole briefing. On the reader whose
+22:30Z slot was killed six nights running (1,000 unbriefed matches) that build costs ~17.7 s of CPU,
+15.5 s of it the readiness gate — **median 338 ms per brief**, range 9.6–1,744 ms, tracking excerpt
+size — against a Workers-free record whose observed success ceiling is ~710 ms (`cpuTimeUs`,
+2026-10-11: the kills cluster in the 9.5–10 ms bucket while 767 scheduled invocations that day still
+succeeded above 10 ms, the largest at 709,805 µs). The build was not failing; it was being killed, at
+the gate, every night. Provenance of the per-phase numbers: read-only, `process.cpuUsage()` per phase,
+2026-10-16, recorded in full at
+[cpu-killed-invocations.md](cpu-killed-invocations.md#2026-10-16--the-first-attribution-of-the-spend-measured-on-the-reader-with-the-largest-pool).
+
+**The slice, as landed (0119).** `digests.generation_progress` (jsonb) carries a cursor, and the
+build is cut at its own stage boundaries:
+
+| stage    | what it does                                                          | cost measured 2026-10-16   |
+| -------- | --------------------------------------------------------------------- | -------------------------- |
+| `select` | ranks the pool, freezes the snapshot, records each candidate's revision | ~0.93 s at 1,000 matches   |
+| `screen` | loads the candidates' briefs, drops twins                              | ~1.19 s at 37 candidates   |
+| `gate`   | the readiness gate, **two briefs per invocation**                      | median 338 ms per brief    |
+| `write`  | the cap, the Q4 line gate, the composed artifacts, the items, delivery  | ~117 ms at the shipping set |
+
+Resuming is bounded by a **count, not a clock**: a stage whose set exceeded `TICK_SET_LIMIT` (12)
+gets a tick of its own, the gate takes `GATE_BRIEFS_PER_INVOCATION` (2) briefs a tick, and everything
+else still finishes in one invocation. That choice is deliberate and load-bearing: a wall-clock budget
+would make "did this briefing finish in one invocation" a property of the machine, and every reader
+whose build already fitted in one tick keeps finishing in one. The 22:30Z reader's build becomes ~22
+ticks — `select`, `screen`, then two briefs a tick, then the write.
+
+**The policies the arbiter required to be explicit, and the tests that pin them.**
+
+- **The snapshot is frozen.** `select` runs once, and the instant it ran at plus every candidate's
+  `material_revision` are persisted, so no later tick re-ranks. "Ranking must be deterministic for a
+  given generation snapshot" is therefore structural, not a hope.
+- **Material change between ticks → a recorded drop.** A candidate whose revision has moved is
+  dropped from this briefing — checked at the gate and again at the write, because the artifact is
+  composed in the write — recorded on the digest as `revised_since_generation_started`, and **left
+  unbriefed**, so the story leads the reader's next briefing instead of shipping a line composed from
+  newer material under a `delivered_revision` that says older.
+- **Unselected items are never stamped.** `briefed_at` is written in the write stage only, over the
+  snapshot's candidates that this build took a verdict on. Withheld ones are stamped (unchanged from
+  before the slice, so nothing loops); ones the build could not decide about are not.
+- **A failed tick keeps the cursor.** A stage that throws leaves the progress where it is, so the next
+  tick resumes at that stage rather than starting the build again; `failGeneration` counts it, and
+  three failures end the build with a reason instead of retrying to the slot's expiry.
+- **The briefing is visible only when complete.** Items are written in the write stage, `finish` runs
+  after them, and the delivery is queued after `finish` — so a briefing is dispatched the moment it is
+  complete even when that is minutes after its slot, which is the ruling's trade.
+- **An unreadable cursor is no cursor.** A record whose version this build does not know is discarded
+  and the briefing is built from the start, rather than resumed from a state nothing can vouch for.
+
+**Verified (2026-10-16, on this tree).** Ten new tests in `src/lib/pipeline/digest-resume.test.ts`
+fail on the previous tree and pass on this one, including the equivalence the arbiter asked for first:
+the same five stories built from a small pool in one invocation, from a large pool in two, and from a
+large candidate set across eleven ticks, ship **item for item the same briefing** (position, line,
+`delivered_revision`, stored artifact). The eight digest-related suites stand at **97 tests, all
+passing** after the restructure.
+
+**Not verified, and stated as not verified.** The Worker's own `cpuTimeUs` for the new ticks — this
+is a laptop-measured design, and the per-tick figures above are upper bounds. And the honest residual:
+`select` (~0.93 s) and `screen` (~1.19 s) are each **still above the observed ~710 ms ceiling** on
+this reader's pool, so this slice alone may not be enough for that reader; the remedy for those two
+stages is option B (precomputed verdicts), which the arbiter deferred to after the release decision.
+What the slice changes is that nothing is now lost to a kill: every finished stage is recorded, so a
+killed tick costs one stage rather than six nights.

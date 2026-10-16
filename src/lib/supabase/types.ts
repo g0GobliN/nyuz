@@ -865,6 +865,16 @@ export type Digest = {
   generation_attempts: number;
   /** Why the last attempt produced no briefing, or what it produced without (0077). */
   generation_failure_reason: string | null;
+  /**
+   * Where a briefing build that spans several Cron ticks got to (0119).
+   *
+   * A cursor, not a record: the frozen candidate snapshot with the material
+   * revision each candidate was frozen at, the twin survivors, and the readiness
+   * gate's verdicts so far. NULL means no build is in flight. Not a foreign key
+   * or a join target for anything — read only by `digest.ts`, which treats a
+   * record it cannot parse as no record at all.
+   */
+  generation_progress: Json | null;
 };
 
 export type DigestItem = {
@@ -1347,6 +1357,7 @@ export type Database = {
         | "generation_started_at"
         | "generation_attempts"
         | "generation_failure_reason"
+        | "generation_progress"
       >;
       digest_items: Table<DigestItem, "why_it_matters" | "delivered_revision">;
       deliveries: Table<
