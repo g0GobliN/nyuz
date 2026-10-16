@@ -36,6 +36,27 @@ green. A red run cannot ship: `deploy` `needs` all three.
 
 A pull request is checked and never deployed. Neither is any branch but `main`.
 
+**Blocked, measured 2026-10-16: GitHub-hosted runners are not starting, so nothing can
+ship.** Pushing `6e88b8d` to `main` produced CI run `38853848933`, in which **every job
+failed in about three seconds without executing a step**:
+
+> The job was not started because recent account payments have failed or your spending
+> limit needs to be increased. Please check the 'Billing & plans' section in your settings
+
+The run before it — `38841672766` for `17d1b36`, hours earlier the same day — passed every
+job and deployed, so this is the account's Actions billing state changing under a
+repository that had not changed its workflow. The consequence is the one this document
+already describes for a red run, and it is not the code's fault: **`main` is ahead of
+production, the live Worker keeps serving the last successful deployment, and a scripted
+deploy cannot be attempted until the account can start runners.** No session should read a
+failing run at this timestamp as a defect in the pushed change: the local gate
+`npm run ci` was green on the same commit (typecheck, lint, 195 files / 3,317 tests, the
+coverage ratchet, the build, the PWA contract, the route walk, the origin self-test, and
+Playwright against the built Worker, 30 passed), and the deploy job shows as *skipped*
+rather than *failed*. The ways out are all owner-side: restore the account's runner billing
+(Actions minutes and a spending limit that permits them), or move the deploy off hosted
+runners, or deploy by hand with Cloudflare credentials this repository does not hold.
+
 Three of those gates exist because a bad deploy cannot be taken back. The bundle scan runs
 between the build and the upload, since every visitor who loads a published bundle keeps
 a copy of whatever was in it. The two smoke checks run after, because `wrangler deploy`

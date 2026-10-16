@@ -109,6 +109,7 @@ must-be-zero lines are the acceptance test.
 | Admin console, roles, audit log              | Built — the security boundary is `adminOnly`/`superadminOnly`                                                                                                                                                       |
 | Blog, site content, feature flags            | Built                                                                                                                                                                                                               |
 | Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                                                                                                                                                                             |
+| **Deploy path (GitHub Actions)**             | **BLOCKED 2026-10-16** — hosted runners stopped starting (`"recent account payments have failed or your spending limit needs to be increased"`, run `38853848933`: every job failed in ~3 s, deploy skipped; the run before it, same day, deployed `17d1b36`). `main` is ahead of production and the live origin serves the last good deploy. Owner-side: see [deployment.md](deployment.md#deploying). |
 | Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                               |
 | Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick |
 | Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled to stay (R1)                                                                                                                                                   |
@@ -1067,6 +1068,15 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   [decisions/cpu-killed-invocations.md](decisions/cpu-killed-invocations.md#2026-10-16--the-second-measurement-the-profile-names-the-spend-and-the-repair-is-proved-equivalent).
 
 ## 7. What is next
+
+**Day 2 is spent and Day 3 is the release decision (2026-10-17).** One stage condition joined the
+ledger after the push: GitHub-hosted runners stopped starting (`38853848933`, every job failed in
+about three seconds with a billing annotation, the deploy showed as *skipped*), so the Day-2 gate
+repair is committed and green locally but **not deployed** — the live Worker still serves
+`17d1b36`. That matters for tonight: the 22:20Z natural attempt will exercise the *old* gate unless
+the deploy path is unblocked first, and the Day-3 release decision has to be read with that in
+mind rather than as a verdict on the repair. Evidence still owed: the controlled production-path
+build (A) at 15:00Z, and the reader's own attempt after the deploy lands.
 
 **Day 2 is spent and Day 3 is the release decision (2026-10-17).** The arbiter's ruled Day-2 slice --
 a build that completes inside the existing free-plan CPU budget for a reader with a large pool -- is
