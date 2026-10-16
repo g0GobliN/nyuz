@@ -1805,6 +1805,16 @@ line — the ruling's trade — and the raw description is **never** substituted
 validated by the same three checks the guard asks (`deliveredSummary`), not only by the card
 boundary, so a recovered line that the delivery boundary would refuse is withheld rather than stored.
 
+**The email join is pinned in the suite, not only in the resolver.** One row of the ruling's checkpoint
+table — *“Reader surfaces … honor the stored artifact contract”* — could not be asserted by the rule's
+unit tests alone, because the email body is built inside the delivery path (`loadMailItems` →
+`mailGrafs`). `digest-delivery.test.ts` now flushes one email delivery for an item whose stored line is
+refused and whose artifact is stored, and asserts the message the reader's inbox would carry contains
+the artifact and **not** the refused line, in both the text and the HTML part. Fail-before proof: with
+the pre-slice expression restored (`translated?.whatHappened ?? event.what_happened ?? ""`) the test
+fails exactly as the defect describes — *“expected 'OpenAI ships a reasoning model …' to contain 'OpenAI
+released a reasoning model thi…'”* — and passes on this tree.
+
 **The translated path, closed by construction.** The boundaries ask English grammar, and the email path
 used to prefer `translated.whatHappened` while the guard was asked only on the English column it
 replaced — so a translated copy of a refused line passed the boundaries trivially and printed: the
