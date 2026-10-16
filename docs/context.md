@@ -1069,21 +1069,22 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 ## 7. What is next
 
-**Day 2 is spent and Day 3 is the release decision (2026-10-17).** One stage condition joined the
-ledger after the push: GitHub-hosted runners stopped starting (`38853848933`, every job failed in
-about three seconds with a billing annotation, the deploy showed as *skipped*), so the Day-2 gate
-repair is committed and green locally but **not deployed** — the live Worker still serves
-`17d1b36`. That matters for tonight: the 22:20Z natural attempt will exercise the *old* gate unless
-the deploy path is unblocked first, and the Day-3 release decision has to be read with that in
-mind rather than as a verdict on the repair. Evidence still owed: the controlled production-path
-build (A) at 15:00Z, and the reader's own attempt after the deploy lands. **Email is not part of
-that evidence, by the owner's ruling the same day:** the Resend key is deliberately disabled to
-keep the free send quota for launch, so the 401 on every email row is intended and the channels a
-reader actually receives today are push and the dashboard. A release decision must therefore be
-read on push and the dashboard, with email listed as a launch-time switch rather than a broken leg.
+**Day 2 is spent and Day 3 is the release decision (2026-10-17).** The gate repair is **deployed**
+(`6e88b8d`, 05:20Z): the run that first could not start at all — hosted runners refused for about
+twenty minutes with a billing annotation, and the deploy job showed as *skipped* rather than
+*failed* — was re-queued after the owner made the repository public to restore its free runner
+minutes, and it then passed every job with the origin contract 23/23. Verified on the live Worker
+rather than inferred from a green run: the 40 digest ticks after the deploy all ran `healthy`. So
+tonight's 22:20Z attempt is the first one that runs the repaired gate, one brief a tick. **Email is
+not part of that evidence, by the owner's ruling the same day:** the Resend key is deliberately
+disabled to keep the free send quota for launch, so the 401 on every email row is intended and the
+channels a reader actually receives today are push and the dashboard. The release decision is
+therefore read on push and the dashboard, with email listed as a launch-time switch rather than a
+broken leg; the evidence still owed is the controlled production-path build (A) at 15:00Z and the
+reader's own attempt tonight.
 
-**Day 2 is spent and Day 3 is the release decision (2026-10-17).** The arbiter's ruled Day-2 slice --
-a build that completes inside the existing free-plan CPU budget for a reader with a large pool -- is
+**The ruled Day-2 slice, in the arbiter's own terms:** a build that
+completes inside the existing free-plan CPU budget for a reader with a large pool. It is
 landed and measured: the gate's own cost is down 5.7x with its verdicts proved unmoved on 200 frozen
 stories, and every stage of the 22:30Z reader's build (selection ~250 ms, screening ~200 ms, one gated
 brief's worst 435 ms, the write ~52 ms) now fits inside the ~710 ms grace that was killing it. **What

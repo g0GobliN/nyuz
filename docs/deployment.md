@@ -36,9 +36,9 @@ green. A red run cannot ship: `deploy` `needs` all three.
 
 A pull request is checked and never deployed. Neither is any branch but `main`.
 
-**Blocked, measured 2026-10-16: GitHub-hosted runners are not starting, so nothing can
-ship.** Pushing `6e88b8d` to `main` produced CI run `38853848933`, in which **every job
-failed in about three seconds without executing a step**:
+**Blocked for about twenty minutes on 2026-10-16, and how it ended — kept because the
+shape recurs.** Pushing `6e88b8d` to `main` produced CI run `38853848933`, in which **every
+job failed in about three seconds without executing a step**:
 
 > The job was not started because recent account payments have failed or your spending
 > limit needs to be increased. Please check the 'Billing & plans' section in your settings
@@ -53,9 +53,13 @@ failing run at this timestamp as a defect in the pushed change: the local gate
 `npm run ci` was green on the same commit (typecheck, lint, 195 files / 3,317 tests, the
 coverage ratchet, the build, the PWA contract, the route walk, the origin self-test, and
 Playwright against the built Worker, 30 passed), and the deploy job shows as *skipped*
-rather than *failed*. The ways out are all owner-side: restore the account's runner billing
-(Actions minutes and a spending limit that permits them), or move the deploy off hosted
-runners, or deploy by hand with Cloudflare credentials this repository does not hold.
+rather than *failed*. **It ended the same day, on the owner's instruction:** making the
+repository public restored its free runner minutes, the run was re-queued, and it passed every
+job — origin contract 23/23 — deploying `6e88b8d` at 05:20Z, with the 40 digest ticks after it
+still `healthy`. The shape to remember is that a **private** repository spends a metered budget
+on hosted runners and this one hits it, so visibility is part of the deploy path here rather
+than cosmetics; the other ways out, if it recurs, are a spending limit that permits runners, a
+self-hosted runner, or a hand deploy with Cloudflare credentials this repository does not hold.
 
 Three of those gates exist because a bad deploy cannot be taken back. The bundle scan runs
 between the build and the upload, since every visitor who loads a published bundle keeps
