@@ -976,6 +976,35 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   behaviour change. The findings left in the full audit are dev/build tooling only (vitest/tinypool,
   sharp via nitro, undici), which the job's `--omit=dev` scope excludes on purpose.
 
+- **2026-10-16 — the post-deploy checkpoint: the natural attempt failed its sixth night, the controlled
+  build was blocked by a product guard, and the read-only diagnostic is what ran instead. Recorded as
+  overdue.** The 22:30Z slot ended `failed`, 0 items, *“missed slot by 123 minutes; not sent”* (last claim
+  00:26:40Z, generated 00:32:40Z) — the same CPU-condition shape as 10-10…10-14, so it produced no
+  qualifying evidence. The approved controlled build (`npm run pipeline -- digest --user <id> --now
+  --skip-send`) then could not create its slot: **`enforce_daily_briefing` (0082) drops a second briefing
+  for the same account-local date** when the day's earlier row failed *after* starting, and the
+  10-15T22:30Z row is JST 2026-10-16 with `generation_started_at` set. Measured twice (runs at 00:34:46Z
+  and 00:38:44Z): the CLI reports “slots created 1” — it counts planned rows — while **no row is
+  written**. Every reader is blocked until 15:00Z (JST midnight). **Ruled: B now, A after 15:00Z, the
+  checkpoint recorded as overdue (~8h17m), no bypass of the guard, no rewrite of the failed row, no
+  repeated attempts.** **B, the read-only composition diagnostic**
+  ([scripts/reader-composition-diagnostic.ts](../scripts/reader-composition-diagnostic.ts)) found: the
+  reader's pool is **1000 live matches → 128 eligible → 37 considered → 13 ship, 23 withheld by the
+  readiness gate**, and **all 13 shipping items carry a stored line the boundary admits**, so **0
+  artifacts would be stored by a build today**. In the 200 most relevant matches, **16 items are ones the
+  build would compose for** (5 refused lines, 11 with no stored line); **14 are withheld** (newsletter 5,
+  primary-source 4, unbriefable 4, …) and **2 are shippable but rank outside today's eligible set** — and
+  the composer produces a valid line for each (*“The activity, which brings together commodity offensive
+  tools like Cobalt Strike with an AI orchestration layer powered by Anthropic's Claude Code, has been
+  attributed.”*; *“The AI takeover of mathematics has begun.”*). So the composer provably acts on today's
+  real pool; the repair path is *needed* by 2 shippable items today and simply does not rank into a
+  briefing today. **Next for the checkpoint:** run A at/after 15:00Z (verify the slot row exists after
+  `scheduleUpcoming`, not the reported count) and expect it to show composition not attempted unless the
+  pool shifts — a finding about the pool, not a defect. Then the ruled next slice: **a build that
+  completes inside the free-plan CPU budget for a large pool** (reproduce → locate → reduce without
+  bypassing readiness, duplication or composition → demonstrate completion → verify selection,
+  artifacts and delivery). Full record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-daily-guard-blocks-the-controlled-build-a-and-b-read-only-runs-instead-2026-10-16).
 
 ## 7. What is next
 

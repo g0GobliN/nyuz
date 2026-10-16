@@ -218,3 +218,27 @@ query ($accountTag: String!) {
 
 The `.scratch/trigger-delivery/` probes are throwaway instrumentation for this investigation, not
 part of the product's scripts; they are kept only so the numbers above are reproducible end to end.
+
+## 2026-10-16 — the first attribution of the spend, measured on the reader with the largest pool
+
+**Open question B** (*which execution paths cause the kills*) now has a first answer, measured rather
+than sampled. Reproduced as an upper bound on a laptop with `process.cpuUsage()` around each phase of
+the briefing build's read path for the reader whose 22:30Z slot has been killed six nights running
+(1000 live unbriefed matches): **the readiness gate is the dominant term — 15.5 s of CPU across 36
+candidate briefs, median 338 ms per brief** (range 9.6 ms … 1,744 ms, tracking excerpt size), against
+`loadMatches` 320 ms, twin suppression 1,052 ms, duplicate suppression 529 ms, brief loading 140 ms,
+and artifact composition for the shipping set 117 ms (~3.6 ms each). Read path total **~17.7 s CPU**
+before any write.
+
+**Why this is not a contradiction of §3's "soft budget".** The measured 710 ms success ceiling means an
+invocation survives roughly 700 ms of CPU; a build that needs 17.7 s cannot, and the gate alone exceeds
+the ceiling on a single brief more often than not. It also explains the shape of the success record: the
+two UTC readers are `skipped` with 0 items every day because their candidate set never reaches the gate,
+and the reader's briefings that *did* ship (16 and 9 items, 2026-10-08/09) were built when its pool was
+current and small. Nothing ships → the pool grows → the gate costs more → the build is killed.
+
+**What it does not settle:** the Worker's own per-stage CPU (this is a laptop upper bound, and
+`cpuTimeUs` stays the authoritative Worker figure), or which of the bounded-work designs to take — the
+options and their costs are recorded in
+[reader-delivery.md](reader-delivery.md#the-next-slices-first-measurement-where-the-briefing-builds-cpu-goes-2026-10-16-measured-design-question-open),
+where the slice is being ruled.

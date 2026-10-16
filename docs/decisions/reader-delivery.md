@@ -2034,3 +2034,137 @@ that lands this slice, and the first row carrying an artifact comes from the fir
 the new code; if no briefing is built within 24 hours of the deploy, the ruled fallback is one
 controlled build for a reader whose channels are empty — stored normally, nothing sent, labelled as a
 controlled verification run in the evidence and never reported as a natural delivery.
+
+## The daily guard blocks the controlled build; A approved, B read-only runs instead (2026-10-16, ruled and run)
+
+**The natural attempt, sixth night, no qualifying evidence.** The third reader's 22:30Z slot ended
+`failed`, 0 items, `"missed slot by 123 minutes; not sent"` — last claim `00:26:40Z`,
+`generated_at 00:32:40Z` — the same shape as 2026-10-10…-14. Every claim before it died on the free-plan
+CPU budget (claims at 23:50:42Z, 23:56:40Z, 00:02:40Z, 00:08:40Z, …, each re-issued after the five-minute
+lease expired, `generation_attempts` never advancing past 0), and the one claim that survived far enough
+to reach the lateness check found the slot past its 120-minute ceiling and expired it. The ruling's
+checkpoint therefore has no natural evidence, and **the 22:30Z reader has now received no briefing for six
+consecutive nights**.
+
+**The approved vehicle cannot create its slot, and the mechanism is a product guard, not a fault.**
+`enforce_daily_briefing` (migrations/0082) is a BEFORE INSERT trigger on `digests` that returns null —
+silently dropping the row — for a second briefing on the same reader's *account-local date*, unless the
+day's earlier row is `failed` **with `generation_started_at is null`**. The 10-15T22:30Z row is JST
+2026-10-16 and carries `generation_started_at = 00:26:40Z`, so a `--now` slot for that reader's JST
+2026-10-16 is dropped. Measured twice (runs at 00:34:46Z and 00:38:44Z): the CLI reports **"slots created
+1"** — `scheduleUpcoming` counts planned rows, not inserted ones — and **no row exists afterwards**. The
+same guard blocks the two UTC readers today because their 10-16T07:30Z rows are still `scheduled`. So no
+reader can take a controlled slot before **15:00Z** (JST midnight), and the reader whose pool carries the
+class is the 22:30Z one. This is recorded as a corrected mechanism as well: the earlier statement in the
+ruling's case that `--skip-send` creates no delivery rows was wrong in the other direction —
+`generateOne` always calls `queueDeliveries` (three call sites, `skipSend` never consulted), which the two
+`skipped` 07:30Z builds prove from live data (both queued an email leg and both failed it with
+`Resend 401`).
+
+**Ruled (2026-10-16): B now, A after 15:00Z, and the checkpoint is recorded as overdue.** Verbatim:
+*"Decision: B now, then A at 15:00Z. Close the verification checkpoint before starting the CPU-budget
+optimization slice."* — with, verbatim, *"Record the checkpoint as overdue. Do not reset its clock or
+represent the delay as an on-time pass"* (the original window ended 2026-10-16T06:42:45Z; A is expected
+about 8h17m later), *"Do not disable the trigger, manipulate the failed row, or repeatedly attempt
+builds"*, and *"If the slot is still rejected, stop and report the actual outcome."* B is authorised as a
+**read-only composition diagnostic** with the conditions: use the existing `selectItems`, duplicate/twin
+suppression and readiness logic without changing eligibility; pass the selected items' actual stored
+lines and coverage through `composedSummaryArtifact`; print each item's identity, original stored line,
+disposition and the exact proposed artifact; report refusals and missing artifacts explicitly; write
+nothing; **"Do not promote B's output into the post-deploy delivered-artifact metric. It is diagnostic
+evidence only."** For A the ruling requires verifying that the slot row really exists (not the reported
+count), then confirming persistence, that composition was attempted for at least one item, that the
+artifact passed all three checks, that `delivered_revision` matches, that the reader path reads the
+artifact and never substitutes a refused raw line, that no notification is sent *by the controlled build
+itself*, and that the queued-delivery behaviour is understood and recorded — *"--skip-send does not
+prevent delivery rows from being queued. The subsequent Worker delivery stage may send them."* The
+ruled next slice, after verification, is **a build that completes inside the existing free-plan CPU
+budget for a reader with a large candidate pool**, with its own measured acceptance criteria: reproduce
+the late/empty failure under representative large-pool conditions, locate the CPU spend, reduce work
+without bypassing readiness, duplicate suppression or composition validation, demonstrate completion
+within the budget, and verify that selection, stored artifacts and delivery behaviour stay correct.
+
+**B, run (read-only; nothing written, no slot, no delivery).** Against the 22:30Z reader's live pool,
+`scripts/reader-composition-diagnostic.ts` reports **1000 live matches → 128 eligible → 128 distinct → 37
+considered → 36 after twins → 13 ship, 23 withheld by the readiness gate**. **All 13 shipping items carry
+a stored line the delivery boundary admits, so a build today would store 0 artifacts** — the composition
+path is not exercised by today's selection. The pool scan over the 200 most relevant matches answers the
+question the checkpoint actually asks: **16 items are ones the build would compose for** — 5 with a
+refused stored line (4 `unresolved context opening`, 1 `sentence admissibility`) and 11 with no stored
+line at all — of which **14 are withheld by the readiness gate** (newsletter 5, primary-source 4,
+unbriefable 4, …) and **2 are shippable**, both with no stored line, both ranking outside today's
+eligible set. The composer produces a valid line for both:
+
+| event      | stored line | composed artifact the build would store |
+| ---------- | ----------- | --------------------------------------- |
+| `bacf5160` | none        | *The activity, which brings together commodity offensive tools like Cobalt Strike with an AI orchestration layer powered by Anthropic's Claude Code, has been attributed.* |
+| `069ff9f2` | none        | *The AI takeover of mathematics has begun.* |
+
+What that establishes: the composer **does** act on today's real pool, on real items, and publishes a
+line the delivery boundary accepts; the repair path is needed by **2 shippable items today**. What it
+cannot establish, in the ruling's own words, and does not claim: that a digest can be persisted, that
+`delivered_revision` records the right provenance, that the reader's production read paths consume the
+stored artifact, or that email or push renders it. **Prediction carried into A:** with today's ranking, a
+controlled build will likely show *composition not attempted* — because no refused or empty line ranks
+into the shipping set — and that is a fact about the pool's composition, not a defect in the repair
+path. If A shows it, the checkpoint's "composition was actually attempted for at least one item"
+criterion is unmet by construction until a briefing ranks such an item into its cap, which the historical
+audit says happens at roughly 3.4% of delivered lines (10 of 297).
+
+## The next slice's first measurement: where the briefing build's CPU goes (2026-10-16, measured; design question open)
+
+**Why measured now.** The arbiter's ruled next slice is a build that completes inside the free-plan
+budget for a large candidate pool, and its first acceptance criterion is to *locate the spend*. The
+22:30Z reader is the representative large-pool case: **1000 live unbriefed matches**, six consecutive
+nights of killed claims, pool growing because nothing ships.
+
+**Method, and its limit.** `process.cpuUsage()` around each phase of the same read path the build runs
+(the replay in `scripts/reader-composition-diagnostic.ts`), on the laptop, 2026-10-16T01:2xZ. It
+measures the whole Node process — user plus system across its threads — so it is an **upper bound**
+relative to a single-threaded V8 isolate, and it is **not** the Worker's own number. The recorded
+Worker figures stay authoritative for the budget itself
+([cpu-killed-invocations.md](cpu-killed-invocations.md): kills cluster in the 9.5–10 ms bucket, but
+767 scheduled invocations on 2026-10-11 *succeeded* having used more than 10 ms, the largest at
+**709.8 ms** — a soft budget, terminated when it is hit *consistently*).
+
+| phase | CPU | note |
+| ----- | --- | ---- |
+| `loadMatches` (JSON of 1000 matches) | **320 ms** | one query, one parse |
+| `alreadyBriefed` | 64 ms | |
+| `selectItems` | 33 ms | |
+| `suppressDeliveredDuplicates` | 529 ms | |
+| `loadBriefs` (37 considered) | 140 ms | |
+| `deliveredTwinTitles` | 29 ms | |
+| `suppressStoryTwins` + `suppressDeliveredTwins` | **1,052 ms** | pairwise similarity |
+| **readiness gate, 36 briefs** | **15,459 ms** | **median 338 ms per brief** |
+| `composedSummaryArtifact` for the shipping set | 117 ms | 32 calls, ~3.6 ms each |
+| **read path total** | **~17.7 s CPU** | writes not included |
+
+**Per-brief distribution of the gate (36 briefs, sorted):** 1,744 · 1,424 · 1,410 · 1,179 · 1,068 ·
+966 · 959 · 691 · 586 · 545 · 510 · 464 · 457 · 428 · 401 · 392 · 371 · 353 · 338 · 309 · 306 · 282 ·
+249 · 248 · 246 · 241 · 237 · 201 · 199 · 185 · 126 · 98 · 87 · 28 · 17 · **9.6** ms. Cost tracks the
+story's excerpt size (the 4,000-character paper abstracts are the top of the list; a 26-character
+excerpt is the 9.6 ms floor). **The first 25 — the cap itself — cost 15.9 s on their own.**
+
+**What that says, stated as the measurement supports it.** (1) The gate — which *composes each
+candidate story* to decide briefability — is the dominant term, not the writes, not the queries' count.
+(2) Even the cheapest brief observed equals the entire 10 ms soft budget, and the median brief is ~34×
+it, so **no amount of trimming inside the current design brings a pool this size inside the budget**;
+the work has to be bounded or moved off the invocation. (3) It also explains which builds *do*
+succeed: the two UTC readers are `skipped` with 0 items every day because they never reach the gate,
+and the 2026-10-08/09 briefings (16 and 9 items) were built when this reader's pool was current and
+small. **The silence is self-reinforcing: nothing ships → the pool grows → the gate costs more → the
+build is killed.**
+
+**The design question, put to the arbiter with these numbers (open):**
+
+| option | shape | cost |
+| ------ | ----- | ---- |
+| A. Slice generation across invocations | persist per-digest progress (one column + resume), gate a bounded number of briefs per tick, then write items on the final tick | every gate kept exactly; a briefing becomes ~N ticks instead of one; needs a migration and resume tests |
+| B. Precompute the gate's verdict per event | a bounded stage walks candidate events one (or a few) per invocation and stores `briefable` with the `material_revision` it was computed from; the build then reads verdicts and composes artifacts only for shipped refused lines | removes ~15 s from the build and leaves ~0.5 s (parse + dedup + artifact), still above the 10 ms soft budget but inside the measured 710 ms grace; cache invalidation is already modelled by `material_revision` |
+| C. B then A | B removes the dominant term; A bounds whatever remains | most work, most robust |
+| D. Nothing now | accept the silence; the reader receives nothing until the pool ages out | free, and the reader keeps getting nothing |
+
+**Not claimed:** that the laptop numbers are the Worker's; that option B alone fits (it does not, on
+this measurement — parse plus dedup is still ~0.5 s); or that the gate's cost is a defect — it is the
+briefability contract doing its job, on a pool that six silent nights made abnormally large.

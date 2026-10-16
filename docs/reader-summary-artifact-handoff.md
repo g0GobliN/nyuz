@@ -15,36 +15,54 @@ What is *not* yet observed live is a delivered row carrying an artifact: that co
 briefing built after the deploy, and `npm run audit:delivered-summary -- --deploy-at <iso>` reports it
 from then on, split into the historical and post-deploy cohorts the ruling requires. The briefing
 denominator was corrected in the same measurement: 13 of the 20 "delivered" briefings actually reached a
-reader (the other 7 have only failed deliveries), so the affected-briefing rate is 8 of 13 = 61.5%.
+reader (the other 7 have only failed deliveries), so the affected-briefing rate is 8 of 13 = 61.5%.## Where the post-deploy verification stands (read this first in a fresh thread)
 
-## Where the post-deploy verification stands (read this first in a fresh thread)
-
-- **Landed and deployed:** `a82a8c0`, CI run `38693464587` green, deploy job finished
-  **2026-10-15T06:42:45Z**. The 24-hour window the ruling allows ends **2026-10-16T06:42:45Z**.
-- **The natural build so far:** the 07:30Z slot built two briefings at 07:20:22Z and 07:20:26Z and both
-  are **`skipped` with 0 items** (quiet days), so the repair path was **not** exercised — the ruling is
-explicit that a new digest alone is not evidence. The third reader's slot is **22:30Z**, inside the
-  window.
+- **Landed and deployed:** `a82a8c0` (deploy finished **2026-10-15T06:42:45Z**) and the email-join slice
+  `9ff000d`. **The checkpoint is recorded as OVERDUE**: the 24-hour window ended 2026-10-16T06:42:45Z,
+  and A is expected at about 15:00Z on 2026-10-16, ~8h17m later. Do not reset that clock.
+- **The natural attempt is over and produced nothing:** the 22:30Z slot ended `failed`, 0 items,
+  *“missed slot by 123 minutes; not sent”* (last claim 00:26:40Z, generated 00:32:40Z) — the sixth
+  consecutive night of the free-plan CPU condition. The two 07:30Z builds are `skipped` with 0 items.
+  **The 22:30Z reader has received no briefing for six nights.**
+- **Why the controlled build did not run at 00:34Z:** `enforce_daily_briefing` (0082) drops a second
+  briefing for the same account-local date when the day's earlier row failed *after* starting, and the
+  reader's 10-15T22:30Z row (JST 2026-10-16) has `generation_started_at` set. The CLI still prints
+  *“slots created 1”* — it counts planned rows — while writing nothing. **The guard must not be disabled
+  and the failed row must not be rewritten**; every reader is blocked until **15:00Z** (JST midnight).
+- **A, to run at/after 15:00Z (one run, ruled 2026-10-16):** first verify the slot row actually exists
+  after `scheduleUpcoming` (query `digests` for the reader; do not trust the printed count). If the slot
+  is *still* rejected, stop and report — do not retry. Then
+  `npm run pipeline -- digest --user 640a69b6-36ff-4523-841c-957abfc60315 --now --skip-send` and verify:
+  a real digest and its items persisted; composition attempted for at least one item; the artifact passed
+  all three checks; `delivered_revision` matches the revision composed from; the reader path reads the
+  artifact and never substitutes a refused raw line; **no notification sent by the controlled build
+  itself**; and that `--skip-send` **does** queue delivery rows which the Worker's own delivery stage
+  then sends (the email leg will fail with `Resend 401` while the Resend key is invalid; the push leg
+  succeeds). Keep three cohorts separate — historical pre-deploy delivery, controlled build, actual
+  delivery — and never count a stored artifact as delivered.
+- **B already ran (read-only, 2026-10-16):** `npm run diagnostic:composition -- --user <id>` replays the
+  real selection and composer, writes nothing and delivers nothing. Findings: the reader's pool is 1000
+  matches → 128 eligible → 37 considered → **13 ship, 23 withheld**, and **all 13 shipping items carry an
+  admitted line, so a build today would store 0 artifacts**. Of the 200 most relevant matches, **16 are
+  compose targets** (5 refused, 11 with no stored line), 14 withheld by the gate and **2 shippable but
+  outside today's eligible set** — for both, the composer publishes a valid line. So A may legitimately
+  report *composition not attempted*; that is a fact about the pool (~3.4% of delivered lines are refused
+  historically), not a defect. B's numbers must never enter the delivered-artifact metric.
 - **What to run when a briefing with items is built:**
   `npm run audit:delivered-summary -- --deploy-at 2026-10-15T06:42:45Z` — the post-deploy cohort line
   must show `composed artifacts >= 1`, `stored lines refused == repaired`, `raw fallbacks 0`; then read
   the rendered briefing page for that reader in the browser and compare the line to `digest_items.summary`
   (the ruling wants rendered text, not only database flags).
-- **The ruled sequence (2026-10-15, arbiter: C):** let the **22:30Z** natural slot run first (it has
-  been `failed`/0 items/"missed slot by 121-132 minutes" for five days — the free-plan CPU condition,
-  not content). If it skips, fails, produces zero items, or builds items **without** exercising
-  composition, run **one** controlled build immediately; the 24-hour deadline (2026-10-16T06:42:45Z) is
-  an outer limit, not a requirement to wait idly.
-- **The controlled build, exactly as ruled:** `npm run pipeline -- digest --user <the JST reader>
-  --now --skip-send` — the real reader, the normal production path, `skipSend` (authorized although no
-  reader has empty channels). **One run only**; no repeated runs until one passes. Then confirm **no
-  delivery rows** were created, and report it as a **controlled build**, never as a natural delivery:
-  digest id, build time, which candidates were selected and why, which items triggered composition,
-  whether the artifacts passed all three checks, `delivered_revision` per artifact, the text **read back
-  through the reader path**, whether any refused raw line appeared as a fallback, and the disposition of
-  every item whose composition yielded nothing. Keep three cohorts separate — historical pre-deploy
-  delivery, controlled post-deploy build, actual post-deploy delivery — and never count a stored
-  artifact as a delivered one.
+- **After the checkpoint closes, the ruled next slice** is **a build that completes inside the free-plan
+  CPU budget for a large pool** (reproduce → locate the spend → reduce without bypassing readiness,
+  duplicate suppression or composition → demonstrate completion → verify selection, artifacts and
+  delivery). Do not pay to lift the limit and do not weaken a quality gate to fit the budget.
+- **Live defect found on the way, owner-side:** every email leg fails with `Resend 401` (*“API key is
+  invalid”*) — 128 failures since 2026-09-11 and still failing today, on both `skipped` and built
+  digests; the local `.env` key is invalid too. Two of the three readers are **email-only**, so they
+  receive nothing at all; the third has push, which succeeds. A fresh Resend key (and a verified sending
+  domain) is owner configuration, not code, and the no-domain stage condition means transactional email
+  to a reader cannot work until one exists.
 - **Already ruled, do not rebuild:** alert text stays a paragraph under the alert contract (Q1 = A);
   backfill of delivered history and universal summary composition are **not authorized**.
 - **Also recorded 2026-10-15, measured and not acted on:** the repair-only scope leaves ~1% of printing
