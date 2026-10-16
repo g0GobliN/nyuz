@@ -20,6 +20,15 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
   loop opens the site. Treat the unbought domain exactly like the free plan: a stage condition, not a
   defect, and **do not propose buying one**.
   [decisions/reader-facing-origin.md](docs/decisions/reader-facing-origin.md)
+- **Briefing email is deliberately off until launch — a stage condition, not a defect.** The owner,
+  2026-10-16: _"resend was deliberately off as it consume usage which we can use when we live it that
+  space, if we use it now i have to pay later ... i only test it with gmail and it was correct so that
+  why api is close for now resend"_. So the live `Resend 401 API key is invalid` on every email
+  delivery row is **expected and intended**: the key is disabled to keep the free monthly send quota
+  for launch, and the channel is dark on purpose. Reader delivery today is push and the dashboard. Do
+  not re-enable it, do not treat the 401s as a failure to fix, and do not spend a slice investigating
+  them — the last accepted send being 2026-08-26 is the same fact seen from the other side. Re-enabling
+  it is a launch-time owner action.
 - **The origin is configuration, never a literal, and a deployment may declare only one.** Measured
   2026-10-12: the runtime surface — briefing email links, the unsubscribe link, Stripe returns,
   `sitemap.xml` — reads `VITE_SITE_URL` from the Worker and was already right, while the build-time

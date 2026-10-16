@@ -113,7 +113,7 @@ must-be-zero lines are the acceptance test.
 | Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                               |
 | Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick |
 | Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled to stay (R1)                                                                                                                                                   |
-| **Briefing email actually delivered**        | **BROKEN — two causes in sequence** (see §7): 125 failures for `Missing EMAIL_UNSUBSCRIBE_SECRET` (26 Aug → 11 Sep), then 128 for the Resend 401 (11 Sep → today, current); nothing accepted since 2026-08-26T22:59 |
+| **Briefing email actually delivered**        | **Off on purpose until launch (owner, 2026-10-16)** — the Resend key is deliberately disabled to keep the free send quota for launch, so every email row fails `Resend 401 API key is invalid` by design and nothing has been accepted since 2026-08-26T22:59. The earlier `Missing EMAIL_UNSUBSCRIBE_SECRET` run (26 Aug → 11 Sep) is fixed. Pre-launch channels are push and the dashboard; re-enabling email is a launch-time owner action, not a defect — [AGENTS.md](../AGENTS.md) |
 | Reader article (deterministic composer)      | Built, under active quality work (see §5)                                                                                                                                                                           |
 | Story Ask                                    | Dormant — endpoint disabled, zero allowance on every plan                                                                                                                                                           |
 | Every side, measured                         | [product-readiness.md](product-readiness.md) via `npm run audit:posture`; rated built 8.5 / exercised live 5 / sellable 3, ruled in [decisions/product-readiness.md](decisions/product-readiness.md)                |
@@ -1076,7 +1076,11 @@ repair is committed and green locally but **not deployed** — the live Worker s
 `17d1b36`. That matters for tonight: the 22:20Z natural attempt will exercise the *old* gate unless
 the deploy path is unblocked first, and the Day-3 release decision has to be read with that in
 mind rather than as a verdict on the repair. Evidence still owed: the controlled production-path
-build (A) at 15:00Z, and the reader's own attempt after the deploy lands.
+build (A) at 15:00Z, and the reader's own attempt after the deploy lands. **Email is not part of
+that evidence, by the owner's ruling the same day:** the Resend key is deliberately disabled to
+keep the free send quota for launch, so the 401 on every email row is intended and the channels a
+reader actually receives today are push and the dashboard. A release decision must therefore be
+read on push and the dashboard, with email listed as a launch-time switch rather than a broken leg.
 
 **Day 2 is spent and Day 3 is the release decision (2026-10-17).** The arbiter's ruled Day-2 slice --
 a build that completes inside the existing free-plan CPU budget for a reader with a large pool -- is

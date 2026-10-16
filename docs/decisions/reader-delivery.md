@@ -2334,3 +2334,30 @@ What the slice claims is narrower than "the reader will get a briefing tonight":
 build now fits inside that observed grace on this reader's pool, where before the gate did not at
 2 briefs a tick and selection and screening did not at all. The natural attempt at 22:20Z is what
 tests the claim; the arbiter's A at 15:00Z tests persistence and provenance separately.
+
+## Email is off on purpose until launch (owner, 2026-10-16)
+
+**The ruling, in the owner's own words.** *"resend was deliberately off as it consume usage which we can
+use when we live it that space, if we use it now i have to pay later so, and i only test it with gmail
+and it was correct so that why api is close for now resend"*. So the `Resend 401 API key is invalid` on
+every email delivery row is **not a defect and not a incident**: the key is disabled to preserve the
+free monthly send quota for launch, and the channel is dark by choice. What the log shows and what it
+means:
+
+| what the rows say                                  | what it means                              |
+| -------------------------------------------------- | ------------------------------------------ |
+| every email delivery `failed`, `Resend 401`         | the key is deliberately off                |
+| nothing accepted since 2026-08-26T22:59             | when the key was last in use, not breakage |
+| the earlier `Missing EMAIL_UNSUBSCRIBE_SECRET` runs | a real config gap, since fixed             |
+| push rows `sent` on the same digests                | the live channel keeps working             |
+
+**Consequences, stated so no later session spends a slice re-deriving them.** Do not re-enable the key,
+do not treat the 401s as failures to fix, and do not investigate the silence as a delivery bug — the
+same fact is in [AGENTS.md](../../AGENTS.md) under *Stage and priority*, because a session that starts
+cold must not "repair" it. R1's first item (*restore email delivery*) is therefore read as a
+**launch-time owner action**: the code path is intact and was exercised end to end through Gmail, and
+what is missing is the key being switched back on when there is something to send. For the release
+decision this narrows the reader-facing bar to the channels that actually exist today: **the dashboard
+and push**, with email listed as a switch, not a broken leg. The unsubscribe-secret half is still worth
+noting for the day it is switched on: the live Worker must carry `EMAIL_UNSUBSCRIBE_SECRET`, or every
+link in every email is rejected by the reader's own provider of record.
