@@ -418,10 +418,12 @@ describe("the briefing build resumes across ticks", () => {
     expect(afterScreen?.queue).toHaveLength(14);
 
     await tick(engineRef, db, 2);
-    // Two briefs a tick: the gate is the stage the budget was written for.
-    expect(progressOf(db)?.cursor).toBe(2);
+    // One brief a tick: the gate is the stage the budget was written for, and a
+    // single brief is the largest chunk whose worst measured cost stays inside the
+    // ceiling (see `GATE_BRIEFS_PER_INVOCATION`).
+    expect(progressOf(db)?.cursor).toBe(1);
     await tick(engineRef, db, 3);
-    expect(progressOf(db)?.cursor).toBe(4);
+    expect(progressOf(db)?.cursor).toBe(2);
   });
 
   it("resumes rather than restarting: the snapshot and the claim clock survive", async () => {
@@ -481,14 +483,15 @@ describe("the briefing build resumes across ticks", () => {
     const engineRef = await engine();
     const db = new FakeDb(tables({ filler: 10, containers: 9 }));
 
-    // Select, screen, then six of the seven gate chunks — everything except the
-    // chunk whose tick goes on to write the items.
-    for (let minute = 0; minute < 7; minute += 1) {
+    // Select, screen, then thirteen of the fourteen gate chunks — everything
+    // except the chunk whose tick goes on to write the items. One brief a tick, so
+    // that is thirteen ticks of gating rather than seven.
+    for (let minute = 0; minute < 15; minute += 1) {
       const outcome = await tick(engineRef, db, minute);
       expect(outcome?.decision).toBe("deferred");
     }
     expect(progressOf(db)?.stage).toBe("gate");
-    expect(progressOf(db)?.cursor).toBe(10);
+    expect(progressOf(db)?.cursor).toBe(13);
 
     // Now the story moves, between the gate that admitted it and the write that
     // would compose its line.
@@ -576,6 +579,25 @@ describe("the briefing build resumes across ticks", () => {
       expect(await tick(engineRef, db, minute)).toBeUndefined();
     }
     expect(itemsOf(db)).toEqual(before);
+    expect(db.rows("deliveries")).toHaveLength(1);
+  });
+
+  it("degrades to one invocation when the database has not been migrated yet", async () => {
+    const engineRef = await engine();
+    // 0119 applied by hand means the code can be deployed ahead of its migration,
+    // so this is the row a pre-0119 database returns: the column is not there at
+    // all, which is the same fact PostgREST reports by omitting it.
+    const fixture = tables({ filler: 10, containers: 9 });
+    for (const row of fixture["digests"] ?? []) delete row["generation_progress"];
+    const db = new FakeDb(fixture);
+
+    const trace = await build(engineRef, db);
+    // One invocation, exactly as before the slice: nothing is written to a column
+    // the database does not have, and the briefing still builds and delivers.
+    expect(trace).toHaveLength(1);
+    expect(trace[0]?.decision).toBe("generated");
+    expect(itemsOf(db)).toHaveLength(5);
+    expect(digestRow(db)?.["generation_progress"]).toBeUndefined();
     expect(db.rows("deliveries")).toHaveLength(1);
   });
 

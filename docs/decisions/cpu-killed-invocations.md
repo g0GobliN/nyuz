@@ -259,3 +259,46 @@ ruling, the stage-by-stage costs and the residual risk (`select` ~0.93 s and `sc
 reader are each still above the ~710 ms success ceiling, so option B remains the next slice) are
 recorded in
 [reader-delivery.md](reader-delivery.md#the-ruled-slice-a-briefing-built-across-cron-ticks-2026-10-16-ruled-and-landed).
+
+## 2026-10-16 — the second measurement: the profile names the spend, and the repair is proved equivalent
+
+**Why a second measurement.** The first one attributed 87% of a large-pool briefing build to the
+readiness gate and said its cost "tracks excerpt size" — a correlation, not a mechanism, and the
+arbiter's ruled criterion is to *locate* the spend before reducing it. So the gate was profiled
+rather than timed: `node --cpu-prof` over the same replay harness, same live pool, same reader
+(640a69b6, 1,000 unbriefed matches, 37 candidates, cap 25).
+
+**What the profile said.** The gate's 15,113 ms of CPU, by self time:
+
+| entry                        | self time | share | note                                                             |
+| ---------------------------- | --------- | ----- | ---------------------------------------------------------------- |
+| `repetitionBomb`             | 4,330 ms  | 22.2% | nested window rebuilds + comparisons for a three-occurrence count |
+| `contains`                   | 3,216 ms  | 16.5% | a fresh `iu` lookbehind `RegExp` compiled on every call           |
+| `(anon)` closures            | 1,620 ms  |  8.3% | `forms.some(...)`, `units.filter(...)` around the two above       |
+| `centralTokens`              |   410 ms  |  2.7% | tokenizing excerpts that the loops above re-read                  |
+| `(garbage collector)`        |   578 ms  |  3.0% | the allocations those rebuilds made                                |
+| everything else              | ~4,900 ms | 32.0% | the composer proper, spread across ~90 functions                  |
+
+Both leaders are called from `rankEntities` inside `selectReaderEvidence`, i.e. per brief, per name,
+per sentence, per source — the loops that multiply with excerpt size, which is why the cost looked
+like a property of the excerpt.
+
+**After the repair, same harness, mean of two runs.** Gate **15,113 -> 2,634 ms** (5.7x), median per
+brief **125 -> 18 ms**, worst **1,826 -> 435 ms**; `repetitionBomb` **4,330 -> 322 ms**;
+`contains` as a self-time entry **3,216 -> ~150 ms**. The census harness (whole read path): **17.7 s
+-> 6.4 s**, now `loadMatches` 33 ms, `map to MatchRow` 0.5 ms, `alreadyBriefed` 12 ms,
+`selectItems` 10 ms, `suppressDeliveredDuplicates` 194 ms, `loadBriefs` 50 ms, `deliveredTwinTitles`
+9 ms, twin suppression 140 ms, the gate 2.6 s across 37 briefs, artifact composition 52 ms.
+
+**The equivalence proof.** 200 stories frozen to one file, composed on a clean worktree at `17d1b36`
+and on this tree, diffed with `scripts/reader-composer-diff.ts`: **0 stories rewritten, 0 stories that
+lost or gained 25+ words, 0 that became empty, every reader-visible defect counter identical**; the
+same run's wall clock 22.5 s -> 8.6 s. That is the evidence the verdicts did not move, and it is
+stronger than the reasoning that says they could not have.
+
+**What this does not change.** The budget reading stands exactly as recorded in §2: kills cluster in
+the 9.5-10 ms bucket, and 767 scheduled invocations on 2026-10-11 still succeeded above 10 ms with the
+largest at 709,805 us. These are laptop measurements and upper bounds on a single-threaded isolate;
+the Worker's own `cpuTimeUs` for the repaired ticks is still not measured. What changed is that every
+stage of this reader's build — selection ~250 ms, screening ~200 ms, one gated brief's worst 435 ms,
+the write ~52 ms — now sits inside that observed grace, where the gate at two briefs a tick did not.

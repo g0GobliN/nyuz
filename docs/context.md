@@ -110,7 +110,7 @@ must-be-zero lines are the acceptance test.
 | Blog, site content, feature flags            | Built                                                                                                                                                                                                               |
 | Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                                                                                                                                                                             |
 | Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                               |
-| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing |
+| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick |
 | Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled to stay (R1)                                                                                                                                                   |
 | **Briefing email actually delivered**        | **BROKEN — two causes in sequence** (see §7): 125 failures for `Missing EMAIL_UNSUBSCRIBE_SECRET` (26 Aug → 11 Sep), then 128 for the Resend 401 (11 Sep → today, current); nothing accepted since 2026-08-26T22:59 |
 | Reader article (deterministic composer)      | Built, under active quality work (see §5)                                                                                                                                                                           |
@@ -1035,7 +1035,49 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   ceiling on that reader's pool, which is what option B (deferred to after the release decision) is
   for. Full record: [decisions/reader-delivery.md](decisions/reader-delivery.md#the-ruled-slice-a-briefing-built-across-cron-ticks-2026-10-16-ruled-and-landed).
 
+- **2026-10-16 — the second measurement named the spend, and the gate itself was repaired without
+  moving a verdict.** The arbiter moved the CPU-budget failure into Day 2 (*"Move the CPU-budget
+  failure into today's active work"*, decision `B` with a narrower definition of what closes the
+  checkpoint) while keeping the controlled build at 15:00Z and recording the checkpoint as
+  **overdue**, not as an on-time pass. The first measurement had said the gate's cost "tracks excerpt
+  size"; a CPU profile of `assessReadiness` over the 22:30Z reader's live pool named the mechanism
+  instead: `repetitionBomb` (4,330 ms, 22.2%) rebuilt every phrase window and compared it to every
+  other window for what is a three-occurrence count, and `contains` (3,216 ms, 16.5%) compiled a
+  fresh `iu`-flag lookbehind `RegExp` **on every call** -- per name, per sentence, per source -- with
+  two inline patterns in `rankEntities` doing the same. **Repaired:** the repetition predicate counts
+  in one pass per phrase length; `contains` memoises its compiled pattern behind a bounded cache and
+  answers with `indexOf` plus a check on the two characters touching the match when the name and the
+  text are both ASCII -- guarded so that anything wider keeps the exact regex semantics, because the
+  case fold is not one-to-one (long s, final sigma, Kelvin sign). **Measured after, same harness and
+  same pool:** the gate **15,113 -> 2,634 ms of CPU (5.7x)**, median per brief **125 -> 18 ms**, worst
+  **1,826 -> 435 ms**; the whole read path **17.7 -> 6.4 s**, with `select` ~250 ms, `screen` ~200 ms
+  and the write ~52 ms -- each now inside the ~710 ms grace the kills were measured against, and none
+  of them was before. **Equivalence proved, not argued:** 200 stories frozen once and composed on a
+  clean worktree at `17d1b36` and again on this tree, diffed with `scripts/reader-composer-diff.ts` --
+  **0 stories rewritten, 0 that lost or gained 25+ words, every reader-visible defect counter
+  identical** (wall clock 22.5 -> 8.6 s for the same run). Eleven tests in
+  `src/lib/reader-evidence-equivalence.test.ts` pin the shapes a counting rewrite can get wrong; they
+  also pass on the previous tree, which is stated rather than dressed up, because the evidence that
+  nothing moved is the corpus diff. **`GATE_BRIEFS_PER_INVOCATION` is now 1**: the worst *pair* of
+  briefs is still ~670 ms against a ~710 ms grace, and a killed tick persists nothing, so an
+  over-budget pair would be retried forever. **Not verified:** the Worker's own `cpuTimeUs` for these
+  ticks; the natural attempt at 22:20Z is what tests the claim. Full record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-gates-own-cost-repaired-2026-10-16-ruled-then-measured-and-landed)
+  and
+  [decisions/cpu-killed-invocations.md](decisions/cpu-killed-invocations.md#2026-10-16--the-second-measurement-the-profile-names-the-spend-and-the-repair-is-proved-equivalent).
+
 ## 7. What is next
+
+**Day 2 is spent and Day 3 is the release decision (2026-10-17).** The arbiter's ruled Day-2 slice --
+a build that completes inside the existing free-plan CPU budget for a reader with a large pool -- is
+landed and measured: the gate's own cost is down 5.7x with its verdicts proved unmoved on 200 frozen
+stories, and every stage of the 22:30Z reader's build (selection ~250 ms, screening ~200 ms, one gated
+brief's worst 435 ms, the write ~52 ms) now fits inside the ~710 ms grace that was killing it. **What
+decides the release is evidence, not this paragraph:** the reader's 22:20Z natural attempt is the
+first tick with the repaired gate and one brief a tick, and the arbiter's controlled production-path
+build (A) runs at 15:00Z against the daily-briefing guard for persistence, provenance and the queued
+delivery. The checkpoint stays **overdue** and the reader-quality gate stays **open** until those two
+pieces of evidence exist.
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates
 what "next" means: **what the reader reads must be 10/10 and no rubbish reaches a reader**, judged on

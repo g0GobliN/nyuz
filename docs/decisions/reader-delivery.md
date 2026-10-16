@@ -2248,3 +2248,89 @@ this reader's pool, so this slice alone may not be enough for that reader; the r
 stages is option B (precomputed verdicts), which the arbiter deferred to after the release decision.
 What the slice changes is that nothing is now lost to a kill: every finished stage is recorded, so a
 killed tick costs one stage rather than six nights.
+
+## The gate's own cost, repaired (2026-10-16, ruled then measured and landed)
+
+**RULED 2026-10-16, Day 2 (`B`, with a narrower definition of what closes the checkpoint).** The
+arbiter, verbatim: *"Decision: B, with a narrower definition of what closes the checkpoint."* and
+*"Move the CPU-budget failure into today's active work. Keep the controlled build scheduled for
+15:00Z, but stop treating a composition attempt as a mandatory pass condition when today's actual
+shipping set contains no item that needs composition."* The reason it gave is the clock: *"The
+three-day intervention has a release decision tomorrow, 2026-10-17. We should spend Day 2 on the
+failure preventing readers from receiving briefings, without pretending that the remaining
+verification work has already passed."* The ruled slice carries its own acceptance criteria — *"The
+optimization needs its own measured acceptance criteria"* — reproduce the late/empty failure under
+representative large-pool conditions; identify where CPU time is spent and why the build misses its
+delivery window; **reduce work without bypassing readiness, duplicate suppression or composition
+validation**; demonstrate completion within the budget already available; and verify that selected
+items, persisted artifacts and delivery behaviour stay correct. Not authorised: bypassing the daily
+deduplication trigger, rewriting the failed row, or starting the CPU work *before* the checkpoint
+evidence was collected. Kept as ruled: A still runs at 15:00Z as a controlled production-path build,
+and the checkpoint is recorded **overdue** — it does not become an on-time pass because the work
+moved on.
+
+**Where the spend actually was, read off a profile rather than inferred.** The first measurement put
+the readiness gate at 15.5 s of the build's 17.7 s and the gate's cost "tracks excerpt size" —
+true, and not the mechanism. A CPU profile of `assessReadiness` over the 22:30Z reader's live pool
+(37 candidates, 2026-10-16) named the mechanism: two functions doing work they could not need.
+
+| profile entry                             | self time | share | what it was doing                                          |
+| ----------------------------------------- | --------- | ----- | ---------------------------------------------------------- |
+| `repetitionBomb`                          | 4,330 ms  | 22.2% | rebuilding every phrase window and comparing it to every other |
+| `contains`                                | 3,216 ms  | 16.5% | **compiling a fresh `iu`-flag lookbehind regex on every call** |
+| `(anon)` callbacks around them            | 1,620 ms  |  8.3% | the `forms.some(...)` / `units.filter(...)` closures         |
+| `centralTokens`, GC, others               | ~1,600 ms |  8.2% | real work                                                   |
+| everything else                           | ~9,000 ms | 46.1% | the composer itself, spread thin                            |
+
+Two of those are defects of shape, not of policy. `repetitionBomb` walked every window of every
+phrase length *and* every other window to count occurrences — O(sizes x windows^2) string joins for
+a predicate that is a three-occurrence count. `contains` is called per name per sentence per source,
+and it built its pattern each time; the pattern is a pure function of the name. The two inline
+patterns in `rankEntities` (the alias cue and the subject form) had the same shape.
+
+**The repair, and why it cannot move a verdict.** `repetitionBomb` now counts occurrences in one
+pass per phrase length with a map, and skips a length that cannot fit three phrases. `contains` now
+memoises its compiled pattern behind a bounded cache, and answers with `indexOf` plus a check on the
+two characters that touch the match **when the name and the text are both ASCII** — a case where the
+two tests are provably the same test, because over ASCII `i`-flag folding is one-to-one and
+`\p{L}\p{N}` is exactly `[A-Za-z0-9]`. Anything wider takes the regex path and the exact semantics:
+the fold is *not* one-to-one in general (long s folds to `s`, final sigma does not fold to sigma,
+the Kelvin sign folds to `k`), and that guard is what stops the fast path from deciding those cases
+wrongly. The two `rankEntities` patterns go through the same cache.
+
+**Measured after, on the same harness and the same live pool.** The gate: **15,113 ms -> 2,634 ms of
+CPU** (5.7x), median per brief **125 ms -> 18 ms**, worst **1,826 ms -> 435 ms**. The whole read path
+by the census harness: **17.7 s -> 6.4 s**, with `select` at ~250 ms and `screen` at ~200 ms — both
+now inside the ~710 ms grace the kills were measured against, and the write stage at ~52 ms. Per-phase
+numbers in [cpu-killed-invocations.md](cpu-killed-invocations.md#2026-10-16--the-second-measurement-the-profile-names-the-spend-and-the-repair-is-proved-equivalent).
+
+**The equivalence proof, because "faster" was never the requirement.** The two functions decide which
+names an entity has and whether a sentence is prose, and entity roles decide what a briefing
+publishes, so a performance change here is a content change until proved otherwise. Proof, not
+argument: 200 stories frozen once, composed on a clean worktree at `17d1b36` and again on this tree,
+diffed with the project's own composer diff — **0 stories rewritten at all**, 0 stories that lost or
+gained 25+ words, 0 that became empty, and **every reader-visible defect counter identical**
+(entity leaks 0 -> 0, context-dependent openings 7 -> 7, quotation in the lead slot 33 -> 33,
+citation-carrying paragraphs 572 -> 572). The wall clock for that same run fell from 22.5 s to 8.6 s.
+Eleven new tests in `src/lib/reader-evidence-equivalence.test.ts` then pin the shapes a counting
+rewrite can get wrong: the four-word and two-occurrence boundaries of the repetition predicate, the
+whole-run boundary of the name test, and a table of pairs on which the fast path and the reference
+regex must agree — including the long-s case that only the guard gets right. **Those tests pass on
+the previous tree as well, and that is stated rather than dressed up: they are pins on a behaviour
+that was meant not to change, and the evidence that it did not change is the corpus diff above.**
+
+**One constant moved with it.** `GATE_BRIEFS_PER_INVOCATION` is now **1**, not 2. Two medians were
+the right whole number for a 338 ms brief; against the repaired costs the worst *pair* is still
+~670 ms — and a pair that overruns the ceiling is retried forever, because a killed tick persists
+nothing. One brief cannot: 435 ms is the worst single brief observed. What it costs is latency that
+the arbiter already accepted on 2026-10-16 — a 25-story briefing becomes about forty gate ticks and
+arrives twenty to forty minutes after its slot, inside the 120-minute window the build is allowed.
+
+**Not verified, stated as not verified.** The Worker's own `cpuTimeUs` for these ticks — this is
+still a laptop measurement, and every per-stage figure is an upper bound on a single-threaded
+isolate. The budget itself is unchanged and still read as recorded: kills cluster in the 9.5-10 ms
+bucket while 767 scheduled invocations on 2026-10-11 succeeded above 10 ms, the largest at 709.8 ms.
+What the slice claims is narrower than "the reader will get a briefing tonight": each stage of the
+build now fits inside that observed grace on this reader's pool, where before the gate did not at
+2 briefs a tick and selection and screening did not at all. The natural attempt at 22:20Z is what
+tests the claim; the arbiter's A at 15:00Z tests persistence and provenance separately.

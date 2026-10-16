@@ -651,17 +651,20 @@ type DueRow = {
 async function loadDue(db: Db, now: Date, options: DigestOptions): Promise<DueRow[]> {
   const stale = new Date(now.getTime() - GENERATION_LEASE_MINUTES * 60_000).toISOString();
   const windowOpen = new Date(now.getTime() + PREPARE_LEAD_MINUTES * 60_000).toISOString();
+  // `*` rather than a column list on purpose. The code can be deployed before the
+  // migration that backs it (migrations here are applied by hand), and a named
+  // column the database does not have yet would fail the *read* -- the whole stage,
+  // not one feature of it. Asking for the row asks for whatever the schema has, and
+  // `generateOne` reads `generation_progress` being there as the schema's answer to
+  // "does this database have 0119?".
   let query = db
     .from("digests")
-    .select(
-      "digest_id, user_id, scheduled_for, status, generation_deferred_until, generation_attempts, kind, generation_started_at, generation_progress",
-    )
+    .select("*")
     .lte("scheduled_for", windowOpen)
     .or(`status.eq.scheduled,and(status.eq.generating,generated_at.is.null)`)
     .or(`generation_deferred_until.is.null,generation_deferred_until.lte.${now.toISOString()}`)
     .order("scheduled_for", { ascending: true })
     .limit(options.limit ?? BATCH);
-
   if (options.userIds) query = query.in("user_id", options.userIds);
 
   const { data, error } = await query;
@@ -755,6 +758,11 @@ type EventBrief = {
 async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise<DigestOutcome> {
   const base = outcomeOf(due);
 
+  // The row is the schema's own answer to "does this database have 0119?" — see
+  // `progressColumnPresent`. Read before anything writes, because every write that
+  // names the column is guarded by it.
+  progressColumnPresent = "generation_progress" in due;
+
   const now = options.now ?? new Date();
   const lateByMs = now.getTime() - Date.parse(due.scheduled_for);
 
@@ -819,31 +827,45 @@ async function generateOne(db: Db, due: DueRow, options: DigestOptions): Promise
  * cluster in the 9.5–10 ms bucket and 767 scheduled invocations that day still
  * succeeded above 10 ms, the largest at 709,805 µs).
  *
- * Two, because two median briefs (~676 ms) are the largest whole number that
- * fits inside that ceiling beside the tick's own reads and writes. What it costs
- * is latency, never correctness: a 25-story briefing becomes about thirteen gate
- * ticks, so it arrives ten to twenty minutes after its slot instead of never —
- * which the arbiter ruled acceptable on 2026-10-16, provided the delivery is
- * reliable and complete. Option B (a precomputed verdict per event, which
- * removes this term entirely) is the ruled target; this slice is the mechanical
- * one that keeps every gate exactly as it was.
+ * One, since the gate was made cheap (2026-10-16, second measurement). Two medians
+ * were the right whole number for the first measurement; the repair that followed
+ * it cut the gate's own cost — `contains` and `repetitionBomb` were rebuilding a
+ * regular expression and re-scanning every phrase window on every call, and now do
+ * neither — so the whole gate over that reader's 37 candidates is **2.6 s of CPU
+ * instead of 15.1 s, median 18 ms per brief, worst 435 ms** (measured 2026-10-16 on
+ * the same harness, and proved output-identical: 200 frozen stories composed before
+ * and after, **0 stories changed**). *Two* briefs a tick would put pairs of the
+ * expensive head together — the worst pair is still ~670 ms — and a pair that
+ * overruns the ceiling is a pair that is retried forever, because a killed tick
+ * persists nothing. One brief cannot: 435 ms is the worst single brief observed,
+ * well inside the ~710 ms grace.
+ *
+ * What it costs is latency, never correctness: a 25-story briefing becomes about
+ * forty gate ticks, so it arrives twenty to forty minutes after its slot instead of
+ * never — which the arbiter ruled acceptable on 2026-10-16, provided the delivery
+ * is reliable and complete. Option B (a precomputed verdict per event) remains the
+ * ruled target for the remainder; this is the mechanical repair that keeps every
+ * gate exactly as it was.
  *
  * Deliberately not configurable. A briefing that ships faster by gating four
  * briefs a tick is a briefing that ships by overrunning the budget that was
  * killing it.
  */
-const GATE_BRIEFS_PER_INVOCATION = 2;
+const GATE_BRIEFS_PER_INVOCATION = 1;
 
 /**
  * The set size past which a stage is a tick of its own.
  *
  * Every stage's cost is proportional to the set it had to look at, and the
- * measurements say by how much: selection is ~0.9 ms per match (930 ms to rank
- * a thousand), screening ~32 ms per candidate (1.2 s across 37), and the
- * readiness gate a median 338 ms per brief. Twelve is where a set that fits
- * inside a tick and a set that does not are furthest apart — the largest set any
- * stage was measured to walk in one tick is the whole briefing (37 candidates,
- * 1.2 s, still over), and the smallest real reader's is a handful.
+ * measurements say by how much: on the reader whose 22:30Z slot six nights
+ * running was killed (1,000 matches → 37 candidates, cap 25), the whole selection
+ * stage measures **~250 ms** (33 ms parsing the rows, 194 ms of duplicate
+ * suppression over a thousand candidates), screening **~200 ms**, and the
+ * readiness gate a **median 18 ms per brief, worst 435 ms**. Twelve is where a set
+ * that fits inside a tick and a set that does not are furthest apart — the largest
+ * set any stage was measured to walk in one tick is the whole briefing, and the
+ * smallest real reader's is a handful. Measured 2026-10-16, second measurement,
+ * after the gate's own cost was repaired (see `GATE_BRIEFS_PER_INVOCATION`).
  *
  * A *count*, not a clock, and that is the point. A wall-clock budget in a
  * function this side of the database would make "did this briefing finish in one
@@ -852,11 +874,11 @@ const GATE_BRIEFS_PER_INVOCATION = 2;
  * walked is the same number everywhere, and it is the number that decides the
  * cost in the first place.
  *
- * What it buys, concretely, on the reader whose 22:30Z slot six nights running
- * was killed (1,000 matches → 37 candidates): selection and screening each take
- * a tick of their own, then the gate takes two briefs a tick. A reader whose
- * build already fitted in one invocation — a handful of matches, a queue inside
- * this limit — still finishes in one, unchanged.
+ * What it buys, concretely, on that reader: selection and screening each take a
+ * tick of their own — and now fit inside the ceiling when they do — and the gate
+ * takes one brief a tick. A reader whose build already fitted in one invocation —
+ * a handful of matches, a queue inside this limit — still finishes in one,
+ * unchanged.
  */
 const TICK_SET_LIMIT = 12;
 
@@ -1054,7 +1076,8 @@ async function writeGenerationProgress(
   db: Db,
   digestId: string,
   progress: GenerationProgress,
-): Promise<void> {
+): Promise<boolean> {
+  if (!progressColumnPresent) return false;
   const { error } = await db
     .from("digests")
     .update({
@@ -1066,7 +1089,37 @@ async function writeGenerationProgress(
       },
     })
     .eq("digest_id", digestId);
-  if (error) throw new Error(`recording generation progress: ${error.message}`);
+  if (error) {
+    if (missingProgressColumn(error.message)) {
+      progressColumnPresent = false;
+      return false;
+    }
+    throw new Error(`recording generation progress: ${error.message}`);
+  }
+  return true;
+}
+
+/**
+ * Whether the database this tick read has 0119's column.
+ *
+ * Migrations in this project are applied by hand (`docs/database.md`), so the code
+ * can be deployed before its migration is; a schema ahead of its code is harmless,
+ * and the reverse must not be. `loadDue` asks for the whole row, so the row itself
+ * answers the question: the column is there in what came back, or it is not. Set
+ * false when it is not, and from then on this isolate builds a briefing exactly as
+ * it did before the slice: one invocation, no cursor, and therefore killable —
+ * slow, but never broken. A fresh isolate reads the row again, so the resume path
+ * switches itself on as soon as the migration lands.
+ *
+ * Per-isolate and read from the row rather than probed: there is no schema cache to
+ * invalidate, no extra query to pay for, and the only cost of being wrong in either
+ * direction is that one isolate builds a briefing the old way once.
+ */
+let progressColumnPresent = true;
+
+/** The database telling us 0119 has not been applied yet. */
+function missingProgressColumn(message: string): boolean {
+  return message.toLowerCase().includes("generation_progress");
 }
 
 /** The outcome a tick reports before it knows what became of the briefing. */
@@ -1125,6 +1178,10 @@ async function advanceGeneration(
   options: DigestOptions,
   persist: boolean,
 ): Promise<DigestOutcome> {
+  // Set false for two different reasons: a dry run writes nothing, so there is no
+  // state for a later tick to resume from; and a database without 0119's column
+  // cannot be resumed. Both mean the whole build happens in this invocation.
+  let effectivePersist = persist;
   let state = progress;
 
   for (;;) {
@@ -1152,16 +1209,20 @@ async function advanceGeneration(
     if (step.kind === "done") return step.outcome;
     state = step.progress;
 
-    // A dry run writes nothing, so there is no state for a later tick to resume
-    // from: it runs the whole build here, as it did before this slice.
-    if (persist !== true) continue;
+    if (effectivePersist !== true) continue;
 
     // Written after *every* stage, not only at the tick boundary: the boundary is
     // about how much one invocation may do, and a kill is not obliged to wait
     // for it. A tick that dies mid-build has still recorded every stage it
     // finished, so the next one resumes at the stage after it rather than losing
     // the whole tick's work.
-    await writeGenerationProgress(db, due.digest_id, state);
+    if ((await writeGenerationProgress(db, due.digest_id, state)) === false) {
+      // No cursor to resume from — see `progressColumnPresent`. The briefing is
+      // built here instead, in one invocation, which is what it was before the
+      // slice. `effectivePersist` stays false for the rest of this build.
+      effectivePersist = false;
+      continue;
+    }
 
     if (stageIsItsOwnTick(running, state)) {
       return { ...outcomeOf(due), decision: "deferred", detail: step.detail };
@@ -1908,7 +1969,7 @@ async function finish(
       // The build is finished, so its cursor goes: a `ready` or `skipped` digest
       // that still carried one would be resumed by the next tick and build the
       // briefing a second time.
-      generation_progress: null,
+      ...(progressColumnPresent ? { generation_progress: null } : {}),
     })
     .eq("digest_id", digestId);
 
@@ -1951,7 +2012,7 @@ async function failGeneration(
       // A requeued build keeps its cursor and resumes where it stopped; only a
       // build that is given up on loses it, and then only because the row can no
       // longer be resumed anyway.
-      ...(exhausted ? { generation_progress: null } : {}),
+      ...(exhausted && progressColumnPresent ? { generation_progress: null } : {}),
     })
     .eq("digest_id", due.digest_id);
   if (error) throw new Error(`recording digest failure: ${error.message}`);
@@ -1974,7 +2035,7 @@ async function expireSlot(db: Db, digestId: string, lateMinutes: number): Promis
       generation_failure_reason: `missed slot by ${lateMinutes} minutes; not sent`,
       // A closed slot has nothing left to resume: the stories are unbriefed and
       // lead the next briefing, which is what the failure reason says.
-      generation_progress: null,
+      ...(progressColumnPresent ? { generation_progress: null } : {}),
     })
     .eq("digest_id", digestId);
   if (error) throw new Error(`expiring digest: ${error.message}`);

@@ -2654,10 +2654,97 @@ export function centralTokens(text: string): string[] {
   ];
 }
 
-function contains(text: string, name: string): boolean {
-  return new RegExp(
-    `(?<![\\p{L}\\p{N}])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}])`,
-    "iu",
+/**
+ * Compiled patterns, keyed by the text they were built from.
+ *
+ * A pattern built from a name is a pure function of that name, and *building* one
+ * -- with the `u` flag and a lookbehind -- costs far more than running it. The
+ * entity loops call these tests thousands of times per briefing (every name against
+ * every sentence of every source), and on the 22:30Z reader's pool the readiness
+ * gate spent **3.2 s of its 15.1 s of CPU compiling them**: `contains` alone was
+ * 16.5% of a CPU profile of that gate, with the two inline patterns in
+ * `rankEntities` on top of it. Measured 2026-10-16 by CPU profile of
+ * `assessReadiness` over that reader's live pool
+ * ([cpu-killed-invocations.md](../../docs/decisions/cpu-killed-invocations.md)).
+ *
+ * Verdicts are unchanged -- a cache cannot change what a pure test returns -- which
+ * is why this is a cache and not a different test. That matters here: these
+ * patterns decide entity roles, and entity roles decide what a briefing publishes.
+ *
+ * Bounded because the keys come from article text: an isolate must not keep a
+ * pattern for every proper noun it has ever read. A `u`-flag pattern is stateless
+ * (no `lastIndex`), so sharing one between calls is safe.
+ */
+const patternCache = new Map<string, RegExp>();
+const PATTERN_CACHE_LIMIT = 2_000;
+
+function cachedPattern(key: string, build: () => RegExp): RegExp {
+  const hit = patternCache.get(key);
+  if (hit !== undefined) return hit;
+  const pattern = build();
+  if (patternCache.size >= PATTERN_CACHE_LIMIT) patternCache.clear();
+  patternCache.set(key, pattern);
+  return pattern;
+}
+
+function escapeForPattern(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Whether every character is ASCII -- the case where the two paths coincide.
+ *
+ * Written as the absence of anything at or above U+0080 rather than as a range over
+ * the control characters, because a regex may not carry a literal control character
+ * range (`no-control-regex`) and the two are the same test on every JS string: a
+ * character is ASCII exactly when it is below U+0080.
+ */
+const WIDER_THAN_ASCII = /[\u0080-\u{10ffff}]/u;
+
+function asciiOnly(text: string): boolean {
+  return !WIDER_THAN_ASCII.test(text);
+}
+
+/** `\p{L}\p{N}`, which over ASCII is exactly "a letter or a digit". */
+function isWordChar(char: string | undefined): boolean {
+  return char !== undefined && /[A-Za-z0-9]/.test(char);
+}
+
+/**
+ * Whether `text` says `name` as a whole run of word characters.
+ *
+ * The regex is the authority and the last resort. When both the name and the text
+ * are ASCII -- which is what entity names out of English news are -- the same test
+ * is `indexOf` plus a boundary check on the two characters that touch the match,
+ * and the two are **provably** the same test rather than the same test in practice:
+ * over ASCII, `i`-flag folding is one-to-one (A-Z <-> a-z, nothing else), and
+ * `\p{L}\p{N}` over ASCII is exactly `[A-Za-z0-9]`. The guard is the whole point --
+ * the fold is *not* one-to-one in general (final sigma, Kelvin sign, long s), so a
+ * text or name containing anything wider takes the regex path and the exact
+ * semantics, and the fast path can never decide a case the regex would decide
+ * differently.
+ *
+ * Worth the asymmetry: this function was 2.8 s of the 22:30Z reader's 15.1 s gate --
+ * the entity loops run every name against every sentence of every source, and V8's
+ * `u`-flag lookbehind is slow. Measured 2026-10-16 by CPU profile of
+ * `assessReadiness` over that reader's live pool.
+ */
+export function contains(text: string, name: string): boolean {
+  if (name !== "" && asciiOnly(name) && asciiOnly(text)) {
+    const haystack = text.toLowerCase();
+    const needle = name.toLowerCase();
+    for (let from = 0; ;) {
+      const at = haystack.indexOf(needle, from);
+      if (at === -1) return false;
+      if (!isWordChar(at === 0 ? undefined : haystack[at - 1])) {
+        if (!isWordChar(haystack[at + needle.length])) return true;
+      }
+      from = at + 1;
+    }
+  }
+  return cachedPattern(
+    `contains:${name}`,
+    () => new RegExp(`(?<![\\p{L}\\p{N}])${escapeForPattern(name)}(?![\\p{L}\\p{N}])`, "iu"),
   ).test(text);
 }
 
@@ -2748,7 +2835,10 @@ export function rankEntities(title: string, sources: ReaderSource[]): RankedEnti
     if (
       initials.length >= 3 &&
       names.has(initials.toLowerCase()) &&
-      new RegExp(`(?:known as |aka |\\()${initials}\\b`).test(all)
+      cachedPattern(
+        `alias-cue:${initials}`,
+        () => new RegExp(`(?:known as |aka |\\()${initials}\\b`),
+      ).test(all)
     ) {
       aliases.set(key, [initials]);
       names.delete(initials.toLowerCase());
@@ -2766,9 +2856,9 @@ export function rankEntities(title: string, sources: ReaderSource[]): RankedEnti
       const subjects = units.filter(
         (t) =>
           forms.some((n) =>
-            new RegExp(
-              `^(?:The )?${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:['’]s)?\\b`,
-              "i",
+            cachedPattern(
+              `subject-form:${n}`,
+              () => new RegExp(`^(?:The )?${escapeForPattern(n)}(?:['’]s)?\\b`, "i"),
             ).test(t),
           ) && ACTION.test(t),
       ).length;
@@ -3061,17 +3151,29 @@ function bareGerundHeading(text: string): boolean {
   return true;
 }
 
-/** A phrase repeated three times or more is padding or boilerplate, not prose. */
+/**
+ * A phrase repeated three times or more is padding or boilerplate, not prose.
+ *
+ * Counted in one pass per phrase length, with a map, rather than by rebuilding
+ * every window and comparing it against every other window. The old shape was
+ * O(sizes x windows x windows) string joins, and on the 22:30Z reader's pool it was
+ * **4.3 s of the gate's 15.1 s** -- 22.2% of a CPU profile of that gate, the single
+ * most expensive function in the build. The predicate is the same one: a phrase of
+ * five to eight words occurring three or more times, and the first length at which
+ * it is found decides the boolean, so the return value is unchanged. Measured
+ * 2026-10-16, CPU profile of `assessReadiness` over that reader's live pool.
+ */
 function repetitionBomb(text: string): boolean {
   const words = (text.match(/[\p{L}\p{N}]+/gu) ?? []).map((word) => word.toLowerCase());
   for (let size = 5; size <= 8; size++) {
+    // Three occurrences need at least three phrases of this length.
+    if (words.length < size * 3) break;
+    const occurrences = new Map<string, number>();
     for (let start = 0; start + size <= words.length; start++) {
       const phrase = words.slice(start, start + size).join(" ");
-      let occurrences = 0;
-      for (let cursor = 0; cursor + size <= words.length; cursor++) {
-        if (words.slice(cursor, cursor + size).join(" ") === phrase) occurrences++;
-      }
-      if (occurrences >= 3) return true;
+      const seen = (occurrences.get(phrase) ?? 0) + 1;
+      if (seen >= 3) return true;
+      occurrences.set(phrase, seen);
     }
   }
   return false;
