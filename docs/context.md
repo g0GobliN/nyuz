@@ -958,6 +958,25 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   [reader-summary-artifact-handoff.md](reader-summary-artifact-handoff.md). Full record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-root-cause-ruled-an-enforcement-gap-between-ingestion-and-delivery-2026-10-15).
 
+- **2026-10-16 — a critical advisory in the framework blocked every deploy, and a patch-level bump closed it.**
+  The runner's `Dependencies and secret names` job began failing at 2026-10-16T00:25Z with **5 critical**
+  advisories against `@tanstack/*`: **GHSA-qx66-fv34-fjm8**, *“Unauthenticated reflected XSS in TanStack
+  Start server-function responses”* — an attacker-crafted URL to a server function makes the app answer
+  with attacker-controlled HTML from its own origin, so their script runs with the visitor's authority;
+  the victim only has to open the link. The doubled cost: **the deploy job is skipped while any check is
+  red, so nothing could reach production.** Fixed by moving the three pinned packages to the release that
+  carries the patch — `@tanstack/react-start` 1.168.32 → **1.168.60** (the advisory's fix for that
+  package; it pins `start-server-core` **1.169.39**, which is the advisory's fix for that one, plus
+  `react-start-server` 1.167.46 and `react-start-rsc` 0.1.59), `@tanstack/react-router` 1.170.18 →
+  **1.170.41**, `@tanstack/router-plugin` 1.168.23 → **1.168.42** — one copy of each resolves
+  (`npm ls` shows every one deduped). The job's own command, `npm audit --omit=dev --audit-level=high`,
+  is **0 vulnerabilities**. One source change was unavoidable: the router widened
+  `ErrorRouteComponent`'s `error` prop to `unknown`, so `ErrorComponent`'s signature in
+  [__root.tsx](../src/routes/__root.tsx) widened to match (`humanError` already read `unknown`) — no
+  behaviour change. The findings left in the full audit are dev/build tooling only (vitest/tinypool,
+  sharp via nitro, undici), which the job's `--omit=dev` scope excludes on purpose.
+
+
 ## 7. What is next
 
 **The owner's priority, stated 2026-10-12 and now a rule ([AGENTS.md](../AGENTS.md)).** This gates

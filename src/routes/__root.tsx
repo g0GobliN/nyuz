@@ -60,7 +60,11 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+// `error: unknown` rather than `Error`: the router's own `ErrorRouteComponent`
+// widened its prop to `unknown` in 1.168.60, and `humanError` already reads
+// anything (a thrown string, an Error, a rejected value). Narrowing it here would
+// only re-assert a guarantee the router no longer makes.
+function ErrorComponent({ error, reset }: { error: unknown; reset: () => void }) {
   console.error(error);
   const router = useRouter();
   // Empty string when there is nothing readable, which is what hides the box.
