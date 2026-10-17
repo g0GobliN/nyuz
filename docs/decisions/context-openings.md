@@ -74,3 +74,37 @@ one where nothing above supplies the referent.
 
 Not claimed either: that this is the last of the class. The list in `thirdPartyDocumentOpening` is
 deliberately narrow, so a story opening "The announcement says…" is still not covered.
+
+## What reading the live page found that the instrument did not
+
+2026-10-17, signed in on the deployed origin
+(`/dashboard/story/a87a7bc6…`, _Taiwan raising $4 billion to build industrial park in Texas…_):
+the page reads well as a whole — headline, deck, five sourced paragraphs, citation on every block —
+but three sentences inside it depend on something the page no longer carries:
+
+> "**However, they also rely on** several smaller manufacturers that do not have the financial
+> capability to expand operations into the U.S. independently."
+
+That paragraph opens on `they`, and the sentence those manufacturers were introduced in (the one
+about major Taiwanese companies) is not in the paragraph above it. The `narrativeParagraphs`
+adjacency rule let it through because it is the next sentence *in the source*, but the sentence that
+gave `they` its referent was refused or merged, so adjacency is not what the reader sees.
+
+> "**It's also not limiting itself** to a single industrial park, with the government saying that
+> it's planning for "more than one" site…"
+
+`It` here is the park, the government, or the plan — the reader cannot tell, and the sentence that
+would have said so is not adjacent.
+
+> "…has even recognized some of these companies in a keynote in Taipei earlier in 2026,
+> **nothing** the crucial part…"
+
+`nothing` for `noting`. It is the source's own typo, not a composer rewrite, and it is recorded
+rather than "fixed": correcting a source's wording is a rewrite, which the product does not do.
+
+**The instrument gap matters more than the individual sentences.** `audit:reader` reports one
+defective event for the whole corpus, and this page is not it. The audit counts *block openings*;
+this page's dangling references sit at paragraph openings inside a block the audit accepted, and one
+of them (`they`) is exactly the class `contextDependent` exists for. Any rule that closes this has to
+be measured on the live page as well as on the corpus, and the audit's context counter needs to read
+paragraph openings, not only block openings.
