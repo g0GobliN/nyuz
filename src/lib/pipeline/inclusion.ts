@@ -312,8 +312,14 @@ function consequenceClause(text: string): string | null {
     : clause;
 }
 
-/** The first stored-evidence clause that states a money consequence. */
-function consequenceLine(evidence: readonly string[] | undefined): string | null {
+/**
+ * The first stored-evidence clause that states a money consequence.
+ *
+ * Exported so a read-only instrument can count how much of a reader's pool this
+ * rung could fire over without re-implementing the predicate — the failure mode
+ * that made three instruments report a pre-Q4 shipping set (2026-10-17).
+ */
+export function consequenceLine(evidence: readonly string[] | undefined): string | null {
   for (const unit of evidence ?? []) {
     const clause = consequenceClause(unit);
     if (clause !== null) return clause;
@@ -371,6 +377,33 @@ function figureLine(
     }
   }
   return null;
+}
+
+/**
+ * The Q4 shipping decision, in one place.
+ *
+ * An item ships only when the ladder can state a story-specific line; silence is
+ * withheld rather than shipped with an empty slot (ruled 2026-10-12). The build
+ * owns the call, but a read-only instrument has to answer the same question to
+ * report a shipping set that matches what a reader receives, and two of them
+ * answered it *pre-Q4*: on 2026-10-17 the reader's pool read as "5 ship" in
+ * `scripts/briefing-preview.ts` while the build shipped 1, and the next briefing
+ * ships 0.
+ *
+ * So the comparison lives here and the instruments call it. It takes the ladder's
+ * text, not the input, because the build already has the text in hand from the
+ * `reasonFor` call it makes for `why_it_matters` and must not pay for a second
+ * one.
+ *
+ * **Still unanswered by this predicate:** `scripts/reader-composition-diagnostic.ts`
+ * counts its shipping set from `assessReadiness` alone and does not load the
+ * ladder's inputs, so its "N ship" line is pre-Q4 too and read 13 against a build
+ * of 1. It is deliberately not changed here — its job is composition, and it
+ * would need the stored impact and article evidence loaded to ask this question
+ * honestly. Treat its ship count as a readiness count until it does.
+ */
+export function hasStorySpecificLine(text: string | null | undefined): boolean {
+  return (text ?? "").trim() !== "";
 }
 
 export function reasonFor(input: InclusionInput): InclusionReason {

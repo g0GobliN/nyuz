@@ -15,8 +15,12 @@
 
 import { capFor } from "../src/lib/density";
 import { suppressDeliveredDuplicates, suppressStoryTwins } from "../src/lib/pipeline/duplicates";
-import { selectItems, type MatchRow } from "../src/lib/pipeline/digest";
-import { reasonFor } from "../src/lib/pipeline/inclusion";
+import { GATED_KIND, selectItems, type MatchRow } from "../src/lib/pipeline/digest";
+import {
+  hasStorySpecificLine,
+  type InclusionReason,
+  reasonFor,
+} from "../src/lib/pipeline/inclusion";
 import { assessReadiness } from "../src/lib/pipeline/readiness";
 import { db, heading, main, row, say } from "./lib/db.ts";
 
@@ -281,14 +285,12 @@ main(async () => {
   }
   if (ready.length > cap) ready.splice(cap);
 
-  heading(`Ships (${ready.length})`);
-  // The ladder reads the event's own stored fields only — no reader inputs,
-  // since 2026-10-08 (inclusion.ts). What this prints is what generation
-  // would store, for this reader's pool.
-  let multi = 0;
-  let withLine = 0;
-  const rungs = new Map<string, number>();
-  const lines: string[] = [];
+  // The Q4 gate is applied below, not here: every `ready` brief still has to
+  // produce a story-specific line, and a brief that cannot is withheld exactly
+  // as generation withholds it. This heading counts what actually ships, so the
+  // number a reviewer reads here is the number the reader would receive.
+  const qualityWithheld: Brief[] = [];
+  const ships: { brief: Brief; why: InclusionReason }[] = [];
   for (const brief of ready) {
     const why = reasonFor({
       storedImpact: brief.storedImpact,
@@ -299,19 +301,32 @@ main(async () => {
       title: brief.title,
       whatHappened: brief.whatHappened,
     });
+    if (hasStorySpecificLine(why.text)) ships.push({ brief, why });
+    else qualityWithheld.push(brief);
+  }
+
+  heading(`Ships (${ships.length})`);
+  // The ladder reads the event's own stored fields only — no reader inputs,
+  // since 2026-10-08 (inclusion.ts). What this prints is what generation
+  // would store, for this reader's pool.
+  let multi = 0;
+  let withLine = 0;
+  const rungs = new Map<string, number>();
+  const lines: string[] = [];
+  for (const { brief, why } of ships) {
     const text = why.text;
     rungs.set(why.source, (rungs.get(why.source) ?? 0) + 1);
-    if (text !== "") lines.push(text);
+    lines.push(text);
     if (brief.sourceCount > 1) multi += 1;
-    if (text !== "") withLine += 1;
+    withLine += 1;
     const src = `${brief.sourceCount} src`;
     const time = brief.eventAt === null ? "??" : brief.eventAt.slice(11, 16);
     say(row(" ", `${src} ${time}  ${brief.title.slice(0, 72)}`, 110));
-    say(row(" ", `        ${text === "" ? "(no why-line)" : text}`, 110));
+    say(row(" ", `        ${text}`, 110));
   }
   say();
-  say(row("  ", `multi-source ${multi}/${ready.length}`, 110));
-  say(row("  ", `with a why-line ${withLine}/${ready.length}`, 110));
+  say(row("  ", `ready then Q4-gated: ${ready.length} → ${ships.length} ship`, 110));
+  say(row("  ", `multi-source ${multi}/${ships.length}`, 110));
   say(row("  ", `distinct why-lines ${new Set(lines).size}/${withLine}`, 110));
   say(row("  ", `rungs: ${[...rungs.entries()].map(([k, v]) => `${k} ${v}`).join(", ")}`, 110));
 
@@ -319,5 +334,18 @@ main(async () => {
     heading(`Withheld by the readiness gate (${withheld.length})`);
     for (const { brief, kind } of withheld)
       say(row(" ", `[${kind}] ${brief.title.slice(0, 84)}`, 110));
+  }
+
+  if (qualityWithheld.length > 0) {
+    heading(`Withheld by the Q4 quality gate (${qualityWithheld.length}) — no story-specific line`);
+    say(
+      row(
+        "  ",
+        "these are the briefing's real size limit: they pass readiness and still fail Q4",
+        110,
+      ),
+    );
+    for (const brief of qualityWithheld)
+      say(row(" ", `[${GATED_KIND}] ${brief.title.slice(0, 84)}`, 110));
   }
 });

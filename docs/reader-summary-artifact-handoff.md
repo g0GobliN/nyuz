@@ -17,6 +17,24 @@ from then on, split into the historical and post-deploy cohorts the ruling requi
 denominator was corrected in the same measurement: 13 of the 20 "delivered" briefings actually reached a
 reader (the other 7 have only failed deliveries), so the affected-briefing rate is 8 of 13 = 61.5%.## Where the post-deploy verification stands (read this first in a fresh thread)
 
+**2026-10-17 — the checkpoint's evidence exists, and this slice is closed on it.** The post-deploy
+briefing was built and delivered: digest `cbaac7f5`, `ready`, **1 item**, generated
+**2026-10-16T22:59:35Z**, `push` accepted **22:59:39.808Z** (email `failed Resend 401` — the ruled
+intentional state); controlled build A ran **2026-10-16T14:59:08Z** with its push accepted 15:01:35Z. From
+`npm run audit:delivered-summary -- --deploy-at 2026-10-15T06:42:45Z` over the last 21 days: **raw
+fallbacks 0 of 248** — the ruling's must-be-zero gate passes — stored lines refused **9**, all 9
+delivered with no line and **0 repaired**, and the post-deploy cohort reads 1 digest / 1 item / **0
+composed artifacts** / 0 refusals. **The composed half has therefore never had an occasion live**, and
+that is a finding about the pool rather than a missing feature: with every shipping item carrying an
+admitted line there was nothing for the composer to repair, exactly as diagnostic B predicted. Nothing
+here is owed any more. **What is owed, and it is bigger, is the size of the briefing the artifact path
+feeds:** the same build withheld 36 of 37 candidates and the reader's `item_count` fell 25 → 16 → 9 → 1 →
+**0 previewed for tonight**, because every ladder rung needing stored analysis text is empty (stored
+impact 0/1000, after-state 0/1000, coverage 27/1000). The measurement, the collision between Q4 and the
+code-first policy it sits on, and five numbered options are in
+[decisions/reader-delivery.md](decisions/reader-delivery.md#the-briefing-collapsed-from-25-stories-to-1-and-every-rung-that-could-speak-is-switched-off-2026-10-17-open).
+The text below is kept as the state it was written in.
+
 - **2026-10-16 (Day 2 of 3): the CPU-budget slice is landed on top of this checkpoint, and the arbiter
   ruled it.** Generation is now resumable across Cron ticks (0119,
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-ruled-slice-a-briefing-built-across-cron-ticks-2026-10-16-ruled-and-landed)):

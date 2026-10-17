@@ -47,6 +47,7 @@
     "topics:backfill": "node --env-file=.env scripts/tsrun.mjs scripts/topic-backfill.ts",
     "vapid": "node --env-file=.env scripts/tsrun.mjs scripts/vapid.ts",
     "audit:reader": "node --env-file=.env scripts/tsrun.mjs scripts/reader-composer-audit.ts",
+    "audit:rungs": "node --env-file=.env scripts/tsrun.mjs scripts/reader-rung-availability.ts",
     "audit:fusion": "node --env-file=.env scripts/tsrun.mjs scripts/reader-fusion-sample.ts",
     "reenrich:fusions": "node --env-file=.env scripts/tsrun.mjs scripts/reader-reenrich-fusions.ts",
     "eval:corpus": "node --env-file=.env scripts/tsrun.mjs scripts/reader-eval-corpus.ts",

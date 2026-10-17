@@ -1067,6 +1067,44 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   and
   [decisions/cpu-killed-invocations.md](decisions/cpu-killed-invocations.md#2026-10-16--the-second-measurement-the-profile-names-the-spend-and-the-repair-is-proved-equivalent).
 
+- **2026-10-17 — the briefing arrived, and it was one story: the checkpoint's evidence exists and it
+  exposes a collapse that outranks the rest of the queue.** Read off the live project, not inferred.
+  The reader whose slot failed six nights running **received a briefing on the first natural attempt
+  after the repaired gate shipped** — digest `cbaac7f5`, `ready`, **1 item**, generated
+  **2026-10-16T22:59:35Z** (30 minutes after the slot, inside `MAX_LATENESS_MINUTES`, where the six
+  failures sat at +113 to +123) and **push accepted 22:59:39.808Z**; the email leg failed `Resend 401`,
+  which is the ruled intentional state. Controlled build **A ran** at **2026-10-16T14:59:08Z**, 1 item,
+  push accepted 15:01:35Z. The ruling's must-be-zero gate holds: `npm run audit:delivered-summary`
+  reports **raw fallbacks 0 of 248** over 21 days, 9 stored lines refused and all 9 delivered with no
+  line, post-deploy cohort 1 digest / 1 item / 0 composed artifacts / 0 refusals — the composed half has
+  simply never had an occasion live. **The defect is the size.** The same build withheld **36 of 37**
+  candidates, 15 of them by Q4, and the reader's `item_count` history is a collapse, not a thin day:
+  **16–25 stories** from 2026-09-13 to 10-03 (25 on 17 of those days), then 23, 24, **16 on 10-08**, **9
+  on 10-09**, the CPU zeros, **1 on 10-16**, and **0 previewed for tonight** (`ready then Q4-gated: 5 →
+  0 ship`). **Why**, measured over the reader's 1,000 unbriefed matches: every rung that needs stored
+  analysis text is empty — stored impact **0/1000** (the writer is off by policy; no `event_impacts` row
+  has text since 2026-09-13, and `ops_status["impact:writer"]` has been `warning` with **402
+  Insufficient Balance** since 2026-10-01), change/after-state **0/1000** (`events.after_state` is empty
+  on all 1,000 events of the last 14 days), consequence **7/1000** — while 837 of the 1,000 hold stored
+  evidence, so the rung is money-specific and not evidence-starved — coverage **27/1000 (2.7%)** — and `publisher_count` is *accurate*, 199 of 200 agree with the distinct outlets, so the
+  pool genuinely is single-source. So **Q4 withholds ~97% of the pool**, and **two rulings collide**: Q4
+  (2026-10-12) was ruled assuming the ladder could speak, and the code-first policy switched off the rung
+  described as the one that carries the load. Recorded in
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-briefing-collapsed-from-25-stories-to-1-and-every-rung-that-could-speak-is-switched-off-2026-10-17-open)
+  with five numbered options for the arbiter and what each rests on. **Fixed in the same slice, because
+  it made the evidence wrong rather than merely thin:** three read-only instruments answered *"would this
+  ship?"* **before Q4** — the composition diagnostic said 13, the preview 5, the build 1, and tonight 0 —
+  so the numbers were evidence about the instruments, including the recorded conclusion that *"A may
+  legitimately report composition not attempted"*. There is now **one definition**
+  (`hasStorySpecificLine`, [inclusion.ts](../src/lib/pipeline/inclusion.ts)) called by the build and by
+  the instruments, `GATED_KIND` is exported so the reason has one spelling, the preview prints
+  `Ships (0)` plus a `Withheld by the Q4 quality gate (5)` section naming the stories a reader would
+  otherwise have received, and `briefing-checkpoint.ts` no longer loses its **per-channel delivery
+  section** when its replay throws (`TypeError: fetch failed`, twice today, unreproduced from a probe —
+  recorded as unexplained). 2 new tests in `src/lib/pipeline/inclusion.test.ts` (28 passing). **Not done,
+  deliberately:** nothing that changes what a reader receives, because every option in that list is a
+  product decision and none of them lands on a recommendation.
+
 - **2026-10-17 — the deploy blocker was cleared in two of the three places that carried it, and the
   third is corrected here.** `a1d6d2c` says *"the stale blocker is corrected in both places that
   carry it"* and it is right about §7 and [deployment.md](deployment.md#deploying), but the **§4
@@ -1080,6 +1118,18 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   and nothing measured here — the numbers cited are the ones already recorded above.
 
 ## 7. What is next
+
+**2026-10-17: the checkpoint's evidence exists, both pieces of it, and the decision it was waiting on is
+no longer "did it build?" — it is "is one story a briefing?"** The reader received a briefing on the
+first natural attempt after the repair (1 item, push accepted 22:59:39.808Z) and the controlled build A
+ran the same day; the must-be-zero gate holds at **0 raw fallbacks of 248**. What that evidence exposes
+is a **collapse in size — 25 stories to 1 to 0** — whose cause is measured and recorded above: every
+ladder rung that needs stored analysis text is empty, so Q4 withholds ~97% of the pool, and the rung
+described as the one that carries the load is the one the code-first policy switched off. **The blocking
+question is therefore now a product ruling, not an engineering one**, and the five options are in
+[decisions/reader-delivery.md](decisions/reader-delivery.md#the-briefing-collapsed-from-25-stories-to-1-and-every-rung-that-could-speak-is-switched-off-2026-10-17-open).
+Nothing that changes what a reader receives lands until that ruling arrives. The historical Day-2/Day-3
+framing below is kept because the gate repair it describes is what produced tonight's briefing.
 
 **Day 2 is spent and Day 3 is the release decision (2026-10-17).** The gate repair is **deployed**
 (`6e88b8d`, 05:20Z): the run that first could not start at all — hosted runners refused for about

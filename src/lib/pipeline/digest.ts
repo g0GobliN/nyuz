@@ -41,7 +41,7 @@ import { capitalised } from "./news-signals";
 import type { SecretBag } from "@/lib/ai/config";
 import { countOrThrow } from "@/lib/supabase/count";
 import { capFor } from "@/lib/density";
-import { reasonFor } from "./inclusion";
+import { hasStorySpecificLine, reasonFor } from "./inclusion";
 import { assessReadiness } from "./readiness";
 import type { ReaderSource } from "../reader-evidence";
 import { composedSummaryArtifact, deliveredTranslatedLine } from "../reader-summary";
@@ -1586,11 +1586,11 @@ async function writeStage(
   // disappears silently. Not a confirmed violation of the ladder (rung 6 stays
   // honest silence); a stricter shipping decision at the final quality gate.
   for (const brief of carrying) {
-    if ((byImpact.get(brief.eventId) ?? "") === "") {
+    if (!hasStorySpecificLine(byImpact.get(brief.eventId))) {
       withheld.push({ eventId: brief.eventId, kind: GATED_KIND });
     }
   }
-  const shipping = carrying.filter((brief) => (byImpact.get(brief.eventId) ?? "") !== "");
+  const shipping = carrying.filter((brief) => hasStorySpecificLine(byImpact.get(brief.eventId)));
   withheldNote = withheldNoteOf(withheld);
 
   const unexplained = shipping.filter((brief) => !stored.get(brief.eventId)).length;
@@ -1923,8 +1923,11 @@ async function claimDigest(db: Db, due: DueRow, options: DigestOptions): Promise
   return "held";
 }
 
-/** The Q4 quality-gate disposition reason, one spelling everywhere. */
-const GATED_KIND = "missing_story_specific_why_it_matters";
+/**
+ * The Q4 quality-gate disposition reason, one spelling everywhere. Exported for
+ * the read-only instruments, which must name the same kind the digest row does.
+ */
+export const GATED_KIND = "missing_story_specific_why_it_matters";
 
 /**
  * The withheld dispositions as the digest row records them: count and kinds,

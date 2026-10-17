@@ -35,7 +35,8 @@
  * against production between sends.
  */
 
-import { reasonFor } from "../src/lib/pipeline/inclusion";
+import { GATED_KIND } from "../src/lib/pipeline/digest";
+import { hasStorySpecificLine, reasonFor } from "../src/lib/pipeline/inclusion";
 import { assessReadiness } from "../src/lib/pipeline/readiness";
 import { db, heading, main, say } from "./lib/db.ts";
 
@@ -285,31 +286,57 @@ main(async () => {
 
   // ---------------------------------------------------------------------
   // 2, 3 and 4. The candidate window, replayed, with the gate's verdicts.
+  //
+  // Wrapped because the replay is the one section that reads a large slice of
+  // the project in many round trips, and when it throws the report used to die
+  // here — which lost section 10 as well, the per-channel delivery state that is
+  // the whole point of running this after a send. Measured on 2026-10-17: both
+  // runs of the day aborted in `replayPool` with `TypeError: fetch failed`
+  // before the delivery rows printed. A read-only report may report a missing
+  // section; it may not lose the evidence it exists to produce.
   // ---------------------------------------------------------------------
-  const pool = await replayPool(digest, ids);
-  heading("2, 3, 4. Candidate window, replayed (same 72h rule as selection)");
-  say(`events in the window       ${pool.events}`);
-  say(`replayed candidates        ${pool.rows.length}`);
-  say(`shipped in this digest     ${pool.shipped}`);
-  say(
-    `replayed withheld          ${pool.withheld.length}` +
-      (pool.withheldKinds.size > 0
-        ? `  (${[...pool.withheldKinds.entries()].map(([k, n]) => `${k} ${n}`).join(", ")})`
-        : ""),
-  );
-  say("");
-  for (const { lane } of LANES) {
-    const rows = pool.rows.filter((candidate) => lane === candidate.lane);
-    if (rows.length === 0) {
-      say(`${lane.padEnd(12)} NOT EXERCISED — no such story entered the replayed window`);
-      continue;
-    }
-    for (const candidate of rows) {
-      const verdict = candidate.ready
-        ? "ready"
-        : `withheld: ${candidate.kind} — ${candidate.reason?.slice(0, 58)}`;
-      say(`${lane.padEnd(12)} ${candidate.shipped ? "shipped " : "absent  "}${verdict}`);
-      say(`             ${candidate.title.slice(0, 96)}`);
+  let pool: Awaited<ReturnType<typeof replayPool>> | null = null;
+  try {
+    pool = await replayPool(digest, ids);
+  } catch (error) {
+    pool = null;
+    heading("2, 3, 4. Candidate window, replayed (same 72h rule as selection)");
+    say(`REPLAY UNAVAILABLE: ${error instanceof Error ? error.message : String(error)}`);
+    say("the digest above is the product's own record and stands on its own; this");
+    say("section is a reconstruction and is reported missing rather than absent.");
+  }
+  if (pool === null) {
+    // Fall through to the delivery section, which needs no replay.
+  } else {
+    heading("2, 3, 4. Candidate window, replayed (same 72h rule as selection)");
+    say(`events in the window       ${pool.events}`);
+    say(`replayed candidates        ${pool.rows.length}`);
+    say(`shipped in this digest     ${pool.shipped}`);
+    // The number the reviewers kept having to reconstruct by hand: what a build
+    // over this window would actually write, with both gates applied.
+    say(`would ship today (both gates) ${pool.wouldShip}`);
+    say(
+      `replayed withheld          ${pool.withheld.length}` +
+        (pool.withheldKinds.size > 0
+          ? `  (${[...pool.withheldKinds.entries()].map(([k, n]) => `${k} ${n}`).join(", ")})`
+          : ""),
+    );
+    say("");
+    for (const { lane } of LANES) {
+      const rows = pool.rows.filter((candidate) => lane === candidate.lane);
+      if (rows.length === 0) {
+        say(`${lane.padEnd(12)} NOT EXERCISED — no such story entered the replayed window`);
+        continue;
+      }
+      for (const candidate of rows) {
+        const verdict = candidate.gated
+          ? `withheld: ${GATED_KIND}`
+          : candidate.ready
+            ? "ready"
+            : `withheld: ${candidate.kind} — ${candidate.reason?.slice(0, 58)}`;
+        say(`${lane.padEnd(12)} ${candidate.shipped ? "shipped " : "absent  "}${verdict}`);
+        say(`             ${candidate.title.slice(0, 96)}`);
+      }
     }
   }
 
@@ -457,7 +484,15 @@ type Candidate = {
   lane: string;
   title: string;
   shipped: boolean;
+  /** Passed the readiness gate. */
   ready: boolean;
+  /**
+   * Passed readiness and still has no story-specific line, so Q4 withholds it.
+   * A candidate can be `ready` and `gated` at once: that is the pair the report
+   * used to collapse into "ready", which is how the replayed shipping set came
+   * out larger than the briefing generation actually writes.
+   */
+  gated: boolean;
   kind?: string;
   reason?: string;
 };
@@ -480,6 +515,8 @@ async function replayPool(
   events: number;
   rows: Candidate[];
   shipped: number;
+  /** Passed both gates: readiness and Q4. What a build today would actually ship. */
+  wouldShip: number;
   withheld: Candidate[];
   withheldKinds: Map<string, number>;
 }> {
@@ -496,17 +533,36 @@ async function replayPool(
   const linked = (linkData ?? []) as { event_id: string; matched_at: string }[];
   const ids = [...new Set(linked.map((row) => row.event_id))];
   if (ids.length === 0) {
-    return { events: 0, rows: [], shipped: 0, withheld: [], withheldKinds: new Map() };
+    return {
+      events: 0,
+      rows: [],
+      shipped: 0,
+      wouldShip: 0,
+      withheld: [],
+      withheldKinds: new Map(),
+    };
   }
 
   const { data: eventData, error: eventError } = await db()
     .from("events")
-    .select("id, title, what_happened")
+    .select("id, title, what_happened, before_state, after_state, publisher_count")
     .in("id", ids);
   if (eventError) throw new Error(eventError.message);
+  // The Q4 gate reads the same ladder generation reads, so the replay has to
+  // load the same inputs it does — the stored impact and the story's own article
+  // evidence. Omitting them is what made this replay answer a pre-Q4 question.
+  const { data: impactData, error: impactError } = await db()
+    .from("event_impacts")
+    .select("event_id, text")
+    .in("event_id", ids)
+    .eq("status", "complete");
+  if (impactError) throw new Error(impactError.message);
+  const impacts = new Map(
+    (impactData ?? []).map((row) => [row.event_id, row.text ?? null] as const),
+  );
   const { data: coverageData, error: coverageError } = await db()
     .from("articles")
-    .select("event_id, source_id, sources ( kind )")
+    .select("id, event_id, source_id, sources ( kind )")
     .in("event_id", ids);
   if (coverageError) throw new Error(coverageError.message);
 
@@ -525,27 +581,72 @@ async function replayPool(
     }
   }
 
+  // The 0090 evidence read the consequence rung climbs, exactly as generation
+  // makes it (status enriched, one text per unit).
+  const evidence = new Map<string, string[]>();
+  {
+    const articleIds = (coverageData ?? []).flatMap((art) => (art.id ? [art.id] : []));
+    const byArticle = new Map<string, string>(
+      (coverageData ?? []).flatMap((art) =>
+        art.id && art.event_id ? [[art.id, art.event_id] as const] : [],
+      ),
+    );
+    for (let from = 0; from < articleIds.length; from += 150) {
+      const { data: units } = await db()
+        .from("article_evidence")
+        .select("article_id, evidence")
+        .in("article_id", articleIds.slice(from, from + 150))
+        .eq("status", "enriched");
+      for (const unit of units ?? []) {
+        const eventId = byArticle.get(unit.article_id);
+        if (eventId === undefined) continue;
+        const texts = (Array.isArray(unit.evidence) ? unit.evidence : [])
+          .map((item) => (item as { text?: unknown }).text)
+          .filter((text): text is string => typeof text === "string" && text.trim() !== "");
+        if (texts.length > 0) evidence.set(eventId, [...(evidence.get(eventId) ?? []), ...texts]);
+      }
+    }
+  }
+
   const shipped = new Set(shippedIds);
   const rows: Candidate[] = [];
   const withheld: Candidate[] = [];
   const withheldKinds = new Map<string, number>();
   for (const event of (eventData ?? []) as EventRow[]) {
+    // `publisher_count` first, then the coverage count — the build's own
+    // expression (digest.ts loadBriefs). Reading only the coverage count here
+    // made the replay's source count disagree with the one the ladder saw.
+    const sourceCount = event.publisher_count || outlets.get(event.id)?.size || 0;
     const verdict = assessReadiness({
       title: event.title,
       whatHappened: event.what_happened ?? "",
-      sourceCount: outlets.get(event.id)?.size ?? 0,
+      sourceCount,
       sourceKinds: [...(kinds.get(event.id) ?? [])],
     });
+    const why = reasonFor({
+      storedImpact: impacts.get(event.id) ?? null,
+      beforeState: event.before_state,
+      afterState: event.after_state,
+      sourceCount,
+      evidence: evidence.get(event.id) ?? [],
+      title: event.title,
+      whatHappened: event.what_happened ?? "",
+    });
+    const gated = verdict.ready && !hasStorySpecificLine(why.text);
     const lane = LANES.find((entry) => entry.match.test(event.title))?.lane ?? "other";
     const candidate: Candidate = {
       lane,
       title: event.title,
       shipped: shipped.has(event.id),
       ready: verdict.ready,
+      gated,
       ...(verdict.ready ? {} : { kind: verdict.kind, reason: verdict.reason }),
     };
     rows.push(candidate);
-    if (!verdict.ready) {
+    if (gated) {
+      withheld.push({ ...candidate, kind: GATED_KIND });
+      withheldKinds.set(GATED_KIND, (withheldKinds.get(GATED_KIND) ?? 0) + 1);
+    } else if (!verdict.ready) {
       withheld.push(candidate);
       if (candidate.kind !== undefined) {
         withheldKinds.set(candidate.kind, (withheldKinds.get(candidate.kind) ?? 0) + 1);
@@ -556,6 +657,7 @@ async function replayPool(
     events: ids.length,
     rows,
     shipped: rows.filter((candidate) => candidate.shipped).length,
+    wouldShip: rows.filter((candidate) => candidate.ready && !candidate.gated).length,
     withheld,
     withheldKinds,
   };

@@ -2361,3 +2361,116 @@ decision this narrows the reader-facing bar to the channels that actually exist 
 and push**, with email listed as a switch, not a broken leg. The unsubscribe-secret half is still worth
 noting for the day it is switched on: the live Worker must carry `EMAIL_UNSUBSCRIBE_SECRET`, or every
 link in every email is rejected by the reader's own provider of record.
+
+---
+
+## The briefing collapsed from 25 stories to 1, and every rung that could speak is switched off
+
+**Measured 2026-10-17, `main` at `a2228c6`. Open — needs a ruling. This is the reader-facing defect
+that outranks the rest of the queue.**
+
+### The good news first, because it is real and it is the checkpoint's evidence
+
+The reader whose 22:30Z slot failed six nights running **received a briefing on the first natural
+attempt after the repaired gate shipped.** From
+`npm run briefing:checkpoint -- --user 640a69b6-36ff-4523-841c-957abfc60315` and the delivery rows:
+
+| fact                | value                                                                          |
+| ------------------- | ------------------------------------------------------------------------------ |
+| digest              | `cbaac7f5-25b1-47aa-8332-54095f1a2996`, status `ready`, **1 item**            |
+| scheduled / built    | 2026-10-16T22:30:00Z → generated **2026-10-16T22:59:35Z** (30 min after slot)  |
+| push leg            | **`sent`, accepted 2026-10-16T22:59:39.808Z**                                  |
+| email leg           | `failed` `Resend 401 API key is invalid` — the ruled intentional state         |
+
+The 30-minute lateness is inside `MAX_LATENESS_MINUTES`, where the six failed nights sat at +113 to
++123. Generation spanning Cron ticks works, and the gate repair fits the budget: the thing the
+checkpoint was waiting for exists. The controlled production-path build A also ran, at
+**2026-10-16T14:59:08Z**, 1 item, push accepted 15:01:35Z.
+
+The ruling's own must-be-zero gate holds. From `npm run audit:delivered-summary -- --deploy-at
+2026-10-15T06:42:45Z`, over the last 21 days: **raw fallbacks — a refused stored line printed to a
+reader — 0 of 248**, stored lines a boundary refuses 9 (all delivered with no line, none repaired
+because none needed a repair the composer could make), post-deploy cohort 1 digest / 1 item / 0
+composed artifacts / 0 refusals. The composed half has never had an occasion live, which is what the
+read-only diagnostic predicted for today's pool.
+
+### The defect: one story is not a briefing
+
+The same digest withheld **36 of 37 candidates**, and 15 of those were withheld by the Q4 gate because
+the deterministic ladder could say nothing about the story. The size history, from `digests`
+(`item_count` for the reader's daily briefings) — this is a collapse, not a thin day:
+
+| window                        | items per briefing                       |
+| ----------------------------- | ---------------------------------------- |
+| 2026-09-13 → 2026-10-03       | **16–25**, and 25 on 17 of those days     |
+| 2026-10-04 / 10-07            | 23 / 24                                  |
+| 2026-10-08 / 10-09            | **16 / 9** — the two rungs deleted 10-08  |
+| 2026-10-10 → 10-15            | 0 (the free-plan CPU nights)             |
+| 2026-10-16 (the 22:30Z build) | **1**                                    |
+| tonight, previewed            | **0** — `ready then Q4-gated: 5 → 0 ship` |
+
+### Why the ladder is silent over this reader's whole pool
+
+Measured over the reader's 1,000 unbriefed matches by **`npm run audit:rungs`** (2026-10-17), the
+read-only instrument this slice added so the number is one command rather than a transcript.
+`reasonFor` climbs rungs in order; every one that needs stored analysis text is empty:
+
+| rung (in ladder order)        | has input for           | why                                                                                                    |
+| ----------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| 1 stored shared impact        | **0 / 1000**            | the writer is off by policy — `impact_writer_enabled` defaults off ([impact-flag.ts](../../src/lib/ai/impact-flag.ts)); no `event_impacts` row has text since **2026-09-13T14:55:53Z**, and `ops_status["impact:writer"]` has sat `warning` with **`402 Insufficient Balance`** since **2026-10-01T06:24:45Z**, untouched since |
+| 2 change (before + after)     | **0 / 1000**            | —                                                                                                      |
+| 3 after-state                 | **0 / 1000**            | `events.after_state` is empty on **all 1,000** events of the last 14 days                               |
+| 4 consequence (money)         | **7 / 1000 (0.7%)**     | the rung is not "has evidence" — 837 of 1,000 have stored evidence, and only 7 state a money consequence the rung accepts |
+| 5 figure                      | rare                    | a money figure the sentence itself gives a purpose to                                                   |
+| 6 coverage (≥2 outlets)       | **27 / 1000 (2.7%)**    | the pool really is single-source: 572 events with 0 outlets, 423 with 1, **5** with ≥2 in 14 days, and `publisher_count` is **accurate** — 199 of 200 agree with the distinct outlets in `articles` |
+| 7 nothing                     | **~97%**                | → Q4 withholds every one of them                                                                        |
+
+**The rung designed to carry this load is the one that is switched off.** `inclusion.ts` describes rung 1
+as *"Written by analysis, already paid for, and genuinely about consequence. Nothing beats it"*, and the
+the code-first policy that saves the AI spend is what keeps it empty. So **two rulings collide**: Q4
+(2026-10-12, *an item without a story-specific line does not ship*) was ruled assuming the ladder could
+speak, and the code-first policy (zero provider calls in background) removed the input the ladder was
+built around. Neither anticipated the other, and a reader is receiving the collision.
+
+### Options for the arbiter, with what each rests on
+
+1. **Turn the impact writer back on** (`impact_writer_enabled`). Restores rung 1 for every story and is
+the only option that makes the briefing *better* rather than merely larger. Needs DeepSeek credit first
+— the flag cannot pay the 402 — and spends against the code-first policy. Known budget headroom:
+`ops_status["ai:budget"]` reads available, 5,724 µUSD spent of a 10,000,000 µUSD cap.
+2. **Relax Q4 to the pre-2026-10-12 behaviour**: ship the card with an empty line and let the templates
+render around it. Restores a full briefing immediately and costs no provider calls. The cost is the one
+the same ruling's rubric names: a headline with no explanation reaching a reader. Note the numbers — the
+reader's pool would return roughly the readiness-ready set (~5 today, historically ~25).
+3. **Widen the ladder to a rung this pool can feed** — a deterministic significance line built from the
+event's own coverage and `what_happened`, no stored analysis. Cheapest to build; the risk is exactly the
+filler that was ruled a defect on 2026-10-08.
+4. **Fix the pool rather than the gate**: 97% of this reader's matches are single-source, while the
+product promises clustered coverage. Why clustering does not merge ten outlets into one event is a
+larger, separate question, and `publisher_count` is not lying about it.
+5. **Accept the silence**: Q4 already accepts a quiet morning, the briefing goes `skipped`, and the
+reader gets nothing until the pool improves. This is the current trajectory with no code change.
+
+### The instrument defect found on the way, fixed in the same slice
+
+Three read-only instruments answer *"would this ship?"* and all three answered it **before Q4**, so each
+reported a shipping set the product does not produce. On the reader's own pool, 2026-10-17:
+`reader-composition-diagnostic.ts` said **13 ship**, `briefing-preview.ts` said **5**, the build shipped
+**1**, and the next briefing ships **0**. Those numbers were read as evidence about the reader; they were
+evidence about the instruments — including the recorded conclusion that *"A may legitimately report
+composition not attempted"*, which rests on the 13.
+
+The fix is one definition instead of four spellings: `hasStorySpecificLine` in `inclusion.ts` is now
+called by the build (`digest.ts`) and by **two** of the instruments (`briefing-preview.ts`,
+`briefing-checkpoint.ts`), and `GATED_KIND` is exported so the disposition reason has one spelling.
+**`reader-composition-diagnostic.ts` is deliberately left as it is** and its "N ship" line must be read
+as a *readiness* count, not a shipping one: it counts from `assessReadiness` alone and would need the
+stored impact and article evidence loaded to apply Q4. That is why the 13 it reported was never a
+shipping set — the brief that quoted it as one drew the wrong conclusion. The preview's heading now reads `Ships (0)` with a `Withheld by the Q4 quality
+gate (5)` section listing the stories a reader would otherwise have received — Apple's App Store rules,
+Meta's commercial TOS, an RTX Spark review, a CERT-In warning — which is the defect stated in the
+reader's own terms. Separately, `briefing-checkpoint.ts` aborted in `replayPool` with
+`TypeError: fetch failed` **before printing its per-channel delivery section**, twice on 2026-10-17; the
+replay is now reported as a missing section rather than losing the evidence the report exists to
+produce. The fetch failure itself is unreproduced: the same three queries run fine from a probe, so it
+is recorded as unexplained rather than diagnosed.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { reasonFor } from "@/lib/pipeline/inclusion";
+import { GATED_KIND } from "@/lib/pipeline/digest";
+import { hasStorySpecificLine, reasonFor } from "@/lib/pipeline/inclusion";
 
 /**
  * The contract these lock down, after the 2026-10-08 arbiter ruling:
@@ -358,5 +359,49 @@ describe("reasonFor", () => {
     });
     expect(restated.source).toBe("figure");
     expect(restated.text).toBe("The story carries a $250 million figure.");
+  });
+});
+
+/**
+ * The Q4 shipping decision, shared rather than re-derived.
+ *
+ * `hasStorySpecificLine` exists because the build and the read-only instruments
+ * all have to answer "would this item ship?". They answered it by each comparing
+ * the ladder's text against `""`, and every instrument answered it *before* the
+ * Q4 gate existed: on 2026-10-17 the composition diagnostic read the reader's
+ * pool as 13 shipping and the briefing preview as 5, while the build shipped
+ * **1** and the preview's next briefing would ship **0**. Those numbers were
+ * read as evidence about the reader; they were evidence about the instruments.
+ */
+describe("hasStorySpecificLine", () => {
+  it("is false exactly when the ladder reaches its final rung", () => {
+    // Nothing stored, nothing changed, one outlet, no figure, no consequence:
+    // the ladder's own answer to "why this story" is silence, and Q4 withholds
+    // it. These inputs are the reader's real pool shape, measured 2026-10-17.
+    const silent = reasonFor({
+      sourceCount: 1,
+      title: "A week with RTX Spark: everything we've learned",
+      whatHappened: "The laptop runs cooler than expected under load.",
+    });
+    expect(silent.source).toBe("none");
+    expect(silent.text).toBe("");
+    expect(hasStorySpecificLine(silent.text)).toBe(false);
+    expect(GATED_KIND).toBe("missing_story_specific_why_it_matters");
+  });
+
+  it("is true for any rung that states something about the story", () => {
+    const coverage = reasonFor({
+      sourceCount: 3,
+      title: "Regulator opens an inquiry",
+      whatHappened: "The inquiry covers the last two years.",
+    });
+    expect(coverage.source).toBe("coverage");
+    expect(hasStorySpecificLine(coverage.text)).toBe(true);
+
+    // Whitespace is not a line: the digest row stores the ladder's text verbatim,
+    // so a blank that survived to the column must withhold exactly like silence.
+    expect(hasStorySpecificLine("   ")).toBe(false);
+    expect(hasStorySpecificLine(null)).toBe(false);
+    expect(hasStorySpecificLine(undefined)).toBe(false);
   });
 });
