@@ -1179,6 +1179,23 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   rendered 1,783, refused 195, **facts lost 0**, both must-be-zero lines 0, no story withheld by
   this rule. Tests 224/224 in the two touched files (a new furniture test with four controls).
 
+- **2026-10-17 — a sourcing note with no fact in it no longer reaches the page.** Reading the
+  composed Combs story (`npm run audit:reader`'s corpus, the same composer the page uses) showed a
+  paragraph ending on *"The person was not authorized to speak publicly and did so on condition of
+  anonymity."* — a sentence about how the article was obtained, and one whose `The person` nothing
+  on the page introduces. Measured the same day over 3,856 stored and 2,208 published sentences:
+  **3 anonymity notes, exactly one factless** (this one); the other two carry facts (*"One person
+  familiar, who asked not to be named, said the partnership was still in place."*, *"…according to
+  a White House official not authorized to speak publicly"*) and are kept. `sourcingNote` refuses
+  the factless shape at both boundaries (`unitTextRejection` charges `editorial_noise`, and
+  `editorialNoise` covers the composer's gate), with four controls in `reader-prose-rules.test.ts`
+  (178 passing in that file). Verified against the reader's own output: the Combs story's fourth
+  paragraph now ends on Engelmayer's second quote, `rendered=10 refused=1`. The neighbouring defect
+  in the same read — the OpenAI story's paragraph opening on *"Easier to beg for forgiveness than ask
+  permission."*, a verbless maxim — is **measured and not fixed**: a general "must contain a finite
+  verb" rule needs a verb lexicon the closed lists do not carry, and the probe that tried found the
+  shape in 2 sentences of 2,208 with the rest false positives from the lexicon's own gaps.
+
 ## 7. What is next
 
 **2026-10-17, last: the next reader-facing class to put to the arbiter is publisher staff furniture.**

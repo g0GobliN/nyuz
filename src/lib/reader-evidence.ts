@@ -1442,7 +1442,38 @@ export function editorialNoise(text: string): boolean {
     publisherVoice(text) ||
     COMMENTARY.test(text) ||
     SOURCE_COLOUR.test(text) ||
-    publisherFurniture(text)
+    publisherFurniture(text) ||
+    sourcingNote(text)
+  );
+}
+
+/**
+ * A note about how the reporting was sourced, with no fact in it.
+ *
+ * `The person was not authorized to speak publicly and did so on condition of
+ * anonymity.` reached the reader in the Diddy Combs story on 2026-10-17, as the
+ * last sentence of a paragraph about his spokesperson -- where `The person` had
+ * no antecedent on the page at all. It is the article's own sourcing note, not
+ * something that happened, and it is the same shape the metadata rules refuse:
+ * the reader learns nothing except how the story was obtained.
+ *
+ * Deliberately only the sentence that is *only* a note: it opens on an unnamed
+ * person and says nothing but their status. Measured over 3,856 stored sentences
+ * and 2,208 published ones that day, the class is 3 sentences -- this one, plus
+ * `One person familiar, who asked not to be named, said the partnership was still
+ * in place.` and `... according to a White House official not authorized to speak
+ * publicly`, two facts that keep their sourcing clause and must survive.
+ */
+export function sourcingNote(text: string): boolean {
+  const trimmed = text.trim();
+  if (
+    !/^(?:the|that|this)\s+(?:person|individual|official|source|insider|aide|spokesperson)\b/iu.test(
+      trimmed,
+    )
+  )
+    return false;
+  return /\b(?:anonymity|not (?:authorized|authorised|permitted|allowed) to speak|asked not to be named|declined to be named|spoke? on condition|spoke? to .{0,20} on the condition)\b/iu.test(
+    trimmed,
   );
 }
 
@@ -3785,6 +3816,12 @@ export function unitTextRejection(
   // the grammar test so a unit that is furniture is counted as furniture rather
   // than as the invalid sentence its truncation also makes it.
   if (publisherFurniture(text)) return "editorial_noise";
+  // The same family, one layer closer to the reader: a sourcing note the article
+  // writes about how it got the story. It is a complete sentence with no fact in
+  // it, so the grammar tests pass it -- and one of them reached the Combs story
+  // on 2026-10-17 -- which is why it is charged here rather than left to the
+  // composer's gate.
+  if (sourcingNote(text)) return "editorial_noise";
   // The newsletter's index of its own previous articles: a labeled table of
   // contents, not the story. Provenance-gated -- see `newsletterIndexUnit`.
   if (newsletterIndexUnit(text, context)) return "newsletter_index";

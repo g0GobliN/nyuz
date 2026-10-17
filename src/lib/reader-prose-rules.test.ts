@@ -24,6 +24,7 @@ import {
   readerSentences,
   resolveNarrator,
   selectReaderEvidence,
+  sourcingNote,
   sourceSeam,
   storyPosition,
   storyPositionRank,
@@ -254,6 +255,35 @@ describe("publisher furniture never becomes an article sentence", () => {
     // measured at 0 occurrences in 3,997 live units, and refused rather than
     // exempted so the exception cannot hide a real byline.
     expect(publisherFurniture("Acme Corp is the publisher at Scale.")).toBe(true);
+  });
+
+  it("refuses a note about how the story was sourced, and keeps a fact that carries one", () => {
+    // Read on the deployed story page, 2026-10-17: the Diddy Combs story closed a
+    // paragraph with "The person was not authorized to speak publicly and did so
+    // on condition of anonymity." -- a sentence about how the article was
+    // obtained, with no antecedent for `The person` anywhere on the page.
+    // Measured the same day over 3,856 stored and 2,208 published sentences: 3
+    // anonymity notes, one with no fact in it (this one) and two facts that keep
+    // the clause ("One person familiar, who asked not to be named, said the
+    // partnership was still in place.", "... according to a White House official
+    // not authorized to speak publicly"). Only the factless one is refused.
+    for (const text of [
+      "The person was not authorized to speak publicly and did so on condition of anonymity.",
+      "The source spoke on condition of anonymity because the talks were private.",
+    ]) {
+      expect(sourcingNote(text), text).toBe(true);
+      expect(editorialNoise(text), text).toBe(true);
+      expect(unitTextRejection(text, false), text).toBe("editorial_noise");
+    }
+    for (const text of [
+      "One person familiar, who asked not to be named, said the partnership was still in place.",
+      "Katie Zacharia was fired as the press secretary, according to an official not authorized to speak publicly.",
+      "The official said the deal would close in May.",
+      "The evidence was not made public.",
+    ]) {
+      expect(sourcingNote(text), text).toBe(false);
+      expect(unitTextRejection(text, false), text).toBeNull();
+    }
   });
 
   it("refuses the longer role phrase and a programme's own episode intro", () => {
