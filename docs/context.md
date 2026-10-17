@@ -102,21 +102,21 @@ must-be-zero lines are the acceptance test.
 
 ## 4. Current state
 
-| area                                         | state                                                                                                                                                                                                               |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Marketing site, pricing, how-it-works, legal | Built                                                                                                                                                                                                               |
-| Accounts, sign-in (email + Google + GitHub)  | Built                                                                                                                                                                                                               |
-| Admin console, roles, audit log              | Built — the security boundary is `adminOnly`/`superadminOnly`                                                                                                                                                       |
-| Blog, site content, feature flags            | Built                                                                                                                                                                                                               |
-| Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                                                                                                                                                                             |
-| **Deploy path (GitHub Actions)**             | Working — it was **blocked for about twenty minutes on 2026-10-16** (hosted runners stopped starting: `"recent account payments have failed or your spending limit needs to be increased"`, run `38853848933`, every job failed in ~3 s and the deploy showed *skipped*; the run before it, same day, deployed `17d1b36`). Making the repository public restored its free runner minutes, the run was re-queued, and it deployed `6e88b8d` at **05:20Z** with every job green and the origin contract 23/23; the 40 digest ticks after it all ran `healthy`, read on the live Worker. `main` is level with production again. The shape recurs while the repository is private, so it is a stage condition, not a code defect — [deployment.md](deployment.md#deploying). |
-| Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                               |
-| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick |
-| Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled to stay (R1)                                                                                                                                                   |
-| **Briefing email actually delivered**        | **Off on purpose until launch (owner, 2026-10-16)** — the Resend key is deliberately disabled to keep the free send quota for launch, so every email row fails `Resend 401 API key is invalid` by design and nothing has been accepted since 2026-08-26T22:59. The earlier `Missing EMAIL_UNSUBSCRIBE_SECRET` run (26 Aug → 11 Sep) is fixed. Pre-launch channels are push and the dashboard; re-enabling email is a launch-time owner action, not a defect — [AGENTS.md](../AGENTS.md) |
-| Reader article (deterministic composer)      | Built, under active quality work (see §5)                                                                                                                                                                           |
-| Story Ask                                    | Dormant — endpoint disabled, zero allowance on every plan                                                                                                                                                           |
-| Every side, measured                         | [product-readiness.md](product-readiness.md) via `npm run audit:posture`; rated built 8.5 / exercised live 5 / sellable 3, ruled in [decisions/product-readiness.md](decisions/product-readiness.md)                |
+| area                                         | state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Marketing site, pricing, how-it-works, legal | Built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Accounts, sign-in (email + Google + GitHub)  | Built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Admin console, roles, audit log              | Built — the security boundary is `adminOnly`/`superadminOnly`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Blog, site content, feature flags            | Built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Deploy path (GitHub Actions)**             | Working — it was **blocked for about twenty minutes on 2026-10-16** (hosted runners stopped starting: `"recent account payments have failed or your spending limit needs to be increased"`, run `38853848933`, every job failed in ~3 s and the deploy showed _skipped_; the run before it, same day, deployed `17d1b36`). Making the repository public restored its free runner minutes, the run was re-queued, and it deployed `6e88b8d` at **05:20Z** with every job green and the origin contract 23/23; the 40 digest ticks after it all ran `healthy`, read on the live Worker. `main` is level with production again. The shape recurs while the repository is private, so it is a stage condition, not a code defect — [deployment.md](deployment.md#deploying). |
+| Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled to stay (R1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **Briefing email actually delivered**        | **Off on purpose until launch (owner, 2026-10-16)** — the Resend key is deliberately disabled to keep the free send quota for launch, so every email row fails `Resend 401 API key is invalid` by design and nothing has been accepted since 2026-08-26T22:59. The earlier `Missing EMAIL_UNSUBSCRIBE_SECRET` run (26 Aug → 11 Sep) is fixed. Pre-launch channels are push and the dashboard; re-enabling email is a launch-time owner action, not a defect — [AGENTS.md](../AGENTS.md)                                                                                                                                                                                                                                                                                  |
+| Reader article (deterministic composer)      | Built, under active quality work (see §5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Story Ask                                    | Dormant — endpoint disabled, zero allowance on every plan                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Every side, measured                         | [product-readiness.md](product-readiness.md) via `npm run audit:posture`; rated built 8.5 / exercised live 5 / sellable 3, ruled in [decisions/product-readiness.md](decisions/product-readiness.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ## 5. The reader-quality loop (what "the work" means right now)
 
@@ -704,7 +704,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   all worktree changes): a fixture that configured only legacy prices reported the catalogue as
   configured, and an env with no annual price still resolved one. Root cause was not the price
   table but `envValue` in [runtime-env.ts](../src/lib/runtime-env.ts) — `explicit?.[key] ??
-  ambientEnv()[key]` fell back to `process.env` for any name missing from an explicitly passed
+ambientEnv()[key]` fell back to `process.env` for any name missing from an explicitly passed
   bag, so under vitest a partial `PriceEnv` was silently completed from the developer's `.env`
   (which sets all four `STRIPE_PRICE_*` names). That is exactly the failure the function's own
   docstring forbids: "a scheduled handler that was given bindings should not silently fall back
@@ -776,19 +776,19 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   path and the fallback deck agree; no new reason string, no counter change, nothing else in the
   diff. **Measured narrowness:** 1 match in 7,926 live-window units (1,000 articles, 14 days), and it
   is a true positive; the first draft's 11 prose false positives (`According to The Register`, `The
-  other day I`, `with the A19 chip`, …) are pinned as negative controls in
+other day I`, `with the A19 chip`, …) are pinned as negative controls in
   [reader-furniture-seam.test.ts](../src/lib/reader-furniture-seam.test.ts). Verified: full suite
   **3203/3203** across 188 files, `npx tsc --noEmit` clean, and the local app (127.0.0.1:8080)
   renders both affected stories with the welds gone and the real facts kept. **The arbiter accepted
   the slice as landed and narrow** (ChatGPT `nyuz` project, 2026-10-14) and ruled two further
   defects of the same sample into **separate categories**: an **incomplete explanatory deck** (a
   relative-clause fragment with no main clause) and an **unestablished first-person voice** (`gave us
-  access` with no antecedent). It explicitly did **not** declare reader quality 10/10 — the gate
+access` with no antecedent). It explicitly did **not** declare reader quality 10/10 — the gate
   stays open until those categories are handled and the broader path is re-read.
 
 - **2026-10-14 — the deck the arbiter tracked separately, traced to its cause, ruled, and landed as
   a second slice.** The deck of story `7af726e6` — `A set of taskflow YAMLs, one per stage, which are
-  essentially the prompts that tell the LLM agent what to do at each step.` — is not a damaged
+essentially the prompts that tell the LLM agent what to do at each step.` — is not a damaged
   sentence: it is **one item of the source's own bulleted list**, flattened into a paragraph by the
   provider and published as the story's opening line (the two siblings stay in the body, held up by
   the lead-in "There are three layers:"). Three rulers were measured over the live window before any
@@ -920,7 +920,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   `38693464587` green end to end on the runner (all four test shards, coverage floor, browser smoke on
   the built Worker) and the **deploy job completed 2026-10-15T06:42:45Z**; the post-deploy window the
   ruling allows runs to **2026-10-16T06:42:45Z**, and `npm run audit:delivered-summary -- --deploy-at
-  2026-10-15T06:42:45Z` now reports the two cohorts (post-deploy cohort: 0 rows, recorded at deploy
+2026-10-15T06:42:45Z` now reports the two cohorts (post-deploy cohort: 0 rows, recorded at deploy
   time so the next measurement can only move it). **Ruled 2026-10-15 (recorded
   in the decision log): Q1 = A** — an alert's explanation stays a paragraph under the alert's own contract
   (`assessReadiness` + `assessAlertFloor`), no code change; **Q2 = A first** — wait up to 24 hours after
@@ -951,7 +951,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   measured clean.** The trace that preceded it is finished and it changed the design: **`digest_items`
   stores no summary at all** — its only generated text is `why_it_matters` — so every surface the reader
   sees reaches **the same raw column through a read-time join** (`digest_items.event_id →
-  events.what_happened`: [briefing.ts](../src/lib/server/briefing.ts) lines 105-126, 522-544, 1259-1302,
+events.what_happened`: [briefing.ts](../src/lib/server/briefing.ts) lines 105-126, 522-544, 1259-1302,
   [digest.ts](../src/lib/pipeline/digest.ts) 2094-2179, [alerts.ts](../src/lib/pipeline/alerts.ts)
   538-580, [history.ts](../src/lib/server/history.ts) 184). There is nothing per-surface to reconcile, so **one validated artifact read at that
   join fixes the dashboard, the briefing, the email and alerts together**, and the digest build path is
@@ -961,8 +961,8 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 - **2026-10-16 — a critical advisory in the framework blocked every deploy, and a patch-level bump closed it.**
   The runner's `Dependencies and secret names` job began failing at 2026-10-16T00:25Z with **5 critical**
-  advisories against `@tanstack/*`: **GHSA-qx66-fv34-fjm8**, *“Unauthenticated reflected XSS in TanStack
-  Start server-function responses”* — an attacker-crafted URL to a server function makes the app answer
+  advisories against `@tanstack/*`: **GHSA-qx66-fv34-fjm8**, _“Unauthenticated reflected XSS in TanStack
+  Start server-function responses”_ — an attacker-crafted URL to a server function makes the app answer
   with attacker-controlled HTML from its own origin, so their script runs with the visitor's authority;
   the victim only has to open the link. The doubled cost: **the deploy job is skipped while any check is
   red, so nothing could reach production.** Fixed by moving the three pinned packages to the release that
@@ -979,11 +979,11 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 - **2026-10-16 — the post-deploy checkpoint: the natural attempt failed its sixth night, the controlled
   build was blocked by a product guard, and the read-only diagnostic is what ran instead. Recorded as
-  overdue.** The 22:30Z slot ended `failed`, 0 items, *“missed slot by 123 minutes; not sent”* (last claim
+  overdue.** The 22:30Z slot ended `failed`, 0 items, _“missed slot by 123 minutes; not sent”_ (last claim
   00:26:40Z, generated 00:32:40Z) — the same CPU-condition shape as 10-10…10-14, so it produced no
   qualifying evidence. The approved controlled build (`npm run pipeline -- digest --user <id> --now
-  --skip-send`) then could not create its slot: **`enforce_daily_briefing` (0082) drops a second briefing
-  for the same account-local date** when the day's earlier row failed *after* starting, and the
+--skip-send`) then could not create its slot: **`enforce_daily_briefing` (0082) drops a second briefing
+  for the same account-local date** when the day's earlier row failed _after_ starting, and the
   10-15T22:30Z row is JST 2026-10-16 with `generation_started_at` set. Measured twice (runs at 00:34:46Z
   and 00:38:44Z): the CLI reports “slots created 1” — it counts planned rows — while **no row is
   written**. Every reader is blocked until 15:00Z (JST midnight). **Ruled: B now, A after 15:00Z, the
@@ -995,10 +995,10 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   artifacts would be stored by a build today**. In the 200 most relevant matches, **16 items are ones the
   build would compose for** (5 refused lines, 11 with no stored line); **14 are withheld** (newsletter 5,
   primary-source 4, unbriefable 4, …) and **2 are shippable but rank outside today's eligible set** — and
-  the composer produces a valid line for each (*“The activity, which brings together commodity offensive
+  the composer produces a valid line for each (_“The activity, which brings together commodity offensive
   tools like Cobalt Strike with an AI orchestration layer powered by Anthropic's Claude Code, has been
-  attributed.”*; *“The AI takeover of mathematics has begun.”*). So the composer provably acts on today's
-  real pool; the repair path is *needed* by 2 shippable items today and simply does not rank into a
+  attributed.”_; _“The AI takeover of mathematics has begun.”_). So the composer provably acts on today's
+  real pool; the repair path is _needed_ by 2 shippable items today and simply does not rank into a
   briefing today. **Next for the checkpoint:** run A at/after 15:00Z (verify the slot row exists after
   `scheduleUpcoming`, not the reported count) and expect it to show composition not attempted unless the
   pool shifts — a finding about the pool, not a defect. Then the ruled next slice: **a build that
@@ -1037,8 +1037,8 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   for. Full record: [decisions/reader-delivery.md](decisions/reader-delivery.md#the-ruled-slice-a-briefing-built-across-cron-ticks-2026-10-16-ruled-and-landed).
 
 - **2026-10-16 — the second measurement named the spend, and the gate itself was repaired without
-  moving a verdict.** The arbiter moved the CPU-budget failure into Day 2 (*"Move the CPU-budget
-  failure into today's active work"*, decision `B` with a narrower definition of what closes the
+  moving a verdict.** The arbiter moved the CPU-budget failure into Day 2 (_"Move the CPU-budget
+  failure into today's active work"_, decision `B` with a narrower definition of what closes the
   checkpoint) while keeping the controlled build at 15:00Z and recording the checkpoint as
   **overdue**, not as an on-time pass. The first measurement had said the gate's cost "tracks excerpt
   size"; a CPU profile of `assessReadiness` over the 22:30Z reader's live pool named the mechanism
@@ -1059,7 +1059,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   identical** (wall clock 22.5 -> 8.6 s for the same run). Eleven tests in
   `src/lib/reader-evidence-equivalence.test.ts` pin the shapes a counting rewrite can get wrong; they
   also pass on the previous tree, which is stated rather than dressed up, because the evidence that
-  nothing moved is the corpus diff. **`GATE_BRIEFS_PER_INVOCATION` is now 1**: the worst *pair* of
+  nothing moved is the corpus diff. **`GATE_BRIEFS_PER_INVOCATION` is now 1**: the worst _pair_ of
   briefs is still ~670 ms against a ~710 ms grace, and a killed tick persists nothing, so an
   over-budget pair would be retried forever. **Not verified:** the Worker's own `cpuTimeUs` for these
   ticks; the natural attempt at 22:20Z is what tests the claim. Full record:
@@ -1081,21 +1081,21 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   candidates, 15 of them by Q4, and the reader's `item_count` history is a collapse, not a thin day:
   **16–25 stories** from 2026-09-13 to 10-03 (25 on 17 of those days), then 23, 24, **16 on 10-08**, **9
   on 10-09**, the CPU zeros, **1 on 10-16**, and **0 previewed for tonight** (`ready then Q4-gated: 5 →
-  0 ship`). **Why**, measured over the reader's 1,000 unbriefed matches: every rung that needs stored
+0 ship`). **Why**, measured over the reader's 1,000 unbriefed matches: every rung that needs stored
   analysis text is empty — stored impact **0/1000** (the writer is off by policy; no `event_impacts` row
   has text since 2026-09-13, and `ops_status["impact:writer"]` has been `warning` with **402
   Insufficient Balance** since 2026-10-01), change/after-state **0/1000** (`events.after_state` is empty
   on all 1,000 events of the last 14 days), consequence **7/1000** — while 837 of the 1,000 hold stored
-  evidence, so the rung is money-specific and not evidence-starved — coverage **27/1000 (2.7%)** — and `publisher_count` is *accurate*, 199 of 200 agree with the distinct outlets, so the
+  evidence, so the rung is money-specific and not evidence-starved — coverage **27/1000 (2.7%)** — and `publisher_count` is _accurate_, 199 of 200 agree with the distinct outlets, so the
   pool genuinely is single-source. So **Q4 withholds ~97% of the pool**, and **two rulings collide**: Q4
   (2026-10-12) was ruled assuming the ladder could speak, and the code-first policy switched off the rung
   described as the one that carries the load. Recorded in
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-briefing-collapsed-from-25-stories-to-1-and-every-rung-that-could-speak-is-switched-off-2026-10-17-open)
   with five numbered options for the arbiter and what each rests on. **Fixed in the same slice, because
-  it made the evidence wrong rather than merely thin:** three read-only instruments answered *"would this
-  ship?"* **before Q4** — the composition diagnostic said 13, the preview 5, the build 1, and tonight 0 —
-  so the numbers were evidence about the instruments, including the recorded conclusion that *"A may
-  legitimately report composition not attempted"*. There is now **one definition**
+  it made the evidence wrong rather than merely thin:** three read-only instruments answered _"would this
+  ship?"_ **before Q4** — the composition diagnostic said 13, the preview 5, the build 1, and tonight 0 —
+  so the numbers were evidence about the instruments, including the recorded conclusion that _"A may
+  legitimately report composition not attempted"_. There is now **one definition**
   (`hasStorySpecificLine`, [inclusion.ts](../src/lib/pipeline/inclusion.ts)) called by the build and by
   the instruments, `GATED_KIND` is exported so the reason has one spelling, the preview prints
   `Ships (0)` plus a `Withheld by the Q4 quality gate (5)` section naming the stories a reader would
@@ -1104,13 +1104,13 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   recorded as unexplained). 2 new tests in `src/lib/pipeline/inclusion.test.ts` (28 passing). **Not done
   at that point, deliberately:** nothing that changes what a reader receives, because every option in
   that list is a product decision and none of them lands on a recommendation — **superseded the same day
-  by the owner's ruling** (*"this saas is no ai product, its should be pure code"*), recorded in
+  by the owner's ruling** (_"this saas is no ai product, its should be pure code"_), recorded in
   §7 and in [AGENTS.md](../AGENTS.md): the Q4 gate is reversed, the reader's next briefing goes from 0
   ships to 7, and every one of them renders with no explanation rather than a generic one.
 
 - **2026-10-17 — the deploy blocker was cleared in two of the three places that carried it, and the
-  third is corrected here.** `a1d6d2c` says *"the stale blocker is corrected in both places that
-  carry it"* and it is right about §7 and [deployment.md](deployment.md#deploying), but the **§4
+  third is corrected here.** `a1d6d2c` says _"the stale blocker is corrected in both places that
+  carry it"_ and it is right about §7 and [deployment.md](deployment.md#deploying), but the **§4
   Current-state row still read `BLOCKED 2026-10-16`** with "`main` is ahead of production" — the row a
   cold session reads before the prose — so the file contradicted itself about the one thing that
   decides whether tonight's attempt exercises the repaired gate. Both stale statements are now
@@ -1122,9 +1122,9 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 ## 7. What is next
 
-**2026-10-17, later the same day: the ruling arrived and the gate is gone.** The owner: *"this saas is no
-ai product, its should be pure code"*. That is now a section of [AGENTS.md](../AGENTS.md) (*"It is not an
-AI product. It is pure code."*) because it was missing from the file and a session asked a question it
+**2026-10-17, later the same day: the ruling arrived and the gate is gone.** The owner: _"this saas is no
+ai product, its should be pure code"_. That is now a section of [AGENTS.md](../AGENTS.md) (_"It is not an
+AI product. It is pure code."_) because it was missing from the file and a session asked a question it
 should have been able to answer. The principle decides the fork on its own: the ladder's three strongest
 rungs are written by the `analyse` pass, so under pure code they can never be filled, and a gate that
 withholds silence withholds ~97% of the pool permanently. **Q4 and pure code cannot both be true**, so
@@ -1172,8 +1172,8 @@ framing below is kept because the gate repair it describes is what produced toni
 
 **Day 2 is spent and Day 3 is the release decision (2026-10-17).** The gate repair is **deployed**
 (`6e88b8d`, 05:20Z): the run that first could not start at all — hosted runners refused for about
-twenty minutes with a billing annotation, and the deploy job showed as *skipped* rather than
-*failed* — was re-queued after the owner made the repository public to restore its free runner
+twenty minutes with a billing annotation, and the deploy job showed as _skipped_ rather than
+_failed_ — was re-queued after the owner made the repository public to restore its free runner
 minutes, and it then passed every job with the origin contract 23/23. Verified on the live Worker
 rather than inferred from a green run: the 40 digest ticks after the deploy all ran `healthy`. So
 tonight's 22:20Z attempt is the first one that runs the repaired gate, one brief a tick. **Email is
@@ -1402,12 +1402,17 @@ Blocked on the owner, not on code (all three measured 2026-10-12, §1 of
   refused then published, confirmed defects — and exactly **1 event carrying a reader-visible
   defect**: _NTT Global Data Centers weighs the price tag of not building fast enough_, whose first
   paragraph opens "The report models three growth trajectories through 2030 …" while the deck names
-  only Berti and the page never establishes *which* report. That is the defect class AGENTS.md
+  only Berti and the page never establishes _which_ report. That is the defect class AGENTS.md
   names. It is not a one-line fix: `contextDependent` is a **hard refusal** in `editorial.ts`
   (line ~1680), so adding definite document nouns would also refuse a legitimate "The report found
   …" whose antecedent an earlier paragraph established. The rule has to be scoped to a block that
   opens the story (or to a document noun with no antecedent on the page) and measured on the frozen
-  corpus before it ships, which is the next slice.
+  corpus before it ships, which is the next slice. **Two attempts were made the same evening and
+  both were reverted:** refusing the sentence, then refusing the block, each left the audit reading
+  **5 context-dependent openings and the same defective event** — the article then opened on "The
+  middle (baseline) scenario projects …", the same missing report read one sentence later, and the
+  block's numbers were lost. The class cannot be closed by refusal; the composer has to _open_ the
+  story with a sentence that establishes the document. Evidence: [decisions/context-openings.md](decisions/context-openings.md).
 - **The `why_it_matters` slot is gone from the card by ruling, and the data still carries it.** If a
   deterministic, evidence-backed source for significance appears (see
   [decisions/significance-without-a-model.md](decisions/significance-without-a-model.md)), the slot
@@ -1514,7 +1519,7 @@ diff touches them before believing the failure.
 
 - **2026-10-14 — defect 5, the unestablished first person, ruled and landed as a third slice.**
   `Two vulnerabilities chained together gave us access to ChatGPT and Codex accounts belonging to
-  OpenAI employees.` published on the deployed origin while its own sibling (`We demonstrated …`) was
+OpenAI employees.` published on the deployed origin while its own sibling (`We demonstrated …`) was
   rewritten to `The authors demonstrated …`. **Cause, located rather than guessed:** `resolveNarrator`'s
   opening guard tested only the subject forms (`I / we / my / our`), so a unit whose only
   first-person token was an object or possessive pronoun never entered the function and its five
@@ -1607,7 +1612,7 @@ diff touches them before believing the failure.
   false positive. Ruled order of work: GTA 6 provenance first, then the card slice, then the older
   GitHub-slug and TCP/IP cases, then non-comma list leakage. **Measured dispositions:** 683 card lines;
   1 refused by `noMainClause`, 10 by the shared context predicate, **0 by both** (the classes are
-disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's title, 2 are resolved
+  disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's title, 2 are resolved
   by their headline — and `recoverableContext` does not see that, so they are **false positives of the
   predicate at this surface**, contained by recovery — and 2 are unresolvable however the headline is
   read; **recovery validated on all 10: 10 recovered, 0 withheld, 0 recovered lines still defective.**
@@ -1688,8 +1693,8 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   "Docker advises users to review their tokens"). Two independent measurements now say widening the
   ladder is the wrong lever, and the filler rule says a half-right line is worse than silence.
   **Ruled by the arbiter (option 1): the card is complete without the block** — headline + factual
-  what-happened + provenance — with six acceptance criteria, including *do not withhold stories for
-  lack of significance* and *do not inflate `what_happened`*. **Landed:** the dashboard card renders
+  what-happened + provenance — with six acceptance criteria, including _do not withhold stories for
+  lack of significance_ and _do not inflate `what_happened`_. **Landed:** the dashboard card renders
   no significance block, even when the payload carries a `why`; `story-card.test.ts` pins the new
   contract (13 tests). The ruling's release condition is verified on the same replay: the same 5
   cards are eligible, each has a factual paragraph and provenance, and none shows an empty or
