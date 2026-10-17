@@ -2521,6 +2521,26 @@ was checked directly against four real cross-outlet pairs taken from the live co
 Sport's and The Guardian Sport's Red Roses headlines, a BBC Science wildfire pair, and a Tesla Roadster
 pair — and merges **all four**. The defect is upstream of every one of them.
 
+### And the gate is doing its job: this is a topic-coverage decision, not a gate bug
+
+Checked before proposing any change to the gate, and it changes the fix. **All 79 active sources have a
+topic mapping** — the withheld 26 are not unmapped, they are mapped to topics no one follows: ESPN, BBC
+Sport and The Guardian Sport to Sport, Polygon to Gaming, Wired to Consumer tech, The Guardian Business to
+Economy, The Guardian Environment to Climate. The reader follows **11 topics**, and the demand route runs
+`source_topics × user_topics`, so a source is collected exactly when it serves a topic a reader follows.
+`priority_articles_to_cluster` then ranks in the same way — its live lane is a demand lane over
+`source_reader_routes`, its backlog lane stops at `now() - interval '7 days'`, and its batch is capped at
+`least(p_limit, 100)`. That is why three runs drained 100, then 38, then 0 while 25,340 articles remained.
+
+**So the corpus is narrow for a reason the product chose, and the reason is the topic taxonomy.** The
+reader's own topics are served mostly by *primary* sources — arXiv, Hugging Face, Microsoft Research,
+Apple ML — while the mainstream outlets that would cover the same story twice (Wired, Engadget, Polygon)
+sit under topics the reader does not follow. Collecting more of them is not a code defect to repair and
+not a gate to bypass: it is a decision about which topics a reader's coverage maps to, with the free-plan
+CPU as the cost. **The 7-day backlog cutoff is a separate, squarely code-shaped defect regardless:** an
+article that misses its window never becomes an event, contributes no coverage to anyone, and is invisible
+forever — 25,340 of them are in that state today.
+
 **The decision this leaves, and it is a cost decision rather than a code one:** keeping those 26 sources
 collected trades free-plan CPU and fetch volume for a corpus where clustering can actually work. The gate
 is a console flag with the owner account as its last writer, so it is an operator choice, not a deploy.
