@@ -109,7 +109,7 @@ must-be-zero lines are the acceptance test.
 | Admin console, roles, audit log              | Built — the security boundary is `adminOnly`/`superadminOnly`                                                                                                                                                       |
 | Blog, site content, feature flags            | Built                                                                                                                                                                                                               |
 | Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                                                                                                                                                                             |
-| **Deploy path (GitHub Actions)**             | **BLOCKED 2026-10-16** — hosted runners stopped starting (`"recent account payments have failed or your spending limit needs to be increased"`, run `38853848933`: every job failed in ~3 s, deploy skipped; the run before it, same day, deployed `17d1b36`). `main` is ahead of production and the live origin serves the last good deploy. Owner-side: see [deployment.md](deployment.md#deploying). |
+| **Deploy path (GitHub Actions)**             | Working — it was **blocked for about twenty minutes on 2026-10-16** (hosted runners stopped starting: `"recent account payments have failed or your spending limit needs to be increased"`, run `38853848933`, every job failed in ~3 s and the deploy showed *skipped*; the run before it, same day, deployed `17d1b36`). Making the repository public restored its free runner minutes, the run was re-queued, and it deployed `6e88b8d` at **05:20Z** with every job green and the origin contract 23/23; the 40 digest ticks after it all ran `healthy`, read on the live Worker. `main` is level with production again. The shape recurs while the repository is private, so it is a stage condition, not a code defect — [deployment.md](deployment.md#deploying). |
 | Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                               |
 | Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick |
 | Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled to stay (R1)                                                                                                                                                   |
@@ -1067,6 +1067,18 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   and
   [decisions/cpu-killed-invocations.md](decisions/cpu-killed-invocations.md#2026-10-16--the-second-measurement-the-profile-names-the-spend-and-the-repair-is-proved-equivalent).
 
+- **2026-10-17 — the deploy blocker was cleared in two of the three places that carried it, and the
+  third is corrected here.** `a1d6d2c` says *"the stale blocker is corrected in both places that
+  carry it"* and it is right about §7 and [deployment.md](deployment.md#deploying), but the **§4
+  Current-state row still read `BLOCKED 2026-10-16`** with "`main` is ahead of production" — the row a
+  cold session reads before the prose — so the file contradicted itself about the one thing that
+  decides whether tonight's attempt exercises the repaired gate. Both stale statements are now
+  `Working`, with the twenty-minute block, its billing annotation, the unblock and the 23/23 origin
+  contract kept as the shape that recurs while the repository is private. The same pass marked the
+  **briefing email** entry in the owner-blocked list as the ruled intentional state rather than a
+  blocker, so a session cannot re-open it as a defect to repair. Docs only; no code, no behaviour,
+  and nothing measured here — the numbers cited are the ones already recorded above.
+
 ## 7. What is next
 
 **Day 2 is spent and Day 3 is the release decision (2026-10-17).** The gate repair is **deployed**
@@ -1279,11 +1291,15 @@ shapes` section whenever the ingestion mix changes.
 Blocked on the owner, not on code (all three measured 2026-10-12, §1 of
 [product-readiness.md](product-readiness.md)):
 
-- **The briefing email is blocked by two independent causes, not one.** The first failure after the
-  last accepted send (2026-08-26T23:55) was `Missing EMAIL_UNSUBSCRIBE_SECRET (minimum 32
-characters)` on 2026-08-26T23:55, unbroken to 2026-09-11T05:45 (125 failures); the Resend 401 is the
-  current cause, 128 failures from 2026-09-11T06:14 to today. `EMAIL_UNSUBSCRIBE_SECRET` is still
-  absent from this environment, so local runs and the Worker do not fail for the same reason.
+- **The briefing email is deliberately off until launch, and its history has two causes.** **Owner's
+  ruling, 2026-10-16: the Resend key is intentionally disabled to keep the free send quota for
+  launch**, so every email row failing `Resend 401 API key is invalid` is the intended state and **not
+  a defect to repair**; push and the dashboard are the channels a reader actually receives, and
+  re-enabling email is a launch-time owner action (§4). Recorded because the change it replaces is
+  easy to mistake: the first failure after the last accepted send (2026-08-26T23:55) was
+  `Missing EMAIL_UNSUBSCRIBE_SECRET (minimum 32 characters)` on 2026-08-26T23:55, unbroken to
+  2026-09-11T05:45 (125 failures); `EMAIL_UNSUBSCRIBE_SECRET` is still absent from this environment,
+  so local runs and the Worker do not fail for the same reason.
 - **`RESEND_FROM_EMAIL` is `onboarding@resend.dev`**, so even with a working key a stranger
   cannot receive mail until a domain is verified.
 - **The Stripe price variables are the pre-rename names.** `npm run billing:check` exits 1:
