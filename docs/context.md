@@ -1395,6 +1395,25 @@ Blocked on the owner, not on code (all three measured 2026-10-12, §1 of
   `STRIPE_PRICE_PLURA_*` / `STRIPE_PRICE_OMNI_*` are unset and `PERSONAL`/`PRO` are present but no
   longer read. Checkout resolves no price until they are renamed — and no live payment has ever run.
 
+**Still open, measured 2026-10-17 evening.** Two reader-facing items, both with their evidence:
+
+- **One context-dependent opening survives the composer.** `npm run audit:reader` (live corpus,
+  1,855 sentences read) reports every must-be-zero counter at **0** — delivered with no body,
+  refused then published, confirmed defects — and exactly **1 event carrying a reader-visible
+  defect**: _NTT Global Data Centers weighs the price tag of not building fast enough_, whose first
+  paragraph opens "The report models three growth trajectories through 2030 …" while the deck names
+  only Berti and the page never establishes *which* report. That is the defect class AGENTS.md
+  names. It is not a one-line fix: `contextDependent` is a **hard refusal** in `editorial.ts`
+  (line ~1680), so adding definite document nouns would also refuse a legitimate "The report found
+  …" whose antecedent an earlier paragraph established. The rule has to be scoped to a block that
+  opens the story (or to a document noun with no antecedent on the page) and measured on the frozen
+  corpus before it ships, which is the next slice.
+- **The `why_it_matters` slot is gone from the card by ruling, and the data still carries it.** If a
+  deterministic, evidence-backed source for significance appears (see
+  [decisions/significance-without-a-model.md](decisions/significance-without-a-model.md)), the slot
+  returns without a migration — but nothing in the current pipeline can feed it, and two measured
+  attempts to widen the ladder are recorded as negative results.
+
 ## 8. Invariants an agent must not break
 
 - `npx tsc --noEmit` stays clean, and so does `tsc --noEmit -p tsconfig.scripts.json`.
