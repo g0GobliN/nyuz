@@ -1135,15 +1135,31 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   by the block budget, the gate refuses a dependent whose predecessor it refused, and
   `antecedentSupplied` (`reader-evidence.ts`) refuses to call proximity proof — a plural reference
   needs a plural noun phrase, a demonstrative needs its noun, and animate references keep their
-  refusal. Frozen corpus `tmp/corpus-after.json`: **172 stories with prose unchanged**, facts rendered
-  **1,399 → 1,405**, `unresolved_context` refusals **92 → 85**, `article_limit` 10 → 11, **facts lost
-  0**, both must-be-zero lines 0, context-dependent openings published **3 → 3**, the "pronoun behind
-  a connector" class **1 → 0**. Six stories changed, **+8 sentences published / −2 removed** (one
-  `unresolved_context`, one article-cap drop), each listed in
-  [decisions/source-adjacency.md](decisions/source-adjacency.md). Eight new tests; with the repair
-  disabled two of them fail and the refusal controls pass. Not verified on a rendered page: the live
-  briefing predates the change, so the verification is the composer output on that event's own data,
-  the frozen before/after and the audit window.
+  refusal. The first guard's frozen numbers — 1,399 → 1,405 rendered, `unresolved_context` 92 → 85,
+  +8 sentences — were **withdrawn the same day**: reading its output found it had published dangling
+  references (next entry). Eight new tests; with the repair disabled two of them fail and the refusal
+  controls pass. Not verified on a rendered page: the live briefing predates the change, so the
+  verification is the composer output on that event's own data, the frozen before/after and the
+  audit window.
+
+- **2026-10-17 — the source-adjacency guard was tightened after it published two dangling
+  references.** The first `antecedentSupplied` accepted any word ending in `s` anywhere in the
+  predecessor, so verbs counted as groups. Reading the live audit (`npm run audit:reader`, 1,991
+  selected facts) found two published defects it had created: *"They then debate the merits of
+  returning to X…"* behind *"What gives here?"* (the `s` was `gives`), and *"Their listing for the
+  WhatsApp impostor…"* behind *"Android Authority points out that…"* (`points`, `reviews`, `users` —
+  none of them the referent). The frozen replay added a quotation (*"The morphology of these 13
+  tools…"*) as the antecedent of *"They found spears…"* and *"France saw … in years"* as the
+  antecedent of *"They used an angle-grinder…"*. The guard now requires the group in the
+  predecessor's **own subject**: it stops at the first recognisable finite verb, refuses a sentence
+  that opens on a quotation, refuses when no verb can be found, and accepts a `They`-opening
+  predecessor as an explicit chain. Re-measured: frozen **3 repairs** (surfers, AI coding agents,
+  batteries), live **2** (Taiwan, the SI-practices paper), every one read in place; frozen facts
+  rendered 1,399 → **1,401**, `unresolved_context` 92 → **90**, `article_limit` back to 10, facts
+  lost 0, both must-be-zero lines 0; live rendered **1,794**, refused 197, facts lost 0. The cost is
+  recall, named in [decisions/source-adjacency.md](decisions/source-adjacency.md): six sentences
+  that happened to read correctly can no longer be proven. One new test (the two measured false
+  pairs plus both controls).
 
 ## 7. What is next
 

@@ -1115,6 +1115,37 @@ describe("source adjacency in the ranked path", () => {
     ).toBe(false);
   });
 
+  it("keeps a plural anywhere in the sentence from standing in for its subject", () => {
+    // Both pairs were published on the live corpus by the first guard, which
+    // accepted any word ending in `s`: the verb `gives` in a two-word question,
+    // and `points`/`reviews`/`users` in a sentence whose subject is one body.
+    // Each read as a dangling reference, which is the defect the repair exists
+    // to remove, so the group has to be named in the predecessor's own subject.
+    expect(
+      antecedentSupplied("They then debate the merits of returning to X.", "What gives here?"),
+    ).toBe(false);
+    expect(
+      antecedentSupplied(
+        "Their listing for the WhatsApp impostor has the same icon and screenshots.",
+        "Android Authority points out that the WhatsApp clone may be using Early Access, which could have helped users warn people.",
+      ),
+    ).toBe(false);
+    // The controls: the subject named the group, and a sentence that opens on the
+    // pronoun continues the one before it without inferring anything.
+    expect(
+      antecedentSupplied(
+        "However, they also rely on several smaller manufacturers.",
+        "Major Taiwanese companies are more than capable of spending the billions needed.",
+      ),
+    ).toBe(true);
+    expect(
+      antecedentSupplied(
+        "They then broke into the network of AI tool provider Hugging Face.",
+        "They come after the company revealed in July that internal test agents exploited a zero-day flaw.",
+      ),
+    ).toBe(true);
+  });
+
   it("sees a pronoun behind a connector, which is how the live defect was missed", () => {
     expect(contextDependent("However, they also rely on several smaller manufacturers.")).toBe(
       true,

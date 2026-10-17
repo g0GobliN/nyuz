@@ -86,46 +86,81 @@ increases`) needs that noun. Everything else — `he`, `she`, `it`, a bare `this
 - `npm run audit:reader` prints `source-adjacency repairs (ranked body path)` with every repair by
   name, both source positions and whether the prose actually carries it.
 
+## The first guard published dangling references, and was tightened the same day
+
+The first `antecedentSupplied` accepted **any word ending in `s`** anywhere in the predecessor. Read on
+the live corpus the same afternoon (`npm run audit:reader`, 1,991 selected facts), it had published
+two sentences whose reference it had manufactured:
+
+```
+Apple's HomeView has an app problem
+  What gives here?                                    [predecessor]
+  They then debate the merits of returning to X …     [published — the `s` was the verb `gives`]
+
+A fake WhatsApp clone is showing up before the real version on the Play Store
+  Android Authority points out that the WhatsApp clone may be using Early Access,
+  which could have helped users warn people against downloading the app.   [predecessor]
+  Their listing for the WhatsApp impostor has the same icon …              [published — the letters
+                                                                           were `points`, `reviews`,
+                                                                           `users`, none of them the
+                                                                           referent of `Their`]
+```
+
+The frozen replay had two more of the same kind under that guard: a quotation ("The morphology of
+these 13 tools…") accepted as the antecedent of `They found spears`, and `France saw its biggest art
+robbery … in years` accepted as the antecedent of `They used an angle-grinder`. That is the defect the
+repair exists to remove, so the guard now asks for the group in the predecessor's **own subject**: it
+stops at the first recognisable finite verb, refuses a sentence that opens on a quotation, refuses
+when no verb can be found, and accepts a plural only inside that subject zone. A sentence that opens
+on `They`/`Them`/`Their`/`Both` is the one case where the chain is explicit and no inference is
+needed.
+
 ## Release report (the measurements the ruling asked for)
 
-| asked for                                         | result                                                                                                                                                                                          |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| frozen replay, stories with published prose       | **172 → 172** (unchanged)                                                                                                                                                                       |
-| anaphoric facts / selected predecessors / refused | **104 / 77 / 66** — the same baselines                                                                                                                                                          |
-| successfully repaired and republished facts       | **8** of a possible 66                                                                                                                                                                          |
-| facts still refused                               | 85 `unresolved_context` (was 92); the animate and bare-`this` classes keep their refusal because agreement cannot be proven                                                                     |
-| newly published facts                             | 8, each printed by name in the audit with its predecessor                                                                                                                                       |
-| stories changed                                   | **6**, and every added sentence listed below                                                                                                                                                    |
-| sentences added / removed                         | **+8 / −2**                                                                                                                                                                                     |
-| unrelated changes                                 | none: story count, selection (1,556 facts) and every other rule's count unchanged except `article_limit` 10 → 11 (one sentence pushed past the article cap by the repairs in the surfers story) |
-| stories withheld by this rule                     | **0**                                                                                                                                                                                           |
-| blocks removed for this rule                      | **0** — both removals are sentences that were refused before, plus one article-cap drop                                                                                                         |
-| must-be-zero lines                                | 0 / 0 (`delivered with no body`, `refused then published`)                                                                                                                                      |
-| facts lost with no rule                           | **0**                                                                                                                                                                                           |
-| context-dependent openings published              | 3 → 3                                                                                                                                                                                           |
-| pronoun behind a connector published              | 1 → **0**                                                                                                                                                                                       |
+Final guard, two corpora, both measured 2026-10-17 after the tightening:
 
-The eight repaired sentences, all published:
+| asked for                             | frozen 200-event corpus                                                 | live 200-event corpus                 |
+| ------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------- |
+| facts repaired and published          | **3**                                                                   | **2**                                 |
+| every repair named with both positions | yes — the audit prints each pair and whether the prose carried it       | yes                                   |
+| facts rendered                        | 1,401                                                                   | 1,794                                 |
+| facts still refused                   | 155, of which 90 `unresolved_context` (the animate and bare-`this` classes) | 197                                |
+| facts lost with no rule               | **0**                                                                   | **0**                                 |
+| stories withheld by this rule         | **0**                                                                   | **0**                                 |
+| `article_limit`                       | 10 — the baseline                                                       | 12 (unchanged from before the change) |
+| must-be-zero lines                    | 0 / 0                                                                   | 0 / 0                                 |
+| context-dependent openings published  | 3 — unchanged, the documented NTT class                                 | 5 — unchanged                         |
+| pronoun behind a connector published  | **0**                                                                   | **0**                                 |
+| `unresolved_context` refusals         | **90** (92 before the change)                                           | —                                     |
+
+The repaired sentences, all published and all read in place:
 
 ```
-Neanderthal wooden tools      They found spears, digging sticks, bark trays, parts of shelters…
-Surfers (×4)                  Their killings took place barely 36 hours after they crossed…
-                              Their bodies were later found with gunshot wounds… down a well
-                              Their bodies, however, were not found for another week…
-                              Their bodies were found in a clifftop shaft…
-AI coding agents              That data encompasses 300 million individual "work events"…
-Batteries vs gas turbines     Those turbines are often used by utilities as peaking power plants…
-Renoir paintings recovered    They used an angle-grinder to open display cases…
+Surfers                    The murders sent shockwaves around the world…
+                           Their killings took place barely 36 hours after they crossed…
+AI coding agents           AI agents are still a relatively new part of the coding world…
+                           That data encompasses 300 million individual "work events"…
+Batteries vs gas turbines  The effects have been more acute for open-cycle gas turbines…
+                           Those turbines are often used by utilities as peaking power plants…
+Taiwan industrial park     Major Taiwanese companies are more than capable…
+                           However, they also rely on several smaller manufacturers…
+Key Practices (SI)         The product outlines ten voluntary core practices…
+                           This product aligns with cyber incident response best practices…
 ```
 
-The two removals, both named:
+What the tightening cost, named: six sentences the loose guard published are refused again — the two
+dangling references above, plus four that happened to read correctly but could not be proven
+(`They come after the company revealed…`, `They then broke into…`, `They're meant for developers…`,
+and the Neanderthal and Renoir sentences). The ruling's bar was evidence, not recall: _"Do not
+manufacture an antecedent."_ Losing a readable sentence keeps the page honest; publishing a dangling
+one is the defect.
+
+One removal remains from this work, and it is not caused by the tightened guard:
 
 - Arc Raiders: _"However, this stance has been frustrating some players…"_ — `unresolved_context`.
   "This stance" is a demonstrative whose referent the sentence before it does not name ("A permanent
   ban is now the standard sanction…"), so under the ruling it is refused rather than published on
   proximity. Previously it published as the audit's one "pronoun behind a connector (not covered)".
-- Surfers: _"During the trial the court heard the tourists were killed in an apparent botched
-  robbery…"_ — `article_limit`, the article cap reached because four sentences were republished.
 
 ## Limitations, stated plainly
 
@@ -137,6 +172,11 @@ Russia's hands"…` sits immediately after a sentence about explosions; publishi
   today's briefing was built before it, so the deployed article is only corrected for the next
   build. Verification is the composer output on the live event's own data, the frozen before/after,
   and the audit window.
-- **The plural guard is coarse.** It asks whether a sentence contains a plural noun, not whether that
-  noun is the antecedent — the Neanderthal repair passes on "tools" where the antecedent is the team
-  named in the deck. It is a floor, not a proof; the ruling accepted that trade.
+- **The guard still reads grammar, not meaning.** It proves that the predecessor's subject is a
+  plural, which is why `The murders sent shockwaves … / Their killings took place …` passes: the
+  victims are named earlier in the story, not in that sentence. It cannot prove the subject is the
+  thing the pronoun means, and it says so rather than implying otherwise. The direction is one-way:
+  the tightening removed every dangling reference found by reading, and the audit prints each
+  surviving repair with both sentences so the next check is reading, not counting.
+- **Animate references and bare `this` are not repaired at all.** They keep their refusal, so a
+  sentence that needs a person or a whole preceding clause stays out rather than being guessed.

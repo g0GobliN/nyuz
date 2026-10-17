@@ -1302,17 +1302,39 @@ const NOT_PLURAL = new Set(
 );
 
 /**
- * Whether a sentence names a group: a plural noun phrase, however it is spelled.
+ * Whether a sentence names a group in its own subject: a plural noun phrase,
+ * however it is spelled.
  *
- * A lower-case plural ("companies", "officials", "data centers") or a
- * capitalised one ("United States", "Ghost Security") both count: an organisation
- * is a `they` like a crowd is.
+ * A lower-case plural ("companies", "officials") or a capitalised one ("United
+ * States", "Ghost Security") both count: an organisation is a `they` like a crowd
+ * is. What does *not* count is a plural anywhere in the sentence. Prose continues
+ * its subject -- "Major Taiwanese companies are ... However, they also rely on
+ * ..." -- and the first attempt at this guard, which accepted any word ending in
+ * `s`, republished two sentences on evidence that was not there: "They then
+ * debate the merits ..." behind "What gives here?", and "Their listing for the
+ * WhatsApp impostor ..." behind a sentence whose only plural nouns were
+ * `reviews` and `users`. Both read as dangling references to the live reader.
+ * So the group has to be named before the predecessor's own first verb.
  */
 function pluralNounPhrase(text: string): boolean {
   const words = (text.match(/[\p{L}][\p{L}'’-]*/gu) ?? []).map((token) =>
     token.replace(/['’]s$/u, "").replace(/[’'-]s$/u, "s"),
   );
-  for (const word of words) {
+  // A sentence that opens on the pronoun continues the previous subject, so the
+  // chain is explicit rather than inferred ("They come after the company ...").
+  if (PLURAL_PRONOUN_OPENING.has((words[0] ?? "").toLowerCase())) return true;
+  // Quoted words are the speaker's, not the narrative's: the plural inside
+  // "The morphology of these 13 tools is impossible ..." is not the subject the
+  // next sentence continues, and reading `They found spears` against it is how a
+  // quotation became a false antecedent in the frozen replay.
+  if (/^["'“‘]/u.test(text.trim())) return false;
+  const finite = words.findIndex((word) => finiteVerb(word));
+  // No recognisable verb means no recognisable subject; refuse rather than let
+  // the whole sentence stand in for one ("France saw ... in years last October"
+  // read as an antecedent for `They used an angle-grinder`).
+  if (finite < 0 || finite > 8) return false;
+  const subject = words.slice(0, finite);
+  for (const word of subject) {
     if (!/[a-z]s$/u.test(word)) continue;
     if (word.length < 4 || word.endsWith("ss")) continue;
     if (NOT_PLURAL.has(word.toLowerCase())) continue;
@@ -1320,6 +1342,64 @@ function pluralNounPhrase(text: string): boolean {
   }
   return false;
 }
+
+/**
+ * Common finite verb forms, used only to find where a sentence's subject ends.
+ *
+ * The list is deliberately broad rather than clever: a missing verb makes the
+ * subject longer, which is the unsafe direction for this guard, so everyday
+ * reporting verbs and their past and third-person forms all belong here.
+ */
+const FINITE_VERBS = new Set(
+  `is are was were be been being has have had do does did will would can could may might must
+  should shall says say said saw see seen tells tell told reports report reported writes write wrote
+  announces announce announced issues issue issued points point pointed gives give gave
+  shows show showed finds find found uses use used opens open opened steals steal stole
+  breaks break broke takes take took launches launch launched makes make made calls call
+  called adds add added notes note noted claims claim claimed warns warn warned plans plan
+  planned expects expect expected becomes become became remains remain remained includes
+  include included offers offer offered faces face faced agrees agree agreed approves
+  approve approved rejects reject rejected wins win won loses lose lost hits hit keeps
+  keep kept puts put sets set leads lead led leaves leave left rises rise rose falls fall
+  fell grows grow grew cuts cut pays pay paid sells sell sold buys buy bought sends send
+  sent builds build built creates create created forms form formed joins join joined
+  moves move moved turns turn turned holds hold held brings bring brought begins begin
+  began ends end ended continues continue continued returns return returned follows
+  follow followed allows allow allowed needs need needed wants want wanted hopes hope
+  hoped tries try tried asks ask asked believes believe believed considers consider
+  considered decides decide decided describes describe described develops develop
+  developed dies die died drives drive drove eats eat ate explains explain explained
+  feels feel felt fights fight fought fills fill filled focuses focus focused happens
+  happen happened hears hear heard hopes hope hoped increases increase increased
+  indicates indicate indicated kills kill killed knows know knew lands land landed
+  lives live lived loves love loved meets meet met mentions mention mentioned occurs
+  occur occurred produces produce produced provides provide provided raises raise
+  raised records record recorded releases release released remembers remember remembered
+  reveals reveal revealed runs run ran saves save saved seems seem seemed shoots shoot
+  shot spends spend spent suggests suggest suggested supports support supported survives
+  survive survived wears wear wore worries worry worried carries carry carried
+  published publishes elected elect appointed appoint arrested arrest charged charge
+  convicted convict sentenced sentence jailed jail freed free rescued rescue detained
+  detain raided raid seized seize sued sue fired hire hired blocked block banned ban
+  signed sign passed pass approved refused refuse resigned resign quit stepped step
+  struck strike attacked attack killed die died survived survive shot shoot`.split(" "),
+);
+
+/** Whether the token is the finite verb that ends the subject. */
+function finiteVerb(word: string): boolean {
+  const lower = word.toLowerCase();
+  if (FINITE_VERBS.has(lower)) return true;
+  // A past participle used as a verb (`published`, `released`) ends the subject
+  // phrase all the same; `-ing` forms are participles, never finite on their own.
+  return /(?:ed|'d)$/u.test(lower) && lower.length >= 5 && !NOT_A_PAST_PARTICIPLE.has(lower);
+}
+
+/** Past participles that are far more often adjectives inside a subject. */
+const NOT_A_PAST_PARTICIPLE = new Set(
+  "united divided advanced detailed limited noted retired armed aged beloved concerned involved supposed regarded".split(
+    " ",
+  ),
+);
 
 /**
  * A sentence that would publish an unresolvable pronoun.
