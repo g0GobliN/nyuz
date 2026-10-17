@@ -112,7 +112,7 @@ must-be-zero lines are the acceptance test.
 | **Deploy path (GitHub Actions)**             | Working — it was **blocked for about twenty minutes on 2026-10-16** (hosted runners stopped starting: `"recent account payments have failed or your spending limit needs to be increased"`, run `38853848933`, every job failed in ~3 s and the deploy showed *skipped*; the run before it, same day, deployed `17d1b36`). Making the repository public restored its free runner minutes, the run was re-queued, and it deployed `6e88b8d` at **05:20Z** with every job green and the origin contract 23/23; the 40 digest ticks after it all ran `healthy`, read on the live Worker. `main` is level with production again. The shape recurs while the repository is private, so it is a stage condition, not a code defect — [deployment.md](deployment.md#deploying). |
 | Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                               |
 | Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick |
-| Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled to stay (R1)                                                                                                                                                   |
+| Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled (R1) and extended one measured class at a time (2026-10-17)                                                                                                    |
 | **Briefing email actually delivered**        | **Off on purpose until launch (owner, 2026-10-16)** — the Resend key is deliberately disabled to keep the free send quota for launch, so every email row fails `Resend 401 API key is invalid` by design and nothing has been accepted since 2026-08-26T22:59. The earlier `Missing EMAIL_UNSUBSCRIBE_SECRET` run (26 Aug → 11 Sep) is fixed. Pre-launch channels are push and the dashboard; re-enabling email is a launch-time owner action, not a defect — [AGENTS.md](../AGENTS.md) |
 | Reader article (deterministic composer)      | Built, under active quality work (see §5)                                                                                                                                                                           |
 | Story Ask                                    | Dormant — endpoint disabled, zero allowance on every plan                                                                                                                                                           |
@@ -1196,6 +1196,34 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   verb" rule needs a verb lexicon the closed lists do not carry, and the probe that tried found the
   shape in 2 sentences of 2,208 with the rest false positives from the lexicon's own gaps.
 
+- **2026-10-17 — a programme's own page no longer reaches the reader, and the alert floor took its two
+  measured classes.** The two questions the last loop recorded instead of fixing went to the arbiter in
+  the owner's ChatGPT `nyuz` project (chat *"ARBITER REQUEST 2026-10-17 #5"*), on the owner's
+  instruction (*"discuss with chatgpt dnt ask me until both get conclusion"*). **Ruling, both Option 1:**
+  withhold a story whose published body is *only* publisher-owned material, as a readiness reason, with
+  nothing invented and the deck never substituted for the body; and add the shelf/deal and commentary
+  alert classes as two independent narrow rules with regression tests. Recorded verbatim in
+  [decisions/programme-pages-and-alert-floor.md](decisions/programme-pages-and-alert-floor.md).
+
+  Landed the same day. Four furniture entries in `src/lib/reader-evidence.ts` (the masthead byline that
+  keeps going with a *beat*, the two bio continuations behind it, the conference promo fragment, the
+  programme intro), one of which exposed a real trap: those regexes compile with `i` and **without** `u`,
+  where `\p{Lu}` is the literal text `p{Lu}` — the first version of two entries was dead code. The
+  controls the ruling kept now say so in the test: *"Maya Chen is the reporter at The Verge who broke the
+  story on Friday."* stays eligible, a *beat* continuation does not. Verified on the reader's own output,
+  `npm run audit:reader`, live 200-story window: *A Nvidia insider-turned-VC…* and *Apple's HomeView has
+  an app problem* both read `emptied-after-selection (charged to a rule)` and fail the existing
+  `unbriefable` rung, so neither is published; `delivered with no body 0`, `refused then published 0`.
+  Both were also **never delivered** — no `digest_items` row names either event — so the release
+  criterion was met before a reader could have met them, with no retroactive unpublishing.
+
+  The floor's two classes, each pinned to the one measured title and measured against every other title
+  stored: over **21,908 event titles**, `shelf-deal` (urgency frame **and** acquisition verb) matches 1
+  and `commentary` (a negated modal about an audience) matches 1 — the two sends. The candidates a wider
+  rule would have used match **0** titles at importance >= 6, so they were left out. The ruling's four
+  controls stay eligible and are pinned in `alert-floor.test.ts`. `npm run audit:alerts` after: the two
+  sends read `floor shelf-deal` and `floor commentary`, every other alert unchanged.
+
 - **2026-10-17 — the alert instrument stopped claiming the alert path is ungated.**
   `npm run audit:alerts` printed *"refused by the gate <- the alert path never asks"*, which stopped
   being true on 2026-10-11: `fireAlerts` asks `assessReadiness` before it paces or sends, so the
@@ -1212,19 +1240,28 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 ## 7. What is next
 
-**2026-10-17, last: the next reader-facing class to put to the arbiter is publisher staff furniture.**
-With adjacency landed the composer's remaining published defects are small and named. Measured on the
-same frozen corpus while working the slice:
+**2026-10-17, last: the programme-page question is ruled and landed; what is left of the composer's
+published defects is smaller and named.** The ruling is
+[decisions/programme-pages-and-alert-floor.md](decisions/programme-pages-and-alert-floor.md). **The open
+question that follows from its own logic is upstream, not in the composer:** a programme's episode page
+has no reporting in it at all, so `ingest`/`cluster` are paying to store and cluster pages that can only
+be withheld — a source-class decision, and a measured one (how many of the 200 live stories are programme
+pages), not a patch.
 
-- **staff bios published as news prose** — 3 stories: *"Amanda Silberling is a senior writer at
+**Then, the composer's remaining published defects,** as measured on the frozen corpus while working the
+adjacency slice — the two classes the 2026-10-17 ruling closed are marked closed, the rest stand:
+
+- **staff bios published as news prose** — **closed 2026-10-17** (refused, and a story that was only a
+  bio is withheld); originally 3 stories: *"Amanda Silberling is a senior writer at
   TechCrunch…"* (in two different stories), *"Theresa Loconsolo is an audio producer at TechCrunch…"*
   plus *"Theresa is based in New Jersey and holds a bachelors degree…"* and *"Before joining
   TechCrunch in 2022…"*, and *"Stewart Bendle is a deals and coupon writer at Tom's Hardware."* The
   distinguishing test is source-relative — the employer named is the source's own publisher — which
   keeps the two measured false positives (*"Neha Bora is a PhD student at Delhi's Jawaharlal Nehru
   University"*, *"Zacharia previously worked as a spokesperson for DHS"*) out.
-- **programme intros published as decks** — 2 stories: *"On this episode of TechCrunch's Equity
-  podcast…"* and *"On this episode of The Vergecast…"*.
+- **programme intros published as decks** — **closed 2026-10-17**: the intro is refused and the two
+  stories (*"On this episode of TechCrunch's Equity podcast…"*, *"On this episode of The Vergecast…"*)
+  compose an empty body, so `unbriefable` withholds them.
 - **a fused table published as prose** — 1 story: *"…(max).Key benchmarking results for Mistral Large
   4 Preview:➤ Most intelligent model…"* (arrow glyphs, no space after the period).
 - **animate anaphora** — 5 sentences still refused because personhood cannot be proven
@@ -1232,11 +1269,11 @@ same frozen corpus while working the slice:
 
 The furniture class is the largest and the least arguable, and it is the one the product already has
 a rule family for (`providerFurniture`, `editorialNoise`, `hasSourceMetadata`) — the gap is that a
-bio is grammatical, so nothing in that family sees it. It needs a ruling on the refusal shape, not a
-recommendation. **Ruled 2026-10-14 (copular byline, option A) and implemented the same week; the
-three measured gaps were closed on 2026-10-17** (see the work log). The open question left is not
-the sentence but the page: a podcast's own episode page still ships with the hosts' banter as its
-body once the programme intro is refused, and whether that story is withheld is a decision.
+bio is grammatical, so nothing in that family sees it. **Ruled 2026-10-14 (copular byline, option A)
+and implemented the same week; the three measured gaps were closed on 2026-10-17, and the last open
+question in this paragraph — whether a page that is nothing but a programme's own material is
+withheld — was ruled the same day and is now landed** (see the work log and
+[decisions/programme-pages-and-alert-floor.md](decisions/programme-pages-and-alert-floor.md)).
 
 **2026-10-17, later the same day: the ruling arrived and the gate is gone.** The owner: *"this saas is no
 ai product, its should be pure code"*. That is now a section of [AGENTS.md](../AGENTS.md) (*"It is not an

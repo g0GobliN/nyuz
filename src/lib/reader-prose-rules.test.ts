@@ -302,18 +302,30 @@ describe("publisher furniture never becomes an article sentence", () => {
       "On this episode of The Vergecast, David and Nilay try to make sense of the HomeView's app situation.",
       "On this episode of TechCrunch's Equity podcast, Dominic-Madori Davis caught up with Vishwanath.",
       "In today's edition of the newsletter, we explain the price change.",
+      // The 2026-10-17 ruling's continuations: the masthead line that keeps going
+      // with a *beat* (a role description, which is publisher material) and the two
+      // sentences that follow it on the same programme page. "... who broke the
+      // story on Friday" is still not here, because that one carries a claim.
+      "Theresa Loconsolo is an audio producer at TechCrunch focusing on Equity, the network's flagship podcast.",
+      "Theresa is based in New Jersey and holds a bachelors degree in Communication from Monmouth University.",
+      "Before joining TechCrunch in 2022, she was one of 2 producers at a four-station conglomerate.",
     ]) {
       expect(publisherFurniture(text), text).toBe(true);
       expect(editorialNoise(text), text).toBe(true);
       expect(unitTextRejection(text, false), text).toBe("editorial_noise");
     }
     // Controls: reporting about a programme, and a byline that keeps going, both
-    // have to survive the widened shapes.
+    // have to survive the widened shapes. A beat continuation is *not* a control
+    // any more: "who also covers GPUs" says what the person covers, not what
+    // happened, so the ruling counts it as publisher material -- while "who broke
+    // the story on Friday" and "and he also writes about" (a claim, not a shape)
+    // stay eligible.
     for (const text of [
       "The episode of The Vergecast published on Friday discussed the device.",
       "The company said its new podcast would launch in May.",
-      "Stewart Bendle is a deals and coupon writer at Tom's Hardware who also covers GPUs.",
+      "Maya Chen is the reporter at The Verge who broke the story on Friday.",
       "Sayem Ahmed is the Subscription Editor at Tom's Hardware and he also writes about GPUs.",
+      "Theresa Loconsolo said the episode would run next week.",
     ]) {
       expect(publisherFurniture(text), text).toBe(false);
       expect(editorialNoise(text), text).toBe(false);

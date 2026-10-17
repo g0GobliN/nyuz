@@ -83,6 +83,37 @@ describe("assessAlertFloor refuses the non-news shapes", () => {
       reason: "title is a priced consumer object, not a development",
     });
   });
+
+  /**
+   * The two classes the arbiter added on 2026-10-17 (#5), from `npm run
+   * audit:alerts` over all 218 alerts ever sent: a deals/shelf post alerted
+   * 2026-10-16T18:14 and a commentary column alerted 2026-10-14T12:44, both of
+   * which came through the gate the briefing uses. Each is one measured title,
+   * so each rule is pinned to it and to nothing wider.
+   */
+  it("refuses a shelf/deal offer", () => {
+    expect(
+      assessAlertFloor({
+        title: "This could be your last chance to grab an RTX 5090",
+      }),
+    ).toEqual({
+      ready: false,
+      kind: "shelf-deal",
+      reason: "title is a shelf or deal offer, not a development",
+    });
+  });
+
+  it("refuses a commentary column", () => {
+    expect(
+      assessAlertFloor({
+        title: "It won't kill you, or humanity, to get off the AI upgrade treadmill",
+      }),
+    ).toEqual({
+      ready: false,
+      kind: "commentary",
+      reason: "title argues a stance about the reader, not a development",
+    });
+  });
 });
 
 describe("assessAlertFloor keeps breaking developments", () => {
@@ -95,6 +126,13 @@ describe("assessAlertFloor keeps breaking developments", () => {
     "Intel suspends bug bounty program that paid up to $100,000 per flaw",
     "Nvidia agrees to acquire Hugging Face for $13B",
     "Cloudflare Impact reaches $100 million in donations",
+    // The controls the 2026-10-17 ruling named for the two new classes: the
+    // commercial-transaction titles that look deal-shaped without being an
+    // offer to the reader, and the analysis piece that reports someone else's
+    // conclusion in the third person.
+    "DOJ opens antitrust probe into Nvidia's $20bn Groq deal",
+    "New York rep announces game ownership bill that would require consumer ownership rather than sale of licenses",
+    "Morgan Stanley/SCMP analysis links US export controls to China supply-chain gains",
   ];
 
   for (const title of keep) {
@@ -107,5 +145,17 @@ describe("assessAlertFloor keeps breaking developments", () => {
     expect(assessAlertFloor({ title: "Nvidia unveils its 2027 chip roadmap" })).toEqual({
       ready: true,
     });
+  });
+
+  it("keeps a purchase that is part of a development, said in the third person", () => {
+    // One half of the shelf rule at a time: an acquisition verb with no offer to
+    // the reader, and an urgency frame with nothing to buy.
+    for (const title of [
+      "Microsoft buys 3.3 million Nvidia chips for its cloud build-out",
+      "Last chance for UK to join the EU's research programme, ministers warn",
+      "Sony orders production halt at its Japanese camera plant",
+    ]) {
+      expect(assessAlertFloor({ title }), title).toEqual({ ready: true });
+    }
   });
 });

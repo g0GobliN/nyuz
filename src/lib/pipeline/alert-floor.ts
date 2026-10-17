@@ -21,7 +21,13 @@
 export const IMPORTANT_FLOOR = 6;
 
 export type AlertFloorKind =
-  "roadmap-advertorial" | "product-newsletter" | "hobby-hack" | "personal-blog" | "price-piece";
+  | "roadmap-advertorial"
+  | "product-newsletter"
+  | "hobby-hack"
+  | "personal-blog"
+  | "price-piece"
+  | "shelf-deal"
+  | "commentary";
 
 export type AlertFloorVerdict =
   { ready: true } | { ready: false; kind: AlertFloorKind; reason: string };
@@ -70,6 +76,50 @@ const PERSONAL_EDITION = /^\d{4}\.\d{1,2}:\s/;
 const PRICE = /\$\s?\d[\d,]*/;
 const PRICE_OBJECT = /\b(?:memory|ram)\s+kit\b/i;
 
+/**
+ * A shelf/deal title: the reader being invited to obtain the object, not told
+ * what happened. The arbiter's ruling of 2026-10-17 (#5) added the measured
+ * class: "This could be your last chance to grab an RTX 5090" (a deals post,
+ * importance 6, alerted 2026-10-16T18:14).
+ *
+ * Two halves, both required, because either one alone is a shape real news
+ * wears: the *urgency frame* addressed at a buyer ("last chance", "while
+ * stocks last", "before they sell out") and an *acquisition verb* the reader is
+ * being asked to perform ("grab", "buy", "order"). Measured over all 21,908
+ * stored event titles, both halves together match exactly 1 title -- that one
+ * alert -- and the ruling's three news controls match none of them: "Nvidia
+ * agrees to acquire Hugging Face for $13B", "DOJ opens antitrust probe into
+ * Nvidia's $20bn Groq deal", and "New York rep announces game ownership bill
+ * that would require consumer ownership rather than sale of licenses". The
+ * discount-shaped candidates a wider rule would have used ("% off", "save $N",
+ * "price drop", "deal of the day") were measured too and match **0** titles at
+ * importance >= 6, so they are not added: a clause with no measured class can
+ * only refuse news it was never shown to refuse.
+ */
+const SHELF_FRAME = /\b(?:last chance|while (?:stocks|supplies) last|before they sell out)\b/i;
+const SHELF_ACQUIRE = /\b(?:grab|snag|buy|order|pre-?order|claim|get)\b/i;
+
+/**
+ * A commentary title: the writer arguing a stance about the reader's own
+ * behaviour rather than reporting a development. The arbiter's ruling of
+ * 2026-10-17 (#5) added the measured class: "It won't kill you, or humanity, to
+ * get off the AI upgrade treadmill" (a commentary column, importance 6,
+ * alerted 2026-10-14T12:44).
+ *
+ * The marker is the *shape* -- a negated modal about an audience ("it won't
+ * <verb> you / us / humanity") -- and not the topic word, so it generalises to
+ * the next column of that shape without a list of verbs or subjects. Measured
+ * over all 21,908 stored event titles: 1 match, that title, and the ruling's
+ * analysis control is untouched: "Morgan Stanley/SCMP analysis links US export
+ * controls to China supply-chain gains" reports someone else's analysis in the
+ * third person and carries no such construct. The narrower candidates (a
+ * "treadmill" noun, "to get off", "won't kill") each match the same single
+ * title, so the shape is preferred over any of them: it is the one that does
+ * not have to be re-measured when the next column rephrases the topic.
+ */
+const STANCE_MODAL =
+  /\bit\s+(?:won['’]t|doesn['’]t|isn['’]t)\s+[a-z]{2,}\s+(?:you|us|anyone|humanity|people|anybody|everybody|your)\b/i;
+
 export function assessAlertFloor(input: {
   title: string;
   whatHappened?: string | null | undefined;
@@ -113,6 +163,22 @@ export function assessAlertFloor(input: {
       ready: false,
       kind: "price-piece",
       reason: "title is a priced consumer object, not a development",
+    };
+  }
+
+  if (SHELF_FRAME.test(title) && SHELF_ACQUIRE.test(title)) {
+    return {
+      ready: false,
+      kind: "shelf-deal",
+      reason: "title is a shelf or deal offer, not a development",
+    };
+  }
+
+  if (STANCE_MODAL.test(title)) {
+    return {
+      ready: false,
+      kind: "commentary",
+      reason: "title argues a stance about the reader, not a development",
     };
   }
 

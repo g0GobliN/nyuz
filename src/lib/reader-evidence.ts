@@ -331,12 +331,39 @@ function creditInventory(text: string): { run: string; whole: boolean } | null {
   return consider(segments.length);
 }
 
+/**
+ * A sentence that is nothing but a list of gerund phrases.
+ *
+ * "Relying on CarPlay, slinking back to X, competing with Muse, and much more."
+ * reached the reader as the only paragraph of the Vergecast story on 2026-10-17 --
+ * a programme's own back-announce, and not a clause: every segment is a participle
+ * and nothing in it is finite. The arbiter's ruling #5 authorised refusing the
+ * publisher-owned sentences so the story's empty body withholds the story, and a
+ * scan for a verb cannot see this one, because `PREDICATE_MORPHOLOGY` reads `-ing`
+ * as a verb shape. The shape is narrow on purpose: two or more gerund-initial
+ * segments and no finite verb anywhere. A sentence that starts with a participle
+ * and finishes with a finite clause ("Relying on CarPlay, the team rebuilt the
+ * hub") is untouched.
+ */
+function gerundListFragment(text: string): boolean {
+  const segments = text
+    .replace(/[.!?]+\s*$/u, "")
+    .split(",")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  const gerunds = segments.filter((segment) => /^(?:and\s+)?\p{L}+ing\b/iu.test(segment));
+  if (gerunds.length < 2) return false;
+  for (const token of text.match(/[\p{L}][\p{L}'’-]*/gu) ?? []) if (finiteVerb(token)) return false;
+  return true;
+}
+
 /** Whether the text reads as a clause with a predicate, rather than a label or a stub. */
 export function hasPredicate(text: string): boolean {
   // Checked first, because it can only take a predicate away: every rule below is
   // a scan for a verb, and a scan cannot tell a name that looks like a verb from the
   // verb. A unit that is nothing but one inventory has no clause in it.
   if (creditInventory(text)?.whole) return false;
+  if (gerundListFragment(text)) return false;
   return (
     ACTION.test(text) ||
     IRREGULAR_PREDICATE.test(text) ||
@@ -709,6 +736,35 @@ const NOISE =
  * at the same boundary as `NOISE` so the enrichment pass and the composer agree
  * about what a source's sentence is.
  */
+/**
+ * The publication-role words a masthead line may use, as a first-letter class pair
+ * so the shape stays case-sensitive where it has to be.
+ *
+ * Declared before `PUBLISHER_FURNITURE` because the bio-continuation entry inside
+ * it reads the same set -- one vocabulary for the byline and its continuation, so
+ * a role added for one cannot go missing from the other.
+ */
+const PUBLISHER_BYLINE_ROLES = [
+  "editor",
+  "writer",
+  "reporter",
+  "correspondent",
+  "contributor",
+  "analyst",
+  "reviewer",
+  "journalist",
+  "columnist",
+  "author",
+  "founder",
+  "publisher",
+  // Measured on the frozen corpus: "Theresa Loconsolo is an audio producer at
+  // TechCrunch" is the same masthead line as the writer and editor shapes above,
+  // and the word was simply missing from the set.
+  "producer",
+]
+  .map((role) => `[${role.charAt(0).toUpperCase()}${role.charAt(0)}]${role.slice(1)}`)
+  .join("|");
+
 const PUBLISHER_FURNITURE = new RegExp(
   [
     // Masthead and author bio (Phoronix, and the shape generally).
@@ -745,6 +801,31 @@ const PUBLISHER_FURNITURE = new RegExp(
     String.raw`\bCover more ground by making connections\b`,
     String.raw`\bdiscovering what['’]s next in the startup ecosystem\b`,
     String.raw`\bGo deeper with\b`,
+    // A masthead bio that keeps going after the outlet, and the two continuation
+    // sentences that follow it in the same source. The 2026-10-14 byline shape
+    // stopped at the outlet on purpose, so `Theresa Loconsolo is an audio producer
+    // at TechCrunch focusing on Equity ...` stayed eligible -- and reached the
+    // reader on 2026-10-17 as the body of a podcast episode page, with `Theresa is
+    // based in New Jersey and holds a bachelors degree in Communication from
+    // Monmouth University.` and `Before joining TechCrunch in 2022, she was one of
+    // 2 producers at a four-station conglomerate ...` behind it (arbiter ruling #5).
+    // The continuation is allowed only for a beat or a tenure -- `focusing on`,
+    // `covering`, `who also covers` -- because `who broke the story on Friday` is
+    // a byline the ruling explicitly kept eligible.
+    //
+    // ASCII classes, not `\p{Lu}`: this regex is compiled with `i` and *without*
+    // `u`, where `\p{Lu}` is the literal text `p{Lu}` and can never match. The
+    // first version of these two entries used the property escapes and was dead
+    // code -- measured on the probe sentence below, the house `at [A-Z][\w'’.]*`
+    // form is what actually matches a masthead.
+    String.raw`\b(?:is|was|are)\s+(?:(?:the|a|an)\s+)?(?:\w+\s+){0,3}(?:${PUBLISHER_BYLINE_ROLES})\s+at\s+[A-Z][\w'’.&-]*(?:\s+(?:&|and)?\s*[A-Z][\w'’.&-]*){0,2}\s+(?:focusing on|covering|who also (?:covers|writes about|hosts)|where (?:he|she) (?:covers|writes|hosts))\b`,
+    String.raw`\bBefore joining\s+[A-Z][\w'’.&-]*`,
+    String.raw`\bis based in [^.]{2,60} and holds a\b`,
+    // A promotion fragment and a conference call to action, both measured in the
+    // same TechCrunch episode page. `Disrupt doors open Oct.` is truncated by the
+    // source itself, which is why it is anchored rather than a general phrase.
+    String.raw`^Disrupt doors open\b`,
+    String.raw`\bask questions, find solutions\b`,
     // The same outlet's pitch in its other wording, and its byline bio. Both
     // reached a reader on 2026-10-08 inside a keyboard review: the promo blurb
     // ("Go beyond the headlines with expert reporting on the hardware industry.
@@ -835,26 +916,6 @@ const PUBLISHER_FURNITURE = new RegExp(
  * their own first-letter classes: under the `i` flag `\p{Lu}` is case-folded too,
  * which would let a lowercased sentence open with a name and match.
  */
-const PUBLISHER_BYLINE_ROLES = [
-  "editor",
-  "writer",
-  "reporter",
-  "correspondent",
-  "contributor",
-  "analyst",
-  "reviewer",
-  "journalist",
-  "columnist",
-  "author",
-  "founder",
-  "publisher",
-  // Measured on the frozen corpus: "Theresa Loconsolo is an audio producer at
-  // TechCrunch" is the same masthead line as the writer and editor shapes above,
-  // and the word was simply missing from the set.
-  "producer",
-]
-  .map((role) => `[${role.charAt(0).toUpperCase()}${role.charAt(0)}]${role.slice(1)}`)
-  .join("|");
 const PUBLISHER_BYLINE = new RegExp(
   // Three optional words before the role, not two: "a deals and coupon writer at
   // Tom's Hardware" is the same line as "a senior writer at TechCrunch" and was
