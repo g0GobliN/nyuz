@@ -795,6 +795,13 @@ const PUBLISHER_FURNITURE = new RegExp(
     String.raw`\bLet['’]s show how it works\b`,
     // Campaign copy, which arrives inside a news post as a caption or a slogan.
     String.raw`\bStop (?:calling|pretending|selling) it\b`,
+    // A programme describing its own episode, in the opening words every one of
+    // them uses. Measured on 2,108 stored units from 250 live events: 2 matches,
+    // both a podcast's own episode page, and one of them published as the deck of
+    // a story whose only paragraph was the hosts' banter (`Relying on CarPlay,
+    // slinking back to X ...`) -- a programme page, not a news story. Anchored,
+    // because the sentence has to *open* on the programme.
+    String.raw`^(?:On|In) (?:this|today['’]s) (?:episode|edition) of\b`,
   ].join("|"),
   "i",
 );
@@ -841,11 +848,18 @@ const PUBLISHER_BYLINE_ROLES = [
   "author",
   "founder",
   "publisher",
+  // Measured on the frozen corpus: "Theresa Loconsolo is an audio producer at
+  // TechCrunch" is the same masthead line as the writer and editor shapes above,
+  // and the word was simply missing from the set.
+  "producer",
 ]
   .map((role) => `[${role.charAt(0).toUpperCase()}${role.charAt(0)}]${role.slice(1)}`)
   .join("|");
 const PUBLISHER_BYLINE = new RegExp(
-  String.raw`^\p{Lu}[\p{L}'\u2019.-]+(?:\s+\p{Lu}[\p{L}'\u2019.-]+){0,2}\s+(?:is|are|was)\s+(?:(?:the|a|an)\s+)?(?:\w+\s+){0,2}(?:${PUBLISHER_BYLINE_ROLES})\s+at\s+\p{Lu}[\p{L}'\u2019.&-]*(?:\s+(?:&|and)?\s*\p{Lu}[\p{L}'\u2019.&-]*){0,2}\s*[.!?]?\s*$`,
+  // Three optional words before the role, not two: "a deals and coupon writer at
+  // Tom's Hardware" is the same line as "a senior writer at TechCrunch" and was
+  // the one measured masthead shape the narrower bound let through.
+  String.raw`^\p{Lu}[\p{L}'\u2019.-]+(?:\s+\p{Lu}[\p{L}'\u2019.-]+){0,2}\s+(?:is|are|was)\s+(?:(?:the|a|an)\s+)?(?:\w+\s+){0,3}(?:${PUBLISHER_BYLINE_ROLES})\s+at\s+\p{Lu}[\p{L}'\u2019.&-]*(?:\s+(?:&|and)?\s*\p{Lu}[\p{L}'\u2019.&-]*){0,2}\s*[.!?]?\s*$`,
   "u",
 );
 

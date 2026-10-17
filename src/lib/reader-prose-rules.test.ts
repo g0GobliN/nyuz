@@ -255,6 +255,40 @@ describe("publisher furniture never becomes an article sentence", () => {
     // exempted so the exception cannot hide a real byline.
     expect(publisherFurniture("Acme Corp is the publisher at Scale.")).toBe(true);
   });
+
+  it("refuses the longer role phrase and a programme's own episode intro", () => {
+    // The two measured shapes the ruled rules missed. Read while measuring the
+    // next class: "Stewart Bendle is a deals and coupon writer at Tom's Hardware"
+    // is the same masthead line as "a senior writer at TechCrunch" and was three
+    // words wide, not two; "Theresa Loconsolo is an audio producer at TechCrunch"
+    // named a role the closed set had simply not collected; and "On this episode
+    // of The Vergecast, David and Nilay try to make sense of ..." was published as
+    // the *deck* of a story whose only paragraph was the hosts' banter. Measured
+    // on 2,108 stored units from 250 live events: 2 programme intros, both a
+    // podcast's own episode page, and 2 byline units, both the same masthead.
+    for (const text of [
+      "Stewart Bendle is a deals and coupon writer at Tom's Hardware.",
+      "Theresa Loconsolo is an audio producer at TechCrunch.",
+      "On this episode of The Vergecast, David and Nilay try to make sense of the HomeView's app situation.",
+      "On this episode of TechCrunch's Equity podcast, Dominic-Madori Davis caught up with Vishwanath.",
+      "In today's edition of the newsletter, we explain the price change.",
+    ]) {
+      expect(publisherFurniture(text), text).toBe(true);
+      expect(editorialNoise(text), text).toBe(true);
+      expect(unitTextRejection(text, false), text).toBe("editorial_noise");
+    }
+    // Controls: reporting about a programme, and a byline that keeps going, both
+    // have to survive the widened shapes.
+    for (const text of [
+      "The episode of The Vergecast published on Friday discussed the device.",
+      "The company said its new podcast would launch in May.",
+      "Stewart Bendle is a deals and coupon writer at Tom's Hardware who also covers GPUs.",
+      "Sayem Ahmed is the Subscription Editor at Tom's Hardware and he also writes about GPUs.",
+    ]) {
+      expect(publisherFurniture(text), text).toBe(false);
+      expect(editorialNoise(text), text).toBe(false);
+    }
+  });
 });
 
 describe("a cut-off extraction seam is not a sentence", () => {

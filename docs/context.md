@@ -1161,6 +1161,24 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   that happened to read correctly can no longer be proven. One new test (the two measured false
   pairs plus both controls).
 
+- **2026-10-17 — publisher furniture: the ruled byline shape's own gaps closed, and a programme's
+  own episode intro refused.** The 2026-10-14 ruling put the copular masthead byline into
+  `publisherFurniture`, but three measured sentences were still the same shape and still passed: a
+  three-word role phrase (*"Stewart Bendle is a deals and coupon writer at Tom's Hardware."*, the
+  pattern allowed two words), a role the closed set had not collected (*"Theresa Loconsolo is an
+  audio producer at TechCrunch."*), and a programme describing its own episode (*"On this episode of
+  The Vergecast, David and Nilay try to make sense of…"*), which was published as the **deck** of a
+  story whose only paragraph was the hosts' banter. Measured over 2,108 stored units from 250 live
+  events: 2 programme intros, both a podcast's own episode page, and 2 byline units, both the same
+  masthead — **0 reporting sentences**, which is the precision the ruling asked for. The role set
+  gains `producer`, the role phrase allows three words, and the programme intro is an anchored
+  `On/In this episode/edition of` rule. With the intro refused, that story's deck becomes a real
+  fact (*"The device has plenty of computing oomph…"*) and its body is the hosts' back-announce
+  (*"Relying on CarPlay, slinking back to X…"*) — the story itself is still published, which is the
+  next open question, not a claim of repair. Live audit after the change: facts selected 1,978,
+  rendered 1,783, refused 195, **facts lost 0**, both must-be-zero lines 0, no story withheld by
+  this rule. Tests 224/224 in the two touched files (a new furniture test with four controls).
+
 ## 7. What is next
 
 **2026-10-17, last: the next reader-facing class to put to the arbiter is publisher staff furniture.**
@@ -1184,7 +1202,10 @@ same frozen corpus while working the slice:
 The furniture class is the largest and the least arguable, and it is the one the product already has
 a rule family for (`providerFurniture`, `editorialNoise`, `hasSourceMetadata`) — the gap is that a
 bio is grammatical, so nothing in that family sees it. It needs a ruling on the refusal shape, not a
-recommendation.
+recommendation. **Ruled 2026-10-14 (copular byline, option A) and implemented the same week; the
+three measured gaps were closed on 2026-10-17** (see the work log). The open question left is not
+the sentence but the page: a podcast's own episode page still ships with the hosts' banter as its
+body once the programme intro is refused, and whether that story is withheld is a decision.
 
 **2026-10-17, later the same day: the ruling arrived and the gate is gone.** The owner: *"this saas is no
 ai product, its should be pure code"*. That is now a section of [AGENTS.md](../AGENTS.md) (*"It is not an
