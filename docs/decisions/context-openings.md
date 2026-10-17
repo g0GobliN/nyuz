@@ -108,3 +108,36 @@ this page's dangling references sit at paragraph openings inside a block the aud
 of them (`they`) is exactly the class `contextDependent` exists for. Any rule that closes this has to
 be measured on the live page as well as on the corpus, and the audit's context counter needs to read
 paragraph openings, not only block openings.
+
+## The ruler widened, and the answer is that this class cannot be refused
+
+`audit:reader` now reports a second row beside the ruled one — **a bare pronoun behind a leading
+connector**, which both the ruler and the gate miss because they read position zero. Measured on the
+live corpus, 2026-10-17, `npm run audit:reader` (exit 0; 1,855 sentences):
+
+```
+context-dependent openings        5      (ruled class, unchanged)
+  of those, a pronoun behind a connector (not covered)        2
+    Norwegian teenage hitman hired for UK murder … · However, he was found guilty of conspiracy to
+      murder and on Friday was sentenced to 20 years in detention. Natland had been controlled by …
+    Taiwan raising $4 billion … · However, they also rely on several smaller manufacturers that do
+      not have the financial capability to expand operations into the U.S. independently. …
+```
+
+Two blocks in the corpus, and they are not the same defect:
+
+- the **Taiwan** one is the live defect: the sentence that introduced *those manufacturers* was
+  refused, so the pronoun has nothing above it;
+- the **sentencing** one is correct prose: `he` is the hitman the headline and the paragraph above
+  name, and refusing it would delete the story's central fact.
+
+That is the reason no rule shipped for this class. A blanket refusal of connector + pronoun would
+remove a correct paragraph to fix one wrong one, and telling them apart needs the referent itself —
+for `they`, the published page above contains other plural nouns (`companies`, `officials`), so a
+number-and-noun search cannot decide it. Refusing is not a safe lever here either.
+
+**So the honest position is: measured, not fixed.** The counter is in the instrument so the number
+stops being invisible, and the class stays open with its size known — 2 blocks per corpus, 1 genuine.
+A rule would need coreference, which is out of reach of string tests; the alternative shapes are the
+three in the section above (open with the establishing sentence, order the body after it, or withhold
+the story), and each is a product decision rather than a repair.

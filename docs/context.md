@@ -1412,7 +1412,13 @@ Blocked on the owner, not on code (all three measured 2026-10-12, §1 of
   **5 context-dependent openings and the same defective event** — the article then opened on "The
   middle (baseline) scenario projects …", the same missing report read one sentence later, and the
   block's numbers were lost. The class cannot be closed by refusal; the composer has to *open* the
-  story with a sentence that establishes the document. Evidence:
+  story with a sentence that establishes the document. **The ruler was then widened** to count a bare
+  pronoun behind a leading connector (`However, they …`), which both the ruler and the gate miss
+  because they read position zero: `npm run audit:reader` now prints **2** such blocks in the corpus,
+  and they are not one defect — the Taiwan one is genuine (its antecedent sentence was refused), the
+  sentencing one is correct prose (`he` is the hitman named above). No rule shipped for that reason:
+  a blanket refusal would delete a correct paragraph, and telling them apart needs coreference. The
+  counter stays so the gap is visible. Evidence and both examples:
   [decisions/context-openings.md](decisions/context-openings.md).
 - **The `why_it_matters` slot is gone from the card by ruling, and the data still carries it.** If a
   deterministic, evidence-backed source for significance appears (see

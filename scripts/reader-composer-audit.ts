@@ -70,6 +70,20 @@ const GLUED_ATTRIBUTION = DEFECTS.GLUED_ATTRIBUTION;
 const DOUBLE_SPACE = DEFECTS.DOUBLE_SPACE;
 const TWO_QUOTES = DEFECTS.TWO_QUOTES;
 
+/**
+ * A bare pronoun behind a leading connector: "However, they also rely on …".
+ *
+ * The shared ruler (`unresolvedContextOpening`) reads the first word, and the
+ * composer's rules read the same one, so a connector in front of the pronoun
+ * hides it from both. Found by reading the deployed Taiwan chip-supply story on
+ * 2026-10-17: its fourth paragraph opens "However, they also rely on several
+ * smaller manufacturers …" after the sentence that introduced those
+ * manufacturers was refused. Measured here separately from the ruled class, so
+ * the gap is sized and visible rather than silently folded into a zero.
+ */
+const CONNECTOR_PRONOUN_OPENING =
+  /^(?:However|But|And|Still|Yet|So|Instead|Meanwhile|Also|Now|Then|Today|Yesterday|This week|That said|Even so|As a result|In addition)[,;]?\s+(?:they|them|their|it|its|this|these|those|he|she|him|her|both)\b/i;
+
 const clip = (text: string, max = 180): string =>
   text.length > max ? `${text.slice(0, max - 1)}…` : text;
 
@@ -113,6 +127,13 @@ type Totals = {
   metadataLeaks: number;
   gluedAttribution: number;
   unresolvedContext: number;
+  /**
+   * A block opening on a bare pronoun behind a connector — "However, they also
+   * rely on …". The shared ruler reads position zero, and a connector in front
+   * of the pronoun hides it from both the ruler and the gate, so this counter
+   * exists to size the gap rather than to claim the class is covered.
+   */
+  connectorPronoun: number;
   doubleSpace: number;
   doubleQuotes: number;
   bareQuoteSentence: number;
@@ -162,6 +183,7 @@ function emptyTotals(): Totals {
     metadataLeaks: 0,
     gluedAttribution: 0,
     unresolvedContext: 0,
+    connectorPronoun: 0,
     doubleSpace: 0,
     doubleQuotes: 0,
     bareQuoteSentence: 0,
@@ -369,6 +391,8 @@ main(async () => {
    * here; the PC-shipments sentence, whose referent the page never establishes, must.
    */
   const contextOpenings: string[] = [];
+  /** Blocks the connector form hides from the ruler, printed unclipped in kind. */
+  const connectorOpenings: string[] = [];
   /**
    * Every block that opens on a quotation, with the evidence that decides whether
    * it is a defect -- see `quoteOpeningEvidence`, which is where the definition
@@ -684,6 +708,11 @@ main(async () => {
       totals.unresolvedContext += 1;
       contextOpenings.push(`${event.title} · ${block}`);
     }
+    for (const block of blocks) {
+      if (!CONNECTOR_PRONOUN_OPENING.test(block.trim())) continue;
+      totals.connectorPronoun += 1;
+      connectorOpenings.push(`${event.title} · ${block}`);
+    }
     totals.doubleSpace += blocks.filter((b) => DOUBLE_SPACE.test(b)).length;
     // The story's own named entities, longest first, are what make an attribution
     // readable rather than guessed: a name-shaped ruler cannot tell `The report
@@ -773,6 +802,12 @@ main(async () => {
   // them were read by hand to be sure of exactly that.
   say(row("context-dependent openings", totals.unresolvedContext));
   for (const entry of contextOpenings) say(`  ${clip(entry, 240)}`);
+  // Measured, not ruled: the shared predicate reads position zero, so a block
+  // that opens "However, they also …" is invisible to it. Counted separately so
+  // the instrument stops under-reporting, and printed with its examples so the
+  // next decision is made on pages rather than on a number.
+  say(row("  of those, a pronoun behind a connector (not covered)", totals.connectorPronoun));
+  for (const entry of connectorOpenings) say(`    ${clip(entry, 240)}`);
   say(row("double spaces", totals.doubleSpace));
   say(row("truncated lead", totals.truncatedLeads));
   for (const entry of truncatedLeadBlocks) say(`  ${clip(entry, 240)}`);
