@@ -394,6 +394,15 @@ main(async () => {
   /** Blocks the connector form hides from the ruler, printed unclipped in kind. */
   const connectorOpenings: string[] = [];
   /**
+   * The page's opening reference: repaired before the title moved, or preserved as it was.
+   *
+   * The arbiter's 2026-10-17 ruling (option 4) asks the audit to carry the story,
+   * the offending reference, the repair actually applied and the outcome -- because
+   * "nothing was deleted" is a measurement, not a passing test.
+   */
+  const openingRepairs: string[] = [];
+  const openingUnresolved: string[] = [];
+  /**
    * Every block that opens on a quotation, with the evidence that decides whether
    * it is a defect -- see `quoteOpeningEvidence`, which is where the definition
    * lives. The row below this list used to be a count, and the arbiter's ruling of
@@ -713,6 +722,10 @@ main(async () => {
       totals.connectorPronoun += 1;
       connectorOpenings.push(`${event.title} · ${block}`);
     }
+    for (const sample of diagnostics.qualityGate.openingReferences.samples)
+      openingRepairs.push(`${event.title} · ${sample}`);
+    for (const text of diagnostics.qualityGate.openingReferences.unresolved)
+      openingUnresolved.push(`${event.title} · ${text}`);
     totals.doubleSpace += blocks.filter((b) => DOUBLE_SPACE.test(b)).length;
     // The story's own named entities, longest first, are what make an attribution
     // readable rather than guessed: a name-shaped ruler cannot tell `The report
@@ -808,6 +821,14 @@ main(async () => {
   // next decision is made on pages rather than on a number.
   say(row("  of those, a pronoun behind a connector (not covered)", totals.connectorPronoun));
   for (const entry of connectorOpenings) say(`    ${clip(entry, 240)}`);
+  // The opening reference, as the composer itself judged it: moved in front when the
+  // block named the document, preserved and recorded when nothing did.
+  say(row("opening references repaired (title moved in front)", openingRepairs.length));
+  for (const entry of openingRepairs) say(`  ${clip(entry, 400)}`);
+  say(
+    row("opening references preserved and recorded (nothing names them)", openingUnresolved.length),
+  );
+  for (const entry of openingUnresolved) say(`  ${clip(entry, 260)}`);
   say(row("double spaces", totals.doubleSpace));
   say(row("truncated lead", totals.truncatedLeads));
   for (const entry of truncatedLeadBlocks) say(`  ${clip(entry, 240)}`);

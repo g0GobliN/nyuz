@@ -189,3 +189,63 @@ arbiter (the owner's ChatGPT `nyuz` project) is not reachable from this session'
 escalated to the owner with the table above rather than decided here. **Nothing behavioural has been
 shipped for this class**, and the census is the landed change: the size and the two examples are now
 reproducible with one command.
+
+## Ruled: repair the opening, do not delete or withhold it (arbiter, 2026-10-17)
+
+The three options were put to the arbiter with the measurement above. Its ruling is **option 4 —
+repair-first, preservation-first**, quoted here because the disposition is what the next session must
+not re-litigate:
+
+> **Decision:** Do not ship a string-based deletion rule. Do not withhold either story solely for this
+> defect. Repair the opening deterministically where the existing evidence supports it; otherwise,
+> preserve the story and record the defect. […] At the 10/10 bar, silently losing material evidence is
+> not an acceptable repair. […] A story that reads smoothly but loses important evidence has traded one
+> reader-facing defect for another. […] Release bar: The two known defects must either be repaired
+> without loss of substantive evidence or explicitly recorded as unresolved. The 13 known false
+> positives must remain intact. No story should silently lose its evidence to make the metric green.
+
+The ruling also fixed the sub-questions: scope is the **published opening sequence**, not block 1 only,
+but "do not keep deleting blocks until a validator passes"; a title appearing after its reference still
+counts as unresolved at the point of reference; the document-noun list is a **diagnostic vocabulary,
+never the publication rule**; and losing the NTT figures is **not** acceptable.
+
+### What was built
+
+`establishDocumentIdentity` in [editorial.ts](../../src/lib/editorial.ts) does the one safe repair the
+ruling authorises:
+
+- it fires only on a **leading** `The <document noun>` whose noun the headline and the text above do
+  not already name;
+- it fires only when the block itself carries the title, in the shape `…, which is titled X, …`, and
+  then moves that title in front as an appositive — **the source's own words, re-ordered**, nothing
+  invented, nothing dropped;
+- the repaired block must pass the **paragraph** validator before it is kept (the first attempt asked
+  the sentence validator, which refused every repair that mattered because a block is longer than the
+  sentence limit on purpose);
+- it runs **after** the quality gate, beside `shortenIntroducedNames`, because prose changed after the
+  gate is not re-judged and counters match fact text against published blocks;
+- everything else is **preserved and recorded** in `qualityGate.openingReferences.unresolved`, which
+  `audit:reader` now prints. `b11684` joining that list is honest, not a regression: its
+  `The report was built from the counters …` has nothing on the page naming it either.
+
+### Release report (the evidence the ruling asked for)
+
+One frozen 200-event corpus (`tmp/corpus-today.json`), composed at `HEAD` and with the change, diffed
+story by story:
+
+| required measurement | result |
+| --- | --- |
+| affected stories before → after | **2 → 2** (one repaired, one recorded; nothing withheld) |
+| successful repairs | **1** — the Ukraine story, title moved in front of the reference |
+| unresolved openings preserved and recorded | **2** — NTT and `b11684` |
+| stories withheld because of this rule | **0** |
+| stories/body blocks with substantive content removed | **0** (200 → 200 stories, 678 → 678 blocks) |
+| before → after, Ukraine | `The document does not specify which Russian agency developed the assessment, which is titled Analysis of Ukraine's Energy, Housing and Utilities Sectors, includes …` → `The document, titled Analysis of Ukraine's Energy, Housing and Utilities Sectors, does not specify which Russian agency developed the assessment, includes …` |
+| before → after, NTT | **unchanged** — `The report models three growth trajectories through 2030 …`, figures intact, recorded as unresolved |
+| the 13 false positives | **unchanged** (the repair never touches a non-document noun) |
+| auditability | `audit:reader` prints both rows per story: `opening references repaired (title moved in front)` with before → after, and `opening references preserved and recorded (nothing names them)` with the offending text |
+
+Tests: four, in [reader-prose-rules.test.ts](../../src/lib/reader-prose-rules.test.ts) — the repair,
+the preserved-and-recorded case with its figures, a page that already names the document, and
+idempotence. With the repair call removed the first fails and the three controls pass, which is its
+fail-before evidence.

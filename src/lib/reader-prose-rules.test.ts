@@ -2467,3 +2467,54 @@ describe("a development record is not prose, on any surface", () => {
     }
   });
 });
+
+/**
+ * The arbiter's 2026-10-17 ruling on dangling document references (option 4):
+ * repair-first, preservation-first.
+ *
+ * The reader's problem is order, not vocabulary — a paragraph asks them to trust
+ * "The document" one clause before saying what it is. Where the block itself names
+ * the document, the name is moved in front of the reference that relies on it,
+ * using the source's own words. Where nothing names it, the block is **preserved
+ * and recorded**, never deleted and never withheld: the NTT story's figures are not
+ * sacrificed to make a check pass.
+ */
+describe("a document named after the reference that relies on it", () => {
+  it("moves the title in front of the definite reference", () => {
+    const text = composedText(
+      "The document does not specify which Russian agency developed the assessment, which is titled Analysis of Ukraine’s Energy, Housing and Utilities Sectors, includes vulnerable energy grid targets.",
+    );
+    expect(text).toContain(
+      "The document, titled Analysis of Ukraine’s Energy, Housing and Utilities Sectors, does not specify which Russian agency developed the assessment",
+    );
+    // No content is dropped to achieve it: the claim after the moved clause is still there.
+    expect(text).toContain("includes vulnerable energy grid targets");
+  });
+
+  it("leaves a document nothing names exactly as it is, and keeps its figures", () => {
+    // The NTT case: no title anywhere in the block or the coverage, so there is
+    // nothing to move. The ruling is explicit that its numbers must survive.
+    const text = composedText(
+      "The report models three growth trajectories through 2030 and stress-tests each against the constraints operators hit, such as land availability and water consumption.",
+    );
+    expect(text).toContain("The report models three growth trajectories through 2030");
+    expect(text).toContain("land availability and water consumption");
+  });
+
+  it("does nothing when the page already names the document", () => {
+    const text = composedText(
+      "The report models three growth trajectories through 2030.",
+      "The Register",
+      "NTT report models three growth trajectories for data centres",
+    );
+    expect(text).toContain("The report models three growth trajectories");
+  });
+
+  it("is idempotent: a title already in front stays where it is", () => {
+    const text = composedText(
+      "The assessment, titled Analysis of Ukraine’s Energy, does not specify which agency developed it.",
+    );
+    expect(text).toContain("The assessment, titled Analysis of Ukraine’s Energy, does not specify");
+    expect(text).not.toContain("titled titled");
+  });
+});

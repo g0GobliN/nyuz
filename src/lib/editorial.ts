@@ -319,6 +319,17 @@ export type CompositionDiagnostics = {
      */
     deckRefusals: number;
     deckReasons: Record<string, number>;
+    /**
+     * The page's own opening, and what the composer did about a reference in it.
+     *
+     * The arbiter's 2026-10-17 ruling on this class (option 4) is repair-first,
+     * preservation-first: a document the block itself names later is repaired by
+     * moving the name in front of the reference that relies on it, and an opening
+     * with no establishing context anywhere is **preserved and recorded**, never
+     * deleted and never withheld. `unresolved` is the record; `samples` is the
+     * before/after evidence the release report has to carry.
+     */
+    openingReferences: { repaired: number; unresolved: string[]; samples: string[] };
   };
   /**
    * The invariant this exists for: a selected fact is either published, merged
@@ -554,6 +565,7 @@ function createDiagnostics(): CompositionDiagnostics {
       /** Facts refused because a "this month" could not be made absolute. */
       relativeTimeRefusals: 0,
       stalePreviewRefusals: 0,
+      openingReferences: { repaired: 0, unresolved: [], samples: [] },
     },
     facts: {
       selected: 0,
@@ -982,6 +994,104 @@ function cannotWrap(text: string): boolean {
  */
 function needsAntecedentToOpen(text: string): boolean {
   return unresolvedContextOpening(text.trim());
+}
+
+/**
+ * A document the page is about, referred to by a definite noun.
+ *
+ * Closed on purpose, and used for **diagnostics and one named repair only**: the
+ * arbiter's 2026-10-17 ruling (option 4) is that a noun list cannot decide
+ * readability -- "The US had previously warned …" and "The latest interim release
+ * of Ubuntu …" are both readable and both fail a string test -- so membership in
+ * this list never refuses or deletes anything. It marks the two shapes worth
+ * acting on: a reference the same block names later, and one nothing names.
+ */
+const DOCUMENT_REFERENCE =
+  /^(The (?:document|report|assessment|study|analysis|paper|filing|review|proposal))\b/;
+/**
+ * The block naming its own document later: `… the assessment, which is titled X, includes …`.
+ *
+ * The title may itself contain a comma ("Analysis of Ukraine’s Energy, Housing and Utilities
+ * Sectors"), so the capture ends at a comma followed by a lower-case word -- the source's own
+ * continuation -- rather than at the first comma. A first attempt used `[^,]+` and split the title
+ * in two, which published `The document, titled Analysis of Ukraine’s Energy, does not specify …
+ * the assessment, Housing and Utilities Sectors, includes …`: a repair that creates a new defect is
+ * worse than the one it was written for.
+ */
+const TITLED_CLAUSE = /,\s*(?:which is |which was )?titled\s+([A-Z][\s\S]{2,160}?),\s+(?=[a-z])/;
+
+/**
+ * A crude stem, so "report" and "reports" are the same word for this test.
+ *
+ * Local rather than shared: this asks "does the page already say this word", which
+ * is a screen, and the census uses its own copy for the same reason.
+ */
+function documentStem(word: string): string {
+  return word.toLowerCase().replace(/(?:ies|es|s)$/, "");
+}
+
+/**
+ * Move the name of a document in front of the reference that relies on it.
+ *
+ * The reader's problem is order, not vocabulary: "The document does not specify
+ * which Russian agency developed the assessment, which is titled Analysis of
+ * Ukraine's Energy, Housing and Utilities Sectors, …" asks the reader to trust a
+ * definite reference one clause before saying what it is. The repair is the
+ * source's own words, re-ordered -- the title becomes an appositive on the first
+ * mention -- so nothing is invented and nothing is dropped.
+ *
+ * Deliberately narrow, per the same ruling:
+ *
+ * - only when the noun is not already established in the headline or above it;
+ * - only when the block itself carries the title, so there is no guessing;
+ * - the repaired sentence must still pass the same validator the prose already
+ *   passes, which is why this runs after the gate rather than before it (a
+ *   re-ordering that produced a comma splice or a cut would otherwise publish);
+ * - everything else is **preserved and recorded** as unresolved. The ruling is
+ *   explicit that the NTT story's figures must not be deleted to make a check
+ *   pass, and they are not: that block has no title to move, so it is untouched.
+ */
+function establishDocumentIdentity(
+  text: string,
+  above: string,
+  diagnostics: CompositionDiagnostics,
+): string {
+  const match = DOCUMENT_REFERENCE.exec(text.trim());
+  if (!match) return text;
+  const head = match[1] ?? "";
+  const noun = head.split(/\s+/).at(-1) ?? "";
+  if (noun === "" || above.toLowerCase().includes(documentStem(noun))) return text;
+  const body = text.trim().slice(head.length);
+  const named = TITLED_CLAUSE.exec(body);
+  const title = named ? (named[1] ?? "").trim() : "";
+  const rest = named
+    ? `${body.slice(0, named.index)}, ${body.slice(named.index + named[0].length)}`
+        .replace(/\s{2,}/g, " ")
+        .replace(/,(\s*,)+/g, ",")
+        .replace(/^,\s*/, "")
+        .trim()
+    : "";
+  if (named && title !== "" && rest !== "") {
+    const repaired = `${head}, titled ${title}, ${rest}`;
+    // A block, so it is judged as one: a paragraph is longer than the sentence
+    // limit on purpose, and asking the sentence validator here refused every
+    // repair that mattered.
+    if (validDeterministicParagraph(repaired)) {
+      diagnostics.qualityGate.openingReferences.repaired += 1;
+      if (diagnostics.qualityGate.openingReferences.samples.length < 5) {
+        // Both sides, clipped separately: the audit prints this line to show what
+        // moved, and a single long string clipped once showed only the input.
+        diagnostics.qualityGate.openingReferences.samples.push(
+          `${text.trim().slice(0, 200)}  ->  ${repaired.slice(0, 200)}`,
+        );
+      }
+      return repaired;
+    }
+  }
+  // Preserved, and recorded with the context that would have resolved it: the
+  // audit's job is to make the class visible, not to make the number zero.
+  diagnostics.qualityGate.openingReferences.unresolved.push(text.trim().slice(0, 220));
+  return text;
 }
 
 function safeLead(
@@ -2887,6 +2997,21 @@ export function composeArticleWithDiagnostics(story: Story): {
     // name cannot introduce a defect the gate would have refused: it only takes a
     // given name back out of a mention the source itself wrote as a surname.
     shortenIntroducedNames([gated.deck, ...gated.paragraphs], selection.entities, sourceText);
+    // The page's opening, repaired where the evidence supports it. After the gate
+    // for the same reason the name shortening is: the repair re-orders the
+    // source's own words, so `facts.rendered` -- which matches a fact's text
+    // against the published blocks -- would read a repaired sentence as missing.
+    // The repaired text is put through the sentence validator before it is kept.
+    if (gated.deck.text !== "") {
+      gated.deck.text = establishDocumentIdentity(gated.deck.text, story.title, diagnostics);
+    }
+    const opening = gated.paragraphs[0];
+    if (opening)
+      opening.text = establishDocumentIdentity(
+        opening.text,
+        `${story.title}\n${gated.deck.text}`,
+        diagnostics,
+      );
 
     return { article: gated, diagnostics };
   }

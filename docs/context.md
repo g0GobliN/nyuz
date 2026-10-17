@@ -1786,3 +1786,20 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   [decisions/context-openings.md](decisions/context-openings.md#the-first-body-block-measured-2026-10-17),
   and choosing between them is a product ruling — the arbiter is not reachable from this session's
   tools, so it is escalated to the owner with the table rather than decided here.
+
+- **2026-10-17 — the arbiter ruled the dangling-document class, and the repair it allowed is landed.**
+  The case went to the ChatGPT `nyuz` project (a new chat inside the project, per AGENTS.md) with the
+  measurement: 15 of 159 stories open their body on a reference the page has not established, 2 of those
+  are a document nobody names, and the other 13 are readable in place. **Ruling: option 4 — repair
+  first, preserve always.** Do not ship a deletion rule, do not withhold either story, repair where the
+  block itself names the document, otherwise preserve and record; and *"at the 10/10 bar, silently
+  losing material evidence is not an acceptable repair"*. **Landed:** `establishDocumentIdentity` moves
+  a title the block already carries in front of the `The document …` that relies on it — the source's
+  own words, re-ordered, nothing invented — and records everything it cannot repair. **Release report,
+  frozen 200-event corpus at `HEAD` vs with the change:** 200 → 200 stories, **678 → 678 blocks**,
+  **1 story changed** (*Power plant attacks…*, its opening now `The document, titled Analysis of
+  Ukraine's Energy, Housing and Utilities Sectors, does not specify…`), **1 repair**, **2 unresolved
+  preserved and recorded** (NTT with its figures intact, and `b11684`), **0 withheld**, **0 content
+  removed**. Four tests, the repair test failing with the call removed. `audit:reader` now prints both
+  rows per story, which is the ruling's auditability condition. Full record and the quoted ruling:
+  [decisions/context-openings.md](decisions/context-openings.md#ruled-repair-the-opening-do-not-delete-or-withhold-it-arbiter-2026-10-17).
