@@ -1120,7 +1120,55 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   blocker, so a session cannot re-open it as a defect to repair. Docs only; no code, no behaviour,
   and nothing measured here — the numbers cited are the ones already recorded above.
 
+- **2026-10-17 — the ranked body path restores source adjacency (arbiter ruling #4).** Read in the
+  browser on the live origin, the reader's only story of the day opened its fourth paragraph on
+  *"However, they also rely on several smaller manufacturers…"* with nothing above it naming who
+  `they` was, while the source's own naming sentence (*"Major Taiwanese companies are more than
+  capable…"*) published *after* it in the same block. Cause: `ordering=relevance` for that story
+  (enriched + rss facts), so the single-source path's adjacency rule never ran; and `contextDependent`
+  read position zero, so a pronoun behind `However,` was invisible to the gate as well. Put to the
+  arbiter with the frozen measurement — 104 anaphoric facts, 77 with a selected source-adjacent
+  predecessor, 66 of those refused — it ruled option 1 with conditions: repair the ranked body path,
+  refuse when the predecessor is missing or fails its gate, do not touch the deck, and report every
+  repair by name. Landed: the composer publishes the predecessor directly in front of the sentence
+  that needs it (or splices it in when the predecessor is already published), the pair is never split
+  by the block budget, the gate refuses a dependent whose predecessor it refused, and
+  `antecedentSupplied` (`reader-evidence.ts`) refuses to call proximity proof — a plural reference
+  needs a plural noun phrase, a demonstrative needs its noun, and animate references keep their
+  refusal. Frozen corpus `tmp/corpus-after.json`: **172 stories with prose unchanged**, facts rendered
+  **1,399 → 1,405**, `unresolved_context` refusals **92 → 85**, `article_limit` 10 → 11, **facts lost
+  0**, both must-be-zero lines 0, context-dependent openings published **3 → 3**, the "pronoun behind
+  a connector" class **1 → 0**. Six stories changed, **+8 sentences published / −2 removed** (one
+  `unresolved_context`, one article-cap drop), each listed in
+  [decisions/source-adjacency.md](decisions/source-adjacency.md). Eight new tests; with the repair
+  disabled two of them fail and the refusal controls pass. Not verified on a rendered page: the live
+  briefing predates the change, so the verification is the composer output on that event's own data,
+  the frozen before/after and the audit window.
+
 ## 7. What is next
+
+**2026-10-17, last: the next reader-facing class to put to the arbiter is publisher staff furniture.**
+With adjacency landed the composer's remaining published defects are small and named. Measured on the
+same frozen corpus while working the slice:
+
+- **staff bios published as news prose** — 3 stories: *"Amanda Silberling is a senior writer at
+  TechCrunch…"* (in two different stories), *"Theresa Loconsolo is an audio producer at TechCrunch…"*
+  plus *"Theresa is based in New Jersey and holds a bachelors degree…"* and *"Before joining
+  TechCrunch in 2022…"*, and *"Stewart Bendle is a deals and coupon writer at Tom's Hardware."* The
+  distinguishing test is source-relative — the employer named is the source's own publisher — which
+  keeps the two measured false positives (*"Neha Bora is a PhD student at Delhi's Jawaharlal Nehru
+  University"*, *"Zacharia previously worked as a spokesperson for DHS"*) out.
+- **programme intros published as decks** — 2 stories: *"On this episode of TechCrunch's Equity
+  podcast…"* and *"On this episode of The Vergecast…"*.
+- **a fused table published as prose** — 1 story: *"…(max).Key benchmarking results for Mistral Large
+  4 Preview:➤ Most intelligent model…"* (arrow glyphs, no space after the period).
+- **animate anaphora** — 5 sentences still refused because personhood cannot be proven
+  (`He argued that the Nord Stream pipelines…`); a classifier is a decision, not a patch.
+
+The furniture class is the largest and the least arguable, and it is the one the product already has
+a rule family for (`providerFurniture`, `editorialNoise`, `hasSourceMetadata`) — the gap is that a
+bio is grammatical, so nothing in that family sees it. It needs a ruling on the refusal shape, not a
+recommendation.
 
 **2026-10-17, later the same day: the ruling arrived and the gate is gone.** The owner: *"this saas is no
 ai product, its should be pure code"*. That is now a section of [AGENTS.md](../AGENTS.md) (*"It is not an

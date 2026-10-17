@@ -1162,11 +1162,26 @@ export function normalizeEvidenceText(text: string): string {
     .trim();
 }
 
+/**
+ * A connector in front of a pronoun does not make the pronoun resolvable.
+ *
+ * `However, they also rely on several smaller manufacturers ...` was live on
+ * 2026-10-17 in the only story that reader's briefing carried, and it was not
+ * caught because the ruler read position zero only: the sentence opens on
+ * `However`, so the pronoun sits one word later and every test passed. The
+ * connector is exactly the word that promises the reader a contrast with
+ * something already said, which is why the miss matters -- the reference is
+ * load-bearing, not decorative.
+ */
+const CONNECTOR_PRONOUN_OPENING =
+  /^(?:However|But|And|Still|Yet|So|Instead|Meanwhile|Also|Now|Then|Today|Yesterday|This week|That said|Even so|As a result|In addition)[,;]?\s+(?:they|them|their|it|its|this|these|those|he|she|him|her|both)\b/i;
+
 /** Whether the sentence needs a subject from somewhere else to be readable. */
 export function contextDependent(text: string): boolean {
   const trimmed = text.trim();
   return (
     (PRONOUN_SUBJECT_OPENING.test(trimmed) && !POSSESSIVE_DETERMINER_OPENING.test(trimmed)) ||
+    CONNECTOR_PRONOUN_OPENING.test(trimmed) ||
     frontedClauseNeedsContext(trimmed) ||
     /\bthe figure\b/i.test(trimmed)
   );
@@ -1197,6 +1212,113 @@ export function unresolvableContext(text: string): boolean {
  */
 export function recoverableContext(text: string): boolean {
   return RECOVERABLE_OPENING.test(text.trim());
+}
+
+/**
+ * Whether the sentence before this one actually supplies its opening reference.
+ *
+ * The composer restores source adjacency for a ranked fact that opens on a
+ * reference, and the arbiter's ruling #4 (2026-10-17) put one condition on it in
+ * as many words: "Mere sentence adjacency is necessary for this repair but is
+ * not, by itself, proof of semantic resolution."
+ *
+ * So the repair asks the predecessor for evidence, not for proximity. What can be
+ * proven deterministically is agreement: a plural reference (`they`, `their`,
+ * `these`, `those`, `both`) is supplied by a plural noun phrase in the sentence
+ * before it -- "Major Taiwanese companies are more than capable ... However, they
+ * also rely on ..." resolves, while "The organization is headed up by Trump ally
+ * and diplomat Ric Grenell. She is married to film producer Tyler Zacharia."
+ * does not, and neither does a dummy subject: "There were two further explosions
+ * ... He argued that ..." has no person in it to be `he`.
+ *
+ * Everything else is refused rather than guessed. A singular animate reference
+ * needs a person, and telling a person from a company, a product or a place is
+ * the one thing this layer cannot do without a model -- so `he`, `she`, `it` and a
+ * bare `this` keep the refusal they have today, and the class is recorded for a
+ * later ruling rather than smuggled through on adjacency alone.
+ */
+export function antecedentSupplied(dependent: string, predecessor: string): boolean {
+  const opening =
+    /^(?:(?:However|But|And|Still|Yet|So|Instead|Meanwhile|Also|Now|Then|Today|Yesterday|This week|That said|Even so|As a result|In addition)[,;]?\s+)?([\p{L}]+)(?:\s+(?:new\s+)?([\p{L}]+))?/u.exec(
+      dependent.trim(),
+    );
+  const head = (opening?.[1] ?? "").toLowerCase();
+  // `they`, `their`, `both`: a plural reference, so a plural noun phrase in the
+  // sentence before it supplies it. "Major Taiwanese companies are more than
+  // capable ... However, they also rely on ..." resolves; "The organization is
+  // headed up by ... Ric Grenell. She is married to ..." never could.
+  if (PLURAL_PRONOUN_OPENING.has(head)) return pluralNounPhrase(predecessor);
+  // `this`/`these`/`those` + noun is the weaker case, and the noun is the
+  // evidence: "Those turbines are often used by utilities" is supplied by a
+  // sentence that has turbines in it, while "These price increases have been
+  // caused by the boom" is not supplied by "PC shipments fell 20.1% in the third
+  // quarter" -- which is how that sentence used to open a page about prices it
+  // never mentioned.
+  if (!DEMONSTRATIVE_OPENING.has(head)) return false;
+  const noun = (opening?.[2] ?? "").toLowerCase();
+  if (noun === "" || NOT_A_REFERENT.has(noun)) return false;
+  return mentionsNoun(predecessor, noun);
+}
+
+/**
+ * Openings whose referent has to be plural, so agreement can decide them.
+ *
+ * `it`/`its` is absent on purpose: `recoverableContext` already repairs those by
+ * substitution, and the two rules must not overlap.
+ */
+const PLURAL_PRONOUN_OPENING = new Set(["they", "them", "their", "theirs", "both"]);
+
+/** Demonstratives that head a noun rather than standing for a sentence. */
+const DEMONSTRATIVE_OPENING = new Set(["this", "these", "those", "that"]);
+
+/** Words that follow a demonstrative without naming anything. */
+const NOT_A_REFERENT = new Set(
+  "is was were are be been being has have had will would can could may might must also not no then now year years week weeks month months day days way ways time times one ones kind sort thing things".split(
+    " ",
+  ),
+);
+
+/**
+ * Whether a sentence names the noun, singular or plural.
+ *
+ * Crude stemming on one axis only -- a trailing `s`/`es`/`ies` -- because the
+ * two sentences are the author's own and the question is whether the reader has
+ * met the word at all, not whether the grammar agrees.
+ */
+function mentionsNoun(text: string, noun: string): boolean {
+  const stem = (word: string) => word.replace(/ies$/u, "y").replace(/(?:es|s)$/u, "");
+  const wanted = stem(noun);
+  for (const token of text.toLowerCase().match(/[\p{L}][\p{L}'’-]*/gu) ?? []) {
+    if (token === noun || stem(token) === wanted) return true;
+  }
+  return false;
+}
+
+/** Words ending in `s` that are not plural nouns. */
+const NOT_PLURAL = new Set(
+  "this these those was has is as his its us thus less business class glass status campus across plus versus analysis basis crisis press process address access success congress mass gas news series terms says according".split(
+    " ",
+  ),
+);
+
+/**
+ * Whether a sentence names a group: a plural noun phrase, however it is spelled.
+ *
+ * A lower-case plural ("companies", "officials", "data centers") or a
+ * capitalised one ("United States", "Ghost Security") both count: an organisation
+ * is a `they` like a crowd is.
+ */
+function pluralNounPhrase(text: string): boolean {
+  const words = (text.match(/[\p{L}][\p{L}'’-]*/gu) ?? []).map((token) =>
+    token.replace(/['’]s$/u, "").replace(/[’'-]s$/u, "s"),
+  );
+  for (const word of words) {
+    if (!/[a-z]s$/u.test(word)) continue;
+    if (word.length < 4 || word.endsWith("ss")) continue;
+    if (NOT_PLURAL.has(word.toLowerCase())) continue;
+    return true;
+  }
+  return false;
 }
 
 /**

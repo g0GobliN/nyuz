@@ -129,11 +129,22 @@ type Totals = {
   unresolvedContext: number;
   /**
    * A block opening on a bare pronoun behind a connector — "However, they also
-   * rely on …". The shared ruler reads position zero, and a connector in front
-   * of the pronoun hides it from both the ruler and the gate, so this counter
-   * exists to size the gap rather than to claim the class is covered.
+   * rely on …". Once the gap this counter measured: the shared ruler read
+   * position zero, so a connector in front of the pronoun hid it from the ruler
+   * *and* from the gate. The class is covered now, and the counter stays as the
+   * check that it is — a published one here is a regression.
    */
   connectorPronoun: number;
+  /**
+   * Sentences the ranked path published by restoring their source adjacency.
+   *
+   * The arbiter's ruling #4 (2026-10-17) makes the ranked path honour the same
+   * contract the single-source path always had: a fact that opens on a reference
+   * is published directly behind the sentence the author wrote before it, when
+   * that sentence is selected and supplies the reference. Counted on the
+   * composer's own record, and every one printed with both sentences.
+   */
+  adjacencyRepairs: number;
   doubleSpace: number;
   doubleQuotes: number;
   bareQuoteSentence: number;
@@ -184,6 +195,7 @@ function emptyTotals(): Totals {
     gluedAttribution: 0,
     unresolvedContext: 0,
     connectorPronoun: 0,
+    adjacencyRepairs: 0,
     doubleSpace: 0,
     doubleQuotes: 0,
     bareQuoteSentence: 0,
@@ -402,6 +414,8 @@ main(async () => {
    */
   const openingRepairs: string[] = [];
   const openingUnresolved: string[] = [];
+  /** One row per source-adjacency repair: both sentences and the outcome. */
+  const adjacencyRepairRows: string[] = [];
   /**
    * Every block that opens on a quotation, with the evidence that decides whether
    * it is a defect -- see `quoteOpeningEvidence`, which is where the definition
@@ -726,6 +740,16 @@ main(async () => {
       openingRepairs.push(`${event.title} · ${sample}`);
     for (const text of diagnostics.qualityGate.openingReferences.unresolved)
       openingUnresolved.push(`${event.title} · ${text}`);
+    // Every adjacency repair by name, with the sentence it now sits behind and
+    // whether the prose actually carries it -- a repair the gate then refused is
+    // not a repair, and the count must not claim it is.
+    for (const sample of diagnostics.qualityGate.adjacencyRepairs.samples) {
+      totals.adjacencyRepairs += 1;
+      const carried = blocks.some((block) => block.includes(sample.dependent));
+      adjacencyRepairRows.push(
+        `${event.title}\n    dependent [${sample.dependentOrder}] ${sample.dependent}\n    predecessor [${sample.predecessorOrder}] ${sample.predecessor}\n    ${carried ? "published" : "refused after the repair"}`,
+      );
+    }
     totals.doubleSpace += blocks.filter((b) => DOUBLE_SPACE.test(b)).length;
     // The story's own named entities, longest first, are what make an attribution
     // readable rather than guessed: a name-shaped ruler cannot tell `The report
@@ -819,10 +843,15 @@ main(async () => {
   // that opens "However, they also …" is invisible to it. Counted separately so
   // the instrument stops under-reporting, and printed with its examples so the
   // next decision is made on pages rather than on a number.
-  say(row("  of those, a pronoun behind a connector (not covered)", totals.connectorPronoun));
+  say(row("  of those, a pronoun behind a connector", totals.connectorPronoun));
   for (const entry of connectorOpenings) say(`    ${clip(entry, 240)}`);
   // The opening reference, as the composer itself judged it: moved in front when the
   // block named the document, preserved and recorded when nothing did.
+  // The ranked path's own repair, kept apart from the document-identity one on
+  // purpose: the arbiter asked for this outcome to be identifiable as a
+  // source-adjacency repair, not folded into the other class's number.
+  say(row("source-adjacency repairs (ranked body path)", totals.adjacencyRepairs));
+  for (const entry of adjacencyRepairRows) say(`  ${clip(entry, 700)}`);
   say(row("opening references repaired (title moved in front)", openingRepairs.length));
   for (const entry of openingRepairs) say(`  ${clip(entry, 400)}`);
   say(

@@ -5,6 +5,8 @@ import {
   composeArticleWithDiagnostics,
 } from "./editorial";
 import {
+  antecedentSupplied,
+  contextDependent,
   deterministicFactType,
   validDeterministicParagraph,
   validDeterministicSentence,
@@ -974,5 +976,151 @@ describe("T1 — truncated-sentence and raw-URL prose is never published", () =>
 
     expect(bodyText(article)).not.toContain("bun.sh/install.ps1");
     expect(diagnostics.sentences.reasons["raw_url"] ?? 0).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("source adjacency in the ranked path", () => {
+  // Arbiter ruling #4 (2026-10-17). Ranking decides what is worth publishing; it
+  // does not get to put a sentence ahead of the one it needs to be read. The
+  // fixture is the live Taiwan story of that day -- the only story that reader's
+  // briefing carried, whose fourth paragraph opened "However, they also rely on
+  // several smaller manufacturers ..." with nothing above it saying who "they"
+  // was, while the source's own naming sentence was published after it.
+  const bodyOf = (article: { paragraphs: { text: string }[] }) =>
+    article.paragraphs.map((p) => p.text);
+
+  const storyWith = (sentences: string[]) =>
+    makeStory({
+      title: "Taiwan raising $4 billion to build industrial park in Texas",
+      understand: undefined as never,
+      what: "",
+      sources: 2,
+      sourceList: [
+        { name: "Tom's Hardware", at: "10:00", excerpt: sentences.join(" ") },
+        {
+          name: "Reuters",
+          at: "11:00",
+          excerpt:
+            "The ministry said the park is expected to open in 2027, with construction starting next year.",
+        },
+      ],
+    });
+
+  const NAMES_THE_GROUP =
+    "Major Taiwanese companies are more than capable of spending the billions of dollars needed to set up manufacturing sites in America.";
+  const NEEDS_THE_GROUP =
+    "However, they also rely on TSMC and several smaller manufacturers that do not have the financial capability to expand operations into the U.S. independently.";
+
+  it("publishes the sentence that names the group directly before the one that leans on it", () => {
+    const story = storyWith([
+      "Taiwan is raising at least $4 billion to build an industrial park in Texas.",
+      NAMES_THE_GROUP,
+      NEEDS_THE_GROUP,
+    ]);
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+    const block = bodyOf(article).find((text) => text.includes(NEEDS_THE_GROUP));
+
+    expect(block).toBeDefined();
+    expect(block).toContain(NAMES_THE_GROUP);
+    expect((block ?? "").indexOf(NAMES_THE_GROUP)).toBeLessThan(
+      (block ?? "").indexOf(NEEDS_THE_GROUP),
+    );
+    expect(diagnostics.qualityGate.adjacencyRepairs.count).toBe(1);
+    expect(
+      diagnostics.facts.unrendered.some((entry) => entry.text.startsWith("However, they also")),
+    ).toBe(false);
+    expect(diagnostics.facts.lost).toBe(0);
+  });
+
+  it("refuses the sentence when the one it needs was not selected, and says so", () => {
+    // "Read more about the deal on our site." is an instruction, refused in the
+    // evidence pass -- so the fact that needs it has no predecessor to sit behind.
+    const story = storyWith([
+      "Taiwan is raising at least $4 billion to build an industrial park in Texas.",
+      "Read more about the deal on our site.",
+      NEEDS_THE_GROUP,
+    ]);
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+
+    expect(bodyOf(article).join(" ")).not.toContain("However, they also rely");
+    expect(
+      diagnostics.facts.unrendered.some(
+        (entry) =>
+          entry.text.startsWith("However, they also") && entry.rule === "unresolved_context",
+      ),
+    ).toBe(true);
+    // No path republished what a rule refused, and nothing vanished unaccounted.
+    expect(diagnostics.facts.renderedAfterRefusal).toBe(0);
+    expect(diagnostics.facts.lost).toBe(0);
+  });
+
+  it("refuses it when the sentence before it cannot supply the reference", () => {
+    // The ruling's condition: proximity is not proof. A sentence with no group in
+    // it cannot be where a "they" comes from.
+    const story = storyWith([
+      "Taiwan announced the deal on Monday.",
+      "However, they also rely on several smaller manufacturers that cannot expand alone.",
+    ]);
+    const { article, diagnostics } = composeArticleWithDiagnostics(story);
+
+    expect(bodyOf(article).join(" ")).not.toContain("However, they also rely");
+    expect(diagnostics.facts.lost).toBe(0);
+  });
+
+  it("keeps the pair in one block when the paragraph budget would split them", () => {
+    // The budget is a length rule and the reference is a reading rule; where they
+    // disagree the reader wins. Two long sentences overflow the 75-word budget,
+    // and splitting there would put the dependent sentence at the top of the next
+    // block -- exactly the dangling opening the repair exists to prevent.
+    const long =
+      "Major Taiwanese companies are more than capable of spending the billions of dollars that setting up a manufacturing site in America now costs, and several of them have already committed to do exactly that over the coming decade, according to the ministry.";
+    const story = storyWith([
+      "Taiwan is raising at least $4 billion to build an industrial park in Texas.",
+      long,
+      NEEDS_THE_GROUP,
+    ]);
+    const { article } = composeArticleWithDiagnostics(story);
+    const block = bodyOf(article).find((text) => text.includes(NEEDS_THE_GROUP));
+
+    expect(block).toBeDefined();
+    expect(block).toContain("Major Taiwanese companies are more than capable");
+  });
+
+  it("does not treat proximity as proof that the reference resolves", () => {
+    // The guard the ruling asked for in as many words: adjacency is necessary,
+    // not sufficient. These four pairs are the measured failures and controls.
+    expect(
+      antecedentSupplied(
+        "However, they also rely on several smaller manufacturers that cannot expand alone.",
+        "Major Taiwanese companies are more than capable of spending the billions of dollars needed.",
+      ),
+    ).toBe(true);
+    expect(
+      antecedentSupplied(
+        "She is married to film producer Tyler Zacharia.",
+        "The organization is headed up by Trump ally and diplomat Ric Grenell.",
+      ),
+    ).toBe(false);
+    expect(
+      antecedentSupplied(
+        "These price increases have been caused by the boom in AI data centers.",
+        "PC shipments fell 20.1% in the third quarter.",
+      ),
+    ).toBe(false);
+    expect(
+      antecedentSupplied(
+        "He argued that the Nord Stream pipelines had untied Russia's hands to go to war.",
+        "There were two further explosions targeting both Nord Stream 2 and the original Nord Stream 1.",
+      ),
+    ).toBe(false);
+  });
+
+  it("sees a pronoun behind a connector, which is how the live defect was missed", () => {
+    expect(contextDependent("However, they also rely on several smaller manufacturers.")).toBe(
+      true,
+    );
+    expect(contextDependent("But it also said the deal would hold.")).toBe(true);
+    // The connector alone is not the defect: a named subject after it still reads.
+    expect(contextDependent("However, Taiwan's ministry said the deal would hold.")).toBe(false);
   });
 });

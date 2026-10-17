@@ -17,6 +17,16 @@ export type ArticleParagraph = {
   text: string;
   evidence: number[];
   heading?: string;
+  /**
+   * Sentences that must stay directly behind the one before them in a block.
+   *
+   * The composer restores source adjacency for a ranked fact that opens on a
+   * reference (`they`, `this`): the sentence the author wrote immediately before
+   * it is published directly in front of it. The block splitter is the last
+   * place that could silently undo that, so the pair travels with its paragraph
+   * and the splitter will not break it (arbiter ruling #4, 2026-10-17).
+   */
+  glue?: { dependent: string; predecessor: string }[];
 };
 
 export type ReaderArticle = {

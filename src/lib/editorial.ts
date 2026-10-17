@@ -7,6 +7,7 @@ import {
   centralTokens,
   storyPositionRank,
   cleanDeterministicSentence,
+  antecedentSupplied,
   contextDependent,
   deterministicFactType,
   editorialNoise,
@@ -297,6 +298,26 @@ export type CompositionDiagnostics = {
     sourceSeamWarnings: number;
     /** Sentences whose subject is a pronoun with no antecedent. */
     unresolvedContextWarnings: number;
+    /**
+     * Sentences the ranked path published by restoring their source adjacency.
+     *
+     * Ranking decides what is worth publishing; it may not put a sentence ahead
+     * of the one it needs to be read. The arbiter's ruling #4 (2026-10-17) made
+     * that the contract for the body: when a fact opens on a reference, the
+     * sentence the author wrote immediately before it is published directly in
+     * front of it, from the story's own selection and nothing else. Both
+     * sentences and both source positions are kept, because a repair has to be
+     * checkable rather than counted.
+     */
+    adjacencyRepairs: {
+      count: number;
+      samples: {
+        dependent: string;
+        predecessor: string;
+        dependentOrder: number;
+        predecessorOrder: number;
+      }[];
+    };
     /** Sentences holding more than one quoted passage. */
     stackedQuoteWarnings: number;
     /** Double spaces repaired before publication. */
@@ -558,6 +579,7 @@ function createDiagnostics(): CompositionDiagnostics {
       headingUnitWarnings: 0,
       sourceSeamWarnings: 0,
       unresolvedContextWarnings: 0,
+      adjacencyRepairs: { count: 0, samples: [] },
       stackedQuoteWarnings: 0,
       spacingRepairs: 0,
       deckRefusals: 0,
@@ -665,7 +687,6 @@ type FactLedger = {
 };
 
 function markUnrendered(ledger: FactLedger, factKey: string, rule: string): void {
-  console.log("markUnrendered", factKey.slice(0, 80), rule);
   if (factKey === "" || ledger.unrendered.has(factKey)) return;
   ledger.unrendered.set(factKey, rule);
 }
@@ -1578,6 +1599,18 @@ function qualityGate(
 ): ReaderArticle {
   const sentencesWithEvidence: { text: string; evidence: number[] }[] = [];
   const index = new Map<string, number>();
+  /**
+   * sentence -> the sentence it has to sit directly behind.
+   *
+   * Read from the composer's source-adjacency repairs. Two passes have to honour
+   * it: the gate, because a predecessor it refuses would leave the dependent
+   * sentence opening a block with nothing to point at, and the block splitter,
+   * because a word budget may not break the pair apart.
+   */
+  const glue = new Map<string, string>();
+  for (const paragraph of article.paragraphs) {
+    for (const pair of paragraph.glue ?? []) glue.set(pair.dependent, pair.predecessor);
+  }
   const deck = article.deck;
   const mergeInto = (target: { evidence: number[] }, evidence: number[]) => {
     target.evidence = [...new Set([...target.evidence, ...evidence])];
@@ -1698,9 +1731,6 @@ function qualityGate(
       // ruler the audit measures with, so the rule and the measurement cannot
       // drift.
       if (truncatedSentence(part) !== "") {
-        console.log("REFUSE truncated part:", JSON.stringify(part));
-        console.log("  key:", sentenceKey(part));
-        console.log("  found:", ledger.sentences.has(sentenceKey(part)));
         refuse("truncated_sentence", part);
         continue;
       }
@@ -1709,6 +1739,15 @@ function qualityGate(
       // such as "WordPress.com" are often ordinary nouns in the corpus.
       if (RAW_URL_WITH_PATH.test(part)) {
         refuse("raw_url", part);
+        continue;
+      }
+      // The sentence this one rests on was refused above: publishing this one
+      // would open on a reference the page no longer establishes. The composer's
+      // dependency is honoured here rather than guessed at.
+      const antecedent = glue.get(part);
+      if (antecedent !== undefined && !index.has(sentenceKey(antecedent))) {
+        diagnostics.qualityGate.unresolvedContextWarnings += 1;
+        refuse("unresolved_context", part);
         continue;
       }
       const key = sentenceKey(part);
@@ -1746,10 +1785,33 @@ function qualityGate(
     const prior = assembled.at(-1);
     const merged = prior ? `${prior.text} ${part.text}` : part.text;
     const shares = prior && prior.evidence.some((ref) => part.evidence.includes(ref));
+    // A repaired pair is never split by the word budget: the dependent sentence
+    // is only readable immediately after the one it needs, so the pair carries
+    // the block one sentence past its usual length rather than breaking it.
+    const antecedent = glue.get(part.text);
+    const keepsPair =
+      prior !== undefined && antecedent !== undefined && prior.text.endsWith(antecedent);
+    // The block cannot carry both -- the pair would push it past the paragraph
+    // ceiling -- so the pair starts the next block instead: the sentence the
+    // reader needs travels with the sentence that needs it rather than being
+    // left a block behind. The pair's own block is a paragraph like any other,
+    // and the fact that a block without the pair may now sit under the floor is
+    // the price of not publishing a dangling opening.
+    if (prior && keepsPair && !validDeterministicParagraph(merged)) {
+      const cut = prior.text.lastIndexOf(antecedent);
+      const remaining = cut > 0 ? prior.text.slice(0, cut).trim() : "";
+      const pair = `${antecedent} ${part.text}`;
+      if (countWords(remaining) >= MIN_PARAGRAPH_WORDS && validDeterministicParagraph(pair)) {
+        prior.text = remaining;
+        prior.sentences -= 1;
+        assembled.push({ text: pair, evidence: [...part.evidence], sentences: 2 });
+        continue;
+      }
+    }
     if (
       prior &&
-      shares &&
-      countWords(merged) <= PARAGRAPH_WORD_BUDGET &&
+      (shares || keepsPair) &&
+      (countWords(merged) <= PARAGRAPH_WORD_BUDGET || keepsPair) &&
       validDeterministicParagraph(merged)
     ) {
       prior.text = merged;
@@ -1806,6 +1868,66 @@ function groupRank(group: ReaderFact[]): number {
   return Math.min(...group.map((fact) => storyPositionRank(fact.text)));
 }
 
+/**
+ * Whether a sentence opens on a reference it cannot carry itself.
+ *
+ * The soft class the composer owns: `they`, `this`, `these` -- readable when the
+ * sentence the author wrote before it is the sentence the reader has just read,
+ * and unreadable when it is not. `unresolvableContext` covers the class no
+ * ordering can fix, so it is not this test's business.
+ */
+function needsAntecedentContext(text: string): boolean {
+  return contextDependent(text) && !recoverableContext(text) && !unresolvableContext(text);
+}
+
+/**
+ * The sentence the author wrote immediately before this one, in the same source.
+ *
+ * Keyed on the evidence reference as well as the position, because `sourceOrder`
+ * is an index into one source's excerpt: two outlets both have a sentence 3, and
+ * only the same reference makes one of them the other's predecessor.
+ */
+function sourcePredecessor(
+  fact: ReaderFact,
+  byPosition: Map<string, ReaderFact>,
+): ReaderFact | undefined {
+  for (const ref of fact.evidence) {
+    const candidate = byPosition.get(`${ref}:${fact.sourceOrder - 1}`);
+    if (candidate && candidate !== fact) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * The source sentence that has to be published in front of `fact`, or null.
+ *
+ * One sentence, never a run: the arbiter's ruling #4 (2026-10-17) allows the
+ * repair only where the evidence supports the relationship, and the evidence
+ * this layer can read is agreement between the reference and the sentence before
+ * it -- a `they` behind a sentence that names a group. Two things therefore end
+ * the search: a predecessor that is not selected or is already published
+ * elsewhere, and a predecessor that cannot supply the reference. A sentence whose
+ * own opening needs context is no use as context for anything.
+ */
+function adjacencyPredecessor(
+  fact: ReaderFact,
+  byPosition: Map<string, ReaderFact>,
+  lead: ReaderFact | undefined,
+  placed: Set<ReaderFact>,
+): ReaderFact[] | null {
+  const predecessor = sourcePredecessor(fact, byPosition);
+  if (!predecessor) return null;
+  // The deck is above every body block, so its sentence is already context --
+  // the ruling's own condition (b) -- but only when it supplies the reference,
+  // which is the same evidence test the body path applies. A deck that says
+  // `PC shipments fell 20.1%` does not establish a later `These price increases`.
+  if (predecessor === lead) return antecedentSupplied(fact.text, predecessor.text) ? [fact] : null;
+  if (placed.has(predecessor)) return null;
+  if (needsAntecedentContext(predecessor.text)) return null;
+  if (!antecedentSupplied(fact.text, predecessor.text)) return null;
+  return [predecessor, fact];
+}
+
 function deterministicParagraphs(
   facts: ReaderFact[],
   story: Story,
@@ -1813,30 +1935,59 @@ function deterministicParagraphs(
   surveys: Map<number, string>,
   /** Where a fact this pass does not publish is charged, with its rule. */
   ledger: FactLedger,
+  /** The fact published as the deck: its sentence stands above every body block. */
+  lead?: ReaderFact,
 ): ArticleParagraph[] {
   const groups: ReaderFact[][] = [];
+  /** Where each selected fact sits in its own source, for the adjacency lookup. */
+  const byPosition = new Map<string, ReaderFact>();
+  for (const fact of [...facts, ...(lead ? [lead] : [])]) {
+    for (const ref of fact.evidence) byPosition.set(`${ref}:${fact.sourceOrder}`, fact);
+  }
+  /** Facts already in a paragraph, so a predecessor is never published twice. */
+  const placed = new Set<ReaderFact>();
+  /** Dependent sentence key -> the sentence that has to sit directly before it. */
+  const repaired = new Map<string, ReaderFact>();
   for (const fact of facts) {
+    if (placed.has(fact)) continue;
     /**
-     * A `they` or a `this` in a ranked list has nothing to point at.
+     * A `they` or a `this` in a ranked list has nothing to point at -- unless the
+     * sentence the author wrote before it is published directly in front of it.
      *
-     * Source order is what makes an anaphoric sentence readable -- the sentence
-     * the author wrote before it is the sentence the reader just read. Ranking
-     * destroys that guarantee: relevance order puts whatever scored highest first,
-     * so "they were also commandeering a German website" can land three paragraphs
-     * away from the agents it means. Rather than publish a mystery, the fact is
-     * refused here and counted, which is the same trade the gate makes for the
-     * class no ordering can fix.
+     * Source order is what makes an anaphoric sentence readable, and ranking
+     * breaks it: relevance order puts whatever scored highest first, so "they
+     * were also commandeering a German website" can land three paragraphs away
+     * from the agents it means. Ranking decides what is worth publishing; it
+     * does not get to put a sentence ahead of the one it needs (arbiter ruling
+     * #4, 2026-10-17). So the dependency is repaired by publishing the run of
+     * source sentences the fact needs -- from this story's own selection -- and
+     * refusing the fact only when that run cannot be built.
      */
-    if (
-      contextDependent(fact.text) &&
-      !recoverableContext(fact.text) &&
-      !unresolvableContext(fact.text)
-    ) {
-      diagnostics.qualityGate.unresolvedContextWarnings += 1;
-      diagnostics.facts.refusalEvents += 1;
-      markFact(ledger, fact.text, "unresolved_context");
-      refuseBlock(fact.text, "unresolved_context", diagnostics);
-      continue;
+    let chain: ReaderFact[] = [fact];
+    if (needsAntecedentContext(fact.text)) {
+      const predecessor = sourcePredecessor(fact, byPosition);
+      // The sentence it needs is already published: the repair is to sit directly
+      // behind it, which is the whole contract -- a reader moving forwards never
+      // goes back. Spliced into that paragraph, since nothing else is known at
+      // this point about where the blocks will land.
+      if (predecessor && predecessor !== lead && placed.has(predecessor)) {
+        const home = groups.find((group) => group?.includes(predecessor));
+        if (home && antecedentSupplied(fact.text, predecessor.text)) {
+          home.splice(home.indexOf(predecessor) + 1, 0, fact);
+          placed.add(fact);
+          repaired.set(sentenceKey(fact.text), predecessor);
+          continue;
+        }
+      }
+      const resolved = adjacencyPredecessor(fact, byPosition, lead, placed);
+      if (resolved === null) {
+        diagnostics.qualityGate.unresolvedContextWarnings += 1;
+        diagnostics.facts.refusalEvents += 1;
+        markFact(ledger, fact.text, "unresolved_context");
+        refuseBlock(fact.text, "unresolved_context", diagnostics);
+        continue;
+      }
+      chain = resolved;
     }
     const type = deterministicFactType(fact.text, fact.quote);
     const target =
@@ -1874,18 +2025,53 @@ function deterministicParagraphs(
       sameSource &&
       (sharesSubject(prior.map((item) => item.text).join(" "), fact.text) || underFloor)
     )
-      prior.push(fact);
-    else if (!prior) groups[target] = [fact];
-    else groups.push([fact]);
+      prior.push(...chain);
+    else if (!prior) groups[target] = [...chain];
+    else groups.push([...chain]);
+    for (const [index, item] of chain.entries()) {
+      placed.add(item);
+      const previous = chain[index - 1];
+      if (previous) repaired.set(sentenceKey(item.text), previous);
+    }
   }
   return groups
     .filter((group): group is ReaderFact[] => !!group?.length)
     .sort((a, b) => groupRank(a) - groupRank(b))
     .map((group) => {
-      const parts = group
-        .map((fact) => factSentence(fact, story, diagnostics, surveys, ledger))
-        .filter((text): text is string => text !== null);
-      return { text: parts.join(" "), evidence: citationRefs(group), facts: group };
+      const parts: string[] = [];
+      const rendered = new Set<ReaderFact>();
+      const glue: { dependent: string; predecessor: string }[] = [];
+      for (const fact of group) {
+        const predecessor = repaired.get(sentenceKey(fact.text));
+        // A dependent sentence is published only when the sentence it needs is
+        // directly in front of it. A predecessor that fails its own gate takes
+        // the dependent with it, rather than leaving the reader a mystery -- the
+        // ruling's condition, and no gate is bypassed to satisfy it.
+        if (predecessor && !rendered.has(predecessor)) {
+          diagnostics.qualityGate.unresolvedContextWarnings += 1;
+          diagnostics.facts.refusalEvents += 1;
+          markFact(ledger, fact.text, "unresolved_context");
+          refuseBlock(fact.text, "unresolved_context", diagnostics);
+          continue;
+        }
+        const text = factSentence(fact, story, diagnostics, surveys, ledger);
+        if (text === null) continue;
+        rendered.add(fact);
+        parts.push(text);
+        if (predecessor) {
+          diagnostics.qualityGate.adjacencyRepairs.count += 1;
+          diagnostics.qualityGate.adjacencyRepairs.samples.push({
+            dependent: fact.text,
+            predecessor: predecessor.text,
+            dependentOrder: fact.sourceOrder,
+            predecessorOrder: predecessor.sourceOrder,
+          });
+          const predecessorText = parts.at(-2);
+          if (predecessorText !== undefined)
+            glue.push({ dependent: text, predecessor: predecessorText });
+        }
+      }
+      return { text: parts.join(" "), evidence: citationRefs(group), facts: group, glue };
     })
     .filter((paragraph) => {
       if (countWords(paragraph.text) >= MIN_PARAGRAPH_WORDS) return true;
@@ -1896,7 +2082,7 @@ function deterministicParagraphs(
       refuseBlock(paragraph.text, "short_block", diagnostics);
       return false;
     })
-    .map(({ text, evidence }) => ({ text, evidence }));
+    .map(({ text, evidence, glue }) => ({ text, evidence, glue }));
 }
 
 /**
@@ -2120,18 +2306,6 @@ function finishDiagnostics(
       unrendered.push({ text: fact.text, rule: charged });
       continue;
     }
-    console.log(
-      "LOST fact key:",
-      key,
-      "len",
-      key.length,
-      "has?",
-      ledger.unrendered.has(key),
-      "size",
-      ledger.unrendered.size,
-    );
-    for (const [k, v] of ledger.unrendered.entries())
-      console.log("  unrendered key", k, "len", k.length, v);
     lost.push(fact.text);
   }
   diagnostics.facts.rendered = rendered;
@@ -2861,7 +3035,7 @@ export function composeArticleWithDiagnostics(story: Story): {
     const paragraphs = oneDocument
       ? narrativeParagraphs(remaining, story, diagnostics, lead?.sourceOrder ?? -1, surveys, ledger)
       : [
-          ...deterministicParagraphs(remaining, story, diagnostics, surveys, ledger),
+          ...deterministicParagraphs(remaining, story, diagnostics, surveys, ledger, lead),
           ...priorityFacts
             // A fact a rule already refused is never republished here. The ranked
             // pass decides the softer anaphora class (`they`, `this`) because it
@@ -2981,8 +3155,6 @@ export function composeArticleWithDiagnostics(story: Story): {
     paragraphs.length = 0;
     paragraphs.push(...capped, ...related);
     const gated = qualityGate({ deck, paragraphs }, story.title, diagnostics, ledger);
-    console.log("after qualityGate unrendered size", ledger.unrendered.size);
-    for (const [k, v] of ledger.unrendered.entries()) console.log("  ", k.slice(0, 80), v);
     // After the gate, because the gate reads each block as the composer wrote
     // it. Removing a repeated attribution can only shorten a sentence, never
     // break one, so a block that passed stays publishable.
