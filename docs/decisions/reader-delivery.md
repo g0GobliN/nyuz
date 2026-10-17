@@ -2463,6 +2463,68 @@ printing a generic one. The two tests that asserted the Q4 withholding were rewr
 behaviour, with the reason in the test; the earlier comment in `digest-cost-safety.test.ts` records that
 shipping with an empty explanation was already the design from 0077 until Q4 overwrote it.
 
+### The rungs are starved upstream: the corpus itself is single-source
+
+Measured 2026-10-17, and this is the finding that explains the whole chain rather than one link in it.
+
+**26 of the 79 active sources had not been fetched in seven days** — their `last_fetched_at` all stopped
+together at **2026-10-06T00:45:44Z / 01:30:42Z**, and 34 sources were stale in total (the other 8 being
+deliberately inactive). The cause is not a dead feed: `npm run check:feeds` reports **78 of 87 working**,
+5,570 articles visible, one unreachable. The cause is the demand gate. `demand_driven_sources` is
+**on** (flipped 2026-09-25 by the owner account), and `sources_to_collect(grace 0)` returns:
+
+| reason                  | eligible | withheld |
+| ----------------------- | -------- | -------- |
+| `core`                  | 53       | 0        |
+| `no demand for 48 days` | 0        | **26**   |
+
+The 26 withheld are the mainstream general-news outlets: **Wired, Polygon, BBC Politics, BBC Business,
+BBC Health, BBC Sport, BBC Science, BBC Entertainment, The Guardian Business / Film / Politics / Music /
+Sport / Environment, TechRadar Pro, Engadget, ESPN, Crunchbase News, Product Hunt, IEEE Spectrum
+Robotics, Y Combinator, NPR Health** and their siblings. Meanwhile four arXiv feeds supply **747 of the
+articles in seven days** — arXiv cs.LG 396, cs.CL 163, cs.RO 116, cs.CR 72 — against The Guardian World
+68, BBC World 24, The Verge 19, The Register 18. **The corpus is roughly two thirds papers from four
+feeds, and the news it holds comes from about eleven outlets.**
+
+That is why nothing downstream can speak:
+
+- a real story is covered **once**, because the outlets that would cover it twice are not collected — so
+  `publisher_count >= 2` holds for **27 of the reader's 1,000 matches (2.7%)** and the coverage rung,
+  the one substantive rung pure code can always feed, is starved;
+- the reader's candidate pool is paper-heavy — **32 of 37** candidates are withheld by the readiness gate,
+  nearly all as `primary-source`;
+- clustering is not at fault and never was: it is already fully deterministic (`model calls 0`, every
+  article "decided for free") and it runs healthy 17 times in two days. It has nothing to merge.
+
+**Verified by lifting the gate for one run.** `npm run pipeline -- ingest --force` fetched all **79**
+sources with `skipped (no demand) 0` and inserted **407 articles** that the reader would never otherwise
+have seen. Duplicates across outlets do exist in that new material and are visible by eye — BBC Sport's
+*"Late Canada fightback ends Red Roses' unbeaten streak"* and The Guardian Sport's *"Red Roses' unbeaten
+streak ends in a thriller as Canada claim win"* are one story — while a 4-word shingle comparison at
+jaccard ≥ 0.3 finds **0 pairs**, because headlines paraphrase rather than repeat. Whether the deterministic
+matcher merges that pair is what the queue has not yet been allowed to answer: **55 of the 84 news
+articles from the last six hours are still unclustered**, waiting behind a queue whose front is arXiv papers.
+
+**The first half of the fix is therefore the corpus, and the second half is the queue — measured the same
+day.** Lifting the gate is not enough on its own, because **25,340 of the 47,418 articles in the project
+have no event at all (53%)**, including articles ingested hours ago: the Red Roses pair above is still
+`event_id = null`, so the matcher that provably merges it never got the chance to see it. Clustering
+selects through the `priority_articles_to_cluster` RPC with `p_live_hours = ACTIVE_WORK_HORIZON_HOURS`,
+`p_live_share = 1` and `p_deadline_minutes = 120`, i.e. a bounded live window, and three consecutive
+`cluster --limit 400` runs considered 100, 38 and then 0 articles — draining their own small set while the
+backlog stood still. **The corpus and the queue are the two halves of the same defect:** the first decides
+whether two outlets ever carry one story, the second decides whether they are ever compared.
+
+**What this rules out, so nobody re-investigates it:** the significance ladder, the readiness gate, the
+clustering matcher and the reader's own filters are all behaving as designed and as measured.`sameStory`
+was checked directly against four real cross-outlet pairs taken from the live corpus on 2026-10-17 — BBC
+Sport's and The Guardian Sport's Red Roses headlines, a BBC Science wildfire pair, and a Tesla Roadster
+pair — and merges **all four**. The defect is upstream of every one of them.
+
+**The decision this leaves, and it is a cost decision rather than a code one:** keeping those 26 sources
+collected trades free-plan CPU and fetch volume for a corpus where clustering can actually work. The gate
+is a console flag with the owner account as its last writer, so it is an operator choice, not a deploy.
+
 **What is still owed, and it is the pure-code work:** the ladder needs rungs that code can feed. The
 rungs that exist and are silent are silent because the pipeline stopped producing their inputs when the
 provider calls went away; the coverage rung is starved because 97% of this reader's matches are

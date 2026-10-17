@@ -1129,7 +1129,31 @@ should have been able to answer. The principle decides the fork on its own: the 
 rungs are written by the `analyse` pass, so under pure code they can never be filled, and a gate that
 withholds silence withholds ~97% of the pool permanently. **Q4 and pure code cannot both be true**, so
 `writeStage` now ships every item that passes readiness and records the silent count in the digest note
-instead of withholding. Measured on the reader's live pool the same day: `briefing-preview` **0 ships →
+instead of withholding. **And the rungs turned out to be a symptom: the corpus itself is single-source.**
+Measured the same day: **26 of 79 active sources had not been fetched for seven days**, all stopping
+together at **2026-10-06T00:45:44Z**, because `demand_driven_sources` is on (owner account, flipped
+2026-09-25) and `sources_to_collect` withholds them as `no demand for 48 days` — Wired, Polygon, BBC
+Politics/Business/Health/Sport/Science/Entertainment, six Guardian beats, Engadget, TechRadar, ESPN,
+Crunchbase, Product Hunt. The feeds are fine: `check:feeds` reports 78 of 87 working (5,570 articles, one
+unreachable). Meanwhile four arXiv feeds supply **747 of seven days' articles** against The Guardian
+World's 68. So a real story is covered once — `publisher_count >= 2` for **27 of 1,000 matches** — and the
+coverage rung, the one substantive rung pure code can always feed, is starved; 32 of the reader's 37
+candidates are withheld as `primary-source` papers. **Clustering is not at fault and never was:** it is
+already fully deterministic (0 model calls, every article "decided for free", 17 healthy runs in two days)
+and has nothing to merge. **Verified by lifting the gate once:** `npm run pipeline -- ingest --force`
+fetched all **79** sources with `skipped (no demand) 0` and inserted **407 articles** the reader would
+never otherwise see; cross-outlet duplicates do exist in that material (BBC Sport and The Guardian Sport
+carry the same Red Roses story in different words) while a 4-word shingle test finds none at jaccard 0.3,
+and **55 of the last six hours' 84 news articles are still queued** behind arXiv papers, so the
+deterministic matcher has not been allowed to answer yet. **And lifting the gate is only half of it:** **25,340 of the project's 47,418 articles have no event at all
+(53%)**, hours-old news included — the Red Roses pair is still `event_id = null` — because clustering
+selects through `priority_articles_to_cluster` over a bounded live window and three consecutive
+`cluster --limit 400` runs drained 100, then 38, then 0 while the backlog stood still. **The matcher itself
+is proved good, so nobody needs to re-check it:** `sameStory` merges all four real cross-outlet pairs taken
+from the live corpus (both Red Roses headlines, a BBC Science wildfire pair, a Tesla Roadster pair). The
+remaining choice is a cost decision, not a code one: keep those 26 sources collecting (free-plan CPU and
+fetch volume) so clustering can work at all. Full record:
+[decisions/reader-delivery.md](decisions/reader-delivery.md#the-rungs-are-starved-upstream-the-corpus-itself-is-single-source). Measured on the reader's live pool the same day: `briefing-preview` **0 ships →
 7 ships**, all 7 silent. **What is owed now is the pure-code work the ruling implies:** rungs the code
 can feed — the coverage rung first, since 97% of this reader's matches are single-source in a product
 whose promise is clustered coverage.
