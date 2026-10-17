@@ -1196,6 +1196,24 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   verb" rule needs a verb lexicon the closed lists do not carry, and the probe that tried found the
   shape in 2 sentences of 2,208 with the rest false positives from the lexicon's own gaps.
 
+- **2026-10-17 — a source's own typo no longer reaches the reader.** Reading the live product after the
+  programme-page slice (the Taiwan industrial-park story on the dashboard) turned up a sentence no
+  grammar rule could see: *"… Jensen Huang has even recognized some of these companies in a keynote in
+  Taipei earlier in 2026, nothing the crucial part that these smaller companies play in the global AI
+  supply chain."* The word is `noting`, and Tom's Hardware's own page says `nothing` too (fetched the
+  same day), so it is the **source's typo published verbatim** — a sentence with no true reading, which
+  is the same class of defect as a truncated one. Measured first, on the frozen live corpus through the
+  production composer: 3,871 stored sentences → 2 matches (that sentence twice), 2,219 published → 1.
+  **Ruled the same day (arbiter ruling #6, option 1): refuse the sentence as `editorial_noise`, do not
+  repair it, do not generalise the pattern.** The first draft (`nothing` + determiner) was rejected by
+  the ruling's own control — *"There is nothing the company can do about the export controls."* is
+  grammatical and matched — so the shipped pattern carries the `… that` tail the malformed sentence has
+  and the grammatical one does not: 1 match, 0 false positives. Landed as `sourceTypo`, wired into
+  `editorialNoise` and charged by `unitTextRejection`; release evidence replayed on the 250-event corpus:
+  the sentence is now absent from published output (was 1), the story still publishes all five of its
+  other paragraphs, 196 of 250 stories keep a body, 179 tests pass in the rules file. Recorded in
+  [decisions/source-typo-verbs.md](decisions/source-typo-verbs.md).
+
 - **2026-10-17 — a programme's own page no longer reaches the reader, and the alert floor took its two
   measured classes.** The two questions the last loop recorded instead of fixing went to the arbiter in
   the owner's ChatGPT `nyuz` project (chat *"ARBITER REQUEST 2026-10-17 #5"*), on the owner's
@@ -1262,6 +1280,9 @@ adjacency slice — the two classes the 2026-10-17 ruling closed are marked clos
 - **programme intros published as decks** — **closed 2026-10-17**: the intro is refused and the two
   stories (*"On this episode of TechCrunch's Equity podcast…"*, *"On this episode of The Vergecast…"*)
   compose an empty body, so `unbriefable` withholds them.
+- **a source's own typo in a verb slot** — **closed 2026-10-17** (ruling #6): the measured sentence is
+  refused as `editorial_noise`, the story keeps its other paragraphs —
+  [decisions/source-typo-verbs.md](decisions/source-typo-verbs.md).
 - **a fused table published as prose** — 1 story: *"…(max).Key benchmarking results for Mistral Large
   4 Preview:➤ Most intelligent model…"* (arrow glyphs, no space after the period).
 - **animate anaphora** — 5 sentences still refused because personhood cannot be proven

@@ -33,6 +33,7 @@ import {
   stripFrontedFrame,
   stripHeadingLabel,
   stripProviderNavigation,
+  sourceTypo,
   stripSourceFurniture,
   stripUnanchorableTime,
   unitTextRejection,
@@ -282,6 +283,32 @@ describe("publisher furniture never becomes an article sentence", () => {
       "The evidence was not made public.",
     ]) {
       expect(sourcingNote(text), text).toBe(false);
+      expect(unitTextRejection(text, false), text).toBeNull();
+    }
+  });
+
+  it("refuses a source's own typo that puts a pronoun-noun in a verb slot", () => {
+    // The live sentence of 2026-10-17, read on the product as the reader receives
+    // it: Tom's Hardware's page says `nothing` where `noting` belongs, and the
+    // composer published the source's words verbatim. The arbiter's ruling #6
+    // (option 1) refuses the sentence rather than repairing it. Measured on the
+    // frozen live corpus, 250 events through the production composer: 3,871 stored
+    // sentences -> 2 matches (that one, twice), 2,219 published -> 1.
+    const target =
+      "Nvidia CEO Jensen Huang has even recognized some of these companies in a keynote in Taipei earlier in 2026, nothing the crucial part that these smaller companies play in the global AI supply chain.";
+    expect(sourceTypo(target), target).toBe(true);
+    expect(editorialNoise(target), target).toBe(true);
+    expect(unitTextRejection(target, false), target).toBe("editorial_noise");
+    // The controls the ruling named. The first is why the pattern carries its
+    // `... that` tail: `nothing` plus a determiner alone matches grammatical
+    // English, so the narrower form was rejected by its own control.
+    for (const text of [
+      "There is nothing the company can do about the export controls.",
+      "Using anything that might attract copyright lawyers is also out.",
+      "The report said nothing about the delay.",
+    ]) {
+      expect(sourceTypo(text), text).toBe(false);
+      expect(editorialNoise(text), text).toBe(false);
       expect(unitTextRejection(text, false), text).toBeNull();
     }
   });

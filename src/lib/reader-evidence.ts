@@ -1504,8 +1504,41 @@ export function editorialNoise(text: string): boolean {
     COMMENTARY.test(text) ||
     SOURCE_COLOUR.test(text) ||
     publisherFurniture(text) ||
+    sourceTypo(text) ||
     sourcingNote(text)
   );
+}
+
+/**
+ * A source's own typo that puts a pronoun-noun in a verb slot.
+ *
+ * Live, 2026-10-17, read on the product as the reader receives it (the Taiwan
+ * industrial-park story): *"Nvidia CEO Jensen Huang has even recognized some of
+ * these companies in a keynote in Taipei earlier in 2026, nothing the crucial
+ * part that these smaller companies play in the global AI supply chain."* The
+ * word is `noting`, and Tom's Hardware's own page says `nothing` too (fetched
+ * 2026-10-17), so this is the source's typo published verbatim -- not an
+ * extraction error, and not something the composer introduced.
+ *
+ * The arbiter's ruling #6 (2026-10-17, option 1) is: refuse the sentence at the
+ * composer gate as `editorial_noise`, do not repair it (`noting` would be
+ * rewriting the source's word without a correction policy), and do not widen the
+ * pattern into a grammar or typo-correction rule. Measured the same day on the
+ * frozen live corpus, 250 events through the production composer: 3,871 stored
+ * sentences -> 2 matches (that one sentence, in the source excerpt and its
+ * enriched unit); 2,219 published sentences -> 1 match, that sentence.
+ *
+ * The pattern is the second draft on purpose. The first -- `nothing` followed by
+ * a determiner -- matched the ruling's own control, *"There is nothing the
+ * company can do about the export controls."*, which is grammatical. The `...
+ * that` tail is what the malformed sentence has and the grammatical one does not:
+ * with it the class is 1 published match and 0 false positives over the same
+ * corpus, and the three controls (that one, *"Using anything that might attract
+ * copyright lawyers is also out."*, *"The report said nothing about the delay."*)
+ * stay eligible.
+ */
+export function sourceTypo(text: string): boolean {
+  return /\bnothing\s+(?:the|a|an)\s+(?:\w+\s+){0,2}that\b/iu.test(text);
 }
 
 /**
@@ -3877,6 +3910,10 @@ export function unitTextRejection(
   // the grammar test so a unit that is furniture is counted as furniture rather
   // than as the invalid sentence its truncation also makes it.
   if (publisherFurniture(text)) return "editorial_noise";
+  // A source typo that leaves the sentence with no reading that is true --
+  // `nothing` where `noting` belongs, measured on the live story of 2026-10-17
+  // and ruled into this class the same day (ruling #6). Refused, not repaired.
+  if (sourceTypo(text)) return "editorial_noise";
   // The same family, one layer closer to the reader: a sourcing note the article
   // writes about how it got the story. It is a complete sentence with no fact in
   // it, so the grammar tests pass it -- and one of them reached the Combs story
