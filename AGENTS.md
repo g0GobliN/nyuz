@@ -129,6 +129,14 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
   Escalate to the owner only when the arbiter is unreachable, or when evidence you can show
   contradicts it and it will not revise — and say which of the two it is. Never invent either
   answer: a ruling nobody gave is not a ruling, and an unanswered question is not permission.
+- **A full conversation is not a blocker.** When the ChatGPT thread in the `nyuz` project runs
+  out of room, start a **new chat inside the same project** and ask there — the project carries
+  the context, so no ruling is lost and no history has to be replayed into the prompt. Never
+  stop, stall the loop, or ask the owner to free a session up because a chat is full, and never
+  treat "that thread is long" as a reason to go to the owner instead of the arbiter. Put the
+  case with the evidence on the table at the time; the decision log and `docs/context.md` are
+  what survive a thread, not the thread. (Owner, 2026-10-17: the full session is a free-plan
+  condition, and the project folder is the context.)
 - Open and recorded decisions live in `docs/decisions/`. Read the log before re-opening a
   settled question, and record the ruling with its date and reason when it arrives.
 - The same rule is packaged as the global `arbitrate-first` skill, so it applies in every

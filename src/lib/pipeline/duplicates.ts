@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import { magnitudeKeys, numericKeys, rankEntities } from "@/lib/reader-evidence";
 import { capitalised, sameHeadline } from "./news-signals";
-import { STOPWORDS } from "./shortlist";
+import { STOPWORDS, TITLE_CASE_RATIO } from "./shortlist";
 
 type News = { id: string; title: string; first_seen_at: string };
 
@@ -185,6 +185,44 @@ const sharedCount = (a: ReadonlySet<string>, b: ReadonlySet<string>): number => 
   return shared;
 };
 
+/**
+ * The names a title carries: adjacent capitalised content tokens, in order.
+ *
+ * This is the identity signal the marker groups cannot see. A marker answers
+ * *what happened* — an arrest, a launch, a funding round — which is the right
+ * question for two accounts of one incident. A product review announces no
+ * event at all, and its identity lives in the name instead: "RTX Spark" is
+ * written the same way in a benchmark, a week-long diary and a laptop review,
+ * so two of the three shared content words were not enough.
+ *
+ * Adjacency is what makes it a name rather than a coincidence. `RTX` next to
+ * `Spark` is a product; `Trump` and `Iran` scattered through a headline are two
+ * facts about two actors, and two stories that share them are not one story.
+ * Stopwords are excluded so a sentence's furniture cannot form a name, and a
+ * Title Case headline contributes nothing: when most words are capitalised,
+ * capitalisation no longer says which word is a name.
+ *
+ * Ruled by the arbiter on 2026-10-17 ([decisions/story-twins.md]) after three
+ * reviews of one laptop reached the same briefing as three cards.
+ */
+function namePairs(title: string): Set<string> {
+  const words = title.normalize("NFKC").match(/[\p{L}\p{N}][\p{L}\p{N}'\u2019]*/gu) ?? [];
+  const proper = words.filter((word) => /^\p{Lu}/u.test(word)).length;
+  if (words.length === 0 || proper / words.length > TITLE_CASE_RATIO) return new Set();
+  const names = new Set<string>();
+  let previous: string | null = null;
+  for (const word of words) {
+    const isName = /^\p{Lu}/u.test(word);
+    // The possessive is grammar, not part of the name: "Nvidia's RTX Spark"
+    // must still meet "RTX Spark" in a headline that has no apostrophe.
+    const token = word.replace(/['\u2019]s$/u, "").toLowerCase();
+    const usable = isName && token.length >= 2 && !STOPWORDS.has(token);
+    if (usable && previous !== null) names.add(`${previous} ${token}`);
+    previous = usable ? token : null;
+  }
+  return names;
+}
+
 const markersOf = (title: string, summary: string): Set<string> => {
   const text = `${title} ${summary}`.toLowerCase();
   const out = new Set<string>();
@@ -239,6 +277,8 @@ type Shape = {
    * the G7 pair and the "17,000ft"/"64GB" shapes joined by nothing.
    */
   figures: Set<string>;
+  /** Adjacent capitalised content pairs in the title — a product or a person. */
+  names: Set<string>;
 };
 
 /**
@@ -264,6 +304,10 @@ function areTwins(a: Shape, b: Shape): boolean {
   // The 48-hour window is the caller's: one morning's list, or the delivered
   // history `suppressDeliveredDuplicates` already bounds.
   if (sharedCount(a.primary, b.primary) > 0 && sharedCount(a.figures, b.figures) > 0) return true;
+  // The same name, in the same order, in both titles: a product or a person.
+  // Ruled 2026-10-17 — no event marker is required for this pair, because a
+  // review announces nothing and its identity is entirely in the name.
+  for (const name of a.names) if (b.names.has(name)) return true;
   const overlap = sharedCount(a.words, b.words);
   if (overlap < 2) return false;
   if (sharedCount(a.entities, b.entities) === 0) return false;
@@ -293,6 +337,7 @@ const shapeOf = (brief: TwinBrief): Shape => {
       ...numericKeys(`${brief.title} ${summary}`),
       ...magnitudeKeys(`${brief.title} ${summary}`),
     ]),
+    names: namePairs(brief.title),
   };
 };
 

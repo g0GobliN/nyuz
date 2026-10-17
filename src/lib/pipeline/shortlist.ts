@@ -100,7 +100,7 @@ const MAX_TOKENS = 3;
  * headline capitalises everything and so says nothing at all. Both are common in
  * the corpus, so the signal is used only where it discriminates.
  */
-const TITLE_CASE_RATIO = 0.6;
+export const TITLE_CASE_RATIO = 0.6;
 
 /**
  * A version-control ref wearing a headline's clothes.

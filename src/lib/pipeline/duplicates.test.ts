@@ -284,9 +284,80 @@ describe("one story per briefing", () => {
     // here needs a pair with real word overlap, a shared entity and *no* shared
     // figure — with a figure the structural test returns first and this arm is
     // never reached, which is exactly what the magnitude fix changed.
+    // The target is one token on purpose. "Beta Systems" is an adjacent
+    // capitalised pair, so since 2026-10-17 that pair alone is what decides the
+    // two titles are one story (decisions/story-twins.md) and this arm could no
+    // longer be reached. A single-word target keeps the fixture testing the
+    // marker loop rather than the new rule.
     const kept = suppressStoryTwins([
-      brief("Acme completes takeover of Beta Systems", "The deal closes next week."),
-      brief("Acme completes purchase of Beta Systems", "The transaction closes next week."),
+      brief("Acme completes takeover of Betacorp", "The deal closes next week."),
+      brief("Acme completes purchase of Betacorp", "The transaction closes next week."),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("collapses three reviews of one product that announce no event", () => {
+    // The 2026-10-17 reader's briefing, verbatim: three outlets, one laptop,
+    // three cards in a seven-card brief. They share two content words and the
+    // capitalised entities, but no event marker -- a review announces nothing --
+    // so the marker test kept all three. "RTX Spark" adjacent in every title is
+    // the name, and the name is the story (decision 2026-10-17).
+    const kept = suppressStoryTwins([
+      brief(
+        "Benchmarked: Nvidia's RTX Spark notebook delivers serious local AI compute, at a price",
+        "The laptop runs local models on a GB10 chip and is priced above the previous generation.",
+      ),
+      brief(
+        "A week with RTX Spark: everything we've learned using Nvidia's new laptops",
+        "After seven days of daily use, the battery and the fan noise are the two things worth reporting.",
+      ),
+      brief(
+        "Microsoft Surface Laptop Ultra review: RTX Spark in a straight-up beautiful Windows laptop",
+        "The Surface Laptop Ultra ships with the same chip and a higher-resolution display.",
+      ),
+    ]);
+    expect(kept.map((b) => b.title)).toEqual([
+      "Benchmarked: Nvidia's RTX Spark notebook delivers serious local AI compute, at a price",
+    ]);
+  });
+
+  it("does not fuse two stories that share only a company name", () => {
+    // One capitalised token is not a name pair. The arbiter's condition was two
+    // adjacent tokens; a company alone stays what it always was -- an entity,
+    // not a story.
+    const kept = suppressStoryTwins([
+      brief(
+        "Microsoft raises Azure prices across Europe",
+        "The increase takes effect in January for enterprise customers.",
+      ),
+      brief(
+        "Microsoft opens a data centre outside Tokyo",
+        "The site will serve customers in Japan from next spring.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("does not fuse two actors a title keeps apart", () => {
+    // Trump and Iran are both capitalised in both titles and neither pair is
+    // adjacent, which is the difference between a name and two facts.
+    const kept = suppressStoryTwins([
+      brief("Trump warns Iran over its nuclear programme", "The warning came after talks stalled."),
+      brief("Iran rejects Trump's nuclear deal offer", "Tehran said the terms were unacceptable."),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("does not read a name out of a Title Case headline", () => {
+    // When most words are capitalised, capitalisation says nothing about which
+    // word is a name, so the pair signal is skipped -- the same threshold the
+    // shortlist uses for its query tokens.
+    const kept = suppressStoryTwins([
+      brief("Nvidia DGX Spark Review Roundup", "The machine is fast and the software is early."),
+      brief(
+        "Nvidia DGX Spark Benchmarks Revealed",
+        "The chip beats the previous model by a wide margin.",
+      ),
     ]);
     expect(kept).toHaveLength(2);
   });

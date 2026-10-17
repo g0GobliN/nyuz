@@ -1638,3 +1638,24 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   and its deployment are verified; the older GitHub-slug and TCP/IP cases and the non-comma list-item
   limitation are untouched. The gate stays **open**. Full record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#ruled-and-landed-the-copular-byline-refused-through-the-existing-furniture-boundary-2026-10-14).
+
+- **2026-10-17 — the briefing carried one story three times, and the arbiter ruled the entity pair.**
+  Tonight's replay (`scripts/briefing-preview.ts --user 640a69b6`, read-only, live pool) showed **7
+  cards of which 3 were one product**: three reviews of the Nvidia RTX Spark laptop, same day, three
+  outlets. `suppressStoryTwins` missed them because its third condition is a shared **event marker**
+  (`launch`, `deal`, `arrest` …) and a review announces no event. **Ruled by the arbiter on a new chat
+  inside the `nyuz` project** (option 1 of four): two briefs are twins when their titles share
+  **two capitalised content tokens adjacent in the same order** — `rtx spark` — within the existing
+  48-hour window, with no marker required; a shared company name alone and scattered entities
+  (`Trump` … `Iran`) must not merge, the marker path stays for everything else, and no model, no new
+  data. **Landed** in `duplicates.ts` as `namePairs`, with the Title-Case guard the shortlist already
+  uses (`TITLE_CASE_RATIO`, now exported) so a headline that capitalises everything contributes no
+  names. **Verified on the release rule the arbiter set:** the same replay now prints **5 ships, the
+  RTX trio collapsed to one card** (`Benchmarked: Nvidia's RTX Spark …`), and 4 new regression tests
+  pin the trio, the shared-company non-merge, the scattered-actor non-merge and the Title-Case guard.
+  One existing fixture was re-pointed rather than weakened: `Acme completes takeover of Beta Systems`
+  became `Betacorp`, because the adjacent pair would have decided it before the marker loop the test
+  exists to exercise. Decision record: [decisions/story-twins.md](decisions/story-twins.md).
+  **Not fixed by this:** all 5 cards still ship with **no significance line** (0/5), and the measured
+  ceiling is still the same — 0/1,000 matches with a stored impact, 0 with an after-state, 27 with a
+  second publisher. The briefing is now shorter and truthful; it does not yet explain itself.
