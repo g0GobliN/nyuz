@@ -1771,3 +1771,18 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   stories remain changelog articles (`Re-record the MTL fusion baseline with the current build: 276
   rows …`), and whether a single-source `github` release feed should produce a reader story at all is a
   product decision with four examples in the window — [decisions/reader-delivery.md](decisions/reader-delivery.md#the-story-page-was-the-surface-that-never-asked-what-a-development-record-is-2026-10-17).
+
+- **2026-10-17 — the first body block is measured, and the class is two stories, not one.** The deck has
+  its own antecedent test; the paragraph under it had none, and that is where the NTT defect sits.
+  `scripts/reader-context-anchors.ts` now reports it: **15 of 159 stories** have a first body block that
+  does not stand alone, and **2 of those** open on a document noun the page never names — NTT (`The
+  report …`) and *Power plant attacks reflect Russian blueprint …* (`The document does not specify which
+  Russian agency developed the assessment, which is titled Analysis of Ukraine's Energy, Housing and
+  Utilities Sectors …`). The other 13 are readable in place (`The US had previously warned …` under a
+  headline that names the US, `The latest interim release of Ubuntu …` under a deck that names it), so a
+  string rule would delete a readable opening from 13 stories to fix 2. **No behaviour changed in this
+  slice**: dropping the leading block, establishing the document, and withholding the story are the
+  three options, each costed in
+  [decisions/context-openings.md](decisions/context-openings.md#the-first-body-block-measured-2026-10-17),
+  and choosing between them is a product ruling — the arbiter is not reachable from this session's
+  tools, so it is escalated to the owner with the table rather than decided here.

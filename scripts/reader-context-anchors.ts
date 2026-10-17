@@ -66,10 +66,26 @@ type Shape =
   | "connector+pronoun";
 type Row = { title: string; index: number; shape: Shape; noun: string; block: string };
 
+/**
+ * The nouns that name a document the story is about, where "which one" is the reader's question.
+ *
+ * Deliberately short and closed: it is the class the NTT and Ukraine-power stories are in, and the
+ * census reports it separately so a rule for it is sized before it exists. A definite noun outside
+ * this list ("The device", "The court", "The auditor") is usually resolved by the headline or by
+ * ordinary inference, which is why the census does not fold them in.
+ */
+const DOCUMENT_NOUNS = new Set(
+  "report document filing study analysis memo prospectus whitepaper assessment review guidance letter".split(
+    " ",
+  ),
+);
+
 const rows: Row[] = [];
 const byShape: Record<string, number> = {};
 let blocks = 0;
 let stories = 0;
+/** Stories whose first body block does not stand alone, and the document-noun subset. */
+const firstBlock: { title: string; shape: Shape; noun: string; block: string }[] = [];
 
 for (const event of events) {
   const story = storyForEvent(event);
@@ -99,6 +115,16 @@ for (const event of events) {
           : "definite (unnamed above)";
     byShape[shape] = (byShape[shape] ?? 0) + 1;
     rows.push({ title: event.title, index, shape, noun, block: trimmed.slice(0, 220) });
+    // The deck has its own test; the block under it is the page's next sentence and
+    // nothing else measures it. Index 1 is the first paragraph because index 0 is the deck.
+    if (index === 1 && shape !== "definite (proper noun)" && shape !== "definite (named above)") {
+      firstBlock.push({
+        title: event.title,
+        shape,
+        noun: stem(noun),
+        block: trimmed.slice(0, 220),
+      });
+    }
   });
 }
 
@@ -115,6 +141,14 @@ console.log(`\ncorpus: ${events.length} events, ${stories} with published prose,
 console.log(`  candidates: ${rows.length}`);
 for (const [shape, count] of Object.entries(byShape).sort((a, b) => b[1] - a[1]))
   console.log(`    ${shape}: ${count}`);
+
+const documentFirst = firstBlock.filter((row) => DOCUMENT_NOUNS.has(row.noun));
+console.log(`\nfirst body block does not stand alone: ${firstBlock.length} of ${stories} stories`);
+console.log(`  of those, a document noun the page never names: ${documentFirst.length}`);
+for (const row of firstBlock) {
+  console.log(`\n${row.title}  [${row.shape}${row.noun ? ` · "${row.noun}"` : ""}]`);
+  console.log(`  ${row.block}`);
+}
 for (const row of rows) {
   console.log(
     `\n${row.title}  [block ${row.index} · ${row.shape}${row.noun ? ` · "${row.noun}"` : ""}]`,

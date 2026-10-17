@@ -141,3 +141,51 @@ stops being invisible, and the class stays open with its size known — 2 blocks
 A rule would need coreference, which is out of reach of string tests; the alternative shapes are the
 three in the section above (open with the establishing sentence, order the body after it, or withhold
 the story), and each is a product decision rather than a repair.
+
+## The first body block, measured (2026-10-17)
+
+The deck already has its own test (`needsAntecedentToOpen`); the paragraph under it is the page's
+next sentence and nothing measured it. `scripts/reader-context-anchors.ts` now reports it separately.
+On the frozen 200-event corpus (`tmp/corpus-today.json`):
+
+```
+first body block does not stand alone: 15 of 159 stories
+  of those, a document noun the page never names: 2
+```
+
+**The two document cases are the real defect class**, and both are the same shape as the NTT story
+recorded above:
+
+- `NTT Global Data Centers weighs the price tag of not building fast enough` — block 1 opens
+  `The report models three growth trajectories through 2030 …`, and nothing above it says which
+  report. Its own coverage contains no sentence that names one (measured with
+  `audit:reader --find "NTT Global"`), so there is no establishing sentence to hoist.
+- `Power plant attacks reflect Russian blueprint to make Ukrainian cities unliveable` — block 1 opens
+  `The document does not specify which Russian agency developed the assessment, which is titled
+  Analysis of Ukraine's Energy, Housing and Utilities Sectors …`. The document's title is inside the
+  same block, one sentence after the reference that needs it.
+
+**The other thirteen are not defects, and that is why no string rule can fix this class.** They are
+`The US had previously warned …` (the headline says the US), `The latest interim release of Ubuntu …
+` (the deck names Ubuntu 26.10), `The woman known only as "Jane Doe" …` (the deck says the plaintiff),
+`The court previously heard …`, `The device also includes …`, `The auditor, his wife …`. A rule keyed on
+"the head noun does not appear above" fires on all thirteen and would delete a readable opening from
+13 of 159 stories to fix 2 — the same arithmetic that killed the refusal rule for the body, one block
+earlier. The census reports the document-noun subset separately for exactly this reason: it is a screen
+sized before a rule exists, not a verdict.
+
+### What can close the two, and what each costs
+
+| option | what the reader gets | cost | available today? |
+| --- | --- | --- | --- |
+| A. drop the leading block, then re-test the next | NTT opens on Berti's own words (`We used to build ten-megawatt buildings …`); Ukraine-power opens on its next block | NTT **loses the report's findings** — the trajectories and stress tests are that block | yes, deterministic; needs a product ruling because it deletes prose |
+| B. hoist a sentence that establishes the document | the page opens by naming the report/document, then the block reads normally | **no material for NTT** (its coverage never names a report); unknown for Ukraine-power | no, not for NTT |
+| C. withhold the story | the reader never sees a dangling reference | loses the whole page, including the sources that do read well | readiness has no reason for this today; needs a ruling and a new reason |
+| D. leave it recorded | a page that opens on an unknown reference | the defect AGENTS.md bans, on 2 of 159 stories | current state |
+
+**Status: blocked on a product ruling, and said plainly.** A and C both change what a reader receives,
+which AGENTS.md routes to the arbiter before code; B has no material for the case that matters. The
+arbiter (the owner's ChatGPT `nyuz` project) is not reachable from this session's tools, so the case is
+escalated to the owner with the table above rather than decided here. **Nothing behavioural has been
+shipped for this class**, and the census is the landed change: the size and the two examples are now
+reproducible with one command.
