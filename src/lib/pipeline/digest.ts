@@ -1578,19 +1578,30 @@ async function writeStage(
     }),
   );
 
-  // Q4 quality gate, ruled 2026-10-12: an item without a story-specific
-  // why-line does not ship. It is withheld exactly like a readiness-gate item —
-  // no `digest_items` row, stamped alongside the rest so it does not loop — and
-  // recorded as `skipped` with the canonical reason `missing_story_specific_why_it_matters`
-  // and its event id, so the disposition is auditable and no item ever
-  // disappears silently. Not a confirmed violation of the ladder (rung 6 stays
-  // honest silence); a stricter shipping decision at the final quality gate.
-  for (const brief of carrying) {
-    if (!hasStorySpecificLine(byImpact.get(brief.eventId))) {
-      withheld.push({ eventId: brief.eventId, kind: GATED_KIND });
-    }
-  }
-  const shipping = carrying.filter((brief) => hasStorySpecificLine(byImpact.get(brief.eventId)));
+  // A story that passes readiness ships — **including one the ladder cannot
+  // explain.** This reverses the Q4 gate of 2026-10-12, and the reason is a
+  // ruling rather than a preference: on 2026-10-17 the owner ruled that nyuz is
+  // not an AI product ("it should be pure code"), and the ladder's three
+  // strongest rungs — the stored shared impact, the change, the after-state —
+  // are written by the `analyse` pass. Under the code-first policy they are
+  // therefore permanently empty: measured the same day, **0 of the reader's
+  // 1,000 matches** had a stored impact and **0** had an after-state, leaving
+  // only the money-consequence rung (0.7%), the figure rung and a coverage rung
+  // that needs two outlets (2.7%). A gate that withholds every item the ladder
+  // cannot explain withholds ~97% of a pure-code product's pool — that is what
+  // took the reader's briefing from 25 stories to 1, and it would have taken it
+  // to 0.
+  //
+  // Rung 6 is the honest shipping state, in the ladder's own words: "an empty
+  // string, which `digest_items.why_it_matters` already defaults to and every
+  // template already renders around — the email drops the whole line, the card
+  // falls back to the reader's own follow explanation under its own heading".
+  // So silence ships, and it is **counted** in the digest note rather than
+  // withheld, so the disposition stays auditable and no signal is lost.
+  const silentLines = carrying.filter(
+    (brief) => !hasStorySpecificLine(byImpact.get(brief.eventId)),
+  ).length;
+  const shipping = carrying;
   withheldNote = withheldNoteOf(withheld);
 
   const unexplained = shipping.filter((brief) => !stored.get(brief.eventId)).length;
@@ -1602,13 +1613,27 @@ async function writeStage(
     unexplained > 0
       ? `${unexplained} story${unexplained === 1 ? "" : "s"} using a derived inclusion line`
       : null;
+  // The Q4 disposition, kept as a count now that it no longer withholds: a
+  // briefing of silent cards is the pure-code normal, and the number is how a
+  // reviewer sees the ladder's health without re-deriving it.
+  const silentNote =
+    silentLines > 0
+      ? `${silentLines} story${silentLines === 1 ? "" : "s"} shipped with no story-specific line`
+      : null;
 
   // Withholding can empty a briefing the readiness gate passed. That is the
   // quiet morning the ruling accepts — it takes the same path as a briefing
   // nothing was ready for.
   if (shipping.length === 0) {
     if (options.dryRun !== true) {
-      await finish(db, due.digest_id, "skipped", 0, 0, noteOf(enrichment, withheldNote));
+      await finish(
+        db,
+        due.digest_id,
+        "skipped",
+        0,
+        0,
+        noteOf(enrichment, silentNote, withheldNote),
+      );
       await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
     }
     return {
@@ -1617,7 +1642,7 @@ async function writeStage(
         ...base,
         tokens,
         decision: "skipped",
-        detail: `nothing carried a story-specific line (${withheldNote ?? ""})`,
+        detail: `nothing passed the readiness gate (${withheldNote ?? ""})`,
       },
     };
   }
@@ -1748,7 +1773,7 @@ async function writeStage(
     "ready",
     shipping.length,
     tokens,
-    noteOf(enrichment, withheldNote),
+    noteOf(enrichment, silentNote, withheldNote),
   );
   await queueDeliveries(db, due.digest_id, due.user_id, prefs.channels);
 

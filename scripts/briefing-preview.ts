@@ -15,7 +15,7 @@
 
 import { capFor } from "../src/lib/density";
 import { suppressDeliveredDuplicates, suppressStoryTwins } from "../src/lib/pipeline/duplicates";
-import { GATED_KIND, selectItems, type MatchRow } from "../src/lib/pipeline/digest";
+import { selectItems, type MatchRow } from "../src/lib/pipeline/digest";
 import {
   hasStorySpecificLine,
   type InclusionReason,
@@ -285,12 +285,12 @@ main(async () => {
   }
   if (ready.length > cap) ready.splice(cap);
 
-  // The Q4 gate is applied below, not here: every `ready` brief still has to
-  // produce a story-specific line, and a brief that cannot is withheld exactly
-  // as generation withholds it. This heading counts what actually ships, so the
-  // number a reviewer reads here is the number the reader would receive.
-  const qualityWithheld: Brief[] = [];
+  // A brief that passes readiness ships, including one the ladder cannot
+  // explain — ruled 2026-10-17, because the rungs that could explain it are
+  // written by the `analyse` pass and nyuz is pure code. The silence is reported
+  // beside the line, not used to withhold the story.
   const ships: { brief: Brief; why: InclusionReason }[] = [];
+  const silent: Brief[] = [];
   for (const brief of ready) {
     const why = reasonFor({
       storedImpact: brief.storedImpact,
@@ -301,11 +301,11 @@ main(async () => {
       title: brief.title,
       whatHappened: brief.whatHappened,
     });
-    if (hasStorySpecificLine(why.text)) ships.push({ brief, why });
-    else qualityWithheld.push(brief);
+    ships.push({ brief, why });
+    if (!hasStorySpecificLine(why.text)) silent.push(brief);
   }
 
-  heading(`Ships (${ships.length})`);
+  heading(`Ships (${ships.length}, of which ${ships.length - silent.length} carry a why-line)`);
   // The ladder reads the event's own stored fields only — no reader inputs,
   // since 2026-10-08 (inclusion.ts). What this prints is what generation
   // would store, for this reader's pool.
@@ -325,7 +325,7 @@ main(async () => {
     say(row(" ", `        ${text}`, 110));
   }
   say();
-  say(row("  ", `ready then Q4-gated: ${ready.length} → ${ships.length} ship`, 110));
+  say(row("  ", `with no why-line (ships silent): ${silent.length}/${ships.length}`, 110));
   say(row("  ", `multi-source ${multi}/${ships.length}`, 110));
   say(row("  ", `distinct why-lines ${new Set(lines).size}/${withLine}`, 110));
   say(row("  ", `rungs: ${[...rungs.entries()].map(([k, v]) => `${k} ${v}`).join(", ")}`, 110));
@@ -336,16 +336,15 @@ main(async () => {
       say(row(" ", `[${kind}] ${brief.title.slice(0, 84)}`, 110));
   }
 
-  if (qualityWithheld.length > 0) {
-    heading(`Withheld by the Q4 quality gate (${qualityWithheld.length}) — no story-specific line`);
+  if (silent.length > 0) {
+    heading(`Ships with no why-line (${silent.length})`);
     say(
       row(
         "  ",
-        "these are the briefing's real size limit: they pass readiness and still fail Q4",
+        "the card renders a headline and no explanation; the rungs that could explain these are AI-written and off",
         110,
       ),
     );
-    for (const brief of qualityWithheld)
-      say(row(" ", `[${GATED_KIND}] ${brief.title.slice(0, 84)}`, 110));
+    for (const brief of silent) say(row(" ", `[no-line] ${brief.title.slice(0, 84)}`, 110));
   }
 });

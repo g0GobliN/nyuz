@@ -35,7 +35,6 @@
  * against production between sends.
  */
 
-import { GATED_KIND } from "../src/lib/pipeline/digest";
 import { hasStorySpecificLine, reasonFor } from "../src/lib/pipeline/inclusion";
 import { assessReadiness } from "../src/lib/pipeline/readiness";
 import { db, heading, main, say } from "./lib/db.ts";
@@ -314,7 +313,9 @@ main(async () => {
     say(`shipped in this digest     ${pool.shipped}`);
     // The number the reviewers kept having to reconstruct by hand: what a build
     // over this window would actually write, with both gates applied.
-    say(`would ship today (both gates) ${pool.wouldShip}`);
+    say(
+      `would ship today            ${pool.wouldShip}  (${pool.withLine} carry a why-line, ${pool.wouldShip - pool.withLine} silent)`,
+    );
     say(
       `replayed withheld          ${pool.withheld.length}` +
         (pool.withheldKinds.size > 0
@@ -329,11 +330,11 @@ main(async () => {
         continue;
       }
       for (const candidate of rows) {
-        const verdict = candidate.gated
-          ? `withheld: ${GATED_KIND}`
-          : candidate.ready
-            ? "ready"
-            : `withheld: ${candidate.kind} — ${candidate.reason?.slice(0, 58)}`;
+        const verdict = candidate.ready
+          ? candidate.silent
+            ? "ready (ships with no line)"
+            : "ready"
+          : `withheld: ${candidate.kind} — ${candidate.reason?.slice(0, 58)}`;
         say(`${lane.padEnd(12)} ${candidate.shipped ? "shipped " : "absent  "}${verdict}`);
         say(`             ${candidate.title.slice(0, 96)}`);
       }
@@ -487,12 +488,13 @@ type Candidate = {
   /** Passed the readiness gate. */
   ready: boolean;
   /**
-   * Passed readiness and still has no story-specific line, so Q4 withholds it.
-   * A candidate can be `ready` and `gated` at once: that is the pair the report
-   * used to collapse into "ready", which is how the replayed shipping set came
-   * out larger than the briefing generation actually writes.
+   * Passed readiness but the ladder has nothing to print, so the card ships
+   * without an explanation. This is a reportable state, not a withheld one:
+   * the Q4 gate that withheld these was reversed on 2026-10-17 when the owner
+   * ruled the product pure code, because the rungs that could explain a story
+   * are written by the `analyse` pass.
    */
-  gated: boolean;
+  silent: boolean;
   kind?: string;
   reason?: string;
 };
@@ -515,8 +517,10 @@ async function replayPool(
   events: number;
   rows: Candidate[];
   shipped: number;
-  /** Passed both gates: readiness and Q4. What a build today would actually ship. */
+  /** Passed readiness: what a build over this window would actually ship. */
   wouldShip: number;
+  /** How many of those carry a story-specific line; the rest ship silent. */
+  withLine: number;
   withheld: Candidate[];
   withheldKinds: Map<string, number>;
 }> {
@@ -538,6 +542,7 @@ async function replayPool(
       rows: [],
       shipped: 0,
       wouldShip: 0,
+      withLine: 0,
       withheld: [],
       withheldKinds: new Map(),
     };
@@ -632,21 +637,18 @@ async function replayPool(
       title: event.title,
       whatHappened: event.what_happened ?? "",
     });
-    const gated = verdict.ready && !hasStorySpecificLine(why.text);
+    const silent = verdict.ready && !hasStorySpecificLine(why.text);
     const lane = LANES.find((entry) => entry.match.test(event.title))?.lane ?? "other";
     const candidate: Candidate = {
       lane,
       title: event.title,
       shipped: shipped.has(event.id),
       ready: verdict.ready,
-      gated,
+      silent,
       ...(verdict.ready ? {} : { kind: verdict.kind, reason: verdict.reason }),
     };
     rows.push(candidate);
-    if (gated) {
-      withheld.push({ ...candidate, kind: GATED_KIND });
-      withheldKinds.set(GATED_KIND, (withheldKinds.get(GATED_KIND) ?? 0) + 1);
-    } else if (!verdict.ready) {
+    if (!verdict.ready) {
       withheld.push(candidate);
       if (candidate.kind !== undefined) {
         withheldKinds.set(candidate.kind, (withheldKinds.get(candidate.kind) ?? 0) + 1);
@@ -657,7 +659,8 @@ async function replayPool(
     events: ids.length,
     rows,
     shipped: rows.filter((candidate) => candidate.shipped).length,
-    wouldShip: rows.filter((candidate) => candidate.ready && !candidate.gated).length,
+    wouldShip: rows.filter((candidate) => candidate.ready).length,
+    withLine: rows.filter((candidate) => candidate.ready && !candidate.silent).length,
     withheld,
     withheldKinds,
   };

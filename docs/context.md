@@ -1101,9 +1101,12 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   `Ships (0)` plus a `Withheld by the Q4 quality gate (5)` section naming the stories a reader would
   otherwise have received, and `briefing-checkpoint.ts` no longer loses its **per-channel delivery
   section** when its replay throws (`TypeError: fetch failed`, twice today, unreproduced from a probe —
-  recorded as unexplained). 2 new tests in `src/lib/pipeline/inclusion.test.ts` (28 passing). **Not done,
-  deliberately:** nothing that changes what a reader receives, because every option in that list is a
-  product decision and none of them lands on a recommendation.
+  recorded as unexplained). 2 new tests in `src/lib/pipeline/inclusion.test.ts` (28 passing). **Not done
+  at that point, deliberately:** nothing that changes what a reader receives, because every option in
+  that list is a product decision and none of them lands on a recommendation — **superseded the same day
+  by the owner's ruling** (*"this saas is no ai product, its should be pure code"*), recorded in
+  §7 and in [AGENTS.md](../AGENTS.md): the Q4 gate is reversed, the reader's next briefing goes from 0
+  ships to 7, and every one of them renders with no explanation rather than a generic one.
 
 - **2026-10-17 — the deploy blocker was cleared in two of the three places that carried it, and the
   third is corrected here.** `a1d6d2c` says *"the stale blocker is corrected in both places that
@@ -1119,7 +1122,19 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 ## 7. What is next
 
-**2026-10-17: the checkpoint's evidence exists, both pieces of it, and the decision it was waiting on is
+**2026-10-17, later the same day: the ruling arrived and the gate is gone.** The owner: *"this saas is no
+ai product, its should be pure code"*. That is now a section of [AGENTS.md](../AGENTS.md) (*"It is not an
+AI product. It is pure code."*) because it was missing from the file and a session asked a question it
+should have been able to answer. The principle decides the fork on its own: the ladder's three strongest
+rungs are written by the `analyse` pass, so under pure code they can never be filled, and a gate that
+withholds silence withholds ~97% of the pool permanently. **Q4 and pure code cannot both be true**, so
+`writeStage` now ships every item that passes readiness and records the silent count in the digest note
+instead of withholding. Measured on the reader's live pool the same day: `briefing-preview` **0 ships →
+7 ships**, all 7 silent. **What is owed now is the pure-code work the ruling implies:** rungs the code
+can feed — the coverage rung first, since 97% of this reader's matches are single-source in a product
+whose promise is clustered coverage.
+
+**The checkpoint's evidence exists, both pieces of it, and the decision it was waiting on is
 no longer "did it build?" — it is "is one story a briefing?"** The reader received a briefing on the
 first natural attempt after the repair (1 item, push accepted 22:59:39.808Z) and the controlled build A
 ran the same day; the must-be-zero gate holds at **0 raw fallbacks of 248**. What that evidence exposes

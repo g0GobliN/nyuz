@@ -380,27 +380,25 @@ function figureLine(
 }
 
 /**
- * The Q4 shipping decision, in one place.
+ * Whether the ladder produced anything to print — **not** whether the item ships.
  *
- * An item ships only when the ladder can state a story-specific line; silence is
- * withheld rather than shipped with an empty slot (ruled 2026-10-12). The build
- * owns the call, but a read-only instrument has to answer the same question to
- * report a shipping set that matches what a reader receives, and two of them
- * answered it *pre-Q4*: on 2026-10-17 the reader's pool read as "5 ship" in
- * `scripts/briefing-preview.ts` while the build shipped 1, and the next briefing
- * ships 0.
+ * History, because the name is older than the rule it now serves. From 2026-10-12
+ * to 2026-10-17 this was the Q4 shipping gate: an item whose ladder was silent
+ * did not ship. On 2026-10-17 the owner ruled nyuz is not an AI product ("it
+ * should be pure code"), and the ladder's three strongest rungs are written by
+ * the `analyse` pass, so under the code-first policy they are permanently empty
+ * — measured that day, 0 of the reader's 1,000 matches had a stored impact and 0
+ * had an after-state. Gating silence therefore gated ~97% of the pool, which is
+ * what took the reader's briefing 25 → 1 → 0. Rung 6 ("an empty string, which
+ * `digest_items.why_it_matters` already defaults to and every template already
+ * renders around") is the honest shipping state again, and the count of silent
+ * cards is recorded in the digest note instead.
  *
- * So the comparison lives here and the instruments call it. It takes the ladder's
- * text, not the input, because the build already has the text in hand from the
- * `reasonFor` call it makes for `why_it_matters` and must not pay for a second
- * one.
- *
- * **Still unanswered by this predicate:** `scripts/reader-composition-diagnostic.ts`
- * counts its shipping set from `assessReadiness` alone and does not load the
- * ladder's inputs, so its "N ship" line is pre-Q4 too and read 13 against a build
- * of 1. It is deliberately not changed here — its job is composition, and it
- * would need the stored impact and article evidence loaded to ask this question
- * honestly. Treat its ship count as a readiness count until it does.
+ * So callers must not use this to withhold. It answers "is there a line?" for
+ * reporting: the digest note, the preview's "of which carry a why-line", and the
+ * checkpoint's rung census. It takes the ladder's text, not the input, because
+ * the build already has the text from the `reasonFor` call it makes for
+ * `why_it_matters` and must not pay for a second one.
  */
 export function hasStorySpecificLine(text: string | null | undefined): boolean {
   return (text ?? "").trim() !== "";

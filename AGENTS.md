@@ -58,6 +58,25 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
   confirmed change is pushed (see Git delivery). A change still waiting on confirmation is not on
   `main`.
 
+## It is not an AI product. It is pure code.
+
+- **The owner, 2026-10-17: _"this saas is no ai product, its should be pure code"_.** Every part of the
+  product a reader experiences — ingestion, clustering, selection, the significance line, the briefing,
+  the article — is produced by deterministic code from stored data. No model writes anything a reader
+  reads, and **no core output may depend on a model call having happened**.
+- **So "turn the AI back on" is not an option, and it is not a question to bring back.** The AI paths
+  exist as cost/speed helpers behind flags that default off ([code-first-news.md](docs/code-first-news.md),
+  [impact-flag.ts](src/lib/ai/impact-flag.ts)); a stage whose input only a model can produce is a stage
+  the product must not need. When a surface is empty, the fix is code that derives the fact from what
+  is stored — never a paid provider.
+- **This is why a missing AI-generated column is not a defect to repair.** `event_impacts` is empty and
+  `events.after_state` is not written: that is the policy, so a rung of the significance ladder that
+  reads them is a rung the ladder cannot rely on. Work the rungs that code can feed, and fix the
+  deterministic pipeline (clustering, evidence, coverage) that is supposed to feed them.
+- **The quality bar does not move for this.** Pure code still has to tell a reader why a story matters
+  or withhold it; a generic line is filler and filler is a defect. The answer to "code cannot say
+  anything here" is to make the code able to, not to lower the bar or to ask for the model back.
+
 ## The loop does not stop
 
 - **Work the goal continuously, and never hand back a status report in place of progress.** The

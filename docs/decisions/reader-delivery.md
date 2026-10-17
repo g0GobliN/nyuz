@@ -2432,7 +2432,44 @@ the code-first policy that saves the AI spend is what keeps it empty. So **two r
 speak, and the code-first policy (zero provider calls in background) removed the input the ladder was
 built around. Neither anticipated the other, and a reader is receiving the collision.
 
-### Options for the arbiter, with what each rests on
+### RULED 2026-10-17, by the owner, and it settles the list below
+
+> _"this saas is no ai product, its should be pure code, didnt i told you already it should be inisde
+> agent.md why asking again?"_
+
+**Option 1 is refused outright, permanently, and it is not to be re-proposed.** nyuz is not an AI
+product: every reader-facing output is deterministic code over stored data, and no core output may
+depend on a model call. The principle was missing from `AGENTS.md` — it lived only in
+[code-first-news.md](../code-first-news.md) and in a flag default — which is why a session asked a
+question it should have been able to answer. It is now a section of [AGENTS.md](../../AGENTS.md)
+(*"It is not an AI product. It is pure code."*). ### What the ruling settled that the list did not: option 2, by derivation
+
+The ruling is about a principle, and the principle decides one thing on the list. **The ladder's three
+strongest rungs are written by the `analyse` pass** — `event_impacts.text`, `events.before_state` and
+`events.after_state` are "shared top-level fields the analysis pass already writes"
+([understand.ts](../../src/lib/understand.ts)). Under *pure code* they can never be written again. So a
+gate that withholds every item whose ladder is silent **withholds ~97% of a pure-code product's pool,
+permanently** — which is exactly the collapse measured above (25 → 1 → 0). **Q4 and pure code cannot both
+be true**, so the gate cannot stand, and rung 6 — the ladder's own documented shipping state, *"an empty
+string, which `digest_items.why_it_matters` already defaults to and every template already renders
+around"* — is restored.
+
+**Implemented 2026-10-17.** `writeStage` ships every item that passes the readiness gate; the silent
+count is recorded in the digest note (`N stories shipped with no story-specific line`) instead of
+withholding them, so the disposition stays auditable. It was measured on the reader's live pool the same
+day: `briefing-preview` went from **0 ships** to **7 ships, 0 carrying a why-line** — the reader's next
+briefing is 7 stories rather than none, and every one of them renders without an explanation rather than
+printing a generic one. The two tests that asserted the Q4 withholding were rewritten to assert this
+behaviour, with the reason in the test; the earlier comment in `digest-cost-safety.test.ts` records that
+shipping with an empty explanation was already the design from 0077 until Q4 overwrote it.
+
+**What is still owed, and it is the pure-code work:** the ladder needs rungs that code can feed. The
+rungs that exist and are silent are silent because the pipeline stopped producing their inputs when the
+provider calls went away; the coverage rung is starved because 97% of this reader's matches are
+single-source in a product that promises clustered coverage. Options 3, 4 and 5 below stay open on that
+shape — **opt. 1 is refused and 2 is now the landed behaviour.**
+
+### The options as they were put, with what each rests on
 
 1. **Turn the impact writer back on** (`impact_writer_enabled`). Restores rung 1 for every story and is
 the only option that makes the briefing *better* rather than merely larger. Needs DeepSeek credit first
