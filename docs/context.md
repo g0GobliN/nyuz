@@ -1659,3 +1659,21 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   **Not fixed by this:** all 5 cards still ship with **no significance line** (0/5), and the measured
   ceiling is still the same — 0/1,000 matches with a stored impact, 0 with an after-state, 27 with a
   second publisher. The briefing is now shorter and truthful; it does not yet explain itself.
+
+- **2026-10-17 — the significance block is removed from the card, by ruling.** With the twin fix in,
+  the same replay printed **5 cards, 0 with a why-line**, and the measurements say that is not a
+  backlog item but a ceiling: the ladder's only code-feedable rungs explain **27/1,000** (coverage) and
+  **7/1,000** (money consequence), a widened "change of state" rung fired on **45/400 = 11.3%** at
+  about a third precision and, with a PRIMARY-entity guard, on **20/400 = 5.0%** at about half
+  precision (it printed a jellyfish "suspended in water", a 2011 product halted in a retrospective,
+  "Docker advises users to review their tokens"). Two independent measurements now say widening the
+  ladder is the wrong lever, and the filler rule says a half-right line is worse than silence.
+  **Ruled by the arbiter (option 1): the card is complete without the block** — headline + factual
+  what-happened + provenance — with six acceptance criteria, including *do not withhold stories for
+  lack of significance* and *do not inflate `what_happened`*. **Landed:** the dashboard card renders
+  no significance block, even when the payload carries a `why`; `story-card.test.ts` pins the new
+  contract (13 tests). The ruling's release condition is verified on the same replay: the same 5
+  cards are eligible, each has a factual paragraph and provenance, and none shows an empty or
+  fabricated block. `digest_items.why_it_matters` and `reasonFor` are kept so a deterministic source
+  can bring the slot back without a migration; email/push keep printing the line only when it exists
+  (email is dormant until launch). Record: [decisions/significance-without-a-model.md](decisions/significance-without-a-model.md).

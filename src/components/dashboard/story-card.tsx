@@ -144,24 +144,19 @@ export function StoryCard({
       ) : null}
 
       {/*
-        Two different statements used to share one slot. `story.why` is the
-        briefing's significance line — a fact about the story — and prints
-        under its own heading. `because` is provenance: the reader's own follow
-        graph, which says why the card is here, never why it matters. The
-        arbiter's ruling of 2026-10-09 keeps both but forbids either wearing
-        the other's heading: a card with no significance line stays silent in
-        that slot, and the follow note is not a substitute for it. Printing
-        both is safe now that the server's line is never itself a follow line.
+        There is no "Why it matters" block on this card, and that is the
+        contract rather than an omission. Under the pure-code rule the only
+        significance rungs that can fire are the coverage count (27 of the
+        reader's 1,000 matches) and the money consequence (7) — everything
+        stronger is written by the `analyse` pass, which this product does not
+        run. Every widening measured at about half precision, printing a
+        jellyfish "suspended in water" or a 2011 product halted in a
+        retrospective. The arbiter ruled 2026-10-17 that the card is complete
+        without the block: headline, what happened, and the reader's own
+        provenance. `story.why` is still carried by the payload and still
+        written by the ladder, so a deterministic source can bring the slot
+        back without a migration — the slot simply makes no promise today.
       */}
-      {story.why.trim() ? (
-        <div className="mt-4 rounded-2xl bg-surface-2 p-4">
-          <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-            Why it matters
-          </p>
-          <p className="mt-2 text-[13.5px] leading-relaxed">{story.why}</p>
-        </div>
-      ) : null}
-
       {provenance ? (
         <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
           <span className="font-medium">Why you're seeing this · </span>

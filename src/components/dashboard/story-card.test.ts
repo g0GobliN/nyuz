@@ -20,13 +20,18 @@ vi.mock("@tanstack/react-router", async () => {
 });
 
 /**
- * The arbiter's ruling of 2026-10-09: the follow line stays, but it must never
- * be mistaken for a significance statement. The card therefore prints the
- * briefing's fact about the story under "Why it matters" and the reader's own
- * follow graph under "Why you're seeing this" — and a card with no significance
- * line keeps the provenance note without the heading standing empty above it.
+ * The arbiter's ruling of 2026-10-17: **the card is complete without the
+ * block.** Under the pure-code rule the ladder's only feedable rungs explain
+ * 27 of 1,000 matches by coverage and 7 by money, and every widening measured
+ * at about half precision, so the card promises no significance slot at all:
+ * headline, what happened, and the reader's own provenance.
+ *
+ * These tests used to pin the opposite contract — a `why` line under its own
+ * heading, added 2026-10-09. They now pin the ruled one, and a card handed a
+ * non-empty `why` must still print no such block, because the server payload
+ * keeps the field until a deterministic source can justify it.
  */
-describe("StoryCard — significance vs provenance", () => {
+describe("StoryCard — complete without a significance block", () => {
   const base = STORIES[0]!;
   const noop = () => undefined;
 
@@ -51,18 +56,21 @@ describe("StoryCard — significance vs provenance", () => {
       }),
     ).replace(/&#x27;/gu, "'");
 
-  it("prints the significance line under its own heading, provenance separately", () => {
+  it("prints no significance block even when the payload carries a line", () => {
+    // The 2026-10-17 contract. A `why` line is still written and still travels
+    // in the payload, and the card ignores it: the slot makes no promise it
+    // cannot keep, and the provenance note is the only second statement.
     const html = render({ ...base, why: "The story carries a $40 billion figure." }, [
       "AI",
       "NVIDIA",
     ]);
-    expect(html).toContain("Why it matters");
-    expect(html).toContain("The story carries a $40 billion figure.");
+    expect(html).not.toContain("Why it matters");
+    expect(html).not.toContain("The story carries a $40 billion figure.");
     expect(html).toContain("Why you're seeing this · ");
     expect(html).toContain("You follow AI and NVIDIA.");
   });
 
-  it("keeps provenance alone when there is no significance line", () => {
+  it("prints provenance alone when the payload carries no line", () => {
     const html = render({ ...base, why: "" }, ["Cybersecurity"]);
     expect(html).not.toContain("Why it matters");
     expect(html).toContain("Why you're seeing this · ");
@@ -230,7 +238,7 @@ describe("StoryCard — significance vs provenance", () => {
     );
     expect(both).toContain("You follow OpenAI.");
     expect(both).not.toContain("You follow AI and NVIDIA.");
-    expect(both).toContain("Why it matters");
+    expect(both).not.toContain("Why it matters");
 
     // Same answer with no client topics at all: the note still arrives, because
     // it never depended on them.
