@@ -1196,6 +1196,20 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   verb" rule needs a verb lexicon the closed lists do not carry, and the probe that tried found the
   shape in 2 sentences of 2,208 with the rest false positives from the lexicon's own gaps.
 
+- **2026-10-17 — the alert instrument stopped claiming the alert path is ungated.**
+  `npm run audit:alerts` printed *"refused by the gate <- the alert path never asks"*, which stopped
+  being true on 2026-10-11: `fireAlerts` asks `assessReadiness` before it paces or sends, so the
+  number is what will be *withheld*, and the historical *"113 of 218"* is overwhelmingly sends from
+  before that date. Both labels now say so, and each row of the sent list carries its own verdict.
+  Read while checking the alerts after the reader work: **the path is gated and recent sends are
+  clean** — the newest 12 alerts all read `gate ok`. Two post-gate sends a reader did not need, both
+  recorded rather than fixed because widening the ruled alert floor is a decision: *"This could be
+  your last chance to grab an RTX 5090"* (a deals post; measured over all 218 alerts, 4 deal-shaped
+  titles and 3 are real news — acquisitions and a bill) and *"It won't kill you, or humanity, to get
+  off the AI upgrade treadmill"* (a commentary column; 2 opinion-shaped titles of 218, the other an
+  analysis piece). The floor's own design is one measured narrow class at a time, so these are a
+  question for the arbiter/owner, not a patch to slip in.
+
 ## 7. What is next
 
 **2026-10-17, last: the next reader-facing class to put to the arbiter is publisher staff furniture.**

@@ -395,7 +395,11 @@ main(async () => {
     });
   }
   say(rowLine("  would publish", verdicts["ready"] ?? 0));
-  say(rowLine("  refused by the gate <- the alert path never asks", refused.length));
+  // The label used to read "<- the alert path never asks", which stopped being
+  // true on 2026-10-11: `fireAlerts` asks this gate before it paces or sends, so
+  // the count here is what will be withheld, not what slips through. Left stale,
+  // it sends the next session looking for an ungated path that does not exist.
+  say(rowLine("  refused by the gate (asked before sending, so withheld)", refused.length));
   for (const [kind, count] of Object.entries(verdicts).sort()) {
     if (kind === "ready") continue;
     say(rowLine(`    ${kind}`, count));
@@ -507,6 +511,13 @@ main(async () => {
         "  of those, refused by the gate the briefing uses",
         `${refusalCount} of ${sentCoverage.length}`,
       ),
+    );
+    // Counterfactual, and mostly history: the gate landed on 2026-10-11, so a
+    // refusal here is overwhelmingly a send from before that date. Each row
+    // below carries its own verdict, which is what a later reader should read.
+    say(
+      "    (the gate landed 2026-10-11; sends before it are the bulk of this number -- " +
+        "each row below carries its own verdict)",
     );
     for (const [kind, count] of Object.entries(sentVerdicts).sort()) {
       if (kind === "ready") continue;
