@@ -13,8 +13,22 @@ export default tseslint.config(
   // outside the diff. That is a red gate that names the wrong cause: the person
   // reading it goes looking for a code defect instead of this file. Anything
   // under these paths is throwaway by definition, so it is ignored by pattern
-  // rather than by remembering to delete it.
-  { ignores: ["dist", ".output", ".vinxi", "tmp/**", ".scratch/**"] },
+  // rather than by remembering to delete it. The Playwright artifacts belong
+  // here for the same reason: a killed `npm run e2e` leaves minified bundles in
+  // `test-results/`, and the next `npm run ci` then reports 88 Prettier errors in
+  // files nobody wrote. Generated, gitignored, never reviewed -- ignored.
+  {
+    ignores: [
+      "dist",
+      ".output",
+      ".vinxi",
+      "tmp/**",
+      ".scratch/**",
+      "test-results/**",
+      "playwright-report/**",
+      "blob-report/**",
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
