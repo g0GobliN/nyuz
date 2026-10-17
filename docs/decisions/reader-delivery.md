@@ -2593,3 +2593,57 @@ reader's own terms. Separately, `briefing-checkpoint.ts` aborted in `replayPool`
 replay is now reported as a missing section rather than losing the evidence the report exists to
 produce. The fetch failure itself is unreproduced: the same three queries run fine from a probe, so it
 is recorded as unexplained rather than diagnosed.
+
+## A title the headline prints is not lowered (2026-10-17)
+
+**Defect, read on the composer's own output, not inferred.** The deck of _We can finally hear some of
+Wu-Tang Clan's Once Upon A Time in Shaolin album_ published:
+
+```
+The Verge reports that once Upon A Time in Shaolin has a long history, which Pablo Torre Finds Out goes into in detail.
+```
+
+The album's first word was lowered to `once`. The cause is one word list: `reportedClause` lowers the
+opening of a reported clause whenever it matches `REPORTED_CLAUSE_WORDS`, and `Once` is on that list
+(shared with the gate's `GLUED_ATTRIBUTION`). The rest of the title kept its capitals, so the sentence
+is neither the title nor a clause — it is a title broken at its first letter.
+
+**A shape guard was measured first and refused.** A "three capitalised words in a row" test identifies
+a title by its letters, and on the live corpus (3,189 source units, 297 of them opening on a
+reported-clause conjunction) it fires on **30 units**, nearly all of them ordinary clauses —
+`Although Ubuntu MATE skipped the LTS release …`, `If Credential Guard is not enabled …`, `When Jake
+Paul and Mike Tyson stepped into the ring …`. Lowering those is correct, so the capital letters are
+not the signal, and using them would have introduced the very defect the lowering exists to prevent.
+
+**The signal is the page.** `opensWithHeadlineTitle` asks whether a prefix of the clause (up to five
+words, at least eight characters, leading capital) is a phrase the story's own headline prints, and
+`reportedClauseFor` then declines to lower. A title must keep its capital, so the clause cannot follow
+`that` in a reported frame; both call sites build no frame at all and let the citation carry the
+provenance, which is the same rule `attributeToOwnSource` already applies to every other sentence that
+cannot take a leading attribution.
+
+**Cost, measured before the change was committed.** One frozen 200-event corpus (`tmp/corpus-today.json`),
+composed by `scripts/reader-composer-snapshot.ts` twice — once at `HEAD`, once with the change — and
+diffed story by story: **200 stories → 200 stories, 840 blocks → 840 blocks, exactly 1 story changed**.
+The one change is the deck above, which now reads:
+
+```
+Once Upon A Time in Shaolin has a long history, which Pablo Torre Finds Out goes into in detail.
+```
+
+Nothing was deleted, no story was withheld, and no other deck or paragraph moved.
+
+**Pinned by three tests** in
+[reader-prose-rules.test.ts](../../src/lib/reader-prose-rules.test.ts): the title is kept and no frame
+is invented; a clause of capitalised words that the headline does not print (`When Credential Guard …`)
+is still lowered; and the same sentence with no naming headline is still lowered, which pins the guard
+as _the headline_, not as a shape that happens to match this example.
+
+**Not fixed, and recorded rather than papered over:** the match is literal, so a title the headline
+paraphrases — the same album under a headline that said "the Wu-Tang album" — is still lowered. Closing
+that needs the source's own naming, not a string prefix, and it is a separate slice.
+
+**Why this is a repair rather than a new product decision.** Both rules it works between already exist
+and are ruled: a capital after `reports that` may not be published (`REPORTED_CLAUSE_WORDS`, the gate's
+`GLUED_ATTRIBUTION`), and the composer does not rewrite a source's own words. The change chooses
+neither a new shape nor new prose; it stops one rule from producing the defect the other one bans.

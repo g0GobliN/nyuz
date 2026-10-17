@@ -1708,3 +1708,45 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   fabricated block. `digest_items.why_it_matters` and `reasonFor` are kept so a deterministic source
   can bring the slot back without a migration; email/push keep printing the line only when it exists
   (email is dormant until launch). Record: [decisions/significance-without-a-model.md](decisions/significance-without-a-model.md).
+
+- **2026-10-17 — a title the headline prints was being lowered into a broken one, and is now kept.**
+  Found by the definite-reference census below, not by the audit: the deck of _We can finally hear
+  some of Wu-Tang Clan's Once Upon A Time in Shaolin album_ published **`The Verge reports that once
+  Upon A Time in Shaolin has a long history …`** — the album's first word lowered because `once` is
+  one of the function words `reportedClause` lowers after a reporting verb. Cause located rather than
+  guessed: `reportedClause` decides by word list alone, and `Once` is on it. **A shape guard was
+  measured and refused:** a "run of capitals" test fires on **30** of 3,189 corpus units, almost all
+  ordinary clauses (`Although Ubuntu MATE skipped …`, `If Credential Guard is not enabled …`), so the
+  signal is not the capital letters. What decides it is **the page**: `opensWithHeadlineTitle` returns
+  true only when a prefix of the clause is a phrase the story's own headline prints, and
+  `reportedClauseFor` then declines to lower, so no frame is built (`Once …` cannot follow `that`
+  while keeping a title's capital) and the citation carries the provenance. **Cost, measured on one
+  frozen 200-event corpus** (`tmp/corpus-today.json`, snapshot diff old → new): **200 stories → 200,
+  840 blocks → 840, exactly 1 story changed** — the Wu-Tang deck, now `Once Upon A Time in Shaolin has
+  a long history, which Pablo Torre Finds Out goes into in detail.` **Three new tests** in
+  [reader-prose-rules.test.ts](../src/lib/reader-prose-rules.test.ts): the title kept, a
+  capitalised-word clause that is not the headline's title still lowered (`When Credential Guard …`),
+  and the same sentence with no naming headline still lowered, which pins the guard as the headline
+  rather than a shape. `npm run ci` green (195 files, 30 Playwright). **Not fixed by this:** the
+  headline-matching is literal, so a title the headline paraphrases is still lowered — recorded, not
+  papered over. Record: [decisions/reader-delivery.md](decisions/reader-delivery.md#a-title-the-headline-prints-is-not-lowered-2026-10-17).
+- **2026-10-17 — the definite-reference census: the class cannot be refused, by measurement.** The
+  open NTT defect is a block opening on `The report …`, which no ruler counts. The census is now a
+  committed instrument — `node --env-file=.env scripts/tsrun.mjs scripts/reader-context-anchors.ts`,
+  a screen that says so in its own header — and on a frozen 200-event corpus (`tmp/corpus-today.json`,
+  **840 published blocks, 159 stories with prose**) it finds **69 blocks (8%)** opening on a definite
+  reference whose head noun is never named above, and **171 (20%)** opening on any definite article or
+  connector+pronoun. Most are readable in place (`The Verge reports that …` names
+  itself; `The new phone …` has its referent in the headline), so a refusal rule would remove roughly
+  a tenth of the corpus to fix one story — the "drop the run" option in
+  [decisions/context-openings.md](decisions/context-openings.md) dies on this number. What remains for
+  the NTT class is: **establish the document in prose** (its single source carries no such sentence,
+  measured with `audit:reader --find "NTT Global"`), or **withhold** the story. The census splits
+  its candidates by whether the page names the head noun above and whether the word is a proper noun
+  (`The Verge reports that …` names itself), which is a screen for reading, not a verdict: the head
+  word is sometimes an adjective and a stem match is not a meaning match. Both are product calls
+  for the arbiter, and the ruler's own reading is recorded with them. Two instrument errors were
+  caught on the way and are recorded because they would have produced a false zero: a regex written
+  with `\p{L}` but no `u` flag matches nothing, and an edit written through a shell heredoc put a
+  literal backspace byte in a regex — both read as "0 blocks", the answer that closes a question it
+  should open.

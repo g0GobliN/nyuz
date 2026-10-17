@@ -117,6 +117,43 @@ function reportedClause(text: string): string | null {
 }
 
 /**
+ * A clause whose opening is a title the headline already prints.
+ *
+ * `Once Upon A Time in Shaolin` is an album, its headline says so, and the corpus
+ * published `The Verge reports that once Upon A Time in Shaolin has a long
+ * history ...` -- a title broken at its first letter, because `once` is one of the
+ * function words this pass lowers. The shape of the words cannot decide it: `If
+ * Credential Guard is not enabled ...` is three capitals in a row too, and it is
+ * an ordinary clause that must be lowered. What decides it is the page: a phrase
+ * the headline itself prints in that case is a title, and a title keeps its own
+ * capital wherever it is quoted.
+ */
+function opensWithHeadlineTitle(title: string, text: string): boolean {
+  const words = text.trim().split(/\s+/);
+  for (let length = Math.min(5, words.length); length >= 2; length--) {
+    const phrase = words
+      .slice(0, length)
+      .join(" ")
+      .replace(/["“”'’.,;:!?]+$/u, "");
+    if (phrase.length < 8 || !/^\p{Lu}/u.test(phrase)) continue;
+    if (title.includes(phrase)) return true;
+  }
+  return false;
+}
+
+/**
+ * The reported clause, with both reasons a capital must stay in one place.
+ *
+ * The first is `reportedClause`'s own: the opening is not a function word. The
+ * second is the headline: a clause that starts inside a title the page prints is
+ * the title, and lowering its first letter breaks it.
+ */
+function reportedClauseFor(title: string, text: string): string | null {
+  if (opensWithHeadlineTitle(title, text)) return null;
+  return reportedClause(text);
+}
+
+/**
  * A fronted adverbial and the clause it belongs to, or null.
  *
  * `X reports that Overall, the cadence ... accelerated` and `PyTorch blog reports
@@ -992,12 +1029,16 @@ function safeLead(
   }
   const clause = withoutDiscourseMarker(text);
   // `Once they were out in the wild ...` is the one opening a reported clause may
-  // not keep -- the gate refuses it, so the composer lowers it.
+  // not keep -- the gate refuses it, so the composer lowers it. The exception is a
+  // clause that opens inside a title the headline prints (see
+  // `opensWithHeadlineTitle`): it cannot follow `that`, so the attribution goes
+  // behind the fact, and no word of the title is rewritten.
   if (SUBORDINATE_CLAUSE_OPENING.test(clause)) {
-    return {
-      text: `${source} reports that ${reportedClause(clause) ?? clause}`,
-      evidence: lead.evidence,
-    };
+    const reported = reportedClauseFor(story.title, clause);
+    if (reported !== null) {
+      return { text: `${source} reports that ${reported}`, evidence: lead.evidence };
+    }
+    return { text: attributeToOwnSource(clause, source).text, evidence: lead.evidence };
   }
   // Everything else keeps the capital its source wrote -- "All Things Considered
   // host ..." is a name, and lowering it after `that` would be a guess -- so it
@@ -1307,7 +1348,7 @@ function attributedFactText(
   // `that`, which is not English. Guessing which capital begins a name is the
   // guess `reportedClause` exists to refuse, so the attribution goes behind the
   // fact instead -- grammatical either way, and a claim keeps its claimant.
-  const reported = reportedClause(clause);
+  const reported = reportedClauseFor(story.title, clause);
   if (reported !== null) return `${source} reports that ${reported}`;
   return attributeToOwnSource(clause, source).text;
 }

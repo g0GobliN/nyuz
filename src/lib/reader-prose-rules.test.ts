@@ -477,10 +477,10 @@ describe("a contraction is a predicate", () => {
  * ..."), a sentence starting on a closing quote ("” Thomas shouted ..."), and a
  * page with no paragraphs at all because every sentence in it said "this week".
  */
-const oneSource = (excerpt: string, name = "The Register"): Story => ({
+const oneSource = (excerpt: string, name = "The Register", title = "A story"): Story => ({
   id: "prose-rule",
   org: name,
-  title: "A story",
+  title,
   what: "",
   why: "",
   importance: "Medium",
@@ -495,8 +495,8 @@ const oneSource = (excerpt: string, name = "The Register"): Story => ({
   timeline: [],
 });
 
-const composedText = (excerpt: string, name = "The Register"): string => {
-  const { article } = composeArticleWithDiagnostics(oneSource(excerpt, name));
+const composedText = (excerpt: string, name = "The Register", title = "A story"): string => {
+  const { article } = composeArticleWithDiagnostics(oneSource(excerpt, name, title));
   return [article.deck.text, ...article.paragraphs.map((paragraph) => paragraph.text)].join(" ");
 };
 
@@ -716,6 +716,62 @@ describe("a source's capitalisation is kept unless its construction proves the w
     // clause is punctuated.
     const text = composedText("Once the outage began, customers could not reach the service.");
     expect(text).toContain("reports that once the outage began");
+  });
+
+  it("keeps a title the headline prints, and invents no frame around it", () => {
+    // Production, 2026-10-17, read on the deployed composer: the deck of the
+    // Wu-Tang story published "The Verge reports that once Upon A Time in Shaolin
+    // has a long history ..." -- the album's first word lowered because `once` is
+    // one of the function words this pass lowers. The headline prints the title,
+    // so the clause belongs to it and cannot follow `that`.
+    const { article } = composeArticleWithDiagnostics(
+      oneSource(
+        "Once Upon A Time in Shaolin has a long history, which Pablo Torre Finds Out goes into in detail.",
+        "The Verge",
+        "We can finally hear some of Wu-Tang Clan’s Once Upon A Time in Shaolin album",
+      ),
+    );
+    const text = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    expect(text).toContain("Once Upon A Time in Shaolin");
+    expect(text).not.toContain("once Upon A Time");
+    // No invented frame either: `Once ...` cannot follow `that` while keeping the
+    // capital a title needs, so the attribution is not built at all and the
+    // citation carries the provenance.
+    expect(text).not.toContain("reports that");
+  });
+
+  it("lowers a clause of capitalised words that is not the headline's title", () => {
+    // The decoy the guard has to survive: two capitals in a row are not a title on
+    // their own. `When Credential Guard is not enabled ...` is an ordinary clause,
+    // and leaving its capital in place is the defect this lowering exists to stop.
+    const text = composedText(
+      "When Credential Guard is not enabled and BlockNtlmSSO is not set to Audit mode, the use of NTLMv1-derived credentials will be blocked.",
+      "The Register",
+      "Networking problems after the October 2026 Windows update? NTLM might be to blame",
+    );
+    expect(text).toContain("reports that when Credential Guard is not enabled");
+    expect(text).not.toContain("reports that When Credential Guard");
+  });
+
+  it("is the headline that makes it a title, not the capital letters", () => {
+    // Same sentence, no headline naming it: the guard does not fire, and the
+    // clause is lowered exactly as it was before. This is what keeps the rule from
+    // being a shape test that would also catch `When Credential Guard ...`.
+    const text = composedText(
+      "Once Upon A Time in Shaolin has a long history, which Pablo Torre Finds Out goes into in detail.",
+    );
+    expect(text).toContain("reports that once Upon A Time in Shaolin");
+  });
+
+  it("lowers a clause that merely names the headline's subject", () => {
+    // The headline names the laptop; the clause opens on `When`, which is not part
+    // of any phrase the headline prints, so nothing about the title applies.
+    const text = composedText(
+      "When Nvidia's RTX Spark shipped, reviewers found the battery lasted a full working day.",
+      "The Register",
+      "Benchmarked: Nvidia's RTX Spark is a laptop that lasts",
+    );
+    expect(text).toContain("reports that when Nvidia's RTX Spark shipped");
   });
 });
 
