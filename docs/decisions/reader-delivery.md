@@ -2647,3 +2647,53 @@ that needs the source's own naming, not a string prefix, and it is a separate sl
 and are ruled: a capital after `reports that` may not be published (`REPORTED_CLAUSE_WORDS`, the gate's
 `GLUED_ATTRIBUTION`), and the composer does not rewrite a source's own words. The change chooses
 neither a new shape nor new prose; it stops one rule from producing the defect the other one bans.
+
+## The story page was the surface that never asked what a development record is (2026-10-17)
+
+`developmentRecord` was ruled on 2026-10-15 for the card and the email: a commit trailer or a
+changelog dump is not prose, and the reader is shown nothing rather than a build log. **The composer
+never asked it**, so the article surface kept publishing what the card refused.
+
+**Measured before the change**, frozen 200-event corpus: **7 published sentences in one story** were
+development records, all of them a release feed's own artifacts —
+
+```
+Assisted-by: pi:llama.cpp/ggml-org/Qwen3.8-Flash-Next-GGUF (MacBook, M5 Max, 128GB) pi: use emoji in the AI stats disclosure.
+Tests: catch vanished rows in the fusion baseline (#30618) tests: update the Metal fusion baseline.
+```
+
+— and two of them were the story's **deck**. The same window carries four release-feed stories
+(`Next.js releases`, `llama.cpp releases`, single-source `github`); the gate already withholds nine
+stories as `build-number` (`headline is an identifier: b11684`), which is why none of these reached a
+briefing. That is exactly why the article surface mattered: the moment a release story's headline is a
+release name rather than an identifier — `Wine 11.20 is out on 17 October 2026 …`, which publishes —
+nothing on the page is asking the question any more.
+
+**The fix is the existing predicate, at the boundary every surface asks.** `unitTextRejection` now
+answers `editorial_noise` for a development record, which is the family the 2026-10-15 ruling required
+and no new counter. One ordering detail is a policy, not a preference: a changelog *bullet* is also a
+subjectless instruction, its reason has always been `imperative_instruction`, and an existing test
+pinned it. The check therefore sits before `validDeterministicSentence` and exempts
+`instructionOpening`, so the class stays in the counter it was measured in while a trailer that is not
+an instruction (`Signed-off-by …`) answers `editorial_noise` rather than the `invalid_sentence` its
+angle brackets would otherwise produce.
+
+**Cost, measured on the frozen corpus, composed at `HEAD` and with the change:**
+
+| measure | before | after |
+| --- | --- | --- |
+| stories with published prose | 159 | **159** |
+| published blocks | 840 | **837** |
+| published sentences | 1,788 | **1,781** |
+| development-record sentences published | 7 | **0** |
+| stories changed | — | **1** (`b11684`, 5 → 2 blocks) |
+
+No story was lost and no other story's prose moved. **Fail-before evidence:** with the predicate line
+removed the new refusal test fails and the four controls still pass, which is what makes it a test of
+the boundary rather than of the strings.
+
+**Still open, and recorded rather than implied fixed.** `b11684` still publishes two paragraphs of
+release-engineering prose (`Re-record the MTL fusion baseline with the current build: 276 rows over 131
+dummy models …`), because it is not a commit record — it is a release feed's changelog written as
+reporting. Whether a single-source `github` release feed should produce a reader story at all is a
+product decision with four examples in this window, not a predicate that can be widened without it.

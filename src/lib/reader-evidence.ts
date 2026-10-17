@@ -3580,6 +3580,24 @@ export function unitTextRejection(
   // backslash, and a reader does not need to know LaTeX to notice that
   // something went wrong.
   if (sourceMarkupRemains(text)) return "source_markup";
+  // A commit trailer or a changelog dump, refused at the boundary every surface
+  // asks. The predicate was ruled for the card and the email on 2026-10-15 (see
+  // `developmentRecord`); the story page was the surface that never asked it, and
+  // the newest window published seven of these sentences in one release story --
+  // `Assisted-by: pi:llama.cpp/... pi: use emoji in the AI stats disclosure.` and
+  // `Tests: catch vanished rows in the fusion baseline (#30618) tests: update the
+  // Metal fusion baseline.` -- as paragraphs of an article. Same reason family and no
+  // new counter, as that ruling required: the reader is shown nothing rather than
+  // a build log, and the controls below keep news that merely cites a pull request
+  // (`Google released Chrome 141 on Tuesday, and its changelog lists 42 security
+  // fixes.`) untouched.
+  //
+  // `instructionOpening` is exempted rather than reordered: a changelog *bullet* is
+  // also a subjectless instruction, its reason is `imperative_instruction`, and the
+  // ruling already counts that class. Naming it here keeps the unit in the counter it
+  // was measured in, without letting a dump answer `editorial_noise` only because its
+  // first word was not a verb.
+  if (!quote && !instructionOpening(text) && developmentRecord(text)) return "editorial_noise";
   if (!validDeterministicSentence(text)) return "invalid_sentence";
   if (unresolvableContext(text)) return "unresolved_context";
   if (/…$|\.\.\.$/.test(text)) return "trailing_ellipsis";

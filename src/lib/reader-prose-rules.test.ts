@@ -2431,3 +2431,39 @@ describe("an instruction is not a claim", () => {
     });
   });
 });
+
+/**
+ * The development-record boundary now covers the story page too.
+ *
+ * `developmentRecord` was ruled for the card and the email on 2026-10-15, and the
+ * composer never asked it. Measured on the frozen 200-event corpus on 2026-10-17:
+ * **7 published sentences in one release story** were commit trailers or changelog
+ * dumps (`Assisted-by: pi:llama.cpp/...`, `Tests: catch vanished rows in the fusion
+ * baseline (#30618) ...`), three blocks of an article a reader could open. The
+ * predicate moved into `unitTextRejection`, which is the boundary every surface
+ * asks, so the page and the card agree by construction rather than by memory.
+ */
+describe("a development record is not prose, on any surface", () => {
+  it("refuses commit trailers and changelog dumps", () => {
+    for (const text of [
+      "Assisted-by: pi:llama.cpp/ggml-org/Qwen3.8-Flash-Next-GGUF (MacBook, M5 Max, 128GB) pi: use emoji in the AI stats disclosure.",
+      "Tests: catch vanished rows in the fusion baseline (#30618) tests: update the Metal fusion baseline.",
+      "Signed-off-by: Jane Doe <jane@example.com>",
+    ]) {
+      expect(unitTextRejection(text, false), text).toBe("editorial_noise");
+    }
+  });
+
+  it("keeps reporting that cites a pull request, a commit or a changelog", () => {
+    // The ruling's own controls, which are what keeps the rule from eating news
+    // that merely mentions code. One reference is a citation; a dump needs two.
+    for (const text of [
+      "The regression was fixed in pull request #30119, the maintainer said.",
+      "Google released Chrome 141 on Tuesday, and its changelog lists 42 security fixes.",
+      "The fix landed in commit 4f2a1b9 and ships in version 2.4 next month, the maintainer said.",
+      "Currently there is a policy requirement for Linux kernel patches where AI tools contributed, they should be documented with an Assisted-by: tag, the maintainers said.",
+    ]) {
+      expect(unitTextRejection(text, false), text).toBeNull();
+    }
+  });
+});

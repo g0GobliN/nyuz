@@ -1750,3 +1750,24 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   with `\p{L}` but no `u` flag matches nothing, and an edit written through a shell heredoc put a
   literal backspace byte in a regex — both read as "0 blocks", the answer that closes a question it
   should open.
+
+- **2026-10-17 — the story page was the one surface that never asked what a development record is.**
+  Read from the composer's own output (`npm run audit:reader -- --show 6`): the deck of the llama.cpp
+  release story `b11684` was **`Assisted-by: pi:llama.cpp/… pi: use emoji in the AI stats
+  disclosure.`**, and seven published sentences in that one story were commit trailers or changelog
+  dumps. `developmentRecord` was ruled for the card and the email on 2026-10-15 and the composer never
+  called it. **Landed:** the predicate is now asked inside `unitTextRejection`, the boundary every
+  surface uses, with `instructionOpening` exempted so a changelog bullet keeps its measured
+  `imperative_instruction` reason. **Cost, frozen 200-event corpus at `HEAD` vs with the change:**
+  stories with prose **159 → 159**, blocks **840 → 837**, sentences **1,788 → 1,781**, development-record
+  sentences published **7 → 0**, and **exactly one story changed** (`b11684`, 5 → 2 blocks); nothing
+  lost, no other prose moved. Two tests added (the refusal and the ruling's four controls, including
+  "Google released Chrome 141 on Tuesday, and its changelog lists 42 security fixes."); with the
+  predicate removed the refusal test fails, which is its fail-before evidence. `npm run ci` green (195
+  files, 3,329 tests, 30 Playwright). **Context that keeps this honest:** the gate already withholds
+  releasing stories by headline — **9 withheld as `build-number`** — so none of this reached a
+  briefing; the article surface is where it published, and the exposure is a release story whose
+  headline is a release name (`Wine 11.20 is out …`) rather than an identifier. **Still open:** those
+  stories remain changelog articles (`Re-record the MTL fusion baseline with the current build: 276
+  rows …`), and whether a single-source `github` release feed should produce a reader story at all is a
+  product decision with four examples in the window — [decisions/reader-delivery.md](decisions/reader-delivery.md#the-story-page-was-the-surface-that-never-asked-what-a-development-record-is-2026-10-17).
