@@ -3014,3 +3014,85 @@ because that corpus predates the weld repair and its membership differs.
 and the quotation is still the deck when it is the only candidate that stands alone. Fail-before
 evidence: with the preference replaced by `composedDeck[0]`, *"prefers a fact that reports the event
 over one that opens on a quotation"* fails and passes restored.
+
+## The stored line and the page opened the same story on different sentences (landed 2026-10-18)
+
+**The defect, as a reader met it.** On the deployed product, card 01 of the delivered 2026-10-18
+briefing read `“The primary thing that we see with any attack on building management systems or
+physical systems: It’s a great place for the threat actor to hide,” Michael Freeman, ServiceNow’s
+senior director of threat research, told The Register.` — while the story page for the same event
+(`187595da`, *Cybercrims go beyond stealing data to attack physical building systems*) opened on
+`Late Sunday night, a still-unknown cybercriminal or group hacked thousands of remote-controlled
+refrigeration systems across hundreds of French grocery stores…`. Ruling #10a (the entry above) had
+landed the report preference in the composer; the briefing did not move. The same snapshot printed a
+`$5,300` why-line that the day’s pass had already removed from the ladder.
+
+**The cause, traced before anything was changed.** Two producers write a story’s opening sentence.
+`composeArticle` (`editorial.ts`) picks the deck — the story page’s opening. `finalizeMetadata`
+(`news-signals.ts`) picks `events.what_happened` — the line the briefing card, the alert, the search
+index and every fallback surface read. #10a changed the first and not the second, so the two surfaces
+answered the same question differently for exactly the class the ruling named. The event’s stored line
+was written `2026-10-17T12:17:09Z`, and `fact.quote` never flagged the sentence: that flag is set only
+for an enriched unit the evidence pass carried as an attributed quotation, not for an RSS sentence that
+merely starts with a quotation mark. So the selection’s lead was the quotation and `summaryFor` stored
+it.
+
+The why-line is a different fact and was diagnosed separately. `digest_items.why_it_matters` is frozen
+at build time, so a delivered page can only show what its build wrote. `briefing:checkpoint` reads
+`ladder now: none 13` for the delivered window — no current rung has a line for any of its 13 items —
+and `briefing:preview` (the next build, read-only) ships the same window with no extracted figure. That
+is staleness, not a rule gap, and this slice adds no rule: the honest repair is the next generation.
+
+**Landed.** `OPENS_ON_QUOTE` moved from a private const in `editorial.ts` to `reader-evidence.ts` — the
+same two characters, now asked by both producers. `opensAsReport` and `reportingLeadOf` express the
+composer’s own fact-level tests (`OPENS_ON_QUOTE`, and `unresolvedContextOpening`, the function behind
+`needsAntecedentToOpen`) over the composer’s own candidate order (the selection’s lead first, then the
+sources’ order), and `finalizeMetadata` uses them for **one** case: the line it just produced opens on a
+quotation. It then stores the first report in that order; when nothing reports the event the quotation
+stands, which is the ruling’s fallback. Everything else is untouched: a stored line that does not open
+on a quotation is not read twice, the selection and its lead are unchanged (`summaryFor` still holds the
+line to the card’s boundary), and no line is minted where the source had none.
+
+**Why not narrow the shared lead instead** (the first attempt, and it was wrong): measured, it
+re-ordered the deck candidates and moved the story page’s opening on this very event from the report to
+a background sentence — a regression against #10a. Reverted; the reason is in `reportingLeadOf`’s doc.
+
+**Why not compose the card’s line at build** (the delivery-side alternative): the artifact path exists
+(`digest_items.summary`) and extending its condition to this class would guarantee the deck’s exact
+sentence on the card. It was not taken — it composes for the class on every build, it replaces an
+admissible line at delivery, and universal summary composition is a question the arbiter has already
+declined. The producer is where the stored sentence is wrong, and that is where this is fixed. If a
+future census finds stored quote-first lines that the producer never re-writes, the artifact scope is
+the place to revisit; this paragraph is the record of why it is the second choice.
+
+**Measured.** Read-only, `tmp/quote-lead-census.ts` over one snapshot of the same live 200
+(`tmp/corpus-2026-10-18b.json`), the change reverted by deleting its six lines vs the change:
+
+| measure | frozen 200 (before) | frozen 200 (after) |
+| --- | --- | --- |
+| stored lines changed | — | **0** |
+| decks changed | — | **0** |
+| leads changed | — | **0** |
+
+and on the live 200 (the same corpus loader, current membership):
+
+| measure | value |
+| --- | --- |
+| stored lines opening on a quotation | **1** — the delivered card 01 |
+| leads opening on a quotation | 3 (MALFEX, honeybees, this one) |
+| decks opening on a quotation | 0 |
+| stored-line changes this slice makes | **1** — card 01’s, to the report |
+
+The replacement was verified at full fidelity, not through the census probe’s single source: with all
+the event’s articles, `finalizeMetadata(...).what_happened` is **byte-identical** to
+`composeArticle(...).deck.text` for `187595da` — `Late Sunday night, a still-unknown cybercriminal or
+group hacked thousands of remote-controlled refrigeration systems across hundreds of French grocery
+stores, spiking temperatures, spoiling food, and sparking fires.` The other two quote-lead stories are
+unchanged, because their stored lines do not open on a quotation.
+
+**Tests.** `analyse.test.ts` — *“prefers a fact that reports the event over a line that opens on a
+quotation”* (the delivered card 01’s own source text) and *“keeps a quotation when nothing else reports
+the event”* (the ruling’s fallback, asserted verbatim). Red first: with the six lines deleted the first
+fails on `expect(stored.startsWith("Late Sunday night")).toBe(true)` — `expected false to be true` —
+and passes restored. `reader-quality.test.ts` — the class by first character (curly and straight), a
+dangling opening skipped, and the empty return that leaves the fallback standing.

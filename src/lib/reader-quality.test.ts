@@ -7,12 +7,16 @@ import {
   hasPredicate,
   nearDuplicate,
   numericKeys,
+  OPENS_ON_QUOTE,
+  opensAsReport,
   publisherVoice,
   rankEntities,
   readerSentences,
+  reportingLeadOf,
   selectReaderEvidence,
   validDeterministicParagraph,
   validDeterministicSentence,
+  type ReaderFact,
 } from "./reader-evidence";
 import { relatedContext, scoreRelatedEvent } from "./related-events";
 import { rankEventTopics, assignTopics } from "./pipeline/topic-assign";
@@ -891,5 +895,55 @@ describe("entity extraction reads admitted evidence, not raw source", () => {
     expect(published).not.toMatch(/\bReuters\s+The\b/);
     expect(published).not.toMatch(/\bImage credit\b/i);
     expect(rejectionReasons.editorial_noise).toBeGreaterThan(0);
+  });
+});
+
+describe("the sentence that opens a story", () => {
+  const fact = (text: string, overrides: Partial<ReaderFact> = {}): ReaderFact => ({
+    text,
+    evidence: [1],
+    origin: "rss",
+    score: 1,
+    quote: false,
+    uncertain: false,
+    sourceOrder: 0,
+    ...overrides,
+  });
+
+  it("defines a quote-first opening by the first character, as the deck walk does", () => {
+    // `fact.quote` is set only for an enriched unit the evidence pass carried as
+    // an attributed quotation, so the RSS sentence behind the delivered card 01
+    // was never flagged -- even though it opens on the quotation mark. What a
+    // reader sees is the first character, and both producers now ask that.
+    expect(
+      OPENS_ON_QUOTE.test("“We're in the early innings,” Michael Freeman told The Register."),
+    ).toBe(true);
+    expect(
+      OPENS_ON_QUOTE.test('"We\'re in the early innings," Michael Freeman told The Register.'),
+    ).toBe(true);
+    expect(
+      OPENS_ON_QUOTE.test(
+        "Michael Freeman told The Register that attackers hide in these systems.",
+      ),
+    ).toBe(false);
+    expect(opensAsReport(fact("“Attackers hide here,” Michael Freeman told The Register."))).toBe(
+      false,
+    );
+  });
+
+  it("takes the first report in the deck's order and skips a dangling opening", () => {
+    const lead = fact(
+      "“It’s a great place for the threat actor to hide,” Michael Freeman told The Register.",
+    );
+    const dangling = fact("They also said the plant would open in the spring.");
+    const report = fact(
+      "Armis Labs found 73 percent of organizations run building systems used in ransomware attacks.",
+    );
+    expect(reportingLeadOf(lead, [lead, dangling, report])).toBe(report);
+  });
+
+  it("returns nothing when every candidate is a quotation, so the fallback stands", () => {
+    const lead = fact("“We're in the early innings,” Michael Freeman told The Register.");
+    expect(reportingLeadOf(lead, [lead])).toBeUndefined();
   });
 });

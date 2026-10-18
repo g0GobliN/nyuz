@@ -28,6 +28,7 @@ import {
   normalizeReaderSources,
   normalizeSummary,
   normalizedNumericKey,
+  OPENS_ON_QUOTE,
   preferCleaner,
   selectReaderEvidence,
   sentenceKey,
@@ -220,16 +221,17 @@ function similarEnough(left: string, right: string): boolean {
   return shared / Math.max(a.size, b.size) >= 0.88;
 }
 
-/**
- * Whether a composed block opens on a quotation.
+/*
+ * `OPENS_ON_QUOTE` is imported from reader-evidence rather than spelled here.
  *
- * The same two characters the gate's quote rules read, and deliberately no more:
- * a block that opens with an attribution (`Michael Freeman said …`) or names its
- * speaker later is a report, and only a block whose first character is the
- * quotation mark is a quote-first opening.
+ * The same two characters, and deliberately no more: a block that opens with an
+ * attribution (`Michael Freeman said …`) or names its speaker later is a report,
+ * and only a block whose first character is the quotation mark is a quote-first
+ * opening. The selector that writes `events.what_happened` — the line the
+ * briefing card prints — has to ask the same question, and two spellings of it
+ * is how the two surfaces came to open the same story on different sentences
+ * (measured 2026-10-18, ruling #10a's own card 01).
  */
-const OPENS_ON_QUOTE = /^["\u201c]/u;
-
 function citationRefs(facts: ReaderFact[]): number[] {
   return [...new Set(facts.flatMap((fact) => fact.evidence))].sort((a, b) => a - b);
 }

@@ -1373,7 +1373,18 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 ## 7. What is next
 
-**2026-10-18, last: the composer's measured defect classes are closed, and the loop stops on the pool.**
+**2026-10-18, last: the divergence the audit left open is closed at its producer.** Two producers write
+a story's opening sentence — the composer's deck (the story page) and the line `finalizeMetadata` stores
+as `events.what_happened` (the briefing card, the alert, the search index) — and ruling #10a had taught
+the report preference to the first only. That is why card 01 of the delivered 2026-10-18 briefing
+printed the Freeman quotation while the story page for the same event opened on the report. Both
+producers now ask one definition of the class; on the live 200 the class is **1 of 200** stored lines and
+its replacement is **byte-identical to the page's own opening**. The delivered page keeps its stored
+`$5,300` why-line until the next generation — `briefing:checkpoint` reads `ladder now: none 13`, so no
+current rung writes it, and the next build is the regeneration (work log below). What is still not
+10/10 is unchanged and upstream: the pool.
+
+**2026-10-18, later: the composer's measured defect classes are closed, and the loop stops on the pool.**
 Every must-be-zero line reads zero on the live window (`refused then published 0`, `delivered with no
 body 0`, `facts lost 0`, ledger reconciling), the duplicate-block producer behind the last two of them is
 closed at the producer, and no further widening of the ladder measured above half precision. What a
@@ -2163,3 +2174,37 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   and [decisions/significance-without-a-model.md](decisions/significance-without-a-model.md#the-figure-rungs-removed-arbiter-ruling-10-2026-10-18).
 
 - **2026-10-18 — the repair exposed a quote-as-deck, and the arbiter ruled the deck must prefer a report (ruling #10a).** With the weld gone, card 01 opened on the Freeman quote (*"The primary thing that we see with any attack on building management systems … It's a great place for the threat actor to hide," … told The Register.*) — attributed, self-contained, and not what happened. Recomposing with the heading deleted instead of closed gave the same quote, so the repair did not cause it; the composer's highest-ranked fact simply was a quotation (**3 stories of the live 200** opened that way). **Ruling: option 2 — prefer a non-quote fact, keep quotes as the fallback, keep the candidate set, the checks, the self-sufficiency rule and the order within each group untouched.** Landed in `editorial.ts` as `OPENS_ON_QUOTE` plus a two-group walk over the candidates that composed a self-sufficient sentence. **Measured the way the ruling asked**, two snapshots of the same live 200 (HEAD vs the change): **3 decks changed, 3 of them quotation → reporting fact, 0 the other way, 0 other**, words average 176.4 → 176.4, paragraphs 2.72 → 2.73, no story became or stopped being empty, every defect line unchanged (entity/metadata/attribution/context 0, two-quotes 9 → 9), citations 544 → 545. Two of the three improve (*Cybercrims* now opens on the French refrigeration hack; *honeybees* on the study's finding); **one is weaker and is recorded rather than claimed** — *MALFEX* now opens on campaign background instead of the quote that stated the finding, factual and self-sufficient but less pointed, and no rule can tell those apart without a semantic judgement. Frozen 200: 1 story changed. Tests in `editorial.test.ts` (54 in the file) cover both halves, with the preference removed the reporting-fact test fails. Record: [decisions/reader-delivery.md](decisions/reader-delivery.md#the-deck-prefers-a-report-over-a-quotation-arbiter-ruling-10a-2026-10-18).
+
+- **2026-10-18 — the briefing and the story page opened the same story on different sentences, and the
+  class now has one definition asked by both producers.** The audit's last reader-visible contradiction:
+  on the deployed product, card 01 of the delivered 2026-10-18 briefing printed the Freeman quotation
+  (`“The primary thing that we see with any attack on building management systems or physical systems:
+  It’s a great place for the threat actor to hide,” … told The Register.`) while the story page for the
+  same event (`187595da`) opened on `Late Sunday night, a still-unknown cybercriminal or group hacked
+  thousands of remote-controlled refrigeration systems…`, and the same page still printed a `$5,300`
+  why-line the day's pass had removed from the ladder. **Traced before anything changed:** two producers
+  write a story's opening sentence — `composeArticle` picks the deck (the page) and `finalizeMetadata`
+  picks `events.what_happened` (the briefing card, the alert, the search index) — and ruling #10a had
+  landed the report preference in the first only. `fact.quote` never flagged the sentence: that flag is
+  set only for an enriched unit the evidence pass carried as an attributed quotation, not for an RSS
+  sentence that merely starts with a quotation mark, so the selection's lead was the quotation.
+  **Landed:** `OPENS_ON_QUOTE` moved to [reader-evidence.ts](../src/lib/reader-evidence.ts) and is asked
+  by both; `opensAsReport`/`reportingLeadOf` apply the composer's own fact-level tests
+  (`OPENS_ON_QUOTE`, `unresolvedContextOpening`) over the composer's own candidate order, and
+  `finalizeMetadata` uses them for **one** case — a stored line that opens on a quotation becomes the
+  first report, and a quotation with nothing reporting it stands (the ruling's fallback). **Why not
+  narrow the shared lead** (the first attempt): measured, it re-ordered the deck candidates and moved
+  this event's own page opening from the report to a background sentence — reverted, reason in the
+  helper's doc. **Why not compose the card at build:** the artifact path exists and would guarantee the
+  deck's exact sentence, but it composes for the class on every build, replaces an admissible line at
+  delivery, and universal summary composition is a question the arbiter has already declined; the
+  producer is where the stored sentence is wrong. **Measured:** frozen 200, one snapshot
+  (`tmp/corpus-2026-10-18b.json`), six lines deleted vs landed — stored lines **0**, decks **0**, leads
+  **0** changed; live 200 — stored quote-first lines **1** (card 01), leads quote-first 3, decks
+  quote-first 0, and at full fidelity (all the event's articles) the new stored line is
+  **byte-identical to the deck** the story page opens on. **The why-line is staleness, not a rule:**
+  `briefing:checkpoint` reads `ladder now: none 13` for the delivered window, `briefing:preview` ships it
+  with no extracted figure, and nothing was added to the ladder — the next generation is the repair.
+  **Tests red first:** with the six lines deleted, *"prefers a fact that reports the event over a line
+  that opens on a quotation"* fails at `expected false to be true` and passes restored. Record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-stored-line-and-the-page-opened-the-same-story-on-different-sentences-landed-2026-10-18).

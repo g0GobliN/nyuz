@@ -5233,6 +5233,70 @@ export function normalizeReaderSources<T extends ReaderSource>(
   };
 }
 
+/**
+ * Whether a sentence opens on a quotation.
+ *
+ * The same two characters the composer's deck walk reads — an attribution in
+ * front (`Michael Freeman said …`) or a speaker named later is a report; only a
+ * sentence whose *first* character is the quotation mark is quote-first.
+ *
+ * Two producers answer "which sentence opens this story?". The composer picks
+ * the deck it publishes, and `finalizeMetadata` picks the line it stores as
+ * `events.what_happened` — the line the briefing card, the alert and the search
+ * index read. Since the arbiter's ruling #10a (2026-10-18: prefer a fact that
+ * reports the event over one that opens on a quotation, keeping quotations as
+ * the fallback) both must prefer the report, so the class is defined here once
+ * and asked by both. `fact.quote` cannot define it: that flag is set only for an
+ * enriched unit the evidence pass carried as a quote *with an attribution*, so
+ * an RSS sentence that simply starts with a quotation mark is not one — which is
+ * exactly the delivered 2026-10-18 briefing's card 01, whose stored line was the
+ * Freeman quotation while the story page opened on the report.
+ */
+export const OPENS_ON_QUOTE = /^["\u201c]/u;
+
+/**
+ * Whether a fact can open a story as a report.
+ *
+ * Exactly the two tests the deck walk applies to a composed candidate: it may not
+ * open on a quotation (the class above), and it may not open on a reference the
+ * page never establishes (`unresolvedContextOpening`, the same function behind
+ * `needsAntecedentToOpen`). Nothing else is invented here — a fact the composer
+ * would publish can stand, and one it would displace for a reason of its own
+ * (attribution, sentence shape) is caught by that rule when the sentence is
+ * composed, not by a second list kept in this file.
+ */
+export function opensAsReport(fact: ReaderFact): boolean {
+  return !OPENS_ON_QUOTE.test(fact.text) && !unresolvedContextOpening(fact.text.trim());
+}
+
+/**
+ * The first fact that reports the event, in the order the deck walk asks.
+ *
+ * The composer asks for its deck candidates in this order — the selection's lead
+ * first, then the facts as the sources supplied them (`deckCandidates` in
+ * editorial.ts) — so this answers the ruling's preference (a report before a
+ * quotation) on the same list, without composing anything. Its one caller is
+ * `finalizeMetadata`, for a stored line that opens on a quotation (ruling #10a);
+ * the stored line stays the selection's lead held to the card's boundary
+ * (`summaryFor`) as it has always been, so the composer's sentence-level gates
+ * remain authoritative for the page. Measured 2026-10-18 on the delivered
+ * card-01 story: the replacement is byte-identical to the deck the story page
+ * opens on.
+ *
+ * The lead itself is deliberately *not* narrowed to this class: the composer
+ * seeds its walk with it, and narrowing it there re-orders the candidates —
+ * measured 2026-10-18 on the same story, whose deck moved from the report to a
+ * background sentence when the lead was narrowed.
+ */
+export function reportingLeadOf(
+  lead: ReaderFact | undefined,
+  facts: readonly ReaderFact[],
+): ReaderFact | undefined {
+  return [lead, ...facts.filter((fact) => fact !== lead)].find(
+    (fact): fact is ReaderFact => fact !== undefined && opensAsReport(fact),
+  );
+}
+
 export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
   const stats = emptyNormalizationStats();
   const normalizedSources = sources.map((source) => normalizeReaderSource(source, stats));

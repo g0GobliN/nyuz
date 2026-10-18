@@ -12,7 +12,9 @@ import {
   isCutSentence,
   magnitudeKeys,
   numericKeys,
+  OPENS_ON_QUOTE,
   rankEntities,
+  reportingLeadOf,
   selectReaderEvidence,
 } from "../reader-evidence";
 
@@ -434,15 +436,41 @@ export function finalizeMetadata(
   const score = scoreEventV2(representatives, extractFacts(text, 0), now);
   const age = Math.max(0, (now.getTime() - Date.parse(firstSeenAt)) / 3_600_000);
   const novelty = age < 6 ? 7 : age < 24 ? 5 : age < 72 ? 3 : 1;
+  const selection = selectReaderEvidence(
+    title,
+    ranked.map((a) => ({ excerpt: a.excerpt ?? "" })),
+  );
+  const first = selection.lead?.text ?? short;
+  let summary = summaryFor(title, first);
+  /**
+   * A stored line that opens on a quotation is replaced by the first fact that
+   * reports the event (arbiter ruling #10a, 2026-10-18).
+   *
+   * The ruling's own surface was the briefing card: "card 01 of the delivered
+   * 2026-10-18 briefing opened on" the Freeman quotation — attributed,
+   * self-contained, and not what happened. The composer already prefers a report
+   * for the deck (the story page); this is the other producer of a story's
+   * opening sentence, and `what_happened` is the line the card prints. Measured
+   * on the delivered 2026-10-18 briefing: card 01 carried the quotation while
+   * the story page opened on the report, because the selection's lead — which
+   * `fact.quote` does not flag for an RSS sentence that merely starts with a
+   * quotation mark — was the quotation.
+   *
+   * Narrow on purpose, on both sides. The condition is the *stored* line opening
+   * on a quotation, so a line nobody could object to is untouched; the
+   * replacement is the composer's own candidate order (`reportingLeadOf`), not a
+   * second selection; and when nothing reports the event the quotation stays,
+   * which is the ruling's fallback.
+   */
+  if (OPENS_ON_QUOTE.test(summary)) {
+    const report = reportingLeadOf(selection.lead, selection.facts);
+    const replacement =
+      report !== undefined && report.text !== first ? summaryFor(title, report.text) : "";
+    if (replacement !== "" && !OPENS_ON_QUOTE.test(replacement)) summary = replacement;
+  }
   return {
     title,
-    what_happened: summaryFor(
-      title,
-      selectReaderEvidence(
-        title,
-        ranked.map((a) => ({ excerpt: a.excerpt ?? "" })),
-      ).lead?.text ?? short,
-    ),
+    what_happened: summary,
     importance: score.importanceEstimate,
     novelty,
     article_count: articles.length,

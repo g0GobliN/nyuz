@@ -81,6 +81,44 @@ describe("deterministic event metadata", () => {
     expect(stored).not.toContain("To address that matter");
   });
 
+  it("prefers a fact that reports the event over a line that opens on a quotation", () => {
+    // Card 01 of the delivered 2026-10-18 briefing, in its source's own words.
+    // The selection put Michael Freeman's quotation first, so the stored line --
+    // the line the briefing card prints -- opened on the quotation while the
+    // story page opened on the report. Ruling #10a (2026-10-18): a fact that
+    // reports the event outranks one that opens on a quotation.
+    const a = {
+      ...article("1"),
+      title: "Cybercrims go beyond stealing data to attack physical building systems",
+      excerpt:
+        "Late Sunday night, a still-unknown cybercriminal or group hacked thousands of " +
+        "remote-controlled refrigeration systems across hundreds of French grocery stores, " +
+        "spiking temperatures, spoiling food, and sparking fires. “The primary thing that " +
+        "we see with any attack on building management systems or physical systems: It’s a " +
+        "great place for the threat actor to hide,” Michael Freeman, ServiceNow’s senior " +
+        "director of threat research, told The Register.",
+    };
+    const stored = finalizeMetadata([a], sources, now.toISOString(), now).what_happened;
+    expect(stored.startsWith("Late Sunday night")).toBe(true);
+    expect(stored).not.toMatch(/^["\u201c]/u);
+  });
+
+  it("keeps a quotation when nothing else reports the event", () => {
+    // The same story with nothing but the quotation to go on. The ruling keeps
+    // quotations as a legitimate fallback, so the line must not be emptied or
+    // replaced by the headline.
+    const quote =
+      "“The primary thing that we see with any attack on building management systems or " +
+      "physical systems: It’s a great place for the threat actor to hide,” Michael Freeman, " +
+      "ServiceNow’s senior director of threat research, told The Register.";
+    const a = {
+      ...article("1"),
+      title: "Cybercrims attack physical building systems",
+      excerpt: quote,
+    };
+    expect(finalizeMetadata([a], sources, now.toISOString(), now).what_happened).toBe(quote);
+  });
+
   it("leaves a connector that is doing normal sentence work alone", () => {
     const a = {
       ...article("1"),
