@@ -46,6 +46,7 @@ export type ArtifactKind =
   | "quote"
   | "primary-source"
   | "transcript"
+  | "personal-blog"
   | "paid-content"
   | "unbriefable";
 
@@ -77,6 +78,15 @@ const BYLINE_SUMMARY =
  * and keeps shipping.
  */
 const TRANSCRIPT_CUE = /^\s*[A-Z][a-z]{2,}\s+\(\d{1,2}:\d{2}(?::\d{2})?\)/;
+
+/**
+ * A personal-subscription newsletter's own edition numbering.
+ *
+ * The same shape the alert floor refuses (`PERSONAL_EDITION` in `alert-floor.ts`),
+ * kept in step deliberately: the two gates answer different questions, but neither
+ * should call a year.week prefix a development. Breaking news never wears one.
+ */
+const PERSONAL_EDITION_TITLE = /^\d{4}\.\d{1,2}:\s/;
 
 /** Titles that announce the container rather than the news. */
 const NEWSLETTER_TITLE =
@@ -433,6 +443,26 @@ export function assessReadiness(input: {
       ready: false,
       kind: "newsletter",
       reason: "title announces the container, not the news",
+    };
+  }
+
+  // A personal-subscription newsletter's edition number, refused at the briefing
+  // gate the same way the alert floor refuses it ("2026.41: It's Not You, It's
+  // Me", ruled 2026-10-14). The arbiter's ruling #8 (2026-10-18, option 1) extends
+  // the measured alert-floor classes to this gate one at a time, and this is the
+  // first: replayed with `scripts/briefing-preview.ts` on the live pool that day,
+  // tonight's briefing would have shipped "2026.42: Home At Last" whose
+  // `what_happened` is "What is Apple Doing?" -- a heading from inside the issue,
+  // presented to the reader as a development. The pattern is anchored on the
+  // year.week prefix so a title that merely carries a number ("Best laptops 2026:
+  // ...", "Android 17 beta 2") stays eligible, and it is title-shaped, so a
+  // newsletter's coverage of a real event is unaffected. Measured over the whole
+  // corpus: 6 events of 22,002 carry the shape.
+  if (PERSONAL_EDITION_TITLE.test(title)) {
+    return {
+      ready: false,
+      kind: "personal-blog",
+      reason: "title is a numbered personal-newsletter edition",
     };
   }
 

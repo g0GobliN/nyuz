@@ -1280,7 +1280,31 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   no other alert changes class. Full record:
   [decisions/paid-content-and-page-openings.md](decisions/paid-content-and-page-openings.md).
 
+- **2026-10-18 — ruling #8: the briefing gate takes the alert floor's first class.** Reading tonight's
+  briefing the way a stranger would (`scripts/briefing-preview.ts`, live pool, read-only) found one of
+  its six cards was *"2026.42: Home At Last"* with `what_happened: "What is Apple Doing?"` — a
+  personal-subscription newsletter's edition number and an internal heading presented as a development,
+  importance 0, one source. It is the class the **alert** floor has refused since 2026-10-14
+  (`personal-blog`, *"2026.41: It's Not You, It's Me"*), and the briefing gate had no rung for it.
+  **Ruling (option 1):** extend the measured alert-floor classes to readiness one at a time, starting
+  with the edition shape; the other four await their own briefing-pool measurement. **Landed:**
+  `PERSONAL_EDITION_TITLE` (`/^\d{4}\.\d{1,2}:\s/`) in `readiness.ts`, kind `personal-blog`, the alert
+  floor's own reason string. **Measured after:** ships **6 → 5**, withheld **27 → 28**, the one added
+  entry is `[personal-blog] 2026.42: Home At Last`, the other five ships unchanged; 6 of 22,002 events
+  carry the shape; the ruling's three precision controls stay eligible; 57 readiness tests pass. Full
+  record: [decisions/briefing-floor-personal-editions.md](decisions/briefing-floor-personal-editions.md).
+
 ## 7. What is next
+
+**2026-10-18, later: the pool is the ceiling now, and one class of it is named.** With ruling #8 landed,
+all three must-be-zero lines read zero and the composer's measured defect classes are closed. What the
+next briefing still ships is **five cards, every one single-source** (`multi-source 0/5` in the same
+replay), several of them product-week features rather than developments — the composer cannot fix a pool
+that has one publisher per event. The next slice is therefore the corpus and the clustering that feeds
+it: the demand-driven collection gap (26 of 79 sources unfetched since 2026-10-06) and repeat coverage,
+measured at **7 same-story pairs in 96 hours** on 2026-10-17. The briefing floor's remaining four
+classes (price, shelf, commentary, hobby-hack) stay open until each is measured on a briefing pool, as
+ruling #8 requires.
 
 **2026-10-18: the composer's page is clean on every must-be-zero line; what is left is the pool the
 composer is handed.** Ruling #7 closed the last three measured published defects (paid-content pages,

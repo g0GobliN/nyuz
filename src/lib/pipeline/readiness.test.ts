@@ -92,6 +92,43 @@ describe("assessReadiness refuses paid content, and only when it is all of it", 
   });
 });
 
+describe("assessReadiness refuses a numbered personal-newsletter edition", () => {
+  // The arbiter's ruling #8 (2026-10-18, option 1): the measured alert-floor
+  // classes extend to this gate one at a time, starting with the edition shape.
+  // The case is from tonight's live briefing replay: "2026.42: Home At Last",
+  // whose what_happened is the issue's own first heading.
+  const edition = {
+    title: "2026.42: Home At Last",
+    whatHappened: "What is Apple Doing?",
+  };
+
+  it("refuses the edition the alert floor already refuses", () => {
+    const verdict = assessReadiness(edition);
+    expect(verdict.ready).toBe(false);
+    if (!verdict.ready) {
+      expect(verdict.kind).toBe("personal-blog");
+      expect(verdict.reason).toBe("title is a numbered personal-newsletter edition");
+    }
+  });
+
+  it("keeps titles that merely carry a number", () => {
+    // The ruling's precision condition, pinned: a year or a version in a title is
+    // not an edition number, and neither is the same string without its colon.
+    for (const title of [
+      "Android 17 beta 2 starts rolling out to Pixel phones",
+      "Best laptops 2026: what we recommend after testing 40 machines",
+      "2026.42 Home At Last",
+    ]) {
+      const verdict = assessReadiness({
+        title,
+        whatHappened:
+          "The company said the rollout begins this week and covers the phones it still supports.",
+      });
+      expect(verdict.ready, title).toBe(true);
+    }
+  });
+});
+
 describe("assessReadiness", () => {
   it("refuses a vendor benefit pitch from a company blog", () => {
     // Cloudflare blog, 2026-10-02. A feature advert aimed at the reader's own
