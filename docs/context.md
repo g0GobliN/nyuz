@@ -1373,7 +1373,20 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 ## 7. What is next
 
-**2026-10-18, last: the divergence the audit left open is closed at its producer.** Two producers write
+**2026-10-18, last: the card line and the page opening are one sentence by construction (ruling #11).**
+The producer-side fix below closed the quote-first class, but the audit of the same day found the seam
+was wider than one producer: **54 of 121** delivered rows opened the card on a sentence the page did not
+(43 genuinely different sentences, 11 attribution-framed), because the briefing build had no access to
+the composer's sentence and `reportingLeadOf` hard-coded a candidate order the composer does not share.
+The arbiter's ruling #11 chose **one source of truth at the delivered surface**: the briefing build now
+stores the composer's own opening verbatim in `digest_items.summary` for every shipped item, keeps the
+stored line only as the no-deck fallback, and composes nothing on the reader's request path. Measured on
+the live window: **131/179 → 179/179** delivered lines equal to the page opening, zero refused, and the
+21 no-deck rows are the ruling's own boundary (2 fall back to a usable stored line, 19 are the
+unbriefable version/canary/commit class). Nothing already delivered was rewritten; the next generation
+is the first shipped under the new rule. What is still not 10/10 is unchanged and upstream: the pool.
+
+**2026-10-18, earlier: the quote-first producer divergence is closed.** Two producers write
 a story's opening sentence — the composer's deck (the story page) and the line `finalizeMetadata` stores
 as `events.what_happened` (the briefing card, the alert, the search index) — and ruling #10a had taught
 the report preference to the first only. That is why card 01 of the delivered 2026-10-18 briefing
@@ -2200,9 +2213,10 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   helper's doc. **Why not compose the card at build:** the artifact path exists and would guarantee the
   deck's exact sentence, but it composes for the class on every build, replaces an admissible line at
   delivery, and universal summary composition is a question the arbiter has already declined; the
-  producer is where the stored sentence is wrong. **Measured:** frozen 200, one snapshot
+  producer is where the stored sentence is wrong.  **Measured:** frozen 200, one snapshot
   (`tmp/corpus-2026-10-18b.json`), six lines deleted vs landed — stored lines **0**, decks **0**, leads
-  **0** changed; live 200 — stored quote-first lines **1** (card 01), leads quote-first 3, decks
+  **0** changed (the audit of the same day narrowed the first of those three: the stored-line column is a
+  **one-source probe**, see the ruling #11 record's corrections); live 200 — stored quote-first lines **1** (card 01), leads quote-first 3, decks
   quote-first 0, and at full fidelity (all the event's articles) the new stored line is
   **byte-identical to the deck** the story page opens on. **The why-line is staleness, not a rule:**
   `briefing:checkpoint` reads `ladder now: none 13` for the delivered window, `briefing:preview` ships it
@@ -2219,3 +2233,42 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   reports the event over a line that opens on a quotation"* fails at `expected false to be true` and
   passes restored. Record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-stored-line-and-the-page-opened-the-same-story-on-different-sentences-landed-2026-10-18).
+
+### The delivered line is the composer's sentence — the seam closed at build (2026-10-18, ruling #11)
+
+The quote-first slice above closed the producer; the audit then measured the rest of the seam on the
+live 200 and found **54 of 121** rows opening the card on a sentence the page did not (43 genuinely
+different sentences, 11 attribution-framed), plus `reportingLeadOf`'s hard-coded candidate order the
+composer does not share. That is a contract question, so it went to the arbiter, which ruled **Option
+2** — one source of truth at the delivered surface, owned by briefing build, no model-written text, no
+composition on the reader request path, no delivered archive rewritten.
+
+**Landed.** `assessReadiness` already composes each story and refuses one that publishes no deck, so
+its ready verdict now carries that sentence (`opening`, `""` for a caller that loaded no coverage).
+`runDigest` keeps it in the progress record's verdicts — additively, so a record written before the
+field reads as no opening and that build keeps the previous rule — and writes it to
+`digest_items.summary` for every shipped item. `composedSummaryArtifact` returns it **verbatim**
+(attribution frame intact, never stripped, never regenerated) and keeps the earlier recovery only for
+an item whose composition published nothing; `deliveredLine`'s order is unchanged, so every surface
+that already asked it gets the new line. Withhold decisions are untouched: `ready: false` never
+carries an opening, and nothing is resurrected.
+
+**Measured** (`tmp/delivered-line-census.ts`, read-only, one live snapshot, both columns from the same
+instrument — *before* = the same computation with no opening, i.e. the pre-ruling rule):
+
+| measure | value |
+| --- | --- |
+| events | 200 |
+| composer published a deck | 179 |
+| delivered line === page opening, before | 131 / 179 |
+| delivered line === page opening, after | **179 / 179** |
+| composed openings the delivery boundary refuses | 0 / 179 |
+| no-deck rows delivered from a usable stored line (the ruling's fallback) | 2 of 21 |
+| no-deck rows with neither | 19 of 21 — the unbriefable class: version, canary, commit rows |
+
+So **48 mismatches repaired, zero remaining**, and the remainder is exactly the ruling's boundary.
+**Tests red first:** `readiness.test.ts` (the verdict equals `{ ready: true }` without the opening) and
+`digest-summary-artifact.test.ts` (the artifact returns the stored line, not the composed opening) both
+fail against the pre-change code; `reader-summary.test.ts` gains the "verbatim, frame kept" and
+"empty opening falls back" controls. Suite **3393 passed / 4 skipped** at `npm run test`. Record:
+[decisions/reader-delivery.md](decisions/reader-delivery.md#the-delivered-line-is-the-composers-sentence-arbiter-ruling-11-2026-10-18).

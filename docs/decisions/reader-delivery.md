@@ -3121,3 +3121,103 @@ $5,300 figure.`), and `briefing:preview` — tonight's 22:30Z build, read-only �
 why-lines, neither a figure line and the RTX card not among them. The delivered page therefore keeps its
 stored line until the next generation replaces the page, which is the honest repair for a frozen
 artifact; nothing was added to the ladder.
+
+## The delivered line is the composer's sentence (arbiter ruling #11, 2026-10-18)
+
+**What was open.** The entry above closed the quote-first class at the producer, and the audit then
+measured the rest of the seam on the live 200: of the events carrying a stored line, **54 opened the
+card on a sentence other than the page's** — 11 because the page framed the same fact with an
+attribution it did not repeat, 43 because the two producers genuinely chose different sentences — and
+the producer's helper (`reportingLeadOf`) hard-codes a candidate order the composer does not share
+(`researchNarrative`). That is a product contract question, not a patch, so it went to the arbiter with
+the measurement, the two candidate contracts, and the constraints (pure code, no model-written text, no
+composition on the reader request path, nothing already delivered may become re-deliverable).
+
+**The ruling, quoted** (ChatGPT `nyuz` project, *Ruling 11 Briefing Contract*, 2026-10-18):
+
+> *Choose Option 2. Extend the briefing-build override so that `digest_items.summary` stores the
+> composer's actual opening sentence for every newly delivered item. Do not rewrite
+> `events.what_happened` globally. … Preserve the composer's attribution framing. If the page opens
+> with "X reports that …", the delivered briefing uses that same opening, rather than stripping
+> attribution to recover a superficially cleaner match. … Do not substitute the producer's stored line
+> merely because it is non-empty or differs from the composed opening. … The target is zero avoidable
+> opening-sentence mismatches at the delivered briefing surface, not zero textual differences across
+> every internal representation. … Existing delivered archives remain immutable. … Do not rewrite
+> delivered archives. … Do not compose on the reader request path. The override belongs in briefing
+> build, where composition already occurs as part of readiness work.*
+
+with its boundaries: no deck → the stored line if usable, nothing invented if not, and never resurrect a
+refused item; readiness and withholding are not relaxed; the remainder may only be internal
+representations, historical deliveries and the defined no-deck fallback.
+
+**Landed.** The readiness gate already composes each story and refuses one that publishes no deck, so
+its ready verdict now **carries that sentence** (`readiness.ts`: `opening`, `""` for a caller that loaded
+no coverage). The build keeps it in the progress record's verdicts (`digest.ts`, additive: a record
+written before the field reads as no opening and falls back to the previous rule for that build) and
+writes it as `digest_items.summary` for every shipped item. `composedSummaryArtifact` returns the
+opening **verbatim** when there is one — attribution frame included, never stripped, never regenerated —
+and keeps the earlier recovery only for an item whose composition published nothing, whose stored line
+the delivery boundary refuses. `deliveredLine` is unchanged in order (artifact first, then the guarded
+stored line), so every surface that already asked it gets the new line, and no surface composes on the
+reader's request path.
+
+**Measured** — read-only, `tmp/delivered-line-census.ts`, one snapshot of the live 200, both columns from
+the same instrument (*before* = the same computation with no opening, i.e. the rule that predates the
+ruling):
+
+| measure | value |
+| --- | --- |
+| events | 200 |
+| composer published a deck | **179** |
+| no deck (fallback = the stored line) | 21 |
+| delivered line === page opening, **before** | 131 / 179 |
+| delivered line === page opening, **after** | **179 / 179** |
+| composed openings the delivery boundary refuses | **0 / 179** |
+| no-deck rows whose stored line is usable (delivered = stored, the ruling's fallback) | 2 of 21 |
+| no-deck rows with neither (no line is manufactured) | 19 of 21 — the unbriefable class: version, canary, commit rows (`v16.5.0-canary.17`, `b11715`, `web-edit 0.1a2`) |
+
+So **48 mismatches repaired, zero remaining**, and the remainder is exactly the ruling's own boundary:
+2 rows fall back to their stored line, 19 have nothing to carry. Four of the repaired pairs, read by hand:
+*Church makes sainthood case for 'WW1 hero' priest* — card was `Fr Willie Doyle was killed …`, now
+`On Sunday, BBC World reports that the Catholic Church in Ireland will hold a special service …` (the
+page's own sentence, frame intact); *Photos show luxury boat with 50m pool…* — `Satellite images give
+clues about how Kim spends his holidays …` → `Former NBA star Dennis Rodman, who visited the North in
+2013, told The Sun …`; *How day of protests unfolded…* — `Demonstrations across the country turned
+violent …` → `An estimated 550,000 people took part in protests across France …`; *Meta removes language
+that raised scraping…* — a spokesperson's reassurance → `Meta recently updated its commercial terms of
+use, declaring that the company can "use any content" …`. Some of the 48 are new sentences and some are
+the page's attribution frame on the same fact; the ruling resolves both at delivery, on purpose.
+
+**Tests, red first.** `digest-summary-artifact.test.ts` now pins the build write — the stored summary
+**is** the composition's deck, asserted against the same `composeFromSources` call the page composes
+with, for a stored line the boundary refuses *and* for one it accepts (the reversal the ruling made:
+`expected null to be 'OpenAI released a reasoning model…'` with the precedence deleted), that a withheld
+story writes no item at all, and that an item an earlier build delivered is never rewritten.
+`reader-summary.test.ts` pins the function: the opening verbatim over an admissible stored line, the live
+quote-first pair resolving to the composer's report, and `null` (stored line) when there is no opening.
+`readiness.test.ts` asserts the gate's opening **equals the composition's own deck** for the same inputs,
+including the dated case where composing without the date would part the two sentences. Whole suite:
+**196 files / 3393 tests**. With the opening precedence deleted, **3** tests fail and pass restored.
+
+**What this does not claim.** The stored line still drives the home feed, search and the archive, so the
+two producers may still differ *there* — ruling #11 makes that an internal representation on purpose, and
+it removes the `reportingLeadOf` order-parity question from the delivered surface without touching the
+producer. The alert digest writes no item summary (its own channel, `open_alert_digest`), so alerts keep
+the stored line. `briefing-preview` calls the gate without coverage, so the operator's view still prints
+the stored line where a build would now carry the deck — a gap in the preview, not in the delivered
+surface, recorded here rather than fixed in this slice. And the delivered archive keeps what it said: the
+first briefing to carry the new contract is the next one built after this deploy (tonight's 22:30Z slot).
+
+**Corrections to the entries above, found by the audit of the same day.** (1) The frozen-200 table's
+"stored lines changed 0" row was measured with a probe that fed `finalizeMetadata` **one source per
+event** (`tmp/quote-lead-census.ts`), not the event's whole coverage, so it is a one-source
+approximation; the two rows beside it (decks, leads) are full-fidelity because they use the corpus's own
+`sourceList`. (2) The measured briefing-preview count in that entry ("23 items with 2 why-lines") is a
+moving-window property: re-measured the same day it read **24**, and the substantive claim holds — both
+why-lines are the Meta TOS binding sentences and no figure line can be written at all, since the figure
+rungs were removed (`inclusion.ts`). (3) "the write changed `what_happened` and nothing a reader sees
+otherwise" is narrower than it read: the snapshotted columns are title, importance, novelty,
+publisher_count, first_seen_at, last_updated_at, analysed_at, status, material_revision, fingerprint,
+metadata_dirty, before_state and after_state; **`event_topics` was not snapshotted** and no pre-write
+copy exists, so topic-label stability after that re-finalization is unverified (the briefing page does not
+render event topics; feed cards do).

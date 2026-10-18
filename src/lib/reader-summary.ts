@@ -57,10 +57,11 @@ export function deliveredSummary(text: string | null | undefined): string | null
  *
  * This is the only place a reader surface resolves an item's summary, and it is
  * asked at every join that turns a stored row into a line -- the home feed, the
- * briefing, the digest archive and the email. The order is the ruling's: the
- * artifact first, because where it exists it is the composed, validated line, and
- * the raw column second, guarded exactly as it was before the artifact existed, so
- * an item built before this slice keeps the behaviour it already had.
+ * briefing, the digest archive and the email. The order is the rulings': the
+ * artifact first, because where it exists it is the sentence the page opens on
+ * (ruling #11) or the composed, validated line the earlier ruling recovered, and
+ * the raw column second, guarded exactly as it was before the artifact existed,
+ * so an item built before these slices keeps the behaviour it already had.
  *
  * Both halves are asked through `deliveredSummary`, which is what keeps the
  * **raw fallback** at zero by construction: a refused raw description is withheld
@@ -110,31 +111,42 @@ export function deliveredTranslatedLine(
 }
 
 /**
- * The validated summary line the briefing build stores for an item, or `null`
- * when the item needs no artifact.
+ * The summary line the briefing build stores for an item, or `null` when the
+ * read path should resolve the item's own stored line instead.
  *
- * **When it composes.** Only for a line the boundary above refuses. An item whose
- * own stored line is admissible is delivered with that line, exactly as before,
- * so this slice cannot change what a reader sees for a line nobody objected to --
- * and it costs the composer nothing on the ~96% of items that pass, which matters
- * because the build shares a 10 ms CPU budget per invocation with everything else
- * (`docs/decisions/cpu-killed-invocations.md`).
+ * **The contract (arbiter ruling #11, 2026-10-18, option 2).** The delivered
+ * briefing card and email carry *the composer's own opening sentence* whenever
+ * the composer publishes a deck -- one authoritative sentence at the point of
+ * delivery, attribution framing included, never stripped or regenerated here.
+ * That sentence arrives as `opening`, taken from the composition the readiness
+ * gate already ran, so this function composes nothing in the normal case, and it
+ * is returned whether or not the item's stored line was admissible: "do not
+ * substitute the producer's stored line merely because it is non-empty or
+ * differs from the composed opening".
  *
- * **When it withholds.** `null` is also the answer when the composition publishes
- * nothing the boundary accepts. The item then ships with no summary line, which is
- * the ruling's trade: a card with a line missing costs the reader less than a card
- * printing the raw feed description, and the raw description is never substituted.
+ * **When the stored line is still the line.** `null` is the answer when the
+ * composer published no deck (`opening` empty, e.g. a caller that never
+ * composed). The read path then resolves the item's own line, guarded by
+ * `deliveredSummary`. For a stored line that boundary refuses, the earlier
+ * ruling's composition is still made here (`recoveredSummaryFromSources`) rather
+ * than shipping the item with no line: it recovers the story's own sentence from
+ * its coverage through the product's composition path and invents nothing, which
+ * is the boundary ruling #11 states as "do not manufacture a sentence".
  *
- * `null` therefore means "no artifact", which the read path resolves back to the
- * item's own line -- guarded there too, so the two meanings of `null` (not needed,
- * nothing composed) both end in the right place.
+ * `null` therefore means "no artifact", and the read path resolves it back to the
+ * item's own line -- guarded there too, so both the not-needed and
+ * nothing-composed cases end in the right place.
  */
 export function composedSummaryArtifact(input: {
   title: string;
   sources: ReaderSource[];
   publishedAt?: string | null | undefined;
   whatHappened?: string | null | undefined;
+  /** The sentence the readiness gate's composition published, or `""`. */
+  opening?: string | null | undefined;
 }): string | null {
+  const composed = (input.opening ?? "").trim();
+  if (composed !== "") return composed;
   if (deliveredSummary(input.whatHappened) !== null) return null;
   return deliveredSummary(
     recoveredSummaryFromSources(input.title, input.sources, { publishedAt: input.publishedAt }),

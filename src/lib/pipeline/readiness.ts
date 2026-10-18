@@ -51,7 +51,24 @@ export type ArtifactKind =
   | "unbriefable";
 
 export type ReadinessVerdict =
-  { ready: true } | { ready: false; kind: ArtifactKind; reason: string };
+  | {
+      ready: true;
+      /**
+       * The sentence the composition publishes for this story, or `""` when no
+       * composition ran (a caller that did not load coverage).
+       *
+       * Carried out of the gate because the gate is where the story is composed:
+       * the delivery build must write this exact sentence as the item's delivered
+       * line (arbiter ruling #11, 2026-10-18, option 2) and must not compose the
+       * same story a second time -- the build shares a 10 ms CPU budget per
+       * invocation with everything else
+       * (`docs/decisions/cpu-killed-invocations.md`). A ready verdict carries a
+       * non-empty opening whenever `sources` were supplied: the rung above
+       * refuses a story whose composition publishes no deck.
+       */
+      opening: string;
+    }
+  | { ready: false; kind: ArtifactKind; reason: string };
 
 /** A headline that is a machine identifier rather than a headline. */
 const BUILD_NUMBER_TITLE = /^\s*(?:b|v|build|r)?\d+(?:\.\d+)*(?:[-_][a-z0-9]+)?\s*$/i;
@@ -583,6 +600,8 @@ export function assessReadiness(input: {
     }
   }
 
+  /** The composition's own opening, kept for the verdict (ruling #11). */
+  let opening = "";
   if (input.sources !== undefined) {
     const { composedFactCount } = selectReaderEvidence(title, input.sources);
     if (composedFactCount < MIN_BODY_FACTS) {
@@ -610,6 +629,7 @@ export function assessReadiness(input: {
         reason: `${composedFactCount} accepted fact(s); the composition published no deck`,
       };
     }
+    opening = article.deck.text;
     if (article.paragraphs.length === 0) {
       // The arbiter's decision table (D1 clarify, 2026-10-10). "No paragraph,
       // refuse" is too broad: a one-fact composition that publishes its deck is
@@ -661,5 +681,5 @@ export function assessReadiness(input: {
     }
   }
 
-  return { ready: true };
+  return { ready: true, opening };
 }

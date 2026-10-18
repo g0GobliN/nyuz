@@ -1,4 +1,16 @@
 import { describe, expect, it } from "vitest";
+
+/**
+ * A ready verdict from a caller that loaded no coverage: no composition ran, so
+ * the verdict carries no opening sentence.
+ *
+ * The gate composes the story and hands the composition's own opening to the
+ * delivery build, which writes it as the item's delivered line (arbiter ruling
+ * #11, 2026-10-18, option 2). A caller with no coverage in hand cannot compose,
+ * so it reports an empty opening and the build keeps the rule that predates the
+ * ruling.
+ */
+const READY_NO_COVERAGE = { ready: true, opening: "" } as const;
 import { composeFromSources } from "../editorial";
 import { assessReadiness, marketingShape } from "./readiness";
 
@@ -345,13 +357,13 @@ describe("assessReadiness", () => {
         title: "OpenAI launches Dots, its Muse competitor",
         whatHappened: "Like Muse, OpenAI's Dots are represented by cute, customizable avatars.",
       }),
-    ).toEqual({ ready: true });
+    ).toEqual(READY_NO_COVERAGE);
     expect(
       assessReadiness({
         title: "OpenAI DevDay 2026: The biggest news and announcements",
         whatHappened: "OpenAI's DevDay 2026 has a date.",
       }),
-    ).toEqual({ ready: true });
+    ).toEqual(READY_NO_COVERAGE);
   });
 
   it("keeps money stories that merely mention a dollar amount", () => {
@@ -361,13 +373,13 @@ describe("assessReadiness", () => {
         whatHappened:
           "AMD dove deeper into AI model development with an agreement to acquire World Labs.",
       }),
-    ).toEqual({ ready: true });
+    ).toEqual(READY_NO_COVERAGE);
     expect(
       assessReadiness({
         title: "HMRC bets up to £2.4B on Salesforce for taxpayer CRM overhaul",
         whatHappened: "Salesforce has won a contract worth up to £2.4 billion including VAT.",
       }),
-    ).toEqual({ ready: true });
+    ).toEqual(READY_NO_COVERAGE);
     // 2026-10-09: `deal` sat in COMMERCE_VERBS, so money plus that one noun
     // refused this real acquisition report. The arbiter's ruling the same day:
     // no single generic noun rejects an article — the combination does.
@@ -376,7 +388,7 @@ describe("assessReadiness", () => {
         title: "TSMC taps GlobalFoundries to bolster US silicon interposer production in $2B deal",
         whatHappened: "The companies said the agreement expands domestic packaging capacity.",
       }),
-    ).toEqual({ ready: true });
+    ).toEqual(READY_NO_COVERAGE);
   });
 
   it("keeps ordinary reporting", () => {
@@ -385,7 +397,7 @@ describe("assessReadiness", () => {
         title: "Intel patent embeds MicroLEDs in chip packaging",
         whatHappened: "At ECTC in May, Intel showcased a 24-layer glass-core panel.",
       }),
-    ).toEqual({ ready: true });
+    ).toEqual(READY_NO_COVERAGE);
   });
 
   it("drops a sale that forgot its price tag", () => {
@@ -511,7 +523,7 @@ describe("assessReadiness", () => {
         whatHappened: "The vendor released a new capability, and two outlets covered it.",
         sourceCount: 3,
       }),
-    ).toEqual({ ready: true });
+    ).toEqual(READY_NO_COVERAGE);
   });
 
   it("keeps a headline that merely starts with a verb a promo would use", () => {
@@ -520,13 +532,13 @@ describe("assessReadiness", () => {
         title: "Scale AI raises $200M as demand for evaluation grows",
         whatHappened: "The funding round values the company at $5 billion, investors said.",
       }),
-    ).toEqual({ ready: true });
+    ).toEqual(READY_NO_COVERAGE);
     expect(
       assessReadiness({
         title: "OpenAI DevDay 2026: The biggest news and announcements",
         whatHappened: "Explore more than 20 announcements from OpenAI DevDay 2026.",
       }),
-    ).toEqual({ ready: true });
+    ).toEqual(READY_NO_COVERAGE);
   });
 });
 
@@ -603,19 +615,26 @@ describe("assessReadiness — briefability", () => {
     // The same shape, one sentence longer. Nothing about the second sentence is
     // better prose than the first; there is simply something for the body to
     // be made of, which is the whole contract.
+    const title = "UK-France 'one in, one out' migrant scheme scrapped";
+    const sources = [
+      {
+        name: "Reuters",
+        excerpt:
+          "The government has scrapped the one-in, one-out migrant scheme. Ministers said the pilot had cost too much and returned too few results.",
+      },
+    ];
     const verdict = assessReadiness({
-      title: "UK-France 'one in, one out' migrant scheme scrapped",
+      title,
       whatHappened: "The government has scrapped the one-in, one-out migrant scheme.",
       sourceCount: 1,
-      sources: [
-        {
-          name: "Reuters",
-          excerpt:
-            "The government has scrapped the one-in, one-out migrant scheme. Ministers said the pilot had cost too much and returned too few results.",
-        },
-      ],
+      sources,
     });
-    expect(verdict).toEqual({ ready: true });
+    // The opening the gate carries out is the sentence the story page opens on --
+    // the composition's own deck, from the same inputs (ruling #11).
+    expect(verdict).toEqual({
+      ready: true,
+      opening: composeFromSources(title, sources).article.deck.text,
+    });
   });
 
   it("refuses a story whose only coverage is a photo credit", () => {
@@ -671,7 +690,7 @@ describe("assessReadiness — briefability", () => {
         title: "Intel patent embeds MicroLEDs in chip packaging",
         whatHappened: "At ECTC in May, Intel showcased a 24-layer glass-core panel.",
       }),
-    ).toEqual({ ready: true });
+    ).toEqual(READY_NO_COVERAGE);
   });
 
   it("reports the more specific reason when a story fails both rungs", () => {
@@ -705,20 +724,18 @@ describe("assessReadiness — the summary rung and the evidence", () => {
     // The shape of eight of the 26: a Guardian event whose summary was never
     // written, and whose first two paragraphs carry the story (FDNY, the nine
     // treated, the woman pronounced dead at Jacobi).
-    expect(
-      assessReadiness({
-        title: "One person killed and nine injured in chain-reaction crash in New York City",
-        whatHappened: "",
-        sourceCount: 1,
-        sources: [
-          {
-            name: "The Guardian",
-            excerpt:
-              "The New York fire department said emergency crews treated nine people after the crash. One woman was pronounced dead at Jacobi medical center.",
-          },
-        ],
-      }),
-    ).toEqual({ ready: true });
+    const title = "One person killed and nine injured in chain-reaction crash in New York City";
+    const sources = [
+      {
+        name: "The Guardian",
+        excerpt:
+          "The New York fire department said emergency crews treated nine people after the crash. One woman was pronounced dead at Jacobi medical center.",
+      },
+    ];
+    expect(assessReadiness({ title, whatHappened: "", sourceCount: 1, sources })).toEqual({
+      ready: true,
+      opening: composeFromSources(title, sources).article.deck.text,
+    });
   });
 
   it("refuses on the summary when the caller has loaded no coverage", () => {
@@ -812,6 +829,7 @@ describe("assessReadiness — the summary rung and the evidence", () => {
     expect(article.paragraphs).toHaveLength(0);
     expect(assessReadiness({ title, whatHappened: "", sourceCount: 1, sources })).toEqual({
       ready: true,
+      opening: article.deck.text,
     });
   });
 
@@ -861,6 +879,7 @@ describe("assessReadiness — the summary rung and the evidence", () => {
     expect(article.paragraphs.length).toBeGreaterThan(0);
     expect(assessReadiness({ title, whatHappened: "", sourceCount: 2, sources })).toEqual({
       ready: true,
+      opening: article.deck.text,
     });
   });
 
@@ -885,6 +904,9 @@ describe("assessReadiness — the summary rung and the evidence", () => {
       publishedAt: "2026-10-09T11:00:00+00:00",
     });
     expect(dated.article.paragraphs.length).toBeGreaterThan(0);
+    // The date is in the gate's own composition, so the opening it carries is the
+    // article's deck -- if the gate composed without the date, this is where the
+    // two sentences would part.
     expect(
       assessReadiness({
         title,
@@ -893,7 +915,7 @@ describe("assessReadiness — the summary rung and the evidence", () => {
         sources,
         publishedAt: "2026-10-09T11:00:00+00:00",
       }),
-    ).toEqual({ ready: true });
+    ).toEqual({ ready: true, opening: dated.article.deck.text });
 
     // Without the clock the same story degrades to its deck: still a publishable
     // deck-only outcome, so still ready, but the body the reader's page
@@ -903,6 +925,7 @@ describe("assessReadiness — the summary rung and the evidence", () => {
     expect(undated.article.paragraphs).toHaveLength(0);
     expect(assessReadiness({ title, whatHappened: "", sourceCount: 1, sources })).toEqual({
       ready: true,
+      opening: undated.article.deck.text,
     });
   });
 
@@ -987,7 +1010,7 @@ describe("a vendor shape only refuses when the source is the vendor", () => {
   it.each(NEWSROOM)("delivers the newsroom story $title", ({ title, what }) => {
     expect(
       assessReadiness({ title, whatHappened: what, sourceCount: 1, sourceKinds: ["news"] }),
-    ).toEqual({ ready: true });
+    ).toEqual(READY_NO_COVERAGE);
   });
 
   it.each([

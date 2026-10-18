@@ -1,25 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeDb, type Row } from "@/lib/test-support/fake-db";
-import { deliveredSummary } from "@/lib/reader-summary";
+import { composeFromSources } from "@/lib/editorial";
+import { deliveredLine, deliveredSummary } from "@/lib/reader-summary";
 
 /**
- * The composed half of the arbiter's 2026-10-15 ruling, at the point the
- * pipeline writes the item.
+ * The delivered line the briefing build writes beside each shipped item.
  *
- * The ruling's contract is that a summary line failing validation is withheld
- * rather than replaced by the raw feed description, and that the line the reader
- * receives is *composed* through the product's existing composition path at build
- * time and stored with the revision it came from. Before this slice the build
- * stored no summary at all -- `digest_items` had none -- so every surface printed
- * the raw description through a read-time join, and a line the delivery boundary
- * refused left the reader with nothing.
+ * Two rulings govern this column, and the second replaced the first's rule:
+ *
+ *   * 2026-10-15 -- a summary line failing validation is **withheld, never
+ *     replaced by the raw feed description**, and the line a reader receives is
+ *     composed through the product's own composition path at build time. Before
+ *     that slice every surface printed the raw column through a read-time join.
+ *   * #11, 2026-10-18 (option 2) -- the delivered card and email carry **the
+ *     composer's own opening sentence whenever the composer publishes a deck**,
+ *     even when the stored line was perfectly admissible: one authoritative
+ *     sentence at the point of delivery, so the card and the story page cannot
+ *     open the same story on different sentences. The stored line remains the
+ *     fallback for an item the composer never composed, and for every surface
+ *     that is not the delivered briefing (the home feed, search, the archive).
  *
  * What these tests pin, in that order:
- *   1. a refused stored line makes the build compose and store a valid one;
- *   2. the artifact is stored with its provenance, in the same statement;
- *   3. a line nobody objected to is not composed for, and not replaced -- the
- *      slice cannot change what a reader sees for a line that passed;
- *   4. nothing here calls a model: the composition is deterministic prose.
+ *   1. the stored summary is the sentence the composition publishes, attribution
+ *      frame included -- measured against the same `composeFromSources` call the
+ *      story page composes with;
+ *   2. that is true for an admissible stored line too, which is the reversal the
+ *      second ruling made on purpose;
+ *   3. an item the gate withholds is not written at all -- the override cannot
+ *      make an ineligible story deliverable;
+ *   4. an already-written item is never rewritten by a later build, so a
+ *      historical delivery keeps what it said;
+ *   5. nothing here calls a model: the composition is deterministic prose.
  */
 
 const NOW = new Date("2026-10-15T06:00:00Z");
@@ -154,36 +165,100 @@ async function build(whatHappened: string): Promise<FakeDb> {
   return db;
 }
 
-describe("the briefing build stores the composed summary artifact", () => {
-  it("composes and stores a valid line for a stored line the boundary refuses", async () => {
-    // Fail-before: this assertion is about a column `digest_items` did not have,
-    // so before this slice the item shipped with no line and the reader got the
-    // refused description withheld -- the measured 10 of 289 delivered lines.
+describe("the briefing build stores the delivered line", () => {
+  it("stores the sentence the composition publishes, attribution frame included", async () => {
+    // Fail-before for the withheld case: this assertion is about a column
+    // `digest_items` did not have, so before the 2026-10-15 slice the item shipped
+    // with no line and the reader got the refused description withheld.
     expect(deliveredSummary(REFUSED_RAW)).toBeNull();
 
     const db = await build(REFUSED_RAW);
     const item = db.rows("digest_items")[0];
     expect(item).toBeDefined();
-    expect(item?.["summary"]).toBe(
-      "OpenAI released a reasoning model this morning, published alongside API documentation and a pricing page, according to The Verge.",
-    );
-    // A line the delivery boundary accepts, and never the refused text.
+    // Measured, not asserted loosely: this is the deck this coverage publishes,
+    // and the frame the composer chose rides on it intact -- here a trailing
+    // attribution, which the card prints exactly as the page does (ruling #11:
+    // "preserve the composer's attribution framing", never strip it to recover a
+    // superficially cleaner match).
+    const deck = composeFromSources(
+      "OpenAI ships a reasoning model",
+      [{ name: "The Verge", excerpt: COVERAGE }],
+      { publishedAt: minutesAgo(120) },
+    ).article.deck.text;
+    expect(item?.["summary"]).toBe(deck);
+    expect(deck).toContain("according to The Verge");
+    // Never the refused text, and a line the delivery boundary accepts.
     expect(deliveredSummary(item?.["summary"] as string)).toBe(item?.["summary"]);
     expect(item?.["summary"]).not.toBe(REFUSED_RAW);
-    // Provenance, in the same statement: the revision the artifact was composed
-    // from. Revision 0 is what an event that has never been revised carries.
+    // Provenance, in the same statement: the revision the line was composed from.
+    // Revision 0 is what an event that has never been revised carries.
     expect(item?.["delivered_revision"]).toBe(0);
   });
 
-  it("composes nothing for a line a reader may already read, and replaces nothing", async () => {
+  it("stores the composer's sentence for an admissible line too -- the reversal ruling #11 made", async () => {
     const admissible = "OpenAI released a reasoning model this morning, the lab said.";
     const db = await build(admissible);
     const item = db.rows("digest_items")[0];
     expect(item).toBeDefined();
-    // No artifact, so the surface resolves the item's own line -- which is the
-    // line this reader saw before the slice, unchanged.
-    expect(item?.["summary"]).toBeNull();
+    // Before ruling #11 this item shipped with `summary` NULL and printed its own
+    // stored line, which is a different sentence from the one the page opens on.
+    // The ruling's words: "Do not substitute the producer's stored line merely
+    // because it is non-empty or differs from the composed opening."
+    const deck = composeFromSources(
+      "OpenAI ships a reasoning model",
+      [{ name: "The Verge", excerpt: COVERAGE }],
+      { publishedAt: minutesAgo(120) },
+    ).article.deck.text;
     expect(deliveredSummary(admissible)).toBe(admissible);
+    expect(item?.["summary"]).toBe(deck);
+    expect(item?.["summary"]).not.toBe(admissible);
+    // And the line the card resolves is the deck, not the stored line.
+    expect(deliveredLine({ summary: item?.["summary"] as string }, admissible)).toBe(deck);
+  });
+
+  it("writes no item at all for a story the gate withholds", async () => {
+    // The override cannot make an ineligible story deliverable (ruling #11, "do
+    // not relax readiness or withholding rules"). A photo credit is the measured
+    // shape that composes no body.
+    const { digest } = await withDoubles();
+    const tablesWithCredit = tables(REFUSED_RAW);
+    const articles = tablesWithCredit["articles"] as Row[];
+    articles[0]![`excerpt`] = "Photograph: Josep Lago/AFP/Getty Images";
+    const db = new FakeDb(tablesWithCredit);
+    await digest(db as never, { now: NOW, skipSend: true });
+    expect(db.rows("digest_items")).toHaveLength(0);
+  });
+
+  it("never rewrites an item an earlier build already delivered", async () => {
+    // A delivered archive keeps saying what it said (ruling #11, boundary D). The
+    // item below was written before the contract existed -- no summary artifact --
+    // and a build that runs today must leave that row, and the line its reader
+    // resolves from it, exactly as they were.
+    const { digest } = await withDoubles();
+    const seeded = tables(REFUSED_RAW);
+    const delivered = "A stored line an earlier briefing delivered.";
+    (seeded["digest_items"] as Row[]).push({
+      digest_id: "digest-history",
+      event_id: "event-history",
+      position: 0,
+      why_it_matters: "",
+      summary: null,
+      delivered_revision: 0,
+    });
+    (seeded["digests"] as Row[]).push({
+      digest_id: "digest-history",
+      user_id: "reader-1",
+      scheduled_for: minutesAgo(60 * 24),
+      status: "ready",
+      kind: "briefing",
+      generated_at: minutesAgo(60 * 24),
+      generation_deferred_until: null,
+    });
+    const db = new FakeDb(seeded);
+    await digest(db as never, { now: NOW, skipSend: true });
+    const history = db.rows("digest_items").find((row) => row["digest_id"] === "digest-history");
+    expect(history?.["summary"]).toBeNull();
+    expect(deliveredLine({ summary: null }, delivered)).toBe(delivered);
   });
 
   it("buys nothing: the summary is deterministic prose, not a model call", async () => {

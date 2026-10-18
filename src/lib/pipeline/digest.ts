@@ -936,8 +936,18 @@ type GenerationProgress = {
   queue: GenerationCandidate[];
   /** Index into `queue` the gate resumes at. */
   cursor: number;
-  /** Verdicts so far: `kind` null means ready to ship. */
-  verdicts: { eventId: string; kind: string | null }[];
+  /**
+   * Verdicts so far: `kind` null means ready to ship, and a ready verdict carries
+   * the sentence its composition published (`opening`).
+   *
+   * The opening rides here rather than being composed again at write time because
+   * the gate is where the story is composed, and the write stage runs on the same
+   * 10 ms CPU budget (arbiter ruling #11, 2026-10-18: the delivered briefing card
+   * and email must carry the composer's own opening sentence). A record written
+   * before this field existed reads as no opening, which falls back to the
+   * previous artifact rule for that build and nothing else.
+   */
+  verdicts: { eventId: string; kind: string | null; opening?: string }[];
   /** Invocations that have advanced this build. */
   ticks: number;
   /** When this progress was last written. */
@@ -1020,15 +1030,25 @@ function candidatesOf(value: unknown): GenerationCandidate[] {
   });
 }
 
-function verdictsOf(value: unknown): { eventId: string; kind: string | null }[] {
+function verdictsOf(value: unknown): { eventId: string; kind: string | null; opening?: string }[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
-    const row = item as { eventId?: unknown; kind?: unknown } | null;
+    const row = item as { eventId?: unknown; kind?: unknown; opening?: unknown } | null;
     if (row === null || typeof row !== "object" || typeof row.eventId !== "string") return [];
     // A verdict that cannot be read is a verdict to withhold on, never to ship
     // on: the one direction this must not fail in is admitting an ungated item.
     const kind = row.kind === null ? null : typeof row.kind === "string" ? row.kind : CHANGED_KIND;
-    return [{ eventId: row.eventId, kind }];
+    // An unreadable or absent opening is not an error: it means the build falls
+    // back to the artifact rule that predates ruling #11 for this item. The key is
+    // omitted rather than set to `undefined`, because this record is written to a
+    // jsonb column and `undefined` is not JSON.
+    return [
+      {
+        eventId: row.eventId,
+        kind,
+        ...(typeof row.opening === "string" ? { opening: row.opening } : {}),
+      },
+    ];
   });
 }
 
@@ -1420,7 +1440,11 @@ async function gateStage(db: Db, due: DueRow, progress: GenerationProgress): Pro
       sourceKinds: brief.sourceKinds,
       publishedAt: brief.publishedAt,
     });
-    verdicts.push({ eventId: candidate.eventId, kind: verdict.ready ? null : verdict.kind });
+    verdicts.push({
+      eventId: candidate.eventId,
+      kind: verdict.ready ? null : verdict.kind,
+      ...(verdict.ready ? { opening: verdict.opening } : {}),
+    });
   }
 
   const cursor = progress.cursor + chunk.length;
@@ -1460,6 +1484,12 @@ async function writeStage(
   const cap = capFor(prefs.density, plan);
 
   const verdictOf = new Map(progress.verdicts.map((v) => [v.eventId, v.kind] as const));
+  /** The sentence each ready verdict's composition published (ruling #11). */
+  const openingOf = new Map(
+    progress.verdicts.flatMap((v) =>
+      typeof v.opening === "string" && v.opening !== "" ? [[v.eventId, v.opening] as const] : [],
+    ),
+  );
   const ready: GenerationCandidate[] = [];
   const withheld: { eventId: string; kind: string }[] = [];
   for (const candidate of progress.queue) {
@@ -1681,25 +1711,28 @@ async function writeStage(
   const revisionOf = new Map(
     ready.map((candidate) => [candidate.eventId, candidate.revision] as const),
   );
-  // The composed summary artifact -- the composed half of the arbiter's ruling,
-  // written beside the item it belongs to (0118).
+  // The delivered line -- the composed half of the arbiter's rulings, written
+  // beside the item it belongs to (0118).
   //
-  // This is the only place a stored summary is *composed*, and it is the point
-  // where the pipeline already composes the article for the item: the readiness
-  // gate above composed the same story through the same path from the same
-  // inputs, and the readiness verdict is what admitted this item. Composing here
-  // rather than at read time is deliberate: the reader's request path runs on the
-  // same free-plan CPU budget the cron does, and recovery costs 150-220 ms per
-  // story, so a read-time composition would be paid by whoever opened a briefing
-  // (the card pays it only for a refused card, and says so at
-  // `src/components/dashboard/story-card.tsx`).
+  // The arbiter's ruling #11 (2026-10-18, option 2) is that the delivered
+  // briefing card and email carry **the composer's own opening sentence**
+  // whenever the composer publishes a deck: one authoritative sentence at the
+  // point of delivery, so the card and the story page cannot open the same story
+  // on different sentences. The sentence comes from the readiness gate, which
+  // composed this story through the same path from the same inputs and admitted
+  // it -- `openingOf` -- so nothing is composed here and the write stage pays
+  // nothing for the contract. Composing here instead would cost 150-220 ms per
+  // item on a stage that shares the free-plan 10 ms CPU budget per invocation
+  // (`docs/decisions/cpu-killed-invocations.md`), and composing on the reader's
+  // request path is ruled out for the same reason.
   //
-  // Only an item whose own stored line the delivery boundary refuses pays for it.
-  // An item carrying an admissible line needs no artifact and keeps printing what
-  // it always printed, so this cannot change a line nobody objected to. Where the
-  // composition publishes nothing acceptable the artifact is null and the item
-  // ships with no line at all -- the ruling's trade, and the raw feed description
-  // is never substituted for it.
+  // When the composer published no deck -- a caller that did not compose, or a
+  // story the gate never composed because coverage was not loaded -- the
+  // artifact stays `null` and the read path resolves the item's own stored line,
+  // guarded exactly as before. The recovery composition for a *refused* stored
+  // line is kept for that case alone; the arbiter's boundary ("do not
+  // manufacture a sentence") is honoured by never inventing text, and the raw
+  // feed description is never substituted for a composed line.
   const rows = shipping.map((brief, position) => ({
     digest_id: due.digest_id,
     event_id: brief.eventId,
@@ -1716,6 +1749,7 @@ async function writeStage(
       sources: brief.sources,
       publishedAt: brief.publishedAt,
       whatHappened: brief.whatHappened,
+      opening: openingOf.get(brief.eventId) ?? "",
     }),
   }));
 

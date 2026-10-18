@@ -160,7 +160,10 @@ describe("the composed summary artifact", () => {
     ).toBeNull();
   });
 
-  it("pays for nothing when the stored line is one a reader may already read", () => {
+  it("resolves the item's own line when the composer published no deck", () => {
+    // No opening -- a caller that never composed, or a compatibility record from
+    // a build that predates ruling #11. `null` means the read path resolves the
+    // stored line, guarded exactly as before.
     const line = "Anthropic released its first frontier model, Muse Wonder, on Monday.";
     expect(
       composedSummaryArtifact({
@@ -168,8 +171,50 @@ describe("the composed summary artifact", () => {
         sources: SOURCES,
         publishedAt: "2026-10-15T06:00:00Z",
         whatHappened: line,
+        opening: "",
       }),
     ).toBeNull();
+  });
+
+  it("stores the composer's own sentence even when the stored line was admissible (ruling #11)", () => {
+    // The reversal, in the arbiter's words: "Do not substitute the producer's
+    // stored line merely because it is non-empty or differs from the composed
+    // opening." The opening is returned verbatim -- the frame the composer chose
+    // is part of the sentence, never stripped or regenerated here.
+    const admissible = "Anthropic released its first frontier model, Muse Wonder, on Monday.";
+    const opening = "The Verge reports that OpenAI released a reasoning model this morning.";
+    expect(deliveredSummary(admissible)).toBe(admissible);
+    expect(
+      composedSummaryArtifact({
+        title: "OpenAI ships a reasoning model",
+        sources: SOURCES,
+        publishedAt: "2026-10-15T06:00:00Z",
+        whatHappened: admissible,
+        opening,
+      }),
+    ).toBe(opening);
+  });
+
+  it("delivers the composer's sentence over a quote-first stored line", () => {
+    // The live 2026-10-18 case, in both halves. The stored line is the Freeman
+    // quotation, written before ruling #10a; the composer opens the same story on
+    // the report, so that report is the card's line (ruling #11) even though the
+    // stored line is non-empty and admissible. What a reader reads on the card is
+    // therefore what the page opens with, whatever order the two producers
+    // changed in.
+    const stored =
+      "“The primary thing that we see with any attack on building management systems: It’s a great place for the threat actor to hide,” Michael Freeman, ServiceNow’s senior director of threat research, told The Register.";
+    const opening =
+      "Late Sunday night, a still-unknown cybercriminal or group hacked thousands of remote-controlled refrigeration systems across hundreds of French grocery stores, spiking temperatures, spoiling food, and sparking fires.";
+    expect(deliveredSummary(stored)).toBe(stored);
+    const artifact = composedSummaryArtifact({
+      title: "Cybercrims attack physical building systems",
+      sources: SOURCES,
+      whatHappened: stored,
+      opening,
+    });
+    expect(artifact).toBe(opening);
+    expect(deliveredLine({ summary: artifact }, stored)).toBe(opening);
   });
 });
 
