@@ -2322,3 +2322,12 @@ single-article events** (queue now 8,960 pending, 7,608 dirty) for no coverage g
 table names this row "analysis refreshes publisher counts, but the metrics do not improve", pointing at
 the corpus rather than the pipeline; the source-reactivation experiment is the next ruling to seek, and
 the window change is still not applied to the database.
+
+**Ruling #12a's inspection done (2026-10-18), read-only.** Twelve multi-publisher events read row by row:
+publisher keys are sound — 0 events whose key count differs from their distinct-source count, different
+publishers key differently (`theguardian.com`, `bbc.com`), and one publisher's several feeds collapse
+correctly — and the events are real cross-outlet stories (Red Roses, Gloucester/Bordeaux, Amazon
+deforestation). The bounded backlog probe (40 unclustered news articles, ±48h, product's own `sameStory`)
+found **0 eligible cross-outlet pairs**, so the newest backlog lacks the material rather than the rules
+missing it. That is the arbiter's third condition: **source reactivation as a separate, budgeted
+experiment** — put to it now. No drain, no window change, no source change was made.

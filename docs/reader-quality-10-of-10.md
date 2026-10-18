@@ -75,6 +75,15 @@ those batches is 14,657 articles (4,034 news, 10,090 research). Whether the ceil
 change itself is deliberately not applied**, because a ruling whose own acceptance number does not move
 is re-cross-examined rather than followed.
 
+**Answered by #12a's inspection (2026-10-18, read-only): the ceiling is the corpus, not the counter.**
+Twelve multi-publisher events read row by row show sound publisher keys (key count = distinct-source
+count on all twelve) and genuinely different outlets; the analysis pass does re-count (`coverage_revision`
+18 / `publisher_count` 3 on a drained event). A probe of 40 unclustered news articles found **0 eligible
+cross-outlet pairs** within ±48 h. So the matcher is not blind and the counter is not stale — the backlog
+has no partners to find. That is the arbiter's own third condition, and the open question is now exactly
+one: **a separately budgeted source-reactivation experiment**, or a smaller briefing where every item is
+explained. Nothing in this item is blocked on code.
+
 ## The order to work in
 
 1. Wait for ruling #12; land the smallest slice matching it (the SQL/report change is a bounded edit to

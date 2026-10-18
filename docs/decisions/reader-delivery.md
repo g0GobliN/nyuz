@@ -3339,3 +3339,27 @@ counts, but the metrics do not improve"*, and the numbers read like the row bene
 cannot supply enough qualifying evidence**. The next move is the arbiter's, with the source-reactivation
 experiment (option 2) as the candidate; the 7 → 45 day window change remains **unapplied** in the
 database.
+
+**Ruling #12a's inspection, read-only and bounded (2026-10-18).** The arbiter's option (a) was to
+inspect event membership and publisher-identity normalization before spending anything, and to answer
+one question: *is the corpus failing to produce new multi-publisher events because the material is
+genuinely unavailable, or because the clustering and identity rules do not recognize it?*
+
+**Publisher identity is sound, and the matcher works.** Twelve of the 152 multi-publisher events were
+read row by row: every one's distinct publisher-key count equals its distinct-source count (0
+mismatches), the keys are genuinely different publishers (`theguardian.com` vs `bbc.com`), and multiple
+feeds from one publisher collapse correctly (BBC World / BBC Sport / BBC Science / BBC Entertainment all
+key to `bbc.com`). The events themselves are real cross-outlet stories — the Red Roses streak ending
+(BBC Sport + The Guardian Sport), Gloucester holding Bordeaux, Amazon deforestation, the Diddy transfer —
+so the joins the drain made are the matcher working, not an identity fault.
+
+**The backlog sample has no pairs to find.** Forty unclustered news articles from the newest end of the
+7–45 day backlog were probed for a same-story partner within ±48h from a *different* publisher, using the
+product's own `sameStory` on titles: **0 eligible pairs**. Limit stated: the probe looks for a shared
+long title word as the candidate finder, so it is loose rather than exhaustive — it could miss a
+paraphrase with no shared long token — but it would not manufacture a pair that is not there.
+
+**So this is the arbiter's third decision condition:** *the joins are valid and the sampled news backlog
+lacks sufficient qualifying pairs → submit source reactivation as a separate, explicitly budgeted
+experiment*. That request is with the arbiter now (the 26 dormant sources, the measured fetch volume, and
+the free-plan ceiling stated). **No further drain, no window change, no source re-enable has been made.**
