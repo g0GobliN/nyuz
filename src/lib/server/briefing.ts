@@ -6,6 +6,7 @@ import { scoreRelatedEvent } from "@/lib/related-events";
 import { rankEventTopics } from "@/lib/pipeline/topic-assign";
 import { reasonFor } from "@/lib/pipeline/inclusion";
 import { deliveredLine, deliveredSummary } from "@/lib/reader-summary";
+import { isReaderDealTitle } from "@/lib/pipeline/alert-floor";
 import { assessReadiness } from "@/lib/pipeline/readiness";
 import { signedInOnly } from "./guard";
 import { countOrThrow } from "@/lib/supabase/count";
@@ -1030,7 +1031,19 @@ async function digestReaderOf(db: Db, digestId: string): Promise<string | null> 
  * it is a view of the archive and must stop where the archive stops.
  */
 function gateHomeFeed(stories: Story[]): Story[] {
-  return stories.filter((s) => assessReadiness({ title: s.title, whatHappened: s.what }).ready);
+  return stories.filter(
+    (s) =>
+      assessReadiness({ title: s.title, whatHappened: s.what }).ready &&
+      // The arbiter's ruling #9 (2026-10-18, option 1): the dashboard stays wider
+      // than the briefing (the 2026-10-08 decision holds), but a card the reader
+      // is handed must at least not be a deal. Measured on the live dashboard:
+      // *"Grab an RTX 5090 for a discounted $5,300 ..."* rendered as a thing worth
+      // knowing, while the same title shape is refused on the alert path. Classes
+      // land here one at a time, each measured on this reader's own matched set
+      // first, and only the classes the ruling names — the rest of the feed, news
+      // and single-source material alike, is untouched.
+      !isReaderDealTitle(s.title),
+  );
 }
 
 /**

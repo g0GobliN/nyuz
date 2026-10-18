@@ -1310,6 +1310,25 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   below 1 and the batch at 100. Record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-backlog-lane-was-given-zero-slots--landed-2026-10-18).
 
+- **2026-10-18 — ruling #9: the dashboard feed took its first floor class, and it is a deal.** Opening
+  the live dashboard signed in, as a stranger, was the step that found this: *"Your nyuz found 13 things
+  worth knowing"*, and four of the 13 cards were not developments — worst, *"Grab an RTX 5090 for a
+  discounted $5,300 as part of an MSI Infinite ZS prebuilt gaming PC …"* (what happened: *"Best Buy has an
+  MSI Infinite ZS in stock … for $7,599"*). All 13 titles pass `assessReadiness` **and** `assessAlertFloor`:
+  the dashboard is gated only by the title/summary rungs, so a deal the alert path refuses was the reader's
+  front page. **Ruling (option 1):** apply the alert-floor classes to the dashboard, one measured class at
+  a time, keep the dashboard wider than the briefing, keep every story accessible, and require measured
+  evidence per class. **Landed:** `isReaderDealTitle` in `alert-floor.ts`, used by `gateHomeFeed` — an
+  explicit discount marker **and** a verb that asks the reader to obtain the object. The naive draft
+  (acquisition verb + a price) matched **47 of 22,018** titles including three real news stories, and was
+  rejected on that measurement; one instrument trap is recorded (a leading `\b` can never match before
+  `$`, so `\b\$40 off` is dead code — the first version matched `% off` and missed `$40 off`).
+  **Measured with the landed rule:** the dashboard's 13 cards → **1 refused** (the deal card); this
+  reader's 1,000 matched titles → **2 refused**, both deals; all 22,018 stored event titles → **17
+  matches**, every one a deal page. The Lego kit, the review and the mod card are untouched on purpose —
+  that class ships separately, on its own measurement, as the ruling requires. Record:
+  [decisions/dashboard-feed-first-class.md](decisions/dashboard-feed-first-class.md).
+
 ## 7. What is next
 
 **2026-10-18, later: the pool is the ceiling now, and one class of it is named.** With ruling #8 landed,

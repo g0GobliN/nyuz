@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessAlertFloor } from "./alert-floor";
+import { assessAlertFloor, isReaderDealTitle } from "./alert-floor";
 
 /**
  * The alert shape floor — the narrow extension that refuses the five non-news
@@ -156,6 +156,65 @@ describe("assessAlertFloor keeps breaking developments", () => {
       "Sony orders production halt at its Japanese camera plant",
     ]) {
       expect(assessAlertFloor({ title }), title).toEqual({ ready: true });
+    }
+  });
+});
+
+/**
+ * The dashboard's first class (arbiter ruling #9, 2026-10-18, option 1).
+ *
+ * The rule is two halves, both required, and the discount frame is explicit
+ * because the naive version was measured and rejected: "acquisition verb + a
+ * price" matched 47 stored titles including three real news stories.
+ */
+describe("isReaderDealTitle", () => {
+  it("refuses the live dashboard card that produced the ruling", () => {
+    for (const title of [
+      "Grab an RTX 5090 for a discounted $5,300 as part of an MSI Infinite ZS prebuilt gaming PC — price includes other components worth about $2,300 on their own",
+      "Snag an Apple MacBook or Mac Mini with these Amazon Prime Big Deal Days deals that can save you up to $600",
+      "Grab this 10-port gigabit PoE+ switch with up to 60W of power for under $38, a new record low",
+      "Snag the least expensive 32GB DDR5-6000 memory kit available for only $429 — $40 off promo code",
+      "Get a Wi-Fi 7 mesh network for a discounted $149.99 — TP-Link Deco 7 BE25 offers 5,012 Mbps speeds",
+    ]) {
+      expect(isReaderDealTitle(title), title).toBe(true);
+    }
+  });
+
+  it("keeps the real news the naive rule would have swept up", () => {
+    // Measured, not imagined: these are the three false positives of the
+    // "acquisition verb + a price" draft, over all 22,018 stored titles.
+    for (const title of [
+      "Nvidia to buy developer platform Hugging Face in $12.9bn deal",
+      "Lambda raises $1B in debt to buy Nvidia chips for Microsoft lease",
+      "ShinyHunters claim CyrusOne breach, demand $13m ransom",
+      "BT to buy broadband supplier TalkTalk in £400m rescue deal, saving 900 jobs",
+      "‘Time for Ukraine to get new president,’ says Trump after Zelensky condemns diesel deal",
+    ]) {
+      expect(isReaderDealTitle(title), title).toBe(false);
+    }
+  });
+
+  it("keeps a plain price with no discount frame, which is a price, not an offer", () => {
+    // "Get an RTX 5070 Ti gaming laptop for just $1,449" was in the first draft's
+    // match list and is *not* in the landed rule's: an acquisition verb and a
+    // number is how reported prices read too, and the frame has to be explicit.
+    // The draft the ruling asked for is the one measured, not the widest one.
+    for (const title of [
+      "Get an RTX 5070 Ti gaming laptop for just $1,449",
+      "The iPhone Duo is now available to preorder at $1,999",
+    ]) {
+      expect(isReaderDealTitle(title), title).toBe(false);
+    }
+  });
+
+  it("does not touch reviews or enthusiast mods, which are measured separately", () => {
+    // The ruling is explicit: one class at a time, each measured on its own.
+    for (const title of [
+      "MOZA AY210 Force Feedback Base and MFY Yoke review: Taking flight sim immersion to the next level",
+      "Modder finishes nine-year Xbox 360 voltage glitch mod with a $4 microcontroller, cracks the console open",
+      "ASML's employee-only High-NA EUV Lego kit gets an open 810-piece fan replica",
+    ]) {
+      expect(isReaderDealTitle(title), title).toBe(false);
     }
   });
 });

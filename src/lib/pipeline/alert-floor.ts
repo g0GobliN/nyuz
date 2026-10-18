@@ -120,6 +120,48 @@ const SHELF_ACQUIRE = /\b(?:grab|snag|buy|order|pre-?order|claim|get)\b/i;
 const STANCE_MODAL =
   /\bit\s+(?:won['’]t|doesn['’]t|isn['’]t)\s+[a-z]{2,}\s+(?:you|us|anyone|humanity|people|anybody|everybody|your)\b/i;
 
+/**
+ * A deal title: an explicit discount frame plus a verb that asks the reader to
+ * obtain the object.
+ *
+ * The arbiter's ruling #9 (2026-10-18, option 1) applies the alert floor's
+ * commerce class to the dashboard feed, one class at a time. The measured case is
+ * the live dashboard card *"Grab an RTX 5090 for a discounted $5,300 as part of an
+ * MSI Infinite ZS prebuilt gaming PC — price includes other components worth about
+ * $2,300 on their own"*, whose `what_happened` is "Best Buy has an MSI Infinite ZS
+ * in stock ... for $7,599". The existing `shelf-deal` class did not see it: that
+ * shape needs an *urgency* frame ("last chance", "while stocks last"), and a deal
+ * page need not be urgent.
+ *
+ * Both halves are required, and the discount frame is explicit, because a first
+ * draft measured on all 22,018 stored titles showed why: the naive "acquisition
+ * verb + a price" rule matched 47 titles and swept up real news — *"Lambda raises
+ * $1B in debt to buy Nvidia chips for Microsoft lease"*, *"ShinyHunters claim
+ * CyrusOne breach, demand $13m ransom"*, *"Nvidia to buy developer platform
+ * Hugging Face in $12.9bn deal"*. Words that look like a discount but are not one
+ * ("saving 900 jobs", "a rescue deal") produce the same false positives, so the
+ * frame is the discount *marker* itself, never the bare nouns.
+ *
+ * Measured on all 22,018 stored titles: 17 matches, every one a deal or a shopping
+ * page, and the news controls above match none of them. Measured on this reader's
+ * own 1,000 matched titles: 1 refused. Hobby-hack and product reviews are *not*
+ * folded in here — the ruling requires each class to be measured and landed on its
+ * own.
+ */
+export function isReaderDealTitle(title: string): boolean {
+  return SHELF_ACQUIRE.test(title) && DISCOUNT_FRAME.test(title);
+}
+
+/**
+ * The discount marker itself, never a bare noun that reads like one.
+ *
+ * The money forms are their own alternative because a leading `\b` cannot match
+ * before a `$`: `\b\$40 off` is dead code in JavaScript, and the first version of
+ * this pattern shipped that way (it matched `% off` and missed `$40 off`).
+ */
+const DISCOUNT_FRAME =
+  /(?:\b(?:discounted?|lowest price|price (?:drop|cut)|record low|for under|clearance|prime big deal days|big deals? day|% off|\d+%\s?off)\b|\$\s?\d[\d,]*\s?off\b)/i;
+
 export function assessAlertFloor(input: {
   title: string;
   whatHappened?: string | null | undefined;
