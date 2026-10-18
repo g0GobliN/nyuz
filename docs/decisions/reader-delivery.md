@@ -3221,3 +3221,17 @@ publisher_count, first_seen_at, last_updated_at, analysed_at, status, material_r
 metadata_dirty, before_state and after_state; **`event_topics` was not snapshotted** and no pre-write
 copy exists, so topic-label stability after that re-finalization is unverified (the briefing page does not
 render event topics; feed cards do).
+
+**Delivered rows, measured.** The census above asks the live window; the delivered 7:30 AM briefing
+itself is the reader's artifact, so it was read too (`tmp/delivered-rows-check.ts`, read-only, the
+newest briefing digest `5294a8b9` built 2026-10-17T22:59Z, 13 items, all rows written before this
+ruling): every item's stored `digest_items.summary` is **empty**, so every card falls back to
+`events.what_happened` — and **6 of the 13** cards opened on their page's sentence, **7 did not**.
+Replaying those same thirteen rows through the new write path (`opening` = the composition the page
+renders) gives **13 of 13**, and the seven survivors are exactly the class the ruling named: five are
+attribution frames the page carries and the stored line strips (`"The Register reports that Amazon
+says…"`, `"In recent weeks, The Verge reports that…"`, `"…, according to The Register."`), two are a
+different sentence the two producers chose (`"At Apple's WWDC event in June…"` versus `"Apple's App
+Store rules now more explicitly ban…"`; `"The MOZA AY210 Force Feedback Base and MFY Yoke Bundle
+deliv…"`). The next generation is the first shipped instance: until it runs, the delivered page keeps
+the lines it already sent, which is what "existing delivered archives remain immutable" means here.

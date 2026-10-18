@@ -2272,3 +2272,10 @@ So **48 mismatches repaired, zero remaining**, and the remainder is exactly the 
 fail against the pre-change code; `reader-summary.test.ts` gains the "verbatim, frame kept" and
 "empty opening falls back" controls. Suite **3393 passed / 4 skipped** at `npm run test`. Record:
 [decisions/reader-delivery.md](decisions/reader-delivery.md#the-delivered-line-is-the-composers-sentence-arbiter-ruling-11-2026-10-18).
+
+**Delivered rows.** The briefing a reader opened is the artifact, so it was measured directly too
+(`tmp/delivered-rows-check.ts`, read-only, digest `5294a8b9` built 2026-10-17T22:59Z, 13 items, every
+row written before the ruling): all thirteen stored summaries are empty, **6 of 13** cards opened on
+their page's sentence and **7 did not**; replaying those rows through the new write path gives
+**13 of 13**. Tonight's 22:30Z build is the first shipped instance — re-run that script against it
+expecting 13/13, and treat any survivor as a defect unless it is a no-deck fallback.
