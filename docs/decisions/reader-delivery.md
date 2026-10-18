@@ -3096,3 +3096,28 @@ the event”* (the ruling’s fallback, asserted verbatim). Red first: with the 
 fails on `expect(stored.startsWith("Late Sunday night")).toBe(true)` — `expected false to be true` —
 and passes restored. `reader-quality.test.ts` — the class by first character (curly and straight), a
 dangling opening skipped, and the empty return that leaves the fallback standing.
+
+**Live, from the reader's seat, after the deployed commit (`1e79197`, deploy job green and the live
+origin check *"publishes one origin, and it resolves"*).** The event was marked `metadata_dirty` and
+re-finalized through the pipeline's own writer — `pipeline analyse --event 187595da…`, report *read 1a
+5/5 · deterministic finalization · 1 event · **0 model calls*** — which is the mechanism
+`refresh-latest-brief.ts` uses, scoped to the one row. The write changed `what_happened` and nothing a
+reader sees otherwise: `importance` 5 → 5, `novelty` 5 → 5, `publisher_count` 1 → 1, `material_revision`
+0 → 0 with the same fingerprint, so nothing was made re-deliverable, `deliveries` gained no row, and
+`metadata_dirty` returned to false. The delivered digest (`5294a8b9`, reader `640a69b6`, slot
+2026-10-17T22:30Z, 13 items, item 0 this event, its `summary` NULL so the card resolves
+`events.what_happened` live) then read, on production:
+
+- **briefing card 01**: *Late Sunday night, a still-unknown cybercriminal or group hacked thousands of
+  remote-controlled refrigeration systems across hundreds of French grocery stores, spiking temperatures,
+  spoiling food, and sparking fires.*
+- **the story page for the same event**: the same sentence as its opening. The passage that used to be
+  the card's line is still on the page, in the body, where it belongs — the card and the page now open
+  the story the same way.
+
+The `$5,300` why-line, measured the same hour: `briefing:checkpoint` reads **`ladder now: none 13`** for
+the delivered digest (`stored equals the ladder now 0/13`, item 9 named as `stored: The story carries a
+$5,300 figure.`), and `briefing:preview` — tonight's 22:30Z build, read-only — ships 23 items with 2
+why-lines, neither a figure line and the RTX card not among them. The delivered page therefore keeps its
+stored line until the next generation replaces the page, which is the honest repair for a frozen
+artifact; nothing was added to the ladder.

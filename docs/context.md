@@ -1379,7 +1379,9 @@ as `events.what_happened` (the briefing card, the alert, the search index) — a
 the report preference to the first only. That is why card 01 of the delivered 2026-10-18 briefing
 printed the Freeman quotation while the story page for the same event opened on the report. Both
 producers now ask one definition of the class; on the live 200 the class is **1 of 200** stored lines and
-its replacement is **byte-identical to the page's own opening**. The delivered page keeps its stored
+its replacement is **byte-identical to the page's own opening** — re-read on production after the
+regeneration: briefing card 01 and the story page open the same event on the same sentence. The
+delivered page keeps its stored
 `$5,300` why-line until the next generation — `briefing:checkpoint` reads `ladder now: none 13`, so no
 current rung writes it, and the next build is the regeneration (work log below). What is still not
 10/10 is unchanged and upstream: the pool.
@@ -2205,6 +2207,15 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   **byte-identical to the deck** the story page opens on. **The why-line is staleness, not a rule:**
   `briefing:checkpoint` reads `ladder now: none 13` for the delivered window, `briefing:preview` ships it
   with no extracted figure, and nothing was added to the ladder — the next generation is the repair.
-  **Tests red first:** with the six lines deleted, *"prefers a fact that reports the event over a line
-  that opens on a quotation"* fails at `expected false to be true` and passes restored. Record:
+  **Live, after the deploy:** the event was marked `metadata_dirty` and re-finalized through the
+  pipeline's own writer (`pipeline analyse --event 187595da…`: 1 event, deterministic finalization,
+  **0 model calls**; importance 5 → 5, novelty 5 → 5, publisher count 1 → 1, `material_revision` 0 → 0
+  with the same fingerprint, no new `deliveries` row), and the delivered digest (`5294a8b9`, 13 items)
+  then read on production with **card 01 and the story page opening on the same sentence** — the report —
+  while the old line remains on the story page in the body, where it belongs. The `$5,300` why-line:
+  `briefing:checkpoint` reads `ladder now: none 13` and `briefing:preview` (tonight's 22:30Z build)
+  ships 23 items with 2 why-lines, neither a figure line — the delivered page keeps its stored line
+  until the next generation. **Tests red first:** with the six lines deleted, *"prefers a fact that
+  reports the event over a line that opens on a quotation"* fails at `expected false to be true` and
+  passes restored. Record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-stored-line-and-the-page-opened-the-same-story-on-different-sentences-landed-2026-10-18).
