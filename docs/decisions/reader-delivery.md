@@ -2551,6 +2551,27 @@ provider calls went away; the coverage rung is starved because 97% of this reade
 single-source in a product that promises clustered coverage. Options 3, 4 and 5 below stay open on that
 shape — **opt. 1 is refused and 2 is now the landed behaviour.**
 
+### The backlog lane was given zero slots — landed 2026-10-18
+
+The 7-day cutoff defect named above is fixed, in code and with no migration. The queue function
+splits each batch into a live lane and a background lane, and the background lane gets
+`batch - live_slots`. `cluster.ts` called it with `p_live_share: 1` until 2026-10-18, which makes
+`live_slots` the whole batch and leaves the background lane **zero rows**. The live lane is also a
+demand lane (it joins `source_reader_routes`), so an article from a source no reader follows — the
+arXiv and sports feeds above — had no lane that could ever select it.
+
+Measured on the live queue before the change: with `p_live_share: 1` the function returned **0 rows**
+against **405 unclustered articles inside its own 7-day window**. With the queue's own default
+(`5/6`) it returned **17**. `npm run pipeline -- cluster --limit 100` then considered those 17,
+**1 article joined an existing event** and 16 became events of one, with `model calls 0` and 9
+seconds; the queue immediately offered the next 17, and the unclustered count inside the window fell
+**405 → 388**. The batch size is unchanged, so the stage's cost per run is unchanged: the same 100
+rows are selected, only the mix moves. `cluster-deterministic.test.ts` pins the share below 1 and the
+batch at 100.
+
+The takeaway is the one this section already reached and can now state as a measurement: the corpus,
+the queue and the reader were three links of one starvation, and the middle link was a parameter.
+
 ### The options as they were put, with what each rests on
 
 1. **Turn the impact writer back on** (`impact_writer_enabled`). Restores rung 1 for every story and is

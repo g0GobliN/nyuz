@@ -186,3 +186,18 @@ describe("paraphrases attach across outlets, and only across outlets", () => {
     expect(paid).not.toHaveBeenCalled();
   });
 });
+
+describe("the clustering batch keeps a lane for the backlog", () => {
+  it("asks the queue for a share below 1, so the backlog lane is not zero slots", async () => {
+    // `p_live_share: 1` until 2026-10-18: the queue gives the backlog lane
+    // `batch - live_slots` rows, so a share of 1 left it none, and an article
+    // older than the live horizon was never considered by any run (25,340
+    // articles had no event). The batch size is unchanged either way.
+    const db = fixture();
+    await cluster(asDb(db), {});
+    const call = db.rpcCalls.find((entry) => entry.fn === "priority_articles_to_cluster");
+    expect(call?.args["p_live_share"]).toBeGreaterThan(0);
+    expect(call?.args["p_live_share"]).toBeLessThan(1);
+    expect(call?.args["p_limit"]).toBe(100);
+  });
+});

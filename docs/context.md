@@ -1294,6 +1294,22 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   carry the shape; the ruling's three precision controls stay eligible; 57 readiness tests pass. Full
   record: [decisions/briefing-floor-personal-editions.md](decisions/briefing-floor-personal-editions.md).
 
+- **2026-10-18 — the backlog lane had zero slots, and that is why 25,323 articles were invisible.**
+  Following the 2026-10-17 finding that **25,340 of 47,418 articles had no event at all**, the queue
+  itself was read: `priority_articles_to_cluster` splits each batch into a live lane and a background
+  lane, and the background lane gets `batch - live_slots`. `cluster.ts` passed `p_live_share: 1`, so
+  `live_slots` was the whole batch and the background lane received **zero rows** — and since the live
+  lane is also a demand lane (it joins `source_reader_routes`), an article from a source no reader
+  follows had no lane that could ever select it. **Measured live before:** with the share at 1 the
+  function returned **0 rows** while **405 unclustered articles sat inside its own 7-day window**; with
+  the queue's own default (`5/6`) it returned **17**. **Landed:** `LIVE_LANE_SHARE = 5 / 6` in
+  [cluster.ts](../src/lib/pipeline/cluster.ts), batch unchanged at 100, so the stage's cost per run is
+  unchanged. **Verified in production:** `npm run pipeline -- cluster --limit 100` considered the 17,
+  **1 joined an existing event**, 16 became events of one, `model calls 0`, 9 seconds; the queue offered
+  the next 17 immediately and the in-window unclustered count fell **405 → 388**. A test pins the share
+  below 1 and the batch at 100. Record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-backlog-lane-was-given-zero-slots--landed-2026-10-18).
+
 ## 7. What is next
 
 **2026-10-18, later: the pool is the ceiling now, and one class of it is named.** With ruling #8 landed,

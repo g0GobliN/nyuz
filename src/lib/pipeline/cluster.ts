@@ -103,13 +103,35 @@ async function withSourceIds(
   return rows.map((row) => ({ ...row, source_id: sourceOf.get(row.id) ?? null }));
 }
 
+/**
+ * The share of each clustering batch kept for the live lane; the rest drains the
+ * backlog.
+ *
+ * `1` was passed here until 2026-10-18, and it is the reason 25,340 articles had
+ * no event: the queue's backlog lane gets `batch - live_slots`, so a share of 1
+ * left it exactly zero slots, and an article older than
+ * `ACTIVE_WORK_HORIZON_HOURS` was never considered by any run -- not late, never.
+ * Measured on the live queue the day this changed: three consecutive
+ * `cluster --limit 400` runs considered 100, 38, then 0 articles, because the
+ * live lane is bounded and shrinks as it drains, and the backlog (which had
+ * 55 of the last six hours' news articles waiting) got no slot at all.
+ *
+ * The batch size is unchanged, so the stage's cost per run is unchanged -- the
+ * same 100 rows are selected, only the mix moves: roughly six live rows for every
+ * backlog row, which keeps breaking news ahead of old material while making the
+ * backlog reachable at all. The value is the queue function's own default
+ * (`5.0 / 6.0` in `priority_articles_to_cluster`), so the two agree by
+ * construction rather than by coincidence.
+ */
+const LIVE_LANE_SHARE = 5 / 6;
+
 async function selectArticles(db: Db, options: ClusterOptions): Promise<Unclustered[]> {
   const ids = options.articleIds;
   if (!ids || ids.length === 0) {
     const { data, error } = await db.rpc("priority_articles_to_cluster", {
       p_limit: options.limit ?? BATCH,
       p_live_hours: ACTIVE_WORK_HORIZON_HOURS,
-      p_live_share: 1,
+      p_live_share: LIVE_LANE_SHARE,
       p_deadline_minutes: 120,
     });
     if (!error) return withSourceIds(db, data ?? []);
