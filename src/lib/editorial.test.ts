@@ -3,6 +3,7 @@ import {
   auditDeterministicArticle,
   composeArticle,
   composeArticleWithDiagnostics,
+  contextSplice,
 } from "./editorial";
 import {
   antecedentSupplied,
@@ -898,17 +899,15 @@ describe("composeArticle", () => {
       expect(diagnostics.facts.lost).toBe(0);
     });
 
-    it("does not charge the deck's own fact to a duplicate block the cap drops", () => {
-      // The live window carried this shape on 2026-10-18: one usable fact, so the
-      // deck is the whole story; the entity-context pass repeated that same
-      // sentence as paragraphs, and the thin-evidence cap dropped the repeats. The
-      // cap charged the fact behind the dropped block -- but that block repeated
-      // the deck, so the fact the cap charged had already been published, and the
-      // composer reported `refused then published` 1 on a story that withheld
-      // nothing. A charge means "this rule accounts for the fact's absence"; a
-      // duplicate of published prose is not an absence. The gate already merges
-      // such a block into the deck for exactly this reason, and the cap has to
-      // respect the same rule about what a fact's venue was.
+    it("publishes a one-fact story as its deck, with no duplicate block behind it", () => {
+      // The live window carried this shape on 2026-10-18: two sources, one usable
+      // fact, so the deck is the whole story. The entity-context pass then repeated
+      // that sentence as paragraphs -- one per entity the deck already names -- and
+      // the thin-evidence cap dropped the repeats, charging the deck's own fact for
+      // a block that repeated prose the reader already had. The cap not charging a
+      // published fact stays true, and the entity-context pass now emits nothing
+      // here at all, so the cap has nothing to drop rather than duplicates to
+      // excuse. Both halves are asserted: the page, and the ledger's partition.
       const fact =
         "Canada fight back to beat England 24-21 in Toronto in the WXV Global Series, with Shoshanah Seumanutafa's 77th-minute try ending the Red Roses' unbeaten run, stretching back to the 2022 Rugby World Cup final.";
       const story = makeStory({
@@ -942,9 +941,52 @@ describe("composeArticle", () => {
       expect(diagnostics.facts.rendered + diagnostics.facts.refused + diagnostics.facts.lost).toBe(
         diagnostics.facts.selected,
       );
-      // The cap still dropped the repeats, and still says so: only the charge to a
-      // fact that was already published is gone.
-      expect(diagnostics.sentences.reasons["thin_evidence_cap"]).toBeGreaterThan(0);
+      // The producer handed the gate nothing, so the cap had nothing to drop: no
+      // block repeated the deck for the cap to refuse, and no fact was charged for
+      // prose the reader already had.
+      expect(diagnostics.paragraphs.assembled).toBe(0);
+      expect(diagnostics.sentences.reasons["thin_evidence_cap"]).toBeUndefined();
+      // And nothing the page carries appears twice.
+      const blocks = [article.deck.text, ...article.paragraphs.map((part) => part.text)];
+      expect(new Set(blocks.map((block) => block.trim())).size).toBe(blocks.length);
+    });
+
+    it("never splices the deck, and never the same sentence twice for two entities", () => {
+      // The two producer rules the live story needs, asked of the pass directly:
+      // prose the page already carries is not context, and one source sentence
+      // introducing two entities introduces both of them once. The second cannot
+      // be reached through composeArticle -- a sentence naming an entity the page
+      // lacks is exactly what the pass exists to add -- so it is asked here.
+      const ledger = {
+        sentences: new Map<string, string>(),
+        unrendered: new Map<string, string>(),
+      };
+      const shared =
+        "Acme Corp and Globex Ltd said the plant in Osaka will close at the end of March, cutting 240 jobs.";
+      const entities = [
+        { name: "Acme Corp", role: "PRIMARY" },
+        { name: "Globex Ltd", role: "PRIMARY" },
+      ];
+      const sources = [{ name: "Source One", excerpt: shared }];
+
+      const twice = contextSplice({
+        page: ["Shares in the two firms rose 4% on Monday."],
+        entities,
+        sources,
+        ledger,
+        existing: 1,
+      });
+      expect(twice).toHaveLength(1);
+      expect(twice[0]?.text).toBe(shared);
+
+      const carried = contextSplice({
+        page: [shared],
+        entities,
+        sources,
+        ledger,
+        existing: 1,
+      });
+      expect(carried).toEqual([]);
     });
 
     it("validates a paragraph as a paragraph", () => {

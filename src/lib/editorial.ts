@@ -761,6 +761,80 @@ function republishesRefusedFact(ledger: FactLedger, text: string): boolean {
 }
 
 /**
+ * The entity-context pass: source sentences naming an entity the article has not
+ * introduced yet.
+ *
+ * Three rules hold this pass to the same standard as every other path.
+ *
+ * **Refusal-finality.** A sentence the ledger already charged may not be
+ * reinserted here. The whole point of the splice is to add prose the article does
+ * not have, so a sentence it *does* have -- one a rule judged and refused -- must
+ * not be smuggled back in as context. On the 2026-10-10 corpus that was four of
+ * the seven facts the ledger reported as refused and published anyway, including
+ * the PC-shipments opening whose referent the page never establishes.
+ *
+ * **The page is what the reader has.** The pass exists to introduce an entity the
+ * article has not named, so it asks its question of the whole page -- deck first,
+ * then the blocks -- and it never emits a block the page already carries, or the
+ * same sentence twice for two entities. This is the producer's own rule rather
+ * than the gate's: the live rugby story (2026-10-18, two sources, one usable fact)
+ * spliced the deck's own sentence in once per entity it already named -- four
+ * identical paragraphs in front of the gate. No reader saw them, because the gate
+ * merges a deck restatement and the thin-evidence cap drops the rest, and that is
+ * exactly why the producer had to be fixed instead: two later rules hiding it is
+ * also how the cap came to charge a published fact, the counter defect the
+ * previous slice repaired in the ledger.
+ *
+ * **The gate.** The candidate is added to the article *before* the gate reads it,
+ * not after, so it is judged as prose like every other sentence -- the metadata,
+ * entity, heading, seam, anaphora and quote rules all apply to it. Splicing after
+ * the gate published a sentence no rule had ever seen.
+ *
+ * Exported so a test can ask the pass directly what it emits, which is the only
+ * way to see a duplicate the later rules are designed to hide.
+ */
+export function contextSplice(input: {
+  /** The page as it stands, deck first, then the paragraphs in reading order. */
+  page: readonly string[];
+  /** The composer's own ranked entities, in rank order. */
+  entities: readonly { name: string; role: string }[];
+  sources: readonly ReaderSource[];
+  ledger: FactLedger;
+  /** Blocks the page already has, for this pass's own ceiling. */
+  existing: number;
+}): ArticleParagraph[] {
+  const pageText = input.page.join(" ");
+  const spliced: ArticleParagraph[] = [];
+  for (const entity of input.entities.filter((item) => item.role !== "REPORTING_SOURCE")) {
+    if (pageText.includes(entity.name) || !entity.name.includes(" ")) continue;
+    const sourceIndex = input.sources.findIndex((source) =>
+      (source.excerpt ?? "").toLowerCase().includes(entity.name.toLowerCase()),
+    );
+    const raw =
+      sourceIndex < 0
+        ? undefined
+        : readerSentences(input.sources[sourceIndex]?.excerpt ?? "").find((part) =>
+            part.toLowerCase().includes(entity.name.toLowerCase()),
+          );
+    const text = raw ? cleanDeterministicSentence(raw.replace(/^As we write,\s*/i, "")) : "";
+    if (!text) continue;
+    if (republishesRefusedFact(input.ledger, text)) continue;
+    const candidate = { text: sentence(text), evidence: [sourceIndex + 1] };
+    if (!validDeterministicSentence(candidate.text) || editorialNoise(candidate.text)) continue;
+    // Never a block the page carries, and never the same sentence twice: the
+    // identity is `nearDuplicate`, the same one the gate uses to merge a deck
+    // restatement, so producer and gate agree about what "the same text" means.
+    const carried = [...input.page, ...spliced.map((block) => block.text)].some((block) =>
+      nearDuplicate(block, candidate.text),
+    );
+    if (carried) continue;
+    spliced.push(candidate);
+    if (input.existing + spliced.length >= 8) break;
+  }
+  return spliced;
+}
+
+/**
  * Record which fact a published sentence was built from, for the two above.
  *
  * Indexed sentence by sentence rather than as one string, because the gate reads
@@ -3160,50 +3234,17 @@ export function composeArticleWithDiagnostics(story: Story): {
               return { text, evidence: fact.evidence };
             }),
         ];
-    const composedText = paragraphs.map((paragraph) => paragraph.text).join(" ");
-    /**
-     * The entity-context pass inserts a source sentence that names an entity the
-     * article has not introduced yet. In narrative order the paper has already
-     * said what it means to say, in the order it meant to say it, so nothing is
-     * spliced in.
-     *
-     * Two rules hold this pass to the same standard as every other path.
-     *
-     * **Refusal-finality.** A sentence the ledger already charged may not be
-     * reinserted here. The whole point of the splice is to add prose the article
-     * does not have, so a sentence it *does* have -- one a rule judged and refused
-     * -- must not be smuggled back in as context. On the 2026-10-10 corpus that
-     * was four of the seven facts the ledger reported as refused and published
-     * anyway, including the PC-shipments opening whose referent the page never
-     * establishes.
-     *
-     * **The gate.** The candidate is added to the article *before* the gate reads
-     * it, not after, so it is judged as prose like every other sentence -- the
-     * metadata, entity, heading, seam, anaphora and quote rules all apply to it.
-     * Splicing after the gate published a sentence no rule had ever seen.
-     */
-    const spliced: ArticleParagraph[] = [];
-    for (const entity of oneDocument
+    const spliced = oneDocument
       ? []
-      : selection.entities.filter((item) => item.role !== "REPORTING_SOURCE")) {
-      if (composedText.includes(entity.name) || !entity.name.includes(" ")) continue;
-      const sourceIndex = sources.findIndex((source) =>
-        (source.excerpt ?? "").toLowerCase().includes(entity.name.toLowerCase()),
-      );
-      const raw =
-        sourceIndex < 0
-          ? undefined
-          : readerSentences(sources[sourceIndex]?.excerpt ?? "").find((part) =>
-              part.toLowerCase().includes(entity.name.toLowerCase()),
-            );
-      const text = raw ? cleanDeterministicSentence(raw.replace(/^As we write,\s*/i, "")) : "";
-      if (!text) continue;
-      if (republishesRefusedFact(ledger, text)) continue;
-      const candidate = { text: sentence(text), evidence: [sourceIndex + 1] };
-      if (validDeterministicSentence(candidate.text) && !editorialNoise(candidate.text))
-        spliced.push(candidate);
-      if (paragraphs.length + spliced.length >= 8) break;
-    }
+      : contextSplice({
+          page: [deck?.text ?? "", ...paragraphs.map((paragraph) => paragraph.text)].filter(
+            (block) => block !== "",
+          ),
+          entities: selection.entities,
+          sources,
+          ledger,
+          existing: paragraphs.length,
+        });
     paragraphs.unshift(...spliced);
     /**
      * Prior-coverage background, kept out of the thin-evidence cap.

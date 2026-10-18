@@ -776,6 +776,74 @@ source sentence as a paragraph once per entity the context pass wants to introdu
 that the sentence is already on the page: four copies of the deck's sentence for a one-fact story.
 Readers never saw them — the gate merges a deck duplicate and the cap drops the rest — so this is
 machinery, not prose, and it is recorded here rather than patched in a slice about the counter.
+**Closed at the producer on 2026-10-18, in the section below.**
+
+## The producer emitted duplicate blocks; closed at the producer (landed 2026-10-18)
+
+**Why this is not the counter's problem, stated as the rule it is.** A producer that emits duplicate
+prose is a defect even when no reader can see it, because the only reason nobody saw it is that two
+later rules were hiding it — and those same two rules are what made the cap charge a published fact
+in the section above. Fixing the counter left the factory running: on the live rugby story the body
+assembly still produced **four identical paragraphs**, one per entity the context pass wanted to
+introduce, all of them the deck's own sentence. The rule now lives where the prose is made:
+
+> The body assembly never emits a block whose text an earlier block on the same page already carries,
+> and never emits the same sentence twice for two entities.
+
+**What changed.** The pass was a loop inside `composeArticleWithDiagnostics`; it is now `contextSplice`
+in [editorial.ts](../../src/lib/editorial.ts), exported so a test can ask it directly — the only way to
+see a duplicate the later rules are built to hide. It keeps every rule it had (a refused fact is
+final; the candidate is judged by the gate before publication; eight-block ceiling) and adds the two
+the defect needed:
+
+- **the page is what the reader has** — the question "has the article introduced this entity?" is
+  asked of the deck first, then the body, rather than of the body alone;
+- **carried text is not context** — a candidate the page already carries, by `nearDuplicate` (the same
+  identity the gate uses to merge a deck restatement, so producer and gate agree about "the same text")
+  and including what this pass has already spliced, is not emitted. That clause is what makes one
+  sentence introducing two entities introduce them once.
+
+**Red first, from the live event's own two sources.** `editorial.test.ts`, *"publishes a one-fact story
+as its deck, with no duplicate block behind it"* — the BBC Sport sentence and the Guardian photograph
+credit that made the live story. With the guard removed and the question asked of the body alone (the
+old producer, restored on purpose) it fails at `expect(diagnostics.paragraphs.assembled).toBe(0)` with
+**`expected 2 to be +0`**: two duplicate blocks handed to the gate. A second test asks the pass
+directly — *"never splices the deck, and never the same sentence twice for two entities"* — and fails
+on the old producer with `expected [ { … }, { … } ] to have a length of 1 but got 2`. Both pass with
+the change.
+
+**Measured, frozen 200-event corpus** (`tmp/corpus-2026-10-18b.json`, before = `HEAD`, after = this
+change; `npm run audit:reader -- --corpus …`):
+
+| line                                              | before                | after                 |
+| ------------------------------------------------- | --------------------- | --------------------- |
+| `sentences refused`                               | 157                   | **155**               |
+| `thin_evidence_cap` refusals                      | 2                     | **0**                 |
+| `selected = rendered + explained + unexplained`   | 1748 = 1600 + 148 + 0 | 1748 = 1600 + 148 + 0 |
+| `Facts lost, with no rule accounting for them`    | 0                     | **0**                 |
+| `stories publishing nothing` (splits)             | 58 (44 / 14)          | 58 (44 / 14)          |
+| `refused then published` (must be zero)           | 0                     | **0**                 |
+| `delivered with no body` (must be zero)           | 0                     | **0**                 |
+| reader-visible defects                            | 0                     | **0**                 |
+
+The report diff is **46 lines** and was read line by line: the two sentences the cap had been refusing,
+one attribution shape (`according_to 7 → 8`, `none 690 → 689`), a body-opening sample that reshuffled
+(one story's opening is now judged resolvable, another's is no longer a candidate), and the one line
+below. Nothing else moved — no story emptied, no deck lost, no fact unaccounted for.
+
+**The one line that did not stay put, and what it is.** `block opening with a quote` went **31 → 32** and
+`unresolved: no speaker named anywhere, nothing charged` **0 → 1**, on the Meta terms story
+(*Meta removes language that raised scraping and AI training concerns*). Read, not argued: the block is
+`“We’ve heard you and want to clarify: …,” the company said in a statement.` under a deck that names Meta
+and a block above it that names *a Meta spokesperson*. The speaker is resolvable to a reader; what the
+ruler cannot see is `insisted` as a speech verb, and `the company` is not a name in the entity list. The
+page is published, `confirmed defects` stays **0**, and the class is a queue rather than a defect. It is
+recorded here because it is the one reader-visible shape this change moved, and a future reader of this
+diff should not have to rediscover why.
+
+**Live window, same run** (`npm run audit:reader`, 2026-10-18, 200 events): `refused then published 0`,
+`delivered with no body 0`, `facts lost 0`, ledger **reconciles**, `thin_evidence_cap` absent from the
+refusal census.
 
 ---
 
