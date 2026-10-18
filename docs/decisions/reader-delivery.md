@@ -3161,7 +3161,8 @@ the delivery boundary refuses. `deliveredLine` is unchanged in order (artifact f
 stored line), so every surface that already asked it gets the new line, and no surface composes on the
 reader's request path.
 
-**Measured** — read-only, `tmp/delivered-line-census.ts`, one snapshot of the live 200, both columns from
+**Measured** — read-only, `npm run audit:delivered-line:window` (the committed instrument, below), one
+snapshot of the live 200, both columns from
 the same instrument (*before* = the same computation with no opening, i.e. the rule that predates the
 ruling):
 
@@ -3223,7 +3224,7 @@ copy exists, so topic-label stability after that re-finalization is unverified (
 render event topics; feed cards do).
 
 **Delivered rows, measured.** The census above asks the live window; the delivered 7:30 AM briefing
-itself is the reader's artifact, so it was read too (`tmp/delivered-rows-check.ts`, read-only, the
+itself is the reader's artifact, so it was read too (`npm run audit:delivered-line`, read-only, the
 newest briefing digest `5294a8b9` built 2026-10-17T22:59Z, 13 items, all rows written before this
 ruling): every item's stored `digest_items.summary` is **empty**, so every card falls back to
 `events.what_happened` — and **6 of the 13** cards opened on their page's sentence, **7 did not**.
@@ -3235,3 +3236,31 @@ different sentence the two producers chose (`"At Apple's WWDC event in June…"`
 Store rules now more explicitly ban…"`; `"The MOZA AY210 Force Feedback Base and MFY Yoke Bundle
 deliv…"`). The next generation is the first shipped instance: until it runs, the delivered page keeps
 the lines it already sent, which is what "existing delivered archives remain immutable" means here.
+
+**The instrument is committed, and it is the check.** Both measurements above lived in scratch files
+outside the repository, so the one command that could confirm the next build was about to be thrown
+away with the session -- the same failure `audit:delivered-summary` was written to stop (2026-10-15: a
+recorded count nobody could reproduce, because the probe that produced it had been deleted). They are now
+`scripts/reader-delivered-line.ts`, run two ways:
+
+| command | population | answers |
+| --- | --- | --- |
+| `npm run audit:delivered-line` | the newest delivered briefing (`--digest <id>` to name one) | did the cards a reader received open on their pages' sentences? |
+| `npm run audit:delivered-line:window [--limit 200]` | the live window of finished events | does a briefing built *now* deliver the page's sentence? |
+
+Both classify every row as **agree**, **no-deck** (the composition published no deck, so the card keeps
+the story's own stored line -- the ruling's boundary, counted and named rather than folded into the
+denominator) or **defect** (the page has a deck and the card's line is a different sentence), print each
+survivor with its class and the first place the two sentences part, and end on one line:
+
+```
+ruling #11  PASS  179 / 179 card lines equal their page opening (0 defects, 21 no-deck fallback)
+```
+
+**The exit status is the check.** A surviving defect exits non-zero, and so does `N/A` -- zero comparable
+rows is not evidence of anything, and a green read on nothing is exactly the claim this instrument must
+not make. Run against the briefing that predates the ruling it reports `FAIL  6 / 13 card lines equal
+their page opening (7 defects, 0 no-deck fallback)`; run over the live window it reproduces the table
+above (179 decks, 21 no-deck, of which 2 deliver the stored line, 0 a recovered composition and 19 no
+line at all, 131/179 before the ruling and 179/179 after). It is deliberately not in `npm run ci`: CI
+runs on a tree, and this reads the live product, so its place is the operator's hands after a build.

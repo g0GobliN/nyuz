@@ -2253,7 +2253,7 @@ an item whose composition published nothing; `deliveredLine`'s order is unchange
 that already asked it gets the new line. Withhold decisions are untouched: `ready: false` never
 carries an opening, and nothing is resurrected.
 
-**Measured** (`tmp/delivered-line-census.ts`, read-only, one live snapshot, both columns from the same
+**Measured** (`npm run audit:delivered-line:window`, read-only, one live snapshot, both columns from the same
 instrument — *before* = the same computation with no opening, i.e. the pre-ruling rule):
 
 | measure | value |
@@ -2274,8 +2274,23 @@ fail against the pre-change code; `reader-summary.test.ts` gains the "verbatim, 
 [decisions/reader-delivery.md](decisions/reader-delivery.md#the-delivered-line-is-the-composers-sentence-arbiter-ruling-11-2026-10-18).
 
 **Delivered rows.** The briefing a reader opened is the artifact, so it was measured directly too
-(`tmp/delivered-rows-check.ts`, read-only, digest `5294a8b9` built 2026-10-17T22:59Z, 13 items, every
+(`npm run audit:delivered-line`, read-only, digest `5294a8b9` built 2026-10-17T22:59Z, 13 items, every
 row written before the ruling): all thirteen stored summaries are empty, **6 of 13** cards opened on
 their page's sentence and **7 did not**; replaying those rows through the new write path gives
 **13 of 13**. Tonight's 22:30Z build is the first shipped instance — re-run that script against it
 expecting 13/13, and treat any survivor as a defect unless it is a no-deck fallback.
+
+### The ruling-#11 check is a command now, not a scratch file (2026-10-18)
+
+The two probes that produced the numbers above were uncommitted, so the next session would have had no
+way to confirm tonight's build against the accepted criterion. `scripts/reader-delivered-line.ts`
+replaces both: `npm run audit:delivered-line` reads the newest delivered briefing (the reader's own
+artifact) and `npm run audit:delivered-line:window [--limit 200]` reads the live window. Each run
+classifies every row `agree` / `no-deck` / `defect`, prints each survivor with its class and the point
+where the two sentences part, and ends on `ruling #11  PASS|FAIL  N / M card lines equal their page
+opening (defects, no-deck fallback)`, **exiting non-zero on a surviving defect** (`N/A` on zero comparable
+rows also exits non-zero). Reproduced live today: window `PASS 179 / 179 (0 defects, 21 no-deck)`, with
+the no-deck remainder read out exactly as recorded (2 stored line, 0 recovered, 19 no line); the
+pre-ruling delivered briefing `FAIL 6 / 13 (7 defects, 0 no-deck)`. It stays out of `npm run ci`
+because CI tests a tree and this reads the live product. After tonight's 22:30Z build:
+`npm run audit:delivered-line` must read `PASS 13 / 13 ... (0 defects)`.

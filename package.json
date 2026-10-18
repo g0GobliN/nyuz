@@ -57,6 +57,8 @@
     "audit:enrichment:cause": "node --env-file=.env scripts/tsrun.mjs scripts/reader-enrichment-cause.ts",
     "audit:alerts": "node --env-file=.env scripts/tsrun.mjs scripts/reader-alert-audit.ts",
     "audit:delivered-summary": "node --env-file=.env scripts/tsrun.mjs scripts/reader-delivered-summary-audit.ts",
+    "audit:delivered-line": "node --env-file=.env scripts/tsrun.mjs scripts/reader-delivered-line.ts",
+    "audit:delivered-line:window": "node --env-file=.env scripts/tsrun.mjs scripts/reader-delivered-line.ts --window",
     "diagnostic:composition": "node --env-file=.env scripts/tsrun.mjs scripts/reader-composition-diagnostic.ts",
     "audit:posture": "node --env-file=.env scripts/tsrun.mjs scripts/product-posture.ts",
     "audit:backlog": "node --env-file=.env scripts/tsrun.mjs scripts/backlog-attribution.ts",
