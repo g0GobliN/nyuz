@@ -898,6 +898,55 @@ describe("composeArticle", () => {
       expect(diagnostics.facts.lost).toBe(0);
     });
 
+    it("does not charge the deck's own fact to a duplicate block the cap drops", () => {
+      // The live window carried this shape on 2026-10-18: one usable fact, so the
+      // deck is the whole story; the entity-context pass repeated that same
+      // sentence as paragraphs, and the thin-evidence cap dropped the repeats. The
+      // cap charged the fact behind the dropped block -- but that block repeated
+      // the deck, so the fact the cap charged had already been published, and the
+      // composer reported `refused then published` 1 on a story that withheld
+      // nothing. A charge means "this rule accounts for the fact's absence"; a
+      // duplicate of published prose is not an absence. The gate already merges
+      // such a block into the deck for exactly this reason, and the cap has to
+      // respect the same rule about what a fact's venue was.
+      const fact =
+        "Canada fight back to beat England 24-21 in Toronto in the WXV Global Series, with Shoshanah Seumanutafa's 77th-minute try ending the Red Roses' unbeaten run, stretching back to the 2022 Rugby World Cup final.";
+      const story = makeStory({
+        title: "Red Roses' unbeaten streak ends in a thriller as Canada claim win with late try",
+        understand: undefined as never,
+        what: "",
+        sources: 2,
+        sourceList: [
+          {
+            name: "The Guardian Sport",
+            at: "10:00",
+            excerpt: "Photograph: Canadian Press/Shutterstock",
+          },
+          { name: "BBC Sport", at: "11:00", excerpt: fact },
+        ],
+      });
+      const { article, diagnostics } = composeArticleWithDiagnostics(story);
+
+      // The reader gets the sentence once, in the deck, and no paragraph repeats it.
+      expect(article.deck.text).toBe(fact);
+      expect(article.paragraphs).toEqual([]);
+      expect(diagnostics.facts.selected).toBe(1);
+      expect(diagnostics.facts.rendered).toBe(1);
+      // Nothing was withheld, so nothing may be charged: the partition still adds
+      // up, the fact is not reported as lost, and no path published a refused fact.
+      expect(diagnostics.facts.unrendered).toEqual([]);
+      expect(diagnostics.facts.lost).toBe(0);
+      expect(diagnostics.facts.refused).toBe(0);
+      expect(diagnostics.facts.renderedAfterRefusal).toBe(0);
+      expect(diagnostics.facts.renderedAfterRefusalFacts).toEqual([]);
+      expect(diagnostics.facts.rendered + diagnostics.facts.refused + diagnostics.facts.lost).toBe(
+        diagnostics.facts.selected,
+      );
+      // The cap still dropped the repeats, and still says so: only the charge to a
+      // fact that was already published is gone.
+      expect(diagnostics.sentences.reasons["thin_evidence_cap"]).toBeGreaterThan(0);
+    });
+
     it("validates a paragraph as a paragraph", () => {
       expect(validDeterministicParagraph(SENTENCES.join(" "))).toBe(true);
       // The same sentence twice is a composition error, not a paragraph.

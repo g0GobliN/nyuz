@@ -3252,10 +3252,33 @@ export function composeArticleWithDiagnostics(story: Story): {
     // Thin evidence should remain thin; rich evidence is capped at four useful blocks.
     // Whatever the cap drops is counted, so a fact behind it is explicable.
     const capped = paragraphs.slice(0, facts.length <= 3 ? 2 : paragraphs.length);
+    /**
+     * The sentences the page keeps: the deck and the blocks under the cap.
+     *
+     * A fact is only withheld when nothing the reader receives carries it, so a
+     * sentence already among these has had its venue decided -- by the deck, or by
+     * an earlier block. Charging it to the cap would report a published fact as
+     * refused, which is precisely how the live window's rugby story came to read
+     * `refused then published 1`: one usable fact became the deck, the entity-context
+     * pass repeated that same sentence as paragraphs, and the cap dropped the
+     * repeats and charged the deck's fact for them. The gate already merges such a
+     * block into the deck rather than refusing it (see `nearDuplicate` there); the
+     * cap has to agree about which facts were never withheld.
+     */
+    const keptSentences = new Set(
+      [deck?.text ?? "", ...capped.map((block) => block.text)]
+        .flatMap((text) => readerSentences(text))
+        .map((part) => sentenceKey(part)),
+    );
     for (const block of paragraphs.slice(capped.length)) {
       // The facts behind the block are charged to the cap that dropped it, so a
-      // thin story's lost sentence is explained rather than unaccounted for.
-      markSentence(ledger, block.text, "thin_evidence_cap");
+      // thin story's lost sentence is explained rather than unaccounted for -- one
+      // sentence at a time, so a block that repeats the deck and adds a new
+      // sentence charges only the sentence the reader does not have.
+      for (const part of readerSentences(block.text)) {
+        if (keptSentences.has(sentenceKey(part))) continue;
+        markSentence(ledger, part, "thin_evidence_cap");
+      }
       refuseBlock(block.text, "thin_evidence_cap", diagnostics);
     }
     paragraphs.length = 0;

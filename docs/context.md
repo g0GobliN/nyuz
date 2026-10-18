@@ -1338,10 +1338,39 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   ungated. Both branches now run the same gate, pinned by a `story-flow.test.ts` case, and the deployed
   dashboard reads **11 things worth knowing** instead of 13.
 
+- **2026-10-18 — the refusal counter had a second seam, and it was charged by the thin-evidence cap.**
+  `audit:reader` read `refused then published 1` on the live window after ruling #9, and the row could
+  only be one of two things: a real bypass in the composer, or a counter that was not measuring one run
+  honestly. Reading the story settled it — **neither, in the sense that mattered: no gate was bypassed,
+  and a fact that had already been published was charged as if a rule had withheld it.** The event
+  (`129dba9a`, one usable fact, so the deck is the whole story) composed the deck correctly and the body
+  assembly produced **four identical paragraphs**, one per entity the context pass wanted to introduce,
+  every one of them the deck's own sentence; the thin-evidence cap (two blocks for a one-fact story)
+  dropped two and charged the fact behind them — the fact the **deck had already published**. The gate
+  already treats a deck restatement as a merge rather than a defect (that was D3's fix), but the cap runs
+  **before** the gate, so it charged first and nothing could uncharge it. **Landed:** the cap charges one
+  sentence at a time and only a sentence the surviving page (deck plus the blocks under the cap, read with
+  the same `sentenceKey` identity) does not carry; a block that repeats the deck *and* adds a sentence
+  still charges the new one, and the cap's refusal counts are unchanged. **Test red first:**
+  `editorial.test.ts`, *"does not charge the deck's own fact to a duplicate block the cap drops"*, built
+  from the live event's two sources — `expected 1 to be +0` on `renderedAfterRefusal` before the fix.
+  **Measured on a frozen 200-event corpus** (`tmp/corpus-2026-10-18b.json`, `HEAD` vs this change): the
+  whole report diff is **11 lines** — `refused then published` 1 → **0**, `refused then published by
+  another path` 1 → **0**, and the fact listing behind them gone; everything else byte-identical
+  (`selected = rendered + explained + unexplained` **1748 = 1600 + 148 + 0** both sides, `facts lost` 0,
+  `sentences refused` 157, resemblance diagnostic 3). Live window after: **0**, ledger reconciling. Record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#d3s-second-seam--the-cap-charged-a-fact-the-deck-had-already-published-landed-2026-10-18).
+  **Found and deliberately not fixed here:** the body assembly repeats one source sentence once per entity
+  with no check that it is already on the page — machinery no reader saw (the gate merges the duplicate
+  and the cap drops the rest), recorded so it is not mistaken for a prose defect.
+
 ## 7. What is next
 
 **2026-10-18, later: the pool is the ceiling now, and one class of it is named.** With ruling #8 landed,
-all three must-be-zero lines read zero and the composer's measured defect classes are closed. What the
+the composer's measured defect classes are closed and every must-be-zero line now reads zero — the one
+still-red line on the live window, `refused then published 1`, was a cap charge against a fact the deck
+had already published, and it was traced and closed the same day (work log above) rather than left as an
+assumption that the window had moved. What the
 next briefing still ships is **five cards, every one single-source** (`multi-source 0/5` in the same
 replay), several of them product-week features rather than developments — the composer cannot fix a pool
 that has one publisher per event. The next slice is therefore the corpus and the clustering that feeds

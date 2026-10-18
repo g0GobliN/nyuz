@@ -709,6 +709,76 @@ charged to a rule). Separate accounting of refused sentences genuinely absent fr
 the suppression test is the ledger's charge, never similarity — the resemblance class changes no
 publication decision, it only reports.
 
+## D3's second seam — the cap charged a fact the deck had already published (landed 2026-10-18)
+
+**The contradiction, as it stood after ruling #9 landed.** `audit:reader` printed
+`refused then published <- must be zero 1` on the live window, and the listed fact was the rugby
+story *Red Roses’ unbeaten streak ends in a thriller as Canada claim win with late try*:
+
+```
+Red Roses’ unbeaten streak ends in a thriller as Canada claim win with late try · thin_evidence_cap (sentence): Canada fight back to beat England 24-21 in Toronto in the WXV Global Series, with Shoshanah Seumanutafa's 77th-minute try ending the Red Roses' unbeaten run, stretching back to the 2022 Rugby World Cup final.
+    carried by: Canada fight back to beat England 24-21 in Toronto in the WXV Global Series, with Shoshanah Seumanutafa's 77th-minute try ending the Red Roses' unbeaten run, stretching back to the 2022 Rugby World Cup final.
+```
+
+A fact a rule refused and the page carried anyway is one of two things — a real bypass in the
+composer, or a counter that is not measuring one run honestly — and neither is allowed to stand.
+The question was therefore settled by reading the story, not by reasoning about it.
+
+**What the story actually does.** No bypass. Two facts are needed to see it: the reader receives
+the sentence **once, in the deck**, and the paragraphs that were dropped were that same sentence
+repeated. Traced on the live event (`129dba9a-3f1a-49d0-8302-c1a90b64f0d6`, one usable fact, so the
+deck is the whole story): the body assembly produced **four identical paragraphs**, one per entity
+the entity-context pass wanted to introduce, all of them the deck's own sentence — and the
+thin-evidence cap (two blocks for a one-fact story) dropped two of them and charged the fact behind
+them. That fact had already been published as the deck. **A charge means "this rule accounts for the
+fact's absence"; a duplicate of published prose is not an absence.** The gate already knows this —
+`nearDuplicate(deck, part)` merges such a block into the deck and says why in its own comment
+(*"…charges the deck's fact with a rule the deck itself passed, which is how a fact that was never
+withheld came to be reported as refused and published by another path"*) — but the cap runs
+**before** the gate, so it charged first and the merge afterwards could not uncharge it. D3 fixed
+this class at the gate; the cap was the same defect's second seam.
+
+**The fix.** The cap charges one sentence at a time, and only a sentence the surviving page does not
+already carry:
+
+- the surviving page is the deck plus the blocks under the cap, read at sentence boundaries with the
+  same `sentenceKey` identity every other rule uses;
+- a dropped sentence whose key is on that page is still counted as dropped (`thin_evidence_cap`
+  refusals unchanged) — only the charge to a fact that was **never withheld** is gone;
+- a block that repeats the deck *and* adds a new sentence now charges only the new one.
+
+**The test is red first.** `editorial.test.ts`, *"does not charge the deck's own fact to a duplicate
+block the cap drops"*, built from the live event's own two sources. Before the fix it fails on the
+exact contradiction — `expected 1 to be +0` at `expect(diagnostics.facts.renderedAfterRefusal).toBe(0)`
+— and after it passes with the deck published, no paragraphs, `lost 0`, `refused 0`, and the ledger
+still adding up.
+
+**Measured on a frozen 200-event corpus** (`tmp/corpus-2026-10-18b.json`, before = `HEAD`'s
+transform, after = this change; `npm run audit:reader -- --corpus …`):
+
+| line                                          | before | after |
+| --------------------------------------------- | ------ | ----- |
+| `refused then published` (must be zero)       | 1      | **0** |
+| `refused then published by another path`      | 1      | **0** |
+| of those, resemblance only (diagnostic)       | 3      | 3     |
+| `selected = rendered + explained + unexplained` | 1748 = 1600 + 148 + 0 | 1748 = 1600 + 148 + 0 |
+| `Facts lost, with no rule accounting for them` | 0      | **0** |
+| `sentences refused`                           | 157    | 157   |
+
+The whole report diff is **11 lines**: the two verdict rows and the fact listing that caused them.
+Every other line — the ledger partition, the refusal census, the resemblance diagnostics — is
+byte-identical, so the change moves the contradiction and nothing else. On the live window
+(`npm run audit:reader`, 2026-10-18) the same line reads **0** with `facts lost 0` and the ledger
+reconciling.
+
+**Found on the way, measured, and deliberately not fixed here.** The body assembly repeats one
+source sentence as a paragraph once per entity the context pass wants to introduce, with no check
+that the sentence is already on the page: four copies of the deck's sentence for a one-fact story.
+Readers never saw them — the gate merges a deck duplicate and the cap drops the rest — so this is
+machinery, not prose, and it is recorded here rather than patched in a slice about the counter.
+
+---
+
 ## D8 — what an alert is allowed to be (2026-10-11)
 
 Numbered D8 because D7 is already reserved in the work log for the stacked-quotes family
