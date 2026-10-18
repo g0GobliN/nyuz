@@ -252,7 +252,14 @@ export const loadHomeFeed = createServerFn({ method: "GET" })
     if (latest && (latest.status === "ready" || latest.status === "sent")) {
       const stories = await storiesFromDigest(actor.db, latest.digest_id);
       return {
-        stories,
+        // The same gate as the matches branch. A digest item passed readiness when
+        // the briefing was built, and the classes that arrived after it (the
+        // arbiter's ruling #9 of 2026-10-18: a deal, an enthusiast mod) must reach
+        // the card the reader opens, whether it arrived through the digest or
+        // through the live matches. Measured on the live dashboard: the deal card
+        // that produced the ruling was a digest item, so gating only the matches
+        // path left it on the page.
+        stories: gateHomeFeed(stories),
         source: "digest",
         digestStatus: latest.status,
         scheduledFor: latest.scheduled_for,

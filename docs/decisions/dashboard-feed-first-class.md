@@ -80,7 +80,16 @@ Measured with the landed rule, 2026-10-18:
 | the live dashboard's cards | 13 | **1** (the measured card) |
 
 The Lego-kit card and the flight-sim review are deliberately **not** touched: the ruling names two
-classes, and a review is not one of them. Everything else about the feed is unchanged — no item is
+classes, and a review is not one of them.
+
+**The branch that looked unaffected, and was not.** The first version of this change gated only the
+`matches` path of `loadHomeFeed`. The live read after deploy still showed the deal card, because the
+dashboard renders `digest_items` whenever a briefing exists — the ready/sent branch returned the stored
+digest stories ungated. Both branches now run the same gate, and `story-flow.test.ts` pins it: a digest
+item whose title is the measured deal card or the measured mod card is excluded, and a news title in the
+same fixture still renders. Verified on the deployed origin the same day: the dashboard went from
+**13 things worth knowing** to **11**, losing *"Grab an RTX 5090 …"* and *"Modder finishes nine-year Xbox
+360 …"*, with the nine news cards and the remaining two cards unchanged. Everything else about the feed is unchanged — no item is
 deleted, history and the story page keep it, and `gateHomeFeed` still runs `assessReadiness` for the
 title/summary rungs.
 

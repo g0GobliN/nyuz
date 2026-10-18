@@ -606,3 +606,42 @@ describe("Read never depends on a live AI call", () => {
     expect(unknown.personalization).toBeUndefined();
   });
 });
+
+it("keeps a deal card and an enthusiast mod out of the digest the dashboard renders", () => {
+  // The arbiter's ruling #9 (2026-10-18) applied to the branch that looked
+  // unaffected: the dashboard renders `digest_items` when a briefing exists, and
+  // the live card that produced the ruling was a digest item, so gating only the
+  // matches path left it on the reader's page. The classes are title-shaped and
+  // measured (`isReaderDealTitle`, `isReaderModTitle`); this pins the wiring.
+  const db = bundledDb();
+  seedPendingNews(db);
+  return (async () => {
+    await run(startFirstBriefing, db);
+    const digestId = db.rows("digests")[0]!["digest_id"] as string;
+    const eventId = db.rows("user_events")[0]!["event_id"] as string;
+    db.rows("digest_items").push({
+      digest_id: digestId,
+      event_id: eventId,
+      position: 0,
+      why_it_matters: "",
+    });
+    const event = db.rows("events").find((row) => row["id"] === eventId)!;
+    const news = String(event["title"]);
+
+    for (const refused of [
+      "Grab an RTX 5090 for a discounted $5,300 as part of an MSI Infinite ZS prebuilt gaming PC",
+      "Modder finishes nine-year Xbox 360 voltage glitch mod with a $4 microcontroller",
+    ]) {
+      event["title"] = refused;
+      const feed = (await run(loadHomeFeed, db)) as { stories: { title: string }[] };
+      expect(
+        feed.stories.map((s) => s.title),
+        refused,
+      ).not.toContain(refused);
+    }
+
+    event["title"] = news;
+    const kept = (await run(loadHomeFeed, db)) as { stories: { title: string }[] };
+    expect(kept.stories.map((s) => s.title)).toContain(news);
+  })();
+});

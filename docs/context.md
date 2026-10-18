@@ -1331,7 +1331,12 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   `mod` followed by a verb of capability) — measured first at **11 of 22,020** stored titles, every one an
   enthusiast mod, **3 of this reader's 1,000** matched titles, and the live dashboard's card. The Lego-kit
   card and the flight-sim review stay: the ruling names two classes, and a review is not one of them.
-  Record: [decisions/dashboard-feed-first-class.md](decisions/dashboard-feed-first-class.md).
+  Record: [decisions/dashboard-feed-first-class.md](decisions/dashboard-feed-first-class.md). **One branch
+  was missed and then fixed the same hour:** the first version gated only the `matches` path of
+  `loadHomeFeed`, and the live read after deploy still showed the deal card — the dashboard renders
+  `digest_items` whenever a briefing exists, so the ready/sent branch returned stored digest stories
+  ungated. Both branches now run the same gate, pinned by a `story-flow.test.ts` case, and the deployed
+  dashboard reads **11 things worth knowing** instead of 13.
 
 ## 7. What is next
 
