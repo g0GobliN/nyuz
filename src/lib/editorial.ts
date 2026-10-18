@@ -220,6 +220,16 @@ function similarEnough(left: string, right: string): boolean {
   return shared / Math.max(a.size, b.size) >= 0.88;
 }
 
+/**
+ * Whether a composed block opens on a quotation.
+ *
+ * The same two characters the gate's quote rules read, and deliberately no more:
+ * a block that opens with an attribution (`Michael Freeman said …`) or names its
+ * speaker later is a report, and only a block whose first character is the
+ * quotation mark is a quote-first opening.
+ */
+const OPENS_ON_QUOTE = /^["\u201c]/u;
+
 function citationRefs(facts: ReaderFact[]): number[] {
   return [...new Set(facts.flatMap((fact) => fact.evidence))].sort((a, b) => a - b);
 }
@@ -3128,6 +3138,21 @@ export function composeArticleWithDiagnostics(story: Story): {
     let lead: ReaderFact | undefined;
     let leadText = "";
     const needsAntecedent: { fact: string; text: string }[] = [];
+    /**
+     * Every candidate that composed a self-sufficient sentence, in rank order.
+     *
+     * The walk used to stop at the first one, which made a quotation as good an
+     * opening as a report of the event: card 01 of the delivered 2026-10-18
+     * briefing opened on *"The primary thing that we see with any attack on
+     * building management systems … It's a great place for the threat actor to
+     * hide,"* — attributed, self-contained, and not what happened. The arbiter
+     * ruled (#10a) that a fact which reports the event outranks one that opens on
+     * a quotation, with the quote kept as a legitimate fallback when nothing else
+     * composes. Nothing about the ranking *within* either group changes: this
+     * picks the first non-quote candidate and, only if there is none, the first
+     * candidate of any kind.
+     */
+    const composedDeck: { fact: ReaderFact; text: string }[] = [];
     for (const candidate of deckCandidates) {
       const text = safeLead(candidate, story, independentSources, surveys).text;
       if (text === "") continue;
@@ -3135,9 +3160,13 @@ export function composeArticleWithDiagnostics(story: Story): {
         needsAntecedent.push({ fact: candidate.text, text });
         continue;
       }
-      lead = candidate;
-      leadText = text;
-      break;
+      composedDeck.push({ fact: candidate, text });
+    }
+    const chosenDeck =
+      composedDeck.find((entry) => !OPENS_ON_QUOTE.test(entry.text)) ?? composedDeck[0];
+    if (chosenDeck !== undefined) {
+      lead = chosenDeck.fact;
+      leadText = chosenDeck.text;
     }
     const deck = { text: leadText, evidence: lead ? [...lead.evidence] : [] };
     // No fact survived selection, so the deck has to come from somewhere else --

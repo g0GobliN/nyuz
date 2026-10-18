@@ -2943,3 +2943,74 @@ rejected — so it stays a hand-run repair with its own printed before/after. An
 `articles.excerpt` and `events.what_happened`, not `article_evidence`: the units written by a prior
 enrichment pass (this story has none, `status = none`) would need `reenrich:fusions` and a separate
 measurement.
+
+## The deck prefers a report over a quotation (arbiter ruling #10a, 2026-10-18)
+
+**What the weld repair exposed.** With the run-on gone, card 01 of the delivered briefing opened on
+
+```
+“The primary thing that we see with any attack on building management systems or physical systems:
+It’s a great place for the threat actor to hide,” Michael Freeman, ServiceNow’s senior director of
+threat research, told The Register.
+```
+
+— attributed, self-contained, and not what happened. The sentence was the composer's highest-ranked
+fact, and recomposing with the heading deleted instead of closed produced the same quote, so nothing
+about the repair caused it. Measured on the live 200 at that point: **3 stories opened their deck on a
+quotation** (this one, the MALFEX npm story, and a honeybee study).
+
+**The ruling, quoted.** Option 2 —
+
+> *Prefer a non-quote fact for the deck, falling back to a quote only when no qualifying non-quote
+> candidate exists. … Prefer reporting what happened over a general observation about the subject,
+> while preserving quotes as a legitimate fallback.*
+
+with the boundaries that make it narrow: keep the existing candidate set, factual checks and
+self-sufficiency requirements; do not special-case a publisher or a story; do not change the ranking
+within either group.
+
+**Landed.** `OPENS_ON_QUOTE` in `editorial.ts`, and the deck walk now collects every candidate that
+composed a self-sufficient sentence in rank order, takes the first that does not open on a quotation,
+and falls back to the first of any kind. The antecedent list, the fact ledger and the gate are
+untouched: a displaced candidate is not charged, exactly as before.
+
+**Required measurement, on two snapshots of the same live 200** (`reader-composer-snapshot.ts`, HEAD
+vs the change, minute apart):
+
+| measure | before | after |
+| --- | --- | --- |
+| decks changed | — | **3** |
+| quotation → reporting fact | — | **3** |
+| reporting fact → quotation | — | **0** |
+| other deck changes | — | **0** |
+| words, average | 176.4 | 176.4 |
+| paragraphs, average | 2.72 | 2.73 |
+| stories that became empty / stopped being empty | — | **0 / 0** |
+| entity leaks, metadata leaks, malformed attribution, context-dependent openings | 0 | **0** |
+| two quotes in one block | 9 | 9 |
+| paragraphs carrying a citation | 544 | 545 |
+
+The frozen 200 was measured too, as the arbiter asked: **1 story changed** there (the honeybee one),
+because that corpus predates the weld repair and its membership differs.
+
+**The three pairs, and the judgement the ruling asked for.**
+
+- **Improved.** *Cybercrims go beyond stealing data…* now opens on `Late Sunday night, a still-unknown
+  cybercriminal or group hacked thousands of remote-controlled refrigeration systems…` — the event.
+- **Improved.** *Honeybees are barging aside wild pollinators…* now opens on `The Guardian World
+  reports that there are growing concerns that this growth in managed honeybees is harming other,
+  wild, pollinators…` — the study's finding, instead of a quote about why it matters.
+- **Weaker, and recorded rather than claimed as an improvement.** *MALFEX npm Package 'imgdecode'…*
+  previously opened on `"The npm package imgdecode hides a malicious loader in a compiled Node.js
+  addon," SafeDep said.` — the specific finding, which the headline repeats — and now opens on
+  `First documented by both Checkmarx and CloudSEK, MALFEX is the name assigned to a long-running
+  campaign…`, which is campaign background. It is factual and self-sufficient, so it passes every
+  existing rule, and no rule can tell "states the event" from "establishes the story" without a new
+  semantic judgement. One weaker opening in three, with none broken and none withheld, is the trade
+  this ruling buys; if a future census shows more background-shaped decks, the answer is a rule for
+  that shape, not the quote preference.
+
+**Tests** (`src/lib/editorial.test.ts`, 54 in the file): the reporting fact wins when both compose,
+and the quotation is still the deck when it is the only candidate that stands alone. Fail-before
+evidence: with the preference replaced by `composedDeck[0]`, *"prefers a fact that reports the event
+over one that opens on a quotation"* fails and passes restored.

@@ -340,6 +340,53 @@ describe("composeArticle", () => {
     expect(diagnostics.facts.lost).toBe(0);
   });
 
+  it("prefers a fact that reports the event over one that opens on a quotation", () => {
+    // Card 01 of the delivered 2026-10-18 briefing opened on an attributed quote
+    // that said nothing about what happened (*"The primary thing that we see with
+    // any attack on building management systems … It's a great place for the
+    // threat actor to hide,"*). The arbiter ruled (#10a) that a reporting fact
+    // outranks a quote, with the quote kept as the fallback. Ranking within each
+    // group is untouched: this takes the first non-quote candidate.
+    const story = makeStory({
+      sources: 1,
+      what: "",
+      sourceList: [
+        {
+          name: "The Guardian World",
+          at: "10:00",
+          url: "https://theguardian.com",
+          excerpt:
+            "“That’s important because, of course, it means that the wild pollinators are facing a challenge from both those types of competition from honeybees,” Jane Doe, a researcher at Example University, said. A study published on Monday found honeybees are barging aside wild pollinators in 300 recorded interactions.",
+        },
+      ],
+    });
+
+    const { article } = composeArticleWithDiagnostics(story);
+    expect(article.deck.text).not.toMatch(/^["“]/u);
+    expect(article.deck.text).toContain("300 recorded interactions");
+  });
+
+  it("keeps the quotation as the deck when it is the only fact that stands alone", () => {
+    // The fallback half of the same ruling: a quote is a legitimate opening when
+    // nothing else composes, so the preference may not turn into a ban.
+    const story = makeStory({
+      sources: 1,
+      what: "",
+      sourceList: [
+        {
+          name: "The Register",
+          at: "10:00",
+          url: "https://theregister.com",
+          excerpt:
+            "“The npm package imgdecode hides a malicious loader in a compiled Node.js addon,” SafeDep said.",
+        },
+      ],
+    });
+
+    const { article } = composeArticleWithDiagnostics(story);
+    expect(article.deck.text).toMatch(/^["“]/u);
+  });
+
   describe("a body block may not open on a reference the page never establishes", () => {
     /** The measured NTT block: nothing above it on the page names a report. */
     const NTT_BLOCK =
