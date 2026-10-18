@@ -3264,3 +3264,78 @@ their page opening (7 defects, 0 no-deck fallback)`; run over the live window it
 above (179 decks, 21 no-deck, of which 2 deliver the stored line, 0 a recovered composition and 19 no
 line at all, 131/179 before the ruling and 179/179 after). It is deliberately not in `npm run ci`: CI
 runs on a tree, and this reads the live product, so its place is the operator's hands after a build.
+
+## Ruling #12 — the significance line's missing input (2026-10-18), and what the drain measured
+
+**What was open.** The delivered briefing carried no significance line: `briefing:checkpoint` read
+`ladder now: none 13`, 12 of 13 items silent. The ladder is not broken — its inputs are empty
+(`event_impacts` by policy, `after_state` unwritten, the binding rung needs enrichment, the coverage
+rung needs ≥2 outlets) — and the coverage rung is starved by a measured pool fact: **152 of 12,256
+complete events carry ≥2 publishers (1.2%)**, while **24,935 of the 25,252 unclustered articles are
+older than the 7 days** `priority_articles_to_cluster` reaches.
+
+**The ruling, quoted** (ChatGPT `nyuz` project, *Rule clustering option*, 2026-10-18):
+
+> *Ruling #12: Option 1 — Extend the clustering window from 7 to 45 days, drain the backlog in bounded
+> batches, and measure the resulting evidence-supported significance lines before considering any source
+> reactivation. … Keep the 45-day window bounded. Preserve the batch limit … Do not run an unrestricted
+> historical backfill. … Measure before scaling: record articles considered, valid joins, newly formed
+> multi-publisher events, false joins, and processing cost, against the existing seven-day baseline. …
+> A multi-publisher count is supporting evidence, not itself a significance explanation. … Do not
+> manufacture missing evidence … Apply improvements to future briefings only. … No additional source
+> fetching, model calls, or unbounded CPU work. … Do not declare success simply because the backlog
+> shrinks; the objective is to increase the number of **correctly explained stories**.*
+
+**Landed — the drain, as a bounded operator command.** `scripts/cluster-backlog.ts`
+(`npm run cluster:backlog`): bounded `--limit` (default 100, hard cap 200), `--days` (default 45, the
+ruled window), `--kind` to aim a batch, `--dry-run` to read decisions without writing, and it **throws
+if a run reports any model call**. It prints every join with both titles — what a false join would
+appear as — and the ruling's own acceptance number, events with ≥2 publishers, before and after.
+
+**What two bounded batches measured** (2026-10-18, live, newest news articles of the 7–45 day backlog):
+
+| measure | value |
+| --- | --- |
+| backlog, 7–45 days | 14,657 articles — **4,034 news**, 10,090 research |
+| batch 1 | 100 considered, **8 joined**, 0 grouped, 92 alone, 0 failed, 41.6 s |
+| batch 2 | 100 considered, **10 joined**, 0 grouped, 90 alone, 0 failed, 39.8 s |
+| events with ≥2 publishers, before → after | **152 → 152** |
+| model calls | **0** in both runs |
+
+Every join is labelled *cross-outlet paraphrase* — a real second outlet joined the event — and no join
+looks false from the printed pair. **But the acceptance number did not move**: the joins land on events
+already carrying two outlets. Two causes are possible and the measurement does not yet separate them:
+the corpus genuinely lacks cross-outlet pairs, or `events.publisher_count` (refreshed by the analysis
+pass, not by clustering) has not re-counted the newly widened events. That distinction is the next
+question, not a conclusion.
+
+**An instrument flaw found while measuring it.** A `--dry-run` batch cannot see a pair that is *both*
+unclustered: nothing is created, so the second article has no event to join, and the dry run reports
+zero joins that a real run would make. The 40- and 100-article dry runs that reported "every article
+stood alone" are therefore not evidence against clustering; only the real batches are. Recorded because
+a future session will otherwise reach for the cheap mode and misread it.
+
+**Status:** ruling #12's window change is **not** applied. The evidence above is being put back to the
+arbiter before any schema or queue change lands, on the rule that a ruling contradicted by measurement is
+re-cross-examined rather than followed off the cliff.
+
+**Ruling #12a followed: the chain is verified from the implementation, and the acceptance number still
+does not move.** The arbiter's condition was to confirm — not assume — that analysis refreshes the
+column. **Confirmed in code:** `events.publisher_count` is written by `finalizeMetadata`
+(`news-signals.ts`, `publisher_count: groups.size`) which the analysis pass calls; clustering attaches
+through the `finish_article_cluster` RPC and does not touch the column itself, but migration 0102's
+trigger `mark_event_metadata_dirty()` sets `metadata_dirty = true` and bumps `coverage_revision` on any
+coverage change, which is what returns the event to the analysis queue. Observed live on a row the drain
+touched: *Christa Pike* carries `coverage_revision 18` and `publisher_count 3`.
+
+**One bounded, model-free analysis batch** (`npm run pipeline -- analyse --limit 10`): 10 considered, 10
+analysed, 0 failed, **0 model calls, 0 tokens**, 7 seconds.
+
+**Measured after it:** events with ≥2 publishers **152 → 152, unchanged**. The two drain batches' 18
+joins all landed on events that were *already* at ≥2 publishers, and the drain added **182 new
+single-article events** to a queue that now holds 8,960 pending and 7,608 metadata-dirty events — real
+analysis cost for no coverage gain. In the ruled table this is the row *"analysis refreshes publisher
+counts, but the metrics do not improve"*, and the numbers read like the row beneath it: **the corpus
+cannot supply enough qualifying evidence**. The next move is the arbiter's, with the source-reactivation
+experiment (option 2) as the candidate; the 7 → 45 day window change remains **unapplied** in the
+database.

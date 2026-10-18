@@ -2294,3 +2294,31 @@ the no-deck remainder read out exactly as recorded (2 stored line, 0 recovered, 
 pre-ruling delivered briefing `FAIL 6 / 13 (7 defects, 0 no-deck)`. It stays out of `npm run ci`
 because CI tests a tree and this reads the live product. After tonight's 22:30Z build:
 `npm run audit:delivered-line` must read `PASS 13 / 13 ... (0 defects)`.
+
+### Ruling #12 landed as a bounded drain, and the drain measured (2026-10-18)
+
+The significance line's missing input went to the arbiter (request #12) and was ruled **option 1**:
+extend the clustering window to 45 days and drain the backlog in bounded batches, measuring before
+scaling. Landed as `scripts/cluster-backlog.ts` / `npm run cluster:backlog` — bounded (`--limit` ≤200),
+`--days 45`, `--kind` to aim a batch, `--dry-run`, printing every join with both titles and the
+acceptance number (events with ≥2 publishers) before and after, failing loudly on any model call.
+
+**Measured live, two real news batches:** backlog 7–45 days **14,657 (4,034 news, 10,090 research)**;
+batch 1 100 considered → 8 joined, batch 2 100 → 10 joined, all *cross-outlet paraphrase*, none looking
+false; 0 grouped, 0 failed, 0 model calls, ~40 s each; **events with ≥2 publishers 152 → 152** — the
+joins land on events that already had two outlets, so the acceptance number has not moved yet. Whether
+that is the corpus or `publisher_count` lagging the analysis pass is the open question now before the
+arbiter; the window change is deliberately **not** applied. Also recorded: a `--dry-run` cannot see a
+pair whose articles are *both* unclustered, so its zero-join runs are not evidence about the backlog.
+Checklist: [docs/reader-quality-10-of-10.md](reader-quality-10-of-10.md). Record:
+[decisions/reader-delivery.md](decisions/reader-delivery.md#ruling-12--the-significance-lines-missing-input-2026-10-18-and-what-the-drain-measured).
+
+**Ruling #12a followed (2026-10-18).** The chain attach → `metadata_dirty` (migration 0102's trigger) →
+`analyse` → `finalizeMetadata` rewriting `publisher_count` was verified **in the implementation first**,
+as the ruling required, and then exercised: `analyse --limit 10` ran 10 events, **0 model calls, 0
+tokens**, 7 s, and the acceptance number did not move — **events with ≥2 publishers 152 → 152**, because
+all 18 drain joins landed on events already at ≥2 publishers. The drain also added **182 new
+single-article events** (queue now 8,960 pending, 7,608 dirty) for no coverage gain. The arbiter's own
+table names this row "analysis refreshes publisher counts, but the metrics do not improve", pointing at
+the corpus rather than the pipeline; the source-reactivation experiment is the next ruling to seek, and
+the window change is still not applied to the database.

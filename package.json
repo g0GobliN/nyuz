@@ -62,7 +62,8 @@
     "diagnostic:composition": "node --env-file=.env scripts/tsrun.mjs scripts/reader-composition-diagnostic.ts",
     "audit:posture": "node --env-file=.env scripts/tsrun.mjs scripts/product-posture.ts",
     "audit:backlog": "node --env-file=.env scripts/tsrun.mjs scripts/backlog-attribution.ts",
-    "audit:matching": "node --env-file=.env scripts/tsrun.mjs scripts/reader-matching-cause.ts"
+    "audit:matching": "node --env-file=.env scripts/tsrun.mjs scripts/reader-matching-cause.ts",
+    "cluster:backlog": "node --env-file=.env scripts/tsrun.mjs scripts/cluster-backlog.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"
