@@ -52,6 +52,12 @@
  *      rung cannot claim it. Money is claimed only when the same sentence says
  *      what the money is doing (see `MONEY_AT_STAKE`): a price tag is not
  *      significance, and the arbiter ruled it out on 2026-10-08.
+ *
+ *      Between the consequence and the figure sits **the binding change**
+ *      (2026-10-18): a sentence from the story's own stored evidence that says
+ *      what a change requires or allows, and when it starts — the one shape a
+ *      code-only product can print as significance without inferring it. See
+ *      `bindingLine`.
  *   5. **The coverage count.** How many independent outlets carried it.
  *      Multi-source only, because "one publisher" is the absence of a fact.
  *      This is the provenance band: weaker than a fact about the story, and
@@ -118,6 +124,8 @@
  * numbers that the event's own stored fields contain.
  */
 
+import { rankEntities, readerSentences } from "@/lib/reader-evidence";
+
 const NUMBER_WORDS = [
   "",
   "One",
@@ -172,7 +180,15 @@ export type InclusionInput = {
 export type InclusionReason = {
   text: string;
   /** Which rung produced it, for the pipeline report and for tests. */
-  source: "stored" | "change" | "after-state" | "consequence" | "figure" | "coverage" | "none";
+  source:
+    | "stored"
+    | "change"
+    | "after-state"
+    | "consequence"
+    | "binding"
+    | "figure"
+    | "coverage"
+    | "none";
 };
 
 /**
@@ -327,6 +343,139 @@ export function consequenceLine(evidence: readonly string[] | undefined): string
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// The binding change — what a rule now requires, and when it starts
+// ---------------------------------------------------------------------------
+
+/**
+ * The one shape the stored evidence can prove that answers "why does this
+ * matter" without inventing anything: a sentence that says what changed for a
+ * party, and — where the story says so — when it starts.
+ *
+ * Measured 2026-10-18 on the live corpus (3,570 enriched article-evidence rows,
+ * `npm run audit:binding`), against three shapes that were rejected:
+ *
+ * | shape | hits | defensible |
+ * | --- | --- | --- |
+ * | any change-of-state verb, entity-guarded (the 2026-10-17 attempt) | 432 | ~1 in 5 |
+ * | an effective date alone | 39 | ~3 in 5 |
+ * | this: an effective start **and** a verb that changes what a party may do, or the story's own instrument imposing a duty | 5 | **5 of 5** |
+ *
+ * The discarded hits are the reason for the guards: a change verb inside a
+ * relative clause defines a class ("care plans, which mandate support for
+ * conditions such as …"), a dated reporting frame is when the story was *told*
+ * ("Ivanti said on October 13 …"), a launch date is availability
+ * ("will launch on October 13th starting at $349"), and a spec sheet, a review
+ * score and a newsletter's own furniture are not significance at all. Precision
+ * is the whole point of this rung: the arbiter's rule is that a generic or
+ * misleading line is worse than silence, and every widening measured worse than
+ * this one.
+ */
+const BINDING_START =
+  /\b(?:takes? effect|took effect|go(?:es)? into effect|went into effect|kick(?:s|ed|ing) in|effective (?:on|from|as of)|starting (?:on|from)\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept|Sep|Oct|Nov|Dec|\d{1,2}(?:st|nd|rd|th)))/i;
+/**
+ * What the change does to a party: requires, forbids, limits, allows.
+ *
+ * The apostrophe is matched in both forms — the live Meta sentence that this
+ * rung exists for writes its refusal as “won’t allow”, and a straight `'` in the
+ * rule silently missed it.
+ */
+const BINDING_CHANGE =
+  /\b(?:requir(?:es|e|ed)|mandates?|mandatory|prohibits?|bans?|banned|bars?|blocks?|restricts?|restricted|limits?|limited|no longer|must|will have to|won[’']t allow|will not allow|not allowed|can use|may use|allowed to|permitted to|will be able to|applies to)\b/i;
+/** A change inside a relative clause defines a class; it binds nobody. */
+const BINDING_RELATIVE =
+  /\b(?:which|that)\s+(?:mandate|requires?|limit|limits|ban|bans|restricts?|prohibits?)\b/i;
+/**
+ * An authority's own instrument — the subject that can impose a duty.
+ *
+ * "order" and "terms" were in the first draft and are gone: they matched "in
+ * order to …" (the leap-second card) and "these terms" in a sentence with no
+ * duty in it at all. "act" survives only capitalised, because "the EU AI Act"
+ * is an instrument and "act on it" is a verb.
+ */
+const INSTRUMENT =
+  /\b(?:directions?|rules?|regulation[s]?|guidelines?|law|advisory|requirements?|mandates?)\b/i;
+const CAPITALISED_ACT = /\bAct\b/;
+const IMPOSES = /\b(?:require[sd]?|mandates?|obliges?|must|will have to)\b/i;
+const QUESTION_SHAPE = /\?\s*$/u;
+const OPENS_ON_QUOTE = /^["\u201c]/u;
+const FIRST_PERSON = /\b(?:I|we|our|my|us)\b/iu;
+const SOURCE_FURNITURE =
+  /\b(?:AD:|photograph|image:|credit:|newsletter|subscribe|sign up|%\s*off|offer|promo|discount|preorder|available for preorder|shipping)\b/iu;
+/**
+ * History reads like a change and is not one: "halted production in 2011", "has
+ * passed several gun safety measures in recent years". Both were live hits this
+ * rung would otherwise have printed.
+ */
+const RETROSPECTIVE =
+  /\b(?:ago\b|last year|previously|recently|in recent\s+(?:years|months|weeks)|in (?:19|20)\d{2}\b|since (?:19|20)\d{2}\b|this day)\b/i;
+/** A date in a reporting frame is when the story was told, not when it binds. */
+const REPORTING_FRAME =
+  /\b(?:said|says|told|reported|reports|announced|confirmed|revealed|noted)\s+on\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/iu;
+const LAUNCH_TALK =
+  /\b(?:will launch|launch(?:es|ed)? on|available (?:on|from)|goes on sale|releases? on)\b/i;
+const CLAUSE_OPENER =
+  /^(?:and|but|or|which|that|while|although|though|because|so|then|also|still|however|whereas)\b/i;
+
+/** Whether a candidate sentence is the story's own statement at all. */
+function standsAlone(text: string): boolean {
+  return (
+    !QUESTION_SHAPE.test(text) &&
+    !OPENS_ON_QUOTE.test(text) &&
+    !CLAUSE_OPENER.test(text) &&
+    !FIRST_PERSON.test(text) &&
+    !SOURCE_FURNITURE.test(text) &&
+    !RETROSPECTIVE.test(text) &&
+    !REPORTING_FRAME.test(text) &&
+    !LAUNCH_TALK.test(text)
+  );
+}
+
+/**
+ * The first stored-evidence sentence that binds a party, or null.
+ *
+ * Two shapes, both the story's own words:
+ *
+ * - **the effective change** — when it starts and what it does ("The ban, which
+ *   went into effect on Thursday, restricts ads and paid marketing messages from
+ *   ByteDance …", "Starting on October 9th, anyone using Google Gemini on a free
+ *   plan will be limited to the Flash Lite model.");
+ * - **the story's own instrument** — the subject the event is about imposing a
+ *   duty ("CERT-In's directions also require organizations to report cyber
+ *   incidents to the agency within 6 hours.").
+ *
+ * Exported so a read-only instrument counts the same predicate the ladder runs,
+ * which is the failure mode that made three earlier censuses disagree with
+ * production.
+ */
+export function bindingLine(input: {
+  evidence: readonly string[] | undefined;
+  /** The event's own top-ranked names, from `rankEntities`. */
+  names: readonly string[];
+}): string | null {
+  for (const unit of input.evidence ?? []) {
+    for (const part of readerSentences(unit)) {
+      const text = sentence(part);
+      if (text === null || !standsAlone(text)) continue;
+      if (BINDING_START.test(text) && BINDING_CHANGE.test(text) && !BINDING_RELATIVE.test(text))
+        return text;
+      // The relative-clause guard applies to both shapes: a duty inside one
+      // describes a class of thing ("care plans, which mandate support for …"),
+      // which is a definition rather than a change.
+      if (BINDING_RELATIVE.test(text)) continue;
+      const binds = input.names.some(
+        (name) =>
+          name.trim() !== "" &&
+          (text.startsWith(name) || text.startsWith(`${name}'s `)) &&
+          (INSTRUMENT.test(text) || CAPITALISED_ACT.test(text)) &&
+          IMPOSES.test(text),
+      );
+      if (binds) return text;
+    }
+  }
+  return null;
+}
+
 /** The sentence the match sits in, terminators included. */
 function sentenceAround(text: string, index: number, length: number): string {
   const before = text.slice(0, index);
@@ -358,6 +507,30 @@ function moneyFigure(text: string): string | null {
   // silence is the better answer for both.
   if (!MONEY_AT_STAKE.test(sentenceAround(text, match.index, match[0].length))) return null;
   return raw;
+}
+
+/**
+ * The event's own top-ranked names, from the inputs the ladder already has.
+ *
+ * `rankEntities` is the composer's own ranker, so the ladder cannot disagree with
+ * the article about who the story is about — and no caller has to pass a new
+ * field for the one rung that reads them. Rebuilt per call rather than cached:
+ * the ladder runs once per story at generation and once per card on the read
+ * path, and a cache keyed on a few sentences would cost more than it saves.
+ */
+function storyNames(input: InclusionInput): string[] {
+  const paragraph = (input.whatHappened ?? "").trim();
+  return rankEntities(input.title ?? "", [
+    {
+      name: "",
+      ...(paragraph === "" ? {} : { excerpt: paragraph }),
+      enrichedEvidence: (input.evidence ?? []).map((text) => ({ kind: "unit", text })),
+    },
+  ])
+    .filter((entity) => entity.role !== "REPORTING_SOURCE")
+    .slice(0, 3)
+    .map((entity) => entity.name)
+    .filter((name) => name.trim() !== "");
 }
 
 /** The headline first, then the briefing paragraph — lead facts lead. */
@@ -421,6 +594,13 @@ export function reasonFor(input: InclusionInput): InclusionReason {
   // only that a number exists.
   const consequence = consequenceLine(input.evidence);
   if (consequence !== null) candidates.push({ text: consequence, source: "consequence" });
+
+  // The binding change: a stored sentence that says what a rule now requires or
+  // allows, and when it starts. Below a money consequence, above a bare figure —
+  // it states a consequence where "the story carries a figure" states only that
+  // a number exists.
+  const binding = bindingLine({ evidence: input.evidence, names: storyNames(input) });
+  if (binding !== null) candidates.push({ text: binding, source: "binding" });
 
   const figure = figureLine(input.title, input.whatHappened);
   if (figure !== null) candidates.push({ text: figure, source: "figure" });

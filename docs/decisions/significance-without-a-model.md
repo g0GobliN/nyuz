@@ -94,10 +94,72 @@ Acceptance criteria, and where each one lands:
 
 **Release condition, verified.** Replaying the same reader's pool after the change: the same **5**
 cards are eligible, each has a factual `what_happened` and a provenance note, and none renders an
-empty or fabricated block — because none renders the block.
+empty or fabricated block — because none renders the block.**Scope note.** The ruling names *the card*. The email and push channels still carry the ladder's line when one exists (dormant: email is off until launch, and the alert digest reuses the stored line). They render nothing when it is empty, so they satisfy criterion 1 as they stand; this change is the dashboard card the reader actually opens. `digest_items.why_it_matters` and `reasonFor` are kept, so a deterministic source can bring the slot back without a migration.
 
-**Scope note.** The ruling names *the card*. The email and push channels still carry the ladder's
-line when one exists (dormant: email is off until launch, and the alert digest reuses the stored
-line). They render nothing when it is empty, so they satisfy criterion 1 as they stand; this change
-is the dashboard card the reader actually opens. `digest_items.why_it_matters` and `reasonFor` are
-kept, so a deterministic source can bring the slot back without a migration.
+---
+
+## The binding change: the one shape that measured precise (landed 2026-10-18)
+
+**The gap this closes.** With the composer clean, the reader's briefing still shipped **5 cards and
+0 significance lines** — `ships with no why-line 5/5` in `scripts/briefing-preview.ts`. The three
+strongest rungs are empty by policy (`stored impact 0/33`, `after-state 0/33`), the cards are
+single-source (`multi-source 0/5` so the coverage rung cannot fire), and the 2026-10-17 negative
+result below is about *widening* the ladder: a change-of-state verb guarded by the event's primary
+entity measured 20/400 at ~50% precision.
+
+**What was measured this time, and rejected.** Four shapes, each run over the whole live corpus of
+enriched evidence (3,570 `article_evidence` rows, 3,455 events; every hit printed and read by hand):
+
+| shape | hits | defensible |
+| --- | --- | --- |
+| any change-of-state verb, entity-guarded | 432 | ~1 in 5 |
+| an effective-date sentence alone | 39 | ~3 in 5 |
+| an effective start **and** a verb that changes what a party may do | 15 | ~1 in 2 |
+| **that, tightened into the shipped rule** | **5** | **5 of 5** |
+
+The rejected hits are the guards, one by one: a change verb inside a relative clause defines a class
+(*"care plans, which mandate support for conditions such as …"*), a dated reporting frame is when the
+story was *told* (*"Ivanti said on October 13 …"*), a launch date is availability (*"will launch on
+October 13th starting at $349"*), a retrospective is history (*"halted production in 2011"*, *"has
+passed several gun safety measures in recent years"*), a newsletter's own offer is furniture, and a
+spec sheet, a review score and a price are not significance at all.
+
+**The shipped rule** (`bindingLine`, `src/lib/pipeline/inclusion.ts`), between the money consequence
+and the bare figure, because it states a consequence where "the story carries a $X figure" states
+only that a number exists. It prints the story's **own evidence sentence**, unchanged, when it is
+one of two shapes:
+
+- **the effective change** — when it starts and what it does: *"The ban, which went into effect on
+  Thursday, restricts ads and paid marketing messages from ByteDance …"*; *"Kicking in on October 30,
+  the TOS update won’t allow businesses to opt out …"*;
+- **the story's own instrument** — the subject the event is about imposing a duty: *"CERT-In's
+  directions also require organizations to report cyber incidents to the agency within 6 hours."*
+
+No new schema, no model call, no new input: the rung reads the evidence and title the ladder already
+receives, and it derives the story's own names with `rankEntities` — the composer's ranker, so the
+ladder cannot disagree with the article about who the story is about. Exported (`bindingLine`) and
+censused by `scripts/reader-binding-census.ts`, which runs `reasonFor` rather than the predicate, so
+an instrument and production cannot drift apart.
+
+**Measured on the live pool after the change** (`npm run briefing-preview`, 2026-10-18):
+`ships with no why-line` **5/5 → 3/5**, `rungs: none 4, binding 2`, `distinct why-lines 3/5`. The two
+lines are the Meta terms card and the CERT-In advisory, both printed above. **The remainder is named
+per card**, not left as a number: the preview now prints why each silent card is silent — *"no stored
+impact; no after-state; one publisher; 12 evidence units, none stating what a change binds or when it
+starts"* for both RTX Spark cards, and the same with 4 units for the Meta clarification card. Three
+cards whose stored material is a specification, a launch event or a clarification have nothing a
+code-only product can honestly say, and they ship unlined.
+
+**Tests** (`src/lib/pipeline/inclusion.test.ts`, 33 in the file): the round-trip that a change and its
+start date produce the line and the rung is `binding`; the instrument shape; **a card that must still
+ship unlined** (both RTX cards' real evidence — spec sheet, price, launch party — asserted to
+`{ text: "", source: "none" }`); the three live near-misses refused (relative clause, reporting
+frame, launch date); and the ordering that money at stake still outranks it. Fail-before evidence:
+with the rung's candidate removed from `reasonFor`, *"prints what a change binds, and when it
+starts"* fails (`1 failed | 32 skipped`), and passes with it restored.
+
+**What this does not claim.** The line reaches the reader through the surfaces that render
+`why_it_matters` — the briefing page and, when email is on, the email; the dashboard card still
+renders no significance block (the 2026-10-17 ruling stands, because the rung cannot explain most
+cards). The yield is low by design: 5 events of 3,455 with enriched evidence, because precision is
+the bar and every wider shape measured worse.

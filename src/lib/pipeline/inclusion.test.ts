@@ -337,6 +337,109 @@ describe("reasonFor", () => {
     expect(bare.text).toBe("");
   });
 
+  it("prints what a change binds, and when it starts", () => {
+    // The live card this rung exists for (2026-10-18): a Meta terms change whose
+    // stored evidence says what it does and when it starts. The apostrophe in
+    // "won’t allow" is the document's own, and the first draft of the rule missed
+    // exactly this sentence because it wrote a straight one.
+    const reason = reasonFor({
+      sourceCount: 1,
+      title: "Meta may use sweeping new commercial TOS to avoid millions in AI licensing fees",
+      whatHappened:
+        "As Nieman Lab reported Thursday, this will affect all business accounts but is particularly shocking for news publishers who could perhaps charge Meta millions in licensing fees to continually access their articles for AI training.",
+      evidence: [
+        "Kicking in on October 30, the TOS update won’t allow businesses to opt out, instead suggesting that businesses stop using Meta services if they won’t agree to let Meta bots freely crawl their linked content.",
+      ],
+    });
+    expect(reason.source).toBe("binding");
+    expect(reason.text).toContain("won’t allow businesses to opt out");
+  });
+
+  it("prints the duty the story's own instrument imposes", () => {
+    // The CERT-In card: the advisory's own directions state a deadline the reader
+    // can act on, and the paragraph never says it. Nothing is inferred — the
+    // sentence is the story's own evidence, printed as it stands.
+    const reason = reasonFor({
+      sourceCount: 1,
+      title:
+        "CERT-In Warns AI Agents Accessed Sensitive Data at Indian Organizations During Testing",
+      whatHappened:
+        "AI agents being tested online reached the live systems of Indian organizations and read business records, including personal data and confidential material, CERT-In said in an advisory on October 15.",
+      evidence: [
+        "CERT-In did not name the AI companies, their models, or the organizations and sectors involved.",
+        "CERT-In's directions also require organizations to report cyber incidents to the agency within 6 hours.",
+      ],
+    });
+    expect(reason.source).toBe("binding");
+    expect(reason.text).toBe(
+      "CERT-In's directions also require organizations to report cyber incidents to the agency within 6 hours.",
+    );
+  });
+
+  it("stays silent when the evidence carries a spec sheet, a price and a party", () => {
+    // The two RTX Spark cards, verbatim from the live corpus: every stored unit is
+    // a specification, a price, a launch event or a review opinion, and none of
+    // them answers "why does this matter". Silence is the honest line here, and
+    // this is the case that must keep shipping unlined.
+    const reason = reasonFor({
+      sourceCount: 1,
+      title: "RTX Spark Ignites Global Celebration as New Windows PCs Arrive",
+      whatHappened:
+        "NVIDIA RTX Spark laptops are now available, bringing NVIDIA Blackwell RTX graphics, up to 128GB of unified memory and the full NVIDIA AI platform to slim, premium Windows PCs.",
+      evidence: [
+        "Developers and AI enthusiasts can explore NVIDIA-tested recipes, playbooks and resources for running local AI on RTX Spark.",
+        "Berlin held one of six RTX Spark retail launch celebrations worldwide.",
+        "The arrival of RTX Spark brought fans, creators and PC enthusiasts together in Berlin during the Festival of Lights.",
+        "Starting at $2,399, laptops from ASUS, Dell, HP, Lenovo, Microsoft and MSI bring powerful local AI, content creation and gaming capabilities to a portable device.",
+      ],
+    });
+    expect(reason).toEqual({ text: "", source: "none" });
+    expect(hasStorySpecificLine(reason.text)).toBe(false);
+  });
+
+  it("refuses a change that defines a class, a reporting date, and a launch date", () => {
+    // Three live near-misses, each one printed by a looser draft of this rule and
+    // each one filler: a mandate inside a relative clause, a date in a reporting
+    // frame, and availability dressed as a change.
+    const clause = reasonFor({
+      sourceCount: 1,
+      title: "English councils warn of ‘catastrophic’ Send debts forecast to hit £10bn by 2028",
+      evidence: [
+        "Education, health and care plans (EHCPs), which mandate support for conditions such as speech and learning difficulties, autism or ADHD, are rising.",
+      ],
+    });
+    expect(clause.text).toBe("");
+
+    const frame = reasonFor({
+      sourceCount: 1,
+      title: "Ivanti patches Connect Secure zero-day after researchers confirm in-the-wild attacks",
+      evidence: ["Ivanti said on October 13 that it is aware of limited exploitation in the wild."],
+    });
+    expect(frame.text).toBe("");
+
+    const launch = reasonFor({
+      sourceCount: 1,
+      title: "Meta Connect 2026: The 7 biggest announcements",
+      evidence: [
+        "The Ray-Ban Meta Audio will launch on October 13th starting at $349 with 23 different color and lens combinations.",
+      ],
+    });
+    expect(launch.text).toBe("");
+  });
+
+  it("never lets a binding change outrank money the outcome turns on", () => {
+    const money = reasonFor({
+      sourceCount: 1,
+      title: "Publisher sues over training data",
+      whatHappened: "The publisher argues its articles were used without a licence.",
+      evidence: [
+        "Starting on October 30, the new terms will require business accounts to allow training.",
+        "In a filing on Thursday, the publisher asks for damages of more than $250 million.",
+      ],
+    });
+    expect(money.source).toBe("consequence");
+  });
+
   it("never lets a consequence outrank the stored impact, and still gates what", () => {
     const stored = reasonFor({
       storedImpact: "It sets the price every model builder now has to pay for news.",

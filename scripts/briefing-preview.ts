@@ -341,10 +341,25 @@ main(async () => {
     say(
       row(
         "  ",
-        "the card renders a headline and no explanation; the rungs that could explain these are AI-written and off",
+        "the card renders a headline and no explanation; each remainder names the input that is missing",
         110,
       ),
     );
-    for (const brief of silent) say(row(" ", `[no-line] ${brief.title.slice(0, 84)}`, 110));
+    for (const brief of silent) {
+      // The reason, per card, read from the same inputs the ladder was handed — a
+      // remainder is a measurement, not a shrug. Nothing here is inferred about
+      // the story: it names which rung could not fire and why.
+      const absent: string[] = [];
+      if ((brief.storedImpact ?? "").trim() === "") absent.push("no stored impact");
+      if ((brief.afterState ?? "").trim() === "") absent.push("no after-state");
+      if (brief.sourceCount < 2) absent.push("one publisher");
+      absent.push(
+        brief.evidence.length === 0
+          ? "no stored evidence to read"
+          : `${brief.evidence.length} evidence units, none stating what a change binds or when it starts`,
+      );
+      say(row(" ", `[no-line] ${brief.title.slice(0, 84)}`, 110));
+      say(row(" ", `          because: ${absent.join("; ")}`, 110));
+    }
   }
 });
