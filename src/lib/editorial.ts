@@ -10,6 +10,9 @@ import {
   antecedentSupplied,
   contextDependent,
   deterministicFactType,
+  documentOpening,
+  openingEstablishedOnPage,
+  pageReferentKind,
   editorialNoise,
   hasPredicate,
   headingUnit,
@@ -318,6 +321,24 @@ export type CompositionDiagnostics = {
         predecessorOrder: number;
       }[];
     };
+    /**
+     * Body blocks whose opening sentence asks the page for a reference, and what
+     * the page answered.
+     *
+     * The arbiter's ruling #7 (2026-10-17, Q2) is that a body block may open on a
+     * reference only when the page above it carries that reference, and the ruling
+     * asks for the accounting by hand as well as the count: which blocks were
+     * asked about, which kept their sentence because the page establishes it, and
+     * which lost theirs because it does not. `samples` is that list, one entry per
+     * block, so the number can be read against the prose.
+     */
+    pageOpenings: {
+      asked: number;
+      kept: number;
+      refused: number;
+      /** `kept` or `refused`, then the opening, clipped by `keepSample`. */
+      samples: string[];
+    };
     /** Sentences holding more than one quoted passage. */
     stackedQuoteWarnings: number;
     /** Double spaces repaired before publication. */
@@ -580,6 +601,7 @@ function createDiagnostics(): CompositionDiagnostics {
       sourceSeamWarnings: 0,
       unresolvedContextWarnings: 0,
       adjacencyRepairs: { count: 0, samples: [] },
+      pageOpenings: { asked: 0, kept: 0, refused: 0, samples: [] },
       stackedQuoteWarnings: 0,
       spacingRepairs: 0,
       deckRefusals: 0,
@@ -2086,6 +2108,90 @@ function deterministicParagraphs(
 }
 
 /**
+ * A body block may not open on a reference the page above it never establishes.
+ *
+ * The arbiter's ruling #7 (2026-10-17, Q2, option 1). The deck boundary has had
+ * this rule since 2026-10-10 -- the deck has no block before it, so its opening
+ * has to stand alone -- and the body boundary was left to the adjacency path,
+ * which repairs a dependent fact when the source's own predecessor is published
+ * directly in front of it. What that path cannot see is a *page*: it decides per
+ * fact, before any block is placed, so a sentence whose referent the reader's
+ * page never carries could still open a paragraph. Measured on the live
+ * 250-event pool the day this was ruled: 8 of 1,049 published blocks did exactly
+ * that (`That maneuver needed specialized hardware ...`, `Those in need get
+ * financial aid for their care.`, `The report models three growth trajectories
+ * ...` and five more).
+ *
+ * Read here, after every block that will be published exists and in published
+ * order, so the "page" is literal: the title the reader sees, the deck, and the
+ * paragraphs already above this one. A block that keeps its opening does so
+ * because its referent is up there, not because a later paragraph happens to
+ * mention it -- the reader moves forwards only.
+ *
+ * The refusal is a sentence, never a story. Dropping the opening sentence can
+ * take a block under the paragraph floor, and that block is then dropped whole
+ * with its facts charged to `short_block`, exactly as a thin block always is; a
+ * story whose body is emptied by this is withheld by the same `unbriefable` rung
+ * that withholds any other body-less story, and a story with paragraphs left
+ * publishes them (the ruling's condition: sentence failure is not story
+ * failure).
+ */
+function refuseUnestablishedOpenings(
+  article: { deck: { text: string }; paragraphs: ArticleParagraph[] },
+  title: string,
+  diagnostics: CompositionDiagnostics,
+  ledger: FactLedger,
+): void {
+  let page = [title, article.deck.text]
+    .filter((part) => part !== "")
+    .join(" ")
+    .trim();
+  const kept: ArticleParagraph[] = [];
+  for (const block of article.paragraphs) {
+    let text = block.text.trim();
+    let stripped = false;
+    while (text !== "") {
+      const opening = readerSentences(text)[0];
+      if (opening === undefined) break;
+      const asksAboutThePage =
+        (unresolvedContextOpening(opening) || documentOpening(opening) !== null) &&
+        pageReferentKind(opening) !== null;
+      if (!asksAboutThePage) break;
+      const established = openingEstablishedOnPage(opening, page);
+      diagnostics.qualityGate.pageOpenings.asked += 1;
+      diagnostics.qualityGate.pageOpenings[established ? "kept" : "refused"] += 1;
+      keepSample(
+        diagnostics.qualityGate.pageOpenings.samples,
+        opening,
+        established ? "the page establishes it" : "refused",
+      );
+      if (established) break;
+      const rest = readerSentences(text).slice(1).join(" ");
+      diagnostics.qualityGate.unresolvedContextWarnings += 1;
+      markSentence(ledger, opening, "unresolved_context");
+      refuseBlock(opening, "unresolved_context", diagnostics);
+      text = rest;
+      stripped = true;
+    }
+    if (text === "") continue;
+    // The floor is applied to a block this pass *shortened*, and only then: a
+    // block it never touched belongs to the passes that built it, and dropping
+    // one here would take its facts away from the rule that was about to account
+    // for them (measured on the Bun story: the raw-URL reason disappeared from
+    // the diagnostics when this pass dropped an untouched block instead).
+    if (stripped && countWords(text) < MIN_PARAGRAPH_WORDS) {
+      markSentence(ledger, text, "short_block");
+      refuseBlock(text, "short_block", diagnostics);
+      continue;
+    }
+    page = `${page} ${text}`.trim();
+    kept.push({ ...block, text });
+  }
+  article.paragraphs.length = 0;
+  article.paragraphs.push(...kept);
+}
+
+/**
  * The published sentence for one fact, or null when it cannot be published.
  *
  * The sentence the reader would get is the one that has to be valid. An
@@ -3154,6 +3260,8 @@ export function composeArticleWithDiagnostics(story: Story): {
     }
     paragraphs.length = 0;
     paragraphs.push(...capped, ...related);
+    // The page, read in the order the reader reads it.
+    refuseUnestablishedOpenings({ deck, paragraphs }, story.title, diagnostics, ledger);
     const gated = qualityGate({ deck, paragraphs }, story.title, diagnostics, ledger);
     // After the gate, because the gate reads each block as the composer wrote
     // it. Removing a repeated attribution can only shorten a sentence, never

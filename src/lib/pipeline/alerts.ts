@@ -547,7 +547,7 @@ async function loadEvents(db: Db, eventIds: string[]): Promise<Map<string, Alert
   // the one the reader's page composes would refuse prose that exists.
   const { data: coverage, error: coverageError } = await db
     .from("articles")
-    .select("event_id, source_id, title, excerpt, sources ( name, kind )")
+    .select("event_id, source_id, title, excerpt, url, sources ( name, kind )")
     .in("event_id", eventIds);
   if (coverageError) throw new Error(`reading alert coverage: ${coverageError.message}`);
 
@@ -570,6 +570,9 @@ async function loadEvents(db: Db, eventIds: string[]): Promise<Map<string, Alert
       name: (row.sources as { name?: string } | null)?.name ?? "Unattributed",
       ...(row.title ? { headline: row.title } : {}),
       ...(row.excerpt ? { excerpt: row.excerpt } : {}),
+      // Carried for the paid-content rung (ruling #7): a gate shown no URL cannot
+      // see that every outlet behind an alert is paid, and would send it.
+      ...(row.url ? { url: row.url } : {}),
     });
     evidence.set(eventId, sourceList);
   }

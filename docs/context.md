@@ -1256,7 +1256,40 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   analysis piece). The floor's own design is one measured narrow class at a time, so these are a
   question for the arbiter/owner, not a patch to slip in.
 
+- **2026-10-17 — ruling #7: paid-content pages, page openings, and a welded subhead.** Three reader
+  defects went to the arbiter together, each measured first. **Q1, paid content:** *"NTT Global Data
+  Centers weighs the price tag of not building fast enough"* was the worst case — every word of it a
+  vendor's sponsored page under a title that reads like reporting. Measured over all stored coverage
+  (2026-10-18): **48,151 articles**, **36** in a publisher's paid lane, **29 events of 21,863** whose
+  every coverage URL is paid, and **five of those 29 already in a digest** — three briefings (two sent)
+  and **two alerts, both sent**. Ruling: refuse at readiness as `paid-content`, all-or-nothing on the
+  URLs. **Q2, page openings:** **8 of 1,049** published blocks opened on a reference the page never
+  established (`That maneuver needed specialized hardware …`, `Those in need get financial aid …`, `The
+  report models three growth trajectories …`). Ruling: judge each block against title, deck and the
+  paragraphs above; withhold the sentence, not the story. **Q3, welded subhead:** *"The misconceptions
+  that stall projects Two objections come up …"* — the seam guard now strips a relative clause before
+  its verb test. **Landed** in `paid-content.ts`, `readiness.ts`, `reader-evidence.ts`,
+  `editorial.ts`, with the URL threaded through `ReaderSource`, `loadBriefs` and the alert `loadEvents`.
+  **Measured after** (`npm run audit:reader`, 250 live events, 2026-10-18): body openings **14 asked, 8
+  kept, 6 refused**; `context-dependent openings 0`; **`delivered with no body` 0** and **`refused then
+  published` 0** (was **1**); cost **one** story withheld (5 → 6) while stories publishing a body rose
+  43 → 40 publishing nothing (i.e. three more publish). The first run of the page rule refused **five
+  readable singular-pronoun openings** (`He created celld …`, `However, it also stated, …`); the judged
+  kinds were narrowed to plural / demonstrative / document and the case is pinned in a test.
+  `npm run audit:alerts`: **2 of 218** alerts now read **`gate paid-content`**, the two advertorials, and
+  no other alert changes class. Full record:
+  [decisions/paid-content-and-page-openings.md](decisions/paid-content-and-page-openings.md).
+
 ## 7. What is next
+
+**2026-10-18: the composer's page is clean on every must-be-zero line; what is left is the pool the
+composer is handed.** Ruling #7 closed the last three measured published defects (paid-content pages,
+unestablished page openings, the welded subhead), and `audit:reader` now prints `delivered with no body
+0`, `refused then published 0`, and zero reader-visible defects on the 250-event live window. The
+largest remaining gap is no longer prose: **40 of 250 stories publish nothing**, and the corpus is
+single-source for most of them (the demand-driven collection gap above). The next slice therefore works
+upstream — coverage and clustering — and the composer's remaining named classes (`a fused table published
+as prose`, `animate anaphora`) stay listed below until a rule can be measured for them.
 
 **2026-10-17, last: the programme-page question is ruled and landed; what is left of the composer's
 published defects is smaller and named.** The ruling is

@@ -2203,7 +2203,7 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   // outlet's worth of corroboration, and the inclusion line says "independent".
   const { data: coverage, error: coverageError } = await db
     .from("articles")
-    .select("id, event_id, source_id, title, excerpt, sources ( name, kind )")
+    .select("id, event_id, source_id, title, excerpt, url, sources ( name, kind )")
     .in("event_id", ids);
   if (coverageError) throw new Error(`reading coverage: ${coverageError.message}`);
 
@@ -2268,6 +2268,9 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
       name: (row.sources as { name?: string } | null)?.name ?? "Unattributed",
       ...(row.title ? { headline: row.title } : {}),
       ...(row.excerpt ? { excerpt: row.excerpt } : {}),
+      // The article's own URL, for the paid-content rung: the lane a publisher
+      // files under is the one thing the prose never says about itself.
+      ...(row.url ? { url: row.url } : {}),
     });
     evidence.set(row.event_id, sourceList);
   }

@@ -145,6 +145,8 @@ type Totals = {
    * composer's own record, and every one printed with both sentences.
    */
   adjacencyRepairs: number;
+  /** Body openings judged against the page (arbiter ruling #7, Q2). */
+  pageOpenings: { asked: number; kept: number; refused: number };
   doubleSpace: number;
   doubleQuotes: number;
   bareQuoteSentence: number;
@@ -196,6 +198,7 @@ function emptyTotals(): Totals {
     unresolvedContext: 0,
     connectorPronoun: 0,
     adjacencyRepairs: 0,
+    pageOpenings: { asked: 0, kept: 0, refused: 0 },
     doubleSpace: 0,
     doubleQuotes: 0,
     bareQuoteSentence: 0,
@@ -416,6 +419,8 @@ main(async () => {
   const openingUnresolved: string[] = [];
   /** One row per source-adjacency repair: both sentences and the outcome. */
   const adjacencyRepairRows: string[] = [];
+  /** One row per body opening the page rule judged, with the page's answer. */
+  const pageOpeningRows: string[] = [];
   /**
    * Every block that opens on a quotation, with the evidence that decides whether
    * it is a defect -- see `quoteOpeningEvidence`, which is where the definition
@@ -736,6 +741,16 @@ main(async () => {
       totals.connectorPronoun += 1;
       connectorOpenings.push(`${event.title} · ${block}`);
     }
+    // The page rule of 2026-10-17 (arbiter ruling #7, Q2): every body block whose
+    // opening asked the page for a reference, and what the page answered. Kept
+    // separate from the document-identity repair above because the question is
+    // different -- that one repairs an opening, this one decides whether the
+    // sentence may open at all.
+    totals.pageOpenings.asked += diagnostics.qualityGate.pageOpenings.asked;
+    totals.pageOpenings.kept += diagnostics.qualityGate.pageOpenings.kept;
+    totals.pageOpenings.refused += diagnostics.qualityGate.pageOpenings.refused;
+    for (const sample of diagnostics.qualityGate.pageOpenings.samples)
+      pageOpeningRows.push(`${event.title} · ${sample}`);
     for (const sample of diagnostics.qualityGate.openingReferences.samples)
       openingRepairs.push(`${event.title} · ${sample}`);
     for (const text of diagnostics.qualityGate.openingReferences.unresolved)
@@ -845,13 +860,21 @@ main(async () => {
   // next decision is made on pages rather than on a number.
   say(row("  of those, a pronoun behind a connector", totals.connectorPronoun));
   for (const entry of connectorOpenings) say(`    ${clip(entry, 240)}`);
-  // The opening reference, as the composer itself judged it: moved in front when the
-  // block named the document, preserved and recorded when nothing did.
+  // The body-boundary half of the same contract, ruled 2026-10-17 (#7, Q2): a
+  // block whose opening asks the page for a reference may only open on it when
+  // the deck and the paragraphs above carry it. Asked/kept/refused, with the
+  // openings themselves, so the number can be read against the prose.
+  say(row("body openings judged against the page", totals.pageOpenings.asked));
+  say(row("  kept, the page establishes them", totals.pageOpenings.kept));
+  say(row("  refused, it does not", totals.pageOpenings.refused));
+  for (const entry of pageOpeningRows) say(`  ${clip(entry, 400)}`);
   // The ranked path's own repair, kept apart from the document-identity one on
   // purpose: the arbiter asked for this outcome to be identifiable as a
   // source-adjacency repair, not folded into the other class's number.
   say(row("source-adjacency repairs (ranked body path)", totals.adjacencyRepairs));
   for (const entry of adjacencyRepairRows) say(`  ${clip(entry, 700)}`);
+  // The opening reference, as the composer itself judged it: moved in front when the
+  // block named the document, preserved and recorded when nothing did.
   say(row("opening references repaired (title moved in front)", openingRepairs.length));
   for (const entry of openingRepairs) say(`  ${clip(entry, 400)}`);
   say(

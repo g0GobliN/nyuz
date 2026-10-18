@@ -33,6 +33,7 @@
 
 import { composeFromSources } from "../editorial";
 import { selectReaderEvidence, type ReaderSource } from "../reader-evidence";
+import { isPaidContentUrl } from "./paid-content";
 
 export type ArtifactKind =
   | "empty"
@@ -45,6 +46,7 @@ export type ArtifactKind =
   | "quote"
   | "primary-source"
   | "transcript"
+  | "paid-content"
   | "unbriefable";
 
 export type ReadinessVerdict =
@@ -531,6 +533,26 @@ export function assessReadiness(input: {
   // withhold one story the ruling never asked to withhold. Criterion 3 of that
   // ruling left the deck-only contract exactly as it was, so the arithmetic is
   // untouched and only the new condition comes from the composition.
+  // Paid content, before the briefability rung and before anything is composed:
+  // a vendor's advertorial is not a development to explain, and no amount of
+  // readable prose changes what the reader is being handed. The arbiter's ruling
+  // #7 (2026-10-17, Q1, option 1), narrowed to what was measured -- **every**
+  // coverage URL is paid content. A story an outlet both reported and sold space
+  // around is a news story with an advert beside it, so one paid URL among a
+  // story's coverage does not refuse it. Read off the URL because that is the
+  // lane the publisher files under; the title of the measured story reads exactly
+  // like a reported feature.
+  if (input.sources !== undefined && input.sources.length > 0) {
+    const urls = input.sources.map((source) => source.url).filter((url) => url !== undefined);
+    if (urls.length === input.sources.length && urls.every((url) => isPaidContentUrl(url))) {
+      return {
+        ready: false,
+        kind: "paid-content",
+        reason: "every source URL is the publisher's paid-content lane",
+      };
+    }
+  }
+
   if (input.sources !== undefined) {
     const { composedFactCount } = selectReaderEvidence(title, input.sources);
     if (composedFactCount < MIN_BODY_FACTS) {

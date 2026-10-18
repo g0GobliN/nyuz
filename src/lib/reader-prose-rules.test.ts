@@ -12,6 +12,7 @@ import {
   cleanDeterministicSentence,
   contextDependent,
   digestSource,
+  documentOpening,
   editorialNoise,
   hasPredicate,
   headingUnit,
@@ -20,6 +21,8 @@ import {
   normalizeReaderSources,
   normalizeRelativeTime,
   normalizeReportFraming,
+  openingEstablishedOnPage,
+  pageReferentKind,
   publisherFurniture,
   readerSentences,
   resolveNarrator,
@@ -285,6 +288,114 @@ describe("publisher furniture never becomes an article sentence", () => {
       expect(sourcingNote(text), text).toBe(false);
       expect(unitTextRejection(text, false), text).toBeNull();
     }
+  });
+
+  it("keeps a sentence unless the page it is published on carries its reference", () => {
+    // The arbiter's ruling #7 (2026-10-17, Q2): a body block may open on a
+    // reference only when the deck and the paragraphs above it establish it. The
+    // measured NTT block is the case that produced the rule; the rest are the
+    // controls the ruling asked for.
+    const report =
+      "The report models three growth trajectories through 2030 and stress-tests each against the constraints operators hit.";
+    expect(documentOpening(report)).toBe("report");
+    expect(openingEstablishedOnPage(report, "Global data centers weigh the price tag.")).toBe(
+      false,
+    );
+    expect(
+      openingEstablishedOnPage(
+        report,
+        "NTT published a report on its European build-out this week.",
+      ),
+    ).toBe(true);
+    expect(
+      openingEstablishedOnPage(
+        "The document, titled Analysis of Ukraine's Energy, Housing and Utilities Sectors, does not specify which agency wrote it.",
+        "Power plant attacks reflect a Russian blueprint.",
+      ),
+    ).toBe(true);
+
+    const demonstratives = [
+      "This follows an investigation the regulator started back in May.",
+      "These constitute non-delivery scams, according to the complaint centre.",
+      "Those in need get financial aid for their care.",
+      "This largely fizzled out with the watchdog securing undertakings from Microsoft.",
+    ];
+    for (const opening of demonstratives) {
+      expect(
+        openingEstablishedOnPage(opening, "A page about something else entirely."),
+        opening,
+      ).toBe(false);
+    }
+    // Established forms: the group or the noun is on the page above, which is the
+    // only evidence this rule accepts.
+    expect(
+      openingEstablishedOnPage(
+        "Those manufacturers now employ 40,000 people across the state.",
+        "Major Taiwanese manufacturers announced three plants in Ohio this year.",
+      ),
+    ).toBe(true);
+    expect(
+      openingEstablishedOnPage(
+        "That maneuver needed specialized hardware along with a glitch chip.",
+        "The console's nine-year journey began with a maneuver nobody had tried.",
+      ),
+    ).toBe(true);
+    expect(openingEstablishedOnPage("They also rely on smaller suppliers.", "")).toBe(false);
+  });
+
+  it("does not take a fact for a reference it cannot judge", () => {
+    // The first measured run of the page rule (250 events, 2026-10-17) refused
+    // five readable openings, all of them singular pronouns the page test had no
+    // way to answer for -- *"He created celld as an implementation that could be
+    // hosted anywhere ..."*, *"However, it also stated, 'Our long-term objective
+    // is a Windows platform that doesn't need NTLM at all.'"*, *"He was also at
+    // pains to point out that the reverts were not down to 'vibe coding' ..."*.
+    // A rule that cannot answer the question must not answer it anyway, so these
+    // are outside the judged kinds and the composer never asks about them.
+    for (const opening of [
+      "He created celld as an implementation that could be hosted anywhere.",
+      'However, it also stated, "Our long-term objective is a platform without NTLM."',
+      "He was also at pains to point out that the reverts were not down to vibe coding.",
+      "It also said the update would ship in October.",
+      "Ramp to the accelerated case and the figure climbs to $5.7 trillion.",
+    ]) {
+      expect(pageReferentKind(opening), opening).toBeNull();
+      expect(
+        openingEstablishedOnPage(opening, "A page about something else entirely."),
+        opening,
+      ).toBe(true);
+    }
+    // The judged kinds are unchanged, so the rule still refuses the measured defect.
+    expect(pageReferentKind("Those in need get financial aid.")).toEqual({
+      kind: "demonstrative",
+      noun: "in",
+    });
+  });
+
+  it("refuses a sentence-cased subhead whose only verb is inside a relative clause", () => {
+    // The measured unit of 2026-10-17 (the NTT story's third paragraph), and the
+    // ruling #7 answer to it: the seam rule already refuses this class, and the
+    // guard that reads a noun as a verb ("selection" off `select`) was passing a
+    // head whose only verb sits inside a relative clause.
+    const welded =
+      "The misconceptions that stall projects Two objections come up in almost every community consultation, according to Berti: data centers waste water, and they steal power from the grid.";
+    expect(sourceSeam(welded)).not.toBeNull();
+    expect(unitTextRejection(welded, false)).toBe("invalid_sentence");
+    // Controls: a real sentence that contains a relative clause, and the two
+    // seams the rule was built for, which keep being refused.
+    expect(
+      sourceSeam("The law that Congress passed last year takes effect in January."),
+    ).toBeNull();
+    expect(
+      sourceSeam(
+        "Model selection Some frontier models impose security guardrails on their outputs, according to GitHub.",
+      ),
+    ).not.toBeNull();
+    expect(
+      sourceSeam(
+        "The architecture in one minute Before getting into the interesting parts, it helps to know how the pieces fit together.",
+      ),
+    ).not.toBeNull();
   });
 
   it("refuses a source's own typo that puts a pronoun-noun in a verb slot", () => {
@@ -789,6 +900,10 @@ describe("a source block seam is refused, not cut into a sentence", () => {
   });
 });
 
+/** A sentence that names what the cases below open on, so the page carries it. */
+const PAGE_CONTEXT =
+  "The company shipped the release on Tuesday, and its systems updated the same day.";
+
 describe("a source's capitalisation is kept unless its construction proves the word", () => {
   it("keeps the capital of a name that opens on a function word", () => {
     // The frozen corpus published NPR's "All Things Considered host Mary Louise
@@ -809,7 +924,14 @@ describe("a source's capitalisation is kept unless its construction proves the w
     "European regulators opened a consultation on the rule.",
     "The Register published the analysis on its own site.",
   ])("leaves %s as the source wrote it", (sentence) => {
-    expect(composedText(sentence)).toContain(sentence);
+    // The page context is part of the fixture now, and for a reason that is not
+    // about capitalisation: two of these sentences open on `This release` and
+    // `These systems`, and since 2026-10-17 (arbiter ruling #7, Q2) a body block
+    // may only open on a reference the page above it carries. A single sentence
+    // on its own page is exactly the case that rule refuses, so the fixture
+    // carries the sentence in front of it -- what this test is about, the
+    // source's own capital, is unchanged.
+    expect(composedText(`${PAGE_CONTEXT} ${sentence}`)).toContain(sentence);
   });
 
   it("still lowers the conjunction the reported clause matched", () => {

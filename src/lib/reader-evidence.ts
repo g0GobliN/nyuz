@@ -18,6 +18,16 @@ export type ReaderSource = {
   name?: string | undefined;
   headline?: string | undefined;
   excerpt?: string | undefined;
+  /**
+   * The article's own URL, when the caller has it.
+   *
+   * One rung reads it -- the paid-content refusal in `readiness.ts`, whose ruling
+   * #7 (2026-10-17) is that a story is paid content only when *every* coverage URL
+   * is paid content. Optional, because the audit scripts build sources from the
+   * stored excerpts alone and a rung that guessed at a missing URL would refuse
+   * news the reader can read.
+   */
+  url?: string | undefined;
   enrichedEvidence?:
     { kind: string; text: string; attribution?: string; entities?: string[] }[] | undefined;
 };
@@ -529,7 +539,21 @@ function sentenceCasedHeadingSeam(text: string): string | null {
     // `VERB_FORM` rather than `hasPredicate`: the stem list behind the latter
     // reads a noun as a verb ("selection" off `select`), and a subhead is exactly
     // a noun phrase -- "Model selection" must not be treated as a clause.
-    const headText = head.join(" ").replace(/\bto\s+\w+/gi, "");
+    //
+    // The one gap that guard left was closed on 2026-10-17 (arbiter ruling #7,
+    // Q3), with the measured unit: "The misconceptions that stall projects Two
+    // objections come up in almost every community consultation, according to
+    // Berti ..." reached a reader as a run-on with a capital mid-sentence,
+    // because the head's only verb form sits *inside a relative clause*. A
+    // relative clause is part of a noun phrase, not a clause of its own, so it is
+    // removed before the verb test -- the relative pronoun and everything after
+    // it, which is exactly the shape that slipped through. The six-word bound
+    // above still holds the head to a subhead's length, so prose that merely
+    // contains a relative clause is not swept up.
+    const headText = head
+      .join(" ")
+      .replace(/\b(?:that|which|who)\s+\S+(?:\s+\S+)*$/i, "")
+      .replace(/\bto\s+\w+/gi, "");
     if (VERB_FORM.test(headText)) continue;
     if (!hasPredicate(tokens.slice(index).join(" "))) continue;
     return `${head.join(" ")} ${tokens[index]}`;
@@ -1352,6 +1376,152 @@ const NOT_A_REFERENT = new Set(
     " ",
   ),
 );
+
+/**
+ * Whether a body sentence may open on this reference, given what the page has
+ * already published above it.
+ *
+ * The arbiter's ruling #7 (2026-10-17, Q2, option 1): the deck and every earlier
+ * published paragraph are the reader's context, and a body block that opens on a
+ * reference the page never establishes is a sentence the story cannot keep. Read
+ * at the composer, on the page's own order, so it is the same question the
+ * reader's eye asks.
+ *
+ * Measured on the live 250-event pool the day it was ruled: **8 of 1,049
+ * published blocks** opened on a dependent reference with nothing on the page to
+ * resolve it -- `That maneuver needed specialized hardware ...`, `Those in need
+ * get financial aid for their care.`, `These constitute non-delivery scams ...`,
+ * `This follows an investigation ...`, `This largely fizzled out ...`, `The result
+ * is that Brave users ...`, `This was followed by Open Source Security ...`, and
+ * the document opening below. Each published block that keeps its sentence does
+ * so on this test, not on the composer's own opinion of it.
+ *
+ * Conservative by construction, because refusing a readable sentence costs a
+ * fact: only the two shapes the rules already name (`contextDependent` openings
+ * and a document opening) are ever asked about, a plural or a named noun
+ * anywhere above is enough to keep the sentence, and a sentence that carries no
+ * reference at all is never asked about in the first place.
+ *
+ * The referent kinds this rule can answer are the ones `pageReferentKind` names.
+ * A singular pronoun is deliberately not one of them: the first measured run
+ * (250 events, 2026-10-17) refused *"He created celld as an implementation that
+ * could be hosted anywhere ..."* and *"However, it also stated, 'Our long-term
+ * objective is ...'"*, both readable, because the page test knew only how to look
+ * for a plural noun. A rule that cannot answer a question of its own making must
+ * not take a fact for it, so an opening outside the judged kinds counts as
+ * established here -- and the composer never asks about it at all.
+ */
+export function openingEstablishedOnPage(opening: string, page: string): boolean {
+  const text = page.trim();
+  const kind = pageReferentKind(opening);
+  if (kind === null) return true;
+  if (text === "") return false;
+  if (kind.kind === "document") {
+    // "The document, titled Analysis of Ukraine's Energy ... does not specify
+    // which Russian agency developed the assessment" names its own referent, so
+    // it is readable wherever it is published; the live NTT block (`The report
+    // models three growth trajectories ...`) does not, and nothing above it on
+    // the page names a report either.
+    return mentionsNoun(text, kind.noun) || NAMES_ITS_OWN_DOCUMENT.test(opening);
+  }
+  if (kind.kind === "plural") return pageNamesAPlural(text);
+  // A demonstrative that no noun follows is the defect: `Those in need get
+  // financial aid for their care.` asks the page for a group it never named, and
+  // reading `in` as the noun would answer with a preposition every page contains.
+  if (kind.noun === "" || NOT_A_REFERENT.has(kind.noun) || PAGE_TESTS_FOR_A_NOUN.has(kind.noun))
+    return false;
+  return mentionsNoun(text, kind.noun);
+}
+
+/**
+ * The reference kind an opening can be judged on, or null when this rule cannot
+ * answer for it.
+ *
+ * Exported so the composer asks exactly the questions the page test can answer.
+ * Three kinds and no more: a plural pronoun (agreement decides it), a
+ * demonstrative that heads a noun (the noun is the evidence), and the article's
+ * own document (the page either names a report or it does not). A singular
+ * pronoun is resolved by the narrator rules, not here.
+ */
+export function pageReferentKind(
+  opening: string,
+): { kind: "plural" } | { kind: "demonstrative" | "document"; noun: string } | null {
+  const document = documentOpening(opening);
+  if (document) return { kind: "document", noun: document };
+  const match = OPENING_REFERENT.exec(opening.trim());
+  const head = (match?.[1] ?? "").toLowerCase();
+  if (PLURAL_PRONOUN_OPENING.has(head)) return { kind: "plural" };
+  if (!DEMONSTRATIVE_OPENING.has(head)) return null;
+  // The noun may be a function word (`Those in need`); that is the caller's
+  // refusal to make, not an absence of a question.
+  return { kind: "demonstrative", noun: (match?.[2] ?? "").toLowerCase() };
+}
+
+/**
+ * Words after a demonstrative that cannot be the noun it points at.
+ *
+ * `Those in need get financial aid for their care.` was live on 2026-10-17, and
+ * without this set the referent reads as `in` -- which every page contains, so
+ * the sentence would have kept its place on evidence that says nothing. The
+ * prepositions, the particles and the copulas: what is left after them is either
+ * a real noun or the sentence is asking for a reference it does not name.
+ */
+const PAGE_TESTS_FOR_A_NOUN = new Set(
+  "in on at of to for with by from as into over under during after before since until about against between through without within across behind beyond who which that what".split(
+    " ",
+  ),
+);
+
+/**
+ * The reference a block-opening sentence starts on, as the antecedent rules read
+ * it: the head word, then the noun that follows a demonstrative.
+ */
+const OPENING_REFERENT = /^([\p{L}]+)(?:\s+(?:new\s+)?([\p{L}]+))?/u;
+
+/**
+ * A body block that opens on the article's own document: `The report models ...`.
+ *
+ * The class is narrower than "a definite noun phrase", which was measured first
+ * and rejected: 20 of 816 published blocks open on one whose noun the page never
+ * repeats (`The release is currently in public preview ...`, `The device also
+ * includes physical buttons ...`, `The company's selection of India's Skyroot
+ * ...`), and every one of those is readable -- the noun is the paragraph's own
+ * subject. The measured document class is 2 of 816: the NTT block above, and one
+ * that names its document in an appositive and is therefore readable.
+ */
+const DOCUMENT_OPENING =
+  /^The\s+(report|study|survey|analysis|filing|paper|document|letter|memo|assessment|review|index|forecast|brief)\b/i;
+
+/** `The document, titled Analysis of Ukraine's Energy ...` -- self-establishing. */
+const NAMES_ITS_OWN_DOCUMENT =
+  /,\s*(?:which\s+)?(?:is\s+|was\s+)?(?:titled|published|released|dated|written|prepared|tabled|seen|obtained|issued)\b/i;
+
+/** The document noun this sentence opens on, or null. */
+export function documentOpening(text: string): string | null {
+  const match = DOCUMENT_OPENING.exec(text.trim());
+  return match?.[1] ? match[1].toLowerCase() : null;
+}
+
+/**
+ * Whether the page names a plural noun anywhere above.
+ *
+ * Deliberately the weaker of the two plural tests in this file. The subject test
+ * (`pluralNounPhrase`) answers "does this sentence continue that group", which is
+ * the right question for admitting a *new* sentence behind a predecessor and the
+ * wrong one for the page: a page whose second paragraph already reads "Major
+ * Taiwanese companies are ... However, they also rely on ..." has supplied the
+ * group, and the sentence right behind it must not be refused for want of the
+ * same phrase again.
+ */
+function pageNamesAPlural(page: string): boolean {
+  for (const token of page.match(/[\p{L}][\p{L}'’-]*/gu) ?? []) {
+    const word = token.replace(/['’]s$/u, "").replace(/[’'-]s$/u, "s");
+    if (!/[a-z]s$/u.test(word) || word.length < 4 || word.endsWith("ss")) continue;
+    if (NOT_PLURAL.has(word.toLowerCase())) continue;
+    return true;
+  }
+  return false;
+}
 
 /**
  * Whether a sentence names the noun, singular or plural.

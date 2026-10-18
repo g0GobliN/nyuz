@@ -9,6 +9,89 @@ import { assessReadiness, marketingShape } from "./readiness";
  * the thin ones, because a gate that drops short real news trades visible junk
  * for invisible misses.
  */
+describe("assessReadiness refuses paid content, and only when it is all of it", () => {
+  // The arbiter's ruling #7 (2026-10-17, Q1, option 1). The measured case was live
+  // in the reader's pool that day: "NTT Global Data Centers weighs the price tag of
+  // not building fast enough", whose only coverage URL is The Register's sponsored
+  // lane (36 of the 48,151 stored articles carry these shapes on 2026-10-18, and
+  // 29 events are all-paid, five of which had reached a digest). The title reads
+  // like a reported feature, which is why nothing title-shaped could see it.
+  const SPONSORED =
+    "https://www.theregister.com/ai-and-ml/2026/10/16/sponsored-global-data-centers-weighs-the-price-tag-of-not-bui";
+
+  it("refuses a story whose every coverage URL is paid content", () => {
+    const verdict = assessReadiness({
+      title: "NTT Global Data Centers weighs the price tag of not building fast enough",
+      whatHappened:
+        "The report models three growth trajectories through 2030 and stress-tests each against the constraints operators hit.",
+      sourceCount: 1,
+      sources: [
+        {
+          name: "The Register",
+          url: SPONSORED,
+          excerpt:
+            "The report models three growth trajectories through 2030 and stress-tests each against the constraints operators hit.",
+        },
+      ],
+    });
+    expect(verdict.ready).toBe(false);
+    if (!verdict.ready) {
+      expect(verdict.kind).toBe("paid-content");
+      expect(verdict.reason).toContain("paid-content lane");
+    }
+  });
+
+  it("keeps a story an outlet both reported and sold space around", () => {
+    // The ruling's condition: one paid URL among a story's coverage does not
+    // refuse it. The reported piece below is the same Register section and the
+    // same day, without the sponsored lane.
+    const verdict = assessReadiness({
+      title: "UK nuclear plant delays its first power date",
+      whatHappened:
+        "The plant will start generating in 2029 rather than 2028, the operator said on Thursday.",
+      sourceCount: 2,
+      sources: [
+        {
+          name: "The Register",
+          url: SPONSORED,
+          excerpt:
+            "The plant will start generating in 2029 rather than 2028, the operator said on Thursday, citing supply-chain delays. Ministers said the delay would push the site's first phase back by a year.",
+        },
+        {
+          name: "BBC News",
+          url: "https://www.bbc.co.uk/news/articles/ckg1xyz",
+          excerpt:
+            "The plant will start generating in 2029 rather than 2028, the operator said on Thursday, citing supply-chain delays. Ministers said the delay would push the site's first phase back by a year.",
+        },
+      ],
+    });
+    expect(verdict.ready).toBe(true);
+  });
+
+  it("keeps a story whose sources carry no URL at all", () => {
+    // The audit scripts build sources from stored excerpts alone, and a rung that
+    // guessed at a missing URL would refuse news the reader can read.
+    const verdict = assessReadiness({
+      title: "Regulator fines a broker for mishandling client orders",
+      whatHappened: "The regulator fined the broker 12 million euros on Friday.",
+      sourceCount: 2,
+      sources: [
+        {
+          name: "Reuters",
+          excerpt:
+            "The regulator fined the broker 12 million euros on Friday over the way it routed client orders. The firm said it would appeal the decision, which it called disproportionate.",
+        },
+        {
+          name: "Bloomberg",
+          excerpt:
+            "The regulator fined the broker 12 million euros on Friday over the way it routed client orders. The firm said it would appeal the decision, which it called disproportionate.",
+        },
+      ],
+    });
+    expect(verdict.ready).toBe(true);
+  });
+});
+
 describe("assessReadiness", () => {
   it("refuses a vendor benefit pitch from a company blog", () => {
     // Cloudflare blog, 2026-10-02. A feature advert aimed at the reader's own

@@ -339,6 +339,87 @@ describe("composeArticle", () => {
     expect(diagnostics.facts.lost).toBe(0);
   });
 
+  describe("a body block may not open on a reference the page never establishes", () => {
+    /** The measured NTT block: nothing above it on the page names a report. */
+    const NTT_BLOCK =
+      "The report models three growth trajectories through 2030 and stress-tests each against the constraints operators hit, such as land availability, water consumption and specialized labor.";
+
+    it("refuses a document opening the page never names", () => {
+      const story = makeStory({
+        title: "Global data centers weigh the price tag of not building fast enough",
+        what: "",
+        sources: 1,
+        sourceList: [
+          {
+            name: "The Register",
+            at: "10:00",
+            url: "https://theregister.com",
+            excerpt: `${NTT_BLOCK} Operators said the middle scenario projects about 23 percent annual demand growth across the sector.`,
+          },
+        ],
+      });
+
+      const { article, diagnostics } = composeArticleWithDiagnostics(story);
+      expect(article.deck.text).not.toMatch(/^the report\b/i);
+      expect(article.paragraphs.some((p) => /^the report\b/i.test(p.text))).toBe(false);
+      expect(diagnostics.qualityGate.pageOpenings.refused).toBeGreaterThan(0);
+      expect(diagnostics.qualityGate.pageOpenings.asked).toBeGreaterThan(0);
+    });
+
+    it("keeps the same sentence when the page itself names the report", () => {
+      const story = makeStory({
+        title: "NTT's report puts a price on moving too slowly",
+        what: "",
+        sources: 1,
+        sourceList: [
+          {
+            name: "The Register",
+            at: "10:00",
+            url: "https://theregister.com",
+            excerpt: `NTT Global Data Centers published a report on its own build-out plans in Europe this week, and the numbers are large. ${NTT_BLOCK} Operators said the middle scenario projects about 23 percent annual demand growth across the sector.`,
+          },
+        ],
+      });
+
+      const { article, diagnostics } = composeArticleWithDiagnostics(story);
+      const published = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+      expect(published).toContain("three growth trajectories");
+      expect(diagnostics.qualityGate.pageOpenings.refused).toBe(0);
+    });
+
+    it("keeps a demonstrative opening the page already carries", () => {
+      // The control for the same rule: "Those manufacturers ..." is readable
+      // because the page names them above it, so the sentence keeps its place and
+      // the pass records that it was asked and answered.
+      const story = makeStory({
+        title: "Manufacturers announce three plants in Ohio",
+        what: "",
+        sources: 2,
+        sourceList: [
+          {
+            name: "Source One",
+            at: "10:00",
+            url: "https://one.com",
+            excerpt:
+              "Major Taiwanese manufacturers announced three plants in Ohio this year, according to the state's development office.",
+          },
+          {
+            name: "Source Two",
+            at: "11:00",
+            url: "https://two.com",
+            excerpt:
+              "Those manufacturers now employ 40,000 people across the state, the office said in its annual filing.",
+          },
+        ],
+      });
+
+      const { article, diagnostics } = composeArticleWithDiagnostics(story);
+      const published = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+      expect(published).toContain("manufacturers");
+      expect(diagnostics.qualityGate.pageOpenings.refused).toBe(0);
+    });
+  });
+
   it("publishes no deck at all when every fact needs an antecedent", () => {
     // The withheld branch of the same rule. Withholding is the composer's half:
     // it refuses the deck and charges the facts to the rule, and the gate reads
