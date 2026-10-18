@@ -3363,3 +3363,75 @@ paraphrase with no shared long token — but it would not manufacture a pair tha
 lacks sufficient qualifying pairs → submit source reactivation as a separate, explicitly budgeted
 experiment*. That request is with the arbiter now (the 26 dormant sources, the measured fetch volume, and
 the free-plan ceiling stated). **No further drain, no window change, no source re-enable has been made.**
+
+## Ruling #12c — the source-reactivation experiment, ruled and baselined (2026-10-18)
+
+**What was asked.** Ruling #12b's third decision condition (*the joins are valid and the sampled news
+backlog lacks sufficient qualifying pairs → submit source reactivation as a separate, explicitly
+budgeted experiment*) was put to the arbiter as request #13, with the cost stated: the 26 sources the
+demand gate withholds, the measured precedent that lifting the gate once fetched all 79 sources and
+inserted **407 articles the reader would otherwise never see**, the queues that would grow (8,960
+pending, 7,608 metadata-dirty at the time), 152 of 12,256 multi-publisher events, and no model calls.
+
+**The ruling, quoted** (ChatGPT `nyuz` project, 2026-10-18):
+
+> *Option 2: Reactivate eight complementary UK/US general-news sources for a bounded 30-day
+> experiment.* … *Approved. Reactivate exactly the selected eight sources while leaving the demand
+> gate enabled for the other 18 dormant sources.* … *Do not flip `demand_driven_sources` globally.
+> That would expand the experiment beyond the ruling.* … *#12c stands. Implement the bounded
+> experiment with the eight sources selected by your stated criteria, per-source exemptions, and the
+> three acceptance conditions above. Do not widen the source pool or weaken the significance
+> requirement during the experiment.*
+
+**The three acceptance conditions**, all three required:
+
+| criterion | requirement |
+| --- | --- |
+| coverage | events with ≥2 publishers exceed the baseline |
+| significance | at least one **future delivered** briefing item carries a valid, story-specific line from a rung **other than coverage** |
+| pipeline | `briefing:checkpoint` reads a non-zero ladder, and the qualifying line traces to stored evidence |
+
+The arbiter added: *"A higher publisher count is necessary evidence that the experiment is improving
+coverage, but it is not sufficient evidence that the briefing is improving."* And a fourth
+instruction — **record the baseline before enabling anything**, "a defensible before-and-after
+comparison rather than relying on recollection or changing measurements".
+
+**The baseline, measured 2026-10-18 with `npm run baseline:sources`** (read-only):
+
+| measure | value |
+| --- | --- |
+| active sources | 79 |
+| collected (core, or demand inside the 72 h grace) | 53 |
+| **withheld by the demand gate** | **26** — every one `demand` coverage, `no demand for 49 days` |
+| complete events | 12,296 |
+| events with ≥2 publishers (acceptance baseline) | **153** |
+| ladder over the newest 60 live events | none 56 · coverage 2 · binding 1 · consequence 1 |
+| withhold preview, delivered briefing | **0 of 13 items would survive** (`npm run briefing:withhold-preview`) |
+
+Two corrections to the figures the ruling was given, recorded so a later session does not re-derive
+them: the gate's own rule (`sources_to_collect(72)`, core-or-wanted) answers 26 withheld — the earlier
+"26 dormant" happened to be right, but a `last_fetched_at` date heuristic read 7 on the same day and
+would have under-selected; and the multi-publisher baseline is **153**, not 152 (one event crossed the
+threshold between the drain and this run).
+
+**The eight, selected by the ruling's criteria** (complementary UK/US general news that co-cover,
+distinct publishers, no two feeds from one publisher):
+
+| # | source | why it is in the set | co-covers with |
+| --- | --- | --- | --- |
+| 1 | BBC Politics | UK politics, the pair most likely to break the same story | Guardian Politics |
+| 2 | The Guardian Politics | the same beat from a different publisher | BBC Politics |
+| 3 | BBC Health | health, UK | NPR Health |
+| 4 | NPR Health | health, US | BBC Health |
+| 5 | BBC Science | science | Guardian Environment |
+| 6 | The Guardian Environment | climate and environment | BBC Science |
+| 7 | Wired | US technology and its consequences | Engadget |
+| 8 | Engadget | US consumer technology | Wired |
+
+Four publishers, four beats, each beat carried by two outlets — the shape the coverage rung needs.
+**Not yet implemented:** the per-source exemption is a schema change (an auditable, reversible column
+or a settings list) plus the ingest gate reading it, so it lands as its own slice; the ruling's own
+order is baseline first, which is now recorded. `demand_driven_sources` stays on.
+
+**Status:** ruled (#12c), baselined, and not started. The 45-day window change remains unapplied; no
+source is re-enabled; no archive was touched.

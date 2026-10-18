@@ -26,10 +26,10 @@ goal is unfinished.
 
 | item | state | how it was measured |
 | --- | --- | --- |
-| 1. Delivery | contract landed and deployed; the delivered briefing that exists predates it (`FAIL 6 / 13`, 7 defects) | `npm run audit:delivered-line` |
-| 2. Significance | **fails**: `ladder now: none 13`, 12 of 13 items silent, 1 stored line kept verbatim | `npm run briefing:checkpoint` |
-| 3. Other surfaces | **unmeasured** | — |
-| 4. Alerts | not assessed since the pool changed | `npm run audit:alerts` (exists) |
+| 1. Delivery | contract landed and deployed; the delivered briefing that exists predates it (`FAIL 6 / 13`, 7 defects; `13/13` if built now) | `npm run audit:delivered-line` |
+| 2. Significance | **fails**: `ladder now: none 13`, 12 of 13 items silent, 1 stored line kept verbatim; under the withhold rule **0 of 13 items would survive** | `npm run briefing:checkpoint`, `npm run briefing:withhold-preview` |
+| 3. Other surfaces | **measured, green**: feed `57/57` card lines admitted by the shared boundary (3 gated off before the card), archive `14/14`, 0 defects — but ruling #11's contract is *not* enforced there: `9/57` and `7/14` card lines equal their page opening (counterfactual, not enforced) | `npm run audit:surfaces` |
+| 4. Alerts | **measured, green**: 2 stories would fire, 8 withheld by the readiness gate (3 newsletter, 5 single-source research), 0 firing while a gate refuses it; 49 more withheld earlier in the funnel (28 no reader matched, 14 already alerted, 7 outside the flash window) | `npm run audit:alerts-gate` |
 
 ## Why item 2 fails, exactly
 
@@ -84,15 +84,30 @@ has no partners to find. That is the arbiter's own third condition, and the open
 one: **a separately budgeted source-reactivation experiment**, or a smaller briefing where every item is
 explained. Nothing in this item is blocked on code.
 
+## The four commands, and what they answered on 2026-10-18
+
+```
+npm run audit:delivered-line     FAIL 6 / 13   (built before ruling #11; 13/13 if built now)   exit 1
+npm run briefing:checkpoint      ladder now: none 13; stored equals the ladder 0/13              exit 0
+npm run audit:surfaces           PASS  feed 57/57 · archive 14/14 · alerts 2/2 (8 withheld)      exit 0
+npm run audit:alerts-gate        PASS  2 would fire, 8 withheld by a gate, 0 firing unfairly       exit 0
+```
+
+`briefing:withhold-preview` is the fifth, and it is deliberately not a check: it measures the rule
+that has not been ruled on. Its last line today is **`0 of 13 items would reach a reader`** — every
+item is silent for the same two causes (no stored impact, no before/after state), 8 of 13 also lack
+the evidence the binding rung reads, and all 13 have one publisher. That is why withholding cannot
+ship: the briefing would be empty, and the arbiter's #12 already ruled the option premature.
+
 ## The order to work in
 
-1. Wait for ruling #12; land the smallest slice matching it (the SQL/report change is a bounded edit to
-   `priority_articles_to_cluster` plus a bounded drain loop), then re-read `ladder now:`.
-2. Whatever that ruling says about single-source stories, the acceptance is item 2 above: a line, or no
-   item. A briefing of three explained stories beats thirteen silent ones.
-3. Instrument the other surfaces (item 3) with the same shape as `audit:delivered-line`: one verdict
-   line, exit status as the check.
-4. Re-read the alert side (item 4).
+1. **Implement ruling #12c** (ruled 2026-10-18, per-source exemption for eight sources, 30 days,
+   three acceptance conditions, baseline recorded in `docs/decisions/reader-delivery.md`). That is the
+   only unblocked route to item 2: the significance rung needs a second outlet per story, and the
+   corpus has been measured to lack one.
+2. Re-read `ladder now:` after the experiment's first window; the acceptance is item 2 above.
+3. Items 1, 3 and 4 are now instruments with exit statuses — keep them green rather than re-deriving
+   them. Tonight's 22:30Z build is what turns item 1 from `FAIL 6 / 13` into `PASS 13/13`.
 
 ## What must not be broken while doing it
 

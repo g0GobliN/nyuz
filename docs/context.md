@@ -2331,3 +2331,38 @@ deforestation). The bounded backlog probe (40 unclustered news articles, ±48h, 
 found **0 eligible cross-outlet pairs**, so the newest backlog lacks the material rather than the rules
 missing it. That is the arbiter's third condition: **source reactivation as a separate, budgeted
 experiment** — put to it now. No drain, no window change, no source change was made.
+
+**The two missing checklist commands landed, and ruling #12c came back ruled (2026-10-18, evening).**
+The done-list in [reader-quality-10-of-10.md](reader-quality-10-of-10.md) named four commands whose exit
+status is the check; items 3 and 4 had none. Both now exist, shaped like `audit:delivered-line` — one
+population per run, one class per row, every non-agree row printed with the gate that refused it and the
+point in the text where it parts from the bar, one verdict line, non-zero exit on a defect or on zero
+comparable rows:
+
+- `npm run audit:surfaces` (`scripts/reader-surface-audit.ts`) — the feed, the archive and the alert
+  channel, each readable alone with `--feed` / `--archive` / `--alerts`. Measured: **PASS feed 57/57,
+  archive 14/14, alerts 2/2 with 8 withheld by the readiness gate, 0 defects**. It also reports ruling
+  #11's contract as a counterfactual at those surfaces (**9/57** and **7/14** card lines equal their page
+  opening) and does not enforce it, because extending #11 to the feed is a ruling, not a repair.
+- `npm run audit:alerts-gate` — the same instrument on the alert population alone, which is the "gate
+  line read against the current pool" the checklist asked for. `npm run audit:alerts` stays the deep
+  report and still exits 0 by design.
+- `npm run briefing:withhold-preview` (`scripts/briefing-withhold-preview.ts`) — a measurement, not a
+  rule: what the delivered briefing would contain if an unexplained story were withheld. **0 of 13 items
+  would survive**, all silent for the same causes (no stored impact, no before/after state; 8 also lack
+  the evidence the binding rung reads; all 13 have one publisher). That is the number the option-4
+  question turned on, and it is why withholding cannot ship.
+- `npm run baseline:sources` (`scripts/source-experiment-baseline.ts`) — ruling #12c's own instruction
+  to record the baseline before enabling anything: 79 active sources, **26 withheld by the gate
+  (`sources_to_collect(72)`, all "no demand for 49 days")**, 12,296 complete events, **153 with ≥2
+  publishers** (the baseline, not 152), ladder over the newest 60 live events = none 56 · coverage 2 ·
+  binding 1 · consequence 1.
+
+**Ruling #12c is ruled and not started.** The arbiter approved option 2: **eight** complementary UK/US
+general-news sources, per-source exemptions with the global `demand_driven_sources` flag left on, a
+bounded 30-day window, three acceptance conditions (coverage above baseline; ≥1 future delivered item
+with a non-coverage rung line; `briefing:checkpoint` non-zero and traceable). The eight are selected and
+recorded in [decisions/reader-delivery.md](decisions/reader-delivery.md#ruling-12c--the-source-reactivation-experiment-ruled-and-baselined-2026-10-18)
+(BBC Politics + Guardian Politics, BBC Health + NPR Health, BBC Science + Guardian Environment, Wired +
+Engadget). The exemption itself is a schema-plus-ingest slice and is the next work; nothing was enabled,
+the 45-day window is still unapplied, no archive was touched, and there were no model calls.
