@@ -51,6 +51,7 @@
     "audit:rungs": "node --env-file=.env scripts/tsrun.mjs scripts/reader-rung-availability.ts",
     "audit:fusion": "node --env-file=.env scripts/tsrun.mjs scripts/reader-fusion-sample.ts",
     "reenrich:fusions": "node --env-file=.env scripts/tsrun.mjs scripts/reader-reenrich-fusions.ts",
+    "repair:welded-headings": "node --env-file=.env scripts/tsrun.mjs scripts/repair-welded-headings.ts",
     "eval:corpus": "node --env-file=.env scripts/tsrun.mjs scripts/reader-eval-corpus.ts",
     "audit:enrichment": "node --env-file=.env scripts/tsrun.mjs scripts/reader-enrichment-census.ts",
     "audit:enrichment:cause": "node --env-file=.env scripts/tsrun.mjs scripts/reader-enrichment-cause.ts",

@@ -2856,3 +2856,90 @@ release-engineering prose (`Re-record the MTL fusion baseline with the current b
 dummy models …`), because it is not a commit record — it is a release feed's changelog written as
 reporting. Whether a single-source `github` release feed should produce a reader story at all is a
 product decision with four examples in this window, not a predicate that can be widened without it.
+
+## A heading welded onto the next sentence, repaired only where the page confirms it (arbiter ruling #10, 2026-10-18)
+
+**The delivered defect, verbatim.** Card 01 of the 2026-10-18 07:30 briefing opened with
+
+```
+Ransomware with physical consequences Building automation systems - BAS - are the critical systems
+that control and monitor facilities’ HVAC, lighting, energy usage, and water consumption.
+```
+
+— two sentences run together. The words are the publisher's; the boundary between its `<h3>` subhead
+and its first paragraph is gone.
+
+**Cause, measured rather than inferred.** The Register's feed ships the article as *plain text* in
+`content:encoded` with the subhead and the next paragraph separated by a single space, so the
+extractor had no tag to close a block on (`feed.ts`'s `htmlToText` joins blocks with ". " only when
+the markup says a block ended). `events.what_happened` stores the feed's lead sentence, so the welded
+line was stored and printed as the deck. The page itself has `<h3>Ransomware with physical
+consequences</h3>`; re-extracting it today yields `… the report said. Ransomware with physical
+consequences. Building automation systems …`. This story's `article_evidence.status` is `none` — the
+page was never enriched, because the feed already supplied a full body.
+
+**Why a text rule was refused before it was written.** A candidate ruler over the frozen 200 matched
+**35 stored summaries**. Read one by one, **1** is a welded heading and **34** are ordinary sentences
+with a proper noun in them (`… with fraud, affordability and fallout from the Trump administration's
+policies`). A pattern that catches the one withholds the thirty-four, which fails the bar in the
+other direction.
+
+**The ruling, quoted.** Option 4 —
+
+> *When the article page is fetchable, identify headings whose exact text appears welded to the stored
+> feed line. Split only when the page's structure confirms the boundary. Preserve the original text
+> when confirmation is absent or ambiguous. Recompute the stored line only for confirmed repairs.*
+
+**Landed.** `src/lib/pipeline/welded-heading.ts` — `pageHeadings` (the page's own `<h1>`–`<h6>`, decoded,
+longest first) and `splitWeldedHeading` (removes a heading only when it is confirmed on the page, a
+space and a sentence-opening capital follow it, and the remainder is still a punctuated sentence).
+`npm run repair:welded-headings` is the operator repair: dry run by default, one page fetch per
+candidate, `--apply` writes `events.what_happened` for confirmed rows only.
+
+**Two strings carry the same weld, and the first repair only fixed one of them.** Run 1 of the script
+repaired `events.what_happened`, and the briefing card updated — but the **story page still opened on
+the weld**, because the composer selects the deck from `articles.excerpt` (`rankedLead` in
+`composeArticleWithDiagnostics`), not from the stored line. Measured on the live page before run 2:
+`dashboard/story/187595da-…` still read `Ransomware with physical consequences Building automation
+systems …`. That is why the module carries two functions: `splitWeldedHeading` (drops the heading —
+the event line is one sentence) and `separateWeldedHeading` (closes the boundary to `. `, keeping the
+publisher's words — the excerpt is a document the composer reads for evidence).
+
+**The live runs, 2026-10-18** (newest 200 events). Run 1, event lines only: **36 candidates → 1
+repaired** (*Cybercrims go beyond stealing data…*, `Ransomware with physical consequences` confirmed
+on the page, row `187595da-b356-44df-a75d-23838fbdb344`), **32 preserved**, **3 unavailable**. Run 2,
+either string: **64 candidates → 1 event repaired** (the same one, its `articles.excerpt` row
+`e453a906-…`), **59 preserved**, **4 unavailable** — one minute thirty-four seconds of page fetches.
+The 107 preserved candidates across both runs are the precision claim: every ESPN, BBC, Guardian and
+The Register candidate whose page does not carry that heading is left exactly as it was.
+
+**Verified on both reader surfaces after the writes.** Live briefing card 01 now reads `Building
+automation systems - BAS - are the critical systems that control and monitor facilities’ HVAC …`; the
+live story page opens on an attributed sentence with no run-on. `audit:reader -- --find "Cybercrims"`:
+0 entity/metadata/attribution/context defects, `facts lost 0`, ledger reconciles, `delivered with no
+body 0`. The window-wide audit before and after is unchanged (`facts selected 1611`, `rendered 1460`,
+`refused 151`, `lost 0`, 69 stories with no body, 7 readable stories withheld), so no other story moved.
+
+**One reader-visible change that this repair caused, recorded rather than argued away.** The story
+page's deck is no longer the welded line; it is a quote:
+
+```
+“The primary thing that we see with any attack on building management systems or physical systems:
+It’s a great place for the threat actor to hide,” Michael Freeman, ServiceNow’s senior director of
+threat research, told The Register.
+```
+
+That is the composer's ranking on the page's own sentence set, **not** an artefact of the repair:
+recomposing the same story with the heading deleted instead of closed produces the same quote deck
+(measured directly, 2026-10-18). It passes the quote-lead rules — the page names the speaker — and the
+body beneath it opens on the French grocery hack. Whether a quote should be able to win the deck at
+all is a separate ranking question this ruling did not open.
+
+**What this does not fix, recorded rather than implied.** The repair is per-row: a future feed that
+ships the same plain-text weld will store it again, and this script is the operator step that clears
+it, at the price of one page fetch per candidate. Making it automatic means enriching every
+single-source story whose feed supplies a body — the "blanket enrichment" the ruling explicitly
+rejected — so it stays a hand-run repair with its own printed before/after. And the script repairs
+`articles.excerpt` and `events.what_happened`, not `article_evidence`: the units written by a prior
+enrichment pass (this story has none, `status = none`) would need `reenrich:fusions` and a separate
+measurement.

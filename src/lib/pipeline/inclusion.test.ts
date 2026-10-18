@@ -68,57 +68,38 @@ describe("reasonFor", () => {
     expect(reasonFor({ sourceCount: 0 })).toEqual({ text: "", source: "none" });
   });
 
-  it("states a figure the story itself names instead of the follow line", () => {
-    // The 2026-10-01 defect: every single-source card read "You follow X."
-    // A number in the headline is a fact about *this* story.
-    const reason = reasonFor({
-      sourceCount: 1,
-      title: "Anthropic valued at $180 billion in fresh funding round",
-    });
-    expect(reason.source).toBe("figure");
-    expect(reason.text).toBe("The story carries a $180 billion figure.");
-  });
-
-  it("falls to the briefing paragraph when the headline names no figure", () => {
-    const reason = reasonFor({
-      sourceCount: 1,
-      title: "Acme warns over exposed storage bucket",
-      whatHappened: "The flaw affects roughly 50 million users and is tracked as CVE-2026-12345.",
-    });
-    expect(reason.source).toBe("figure");
-    // The identifier is the more specific fact, and it is found before the
-    // count rung ever looks at "50 million users" — whose noun is not
-    // adjacent to its number, so that pair can never be claimed at all.
-    expect(reason.text).toBe("The story names CVE-2026-12345.");
-  });
-
-  it("counts a headcount the text states outright", () => {
-    const reason = reasonFor({
-      sourceCount: 1,
-      title: "Cloud provider cuts 1,200 jobs across sales",
-    });
-    expect(reason.source).toBe("figure");
-    expect(reason.text).toBe("The story involves 1,200 jobs.");
-  });
-
-  it("refuses a bare per-share amount as a figure", () => {
-    // "$13" with no unit is a price, not an amount — printing it as "a $13
-    // figure" would be worse than saying nothing. With the retired follow rung
-    // gone, the ladder ends in the honest empty line rather than a filler.
-    const reason = reasonFor({
-      sourceCount: 1,
-      title: "Shares slip $13 after quarterly miss",
-    });
-    expect(reason.text).toBe("");
-    expect(reason.source).toBe("none");
-  });
-
-  it("keeps the currency sign, which extract.ts strips", () => {
-    const reason = reasonFor({
-      sourceCount: 1,
-      whatHappened: "The consortium paid €450 million for the unit.",
-    });
-    expect(reason.text).toBe("The story carries a €450 million figure.");
+  it("no longer restates a figure the story itself names", () => {
+    // Removed by the arbiter's ruling #10 (option 2), 2026-10-18, after this
+    // exact shape shipped as card 10 of the delivered briefing: "Why it matters
+    // · The story carries a $5,300 figure." under a card whose headline and
+    // summary already carried the $5,300. The three rungs — money, CVE,
+    // headcount — described the article rather than the world, and the ruling
+    // refused a label as a substitute ("$5,300 at stake"). What is left here is
+    // the ladder's honest answer for every one of those shapes: silence.
+    for (const shape of [
+      reasonFor({
+        sourceCount: 1,
+        title: "Anthropic valued at $180 billion in fresh funding round",
+      }),
+      reasonFor({
+        sourceCount: 1,
+        title: "Acme warns over exposed storage bucket",
+        whatHappened: "The flaw affects roughly 50 million users and is tracked as CVE-2026-12345.",
+      }),
+      reasonFor({ sourceCount: 1, title: "Cloud provider cuts 1,200 jobs across sales" }),
+      reasonFor({ sourceCount: 1, title: "Shares slip $13 after quarterly miss" }),
+      reasonFor({
+        sourceCount: 1,
+        whatHappened: "The consortium paid €450 million for the unit.",
+      }),
+      reasonFor({
+        sourceCount: 1,
+        whatHappened: "The watchdog fined the broker $50m for the breach.",
+      }),
+      reasonFor({ sourceCount: 1, title: "Social app loses 2 million users after breach" }),
+    ]) {
+      expect(shape).toEqual({ text: "", source: "none" });
+    }
   });
 
   it("does not read an 'm' word after a bare amount as a magnitude", () => {
@@ -133,14 +114,6 @@ describe("reasonFor", () => {
     });
     expect(reason.text).toBe("");
     expect(reason.source).toBe("none");
-  });
-
-  it("still reads a real magnitude abbreviation", () => {
-    const reason = reasonFor({
-      sourceCount: 1,
-      whatHappened: "The watchdog fined the broker $50m for the breach.",
-    });
-    expect(reason.text).toBe("The story carries a $50m figure.");
   });
 
   it("refuses a price tag as a figure", () => {
@@ -172,47 +145,29 @@ describe("reasonFor", () => {
     }
   });
 
-  it("claims money at stake, and reads purpose in the same sentence only", () => {
-    // Three live shapes that must survive the narrowing, plus the scoping rule:
-    // a raise elsewhere in the paragraph does not make a title's price tag
-    // claimable, and the paragraph's own purpose-bearing money is then used.
-    expect(
-      reasonFor({
-        sourceCount: 1,
-        title: "Robot data startup Mecka AI nabs $60M from Sequoia",
-      }).text,
-    ).toBe("The story carries a $60M figure.");
-    expect(
-      reasonFor({
-        sourceCount: 1,
-        title: "Mecka AI nears $500M valuation in Sequoia-led deal",
-      }).text,
-    ).toBe("The story carries a $500M figure.");
-    expect(
-      reasonFor({
-        sourceCount: 1,
-        title: "AI could upend food delivery",
-        whatHappened:
-          "DoorDash processed 970 million orders this quarter and generated $4.5 billion in revenue.",
-      }).text,
-    ).toBe("The story carries a $4.5 billion figure.");
-    const scoped = reasonFor({
-      sourceCount: 1,
-      title: "The first RTX Spark laptops cost up to $7,000",
-      whatHappened: "The chipmaker raised $1.2 billion to build them.",
-    });
-    expect(scoped.text).toBe("The story carries a $1.2 billion figure.");
+  it("does not promote a funding amount into a why-line", () => {
+    // The 2026-10-08 narrowing kept a raise or a valuation claimable by the
+    // figure rung; ruling #10 removed the rung, so a headline's $60M is silence
+    // rather than "The story carries a $60M figure." — the number is already on
+    // the card, and a second mention explains nothing.
+    for (const title of [
+      "Robot data startup Mecka AI nabs $60M from Sequoia",
+      "Mecka AI nears $500M valuation in Sequoia-led deal",
+      "The first RTX Spark laptops cost up to $7,000",
+    ]) {
+      expect(reasonFor({ sourceCount: 1, title })).toEqual({ text: "", source: "none" });
+    }
   });
 
-  it("puts a fact about the story above the publisher count", () => {
-    // Band order, not rung order: a figure is significance, the count is
-    // provenance, so a well-covered story with a real number prints the number.
+  it("falls to the publisher count when no rung can say something substantive", () => {
+    // Band order, not rung order: provenance is weaker than a fact about the
+    // story, and with the figure rungs gone the count is what remains.
     const reason = reasonFor({
       sourceCount: 4,
       title: "Regulator fines broker $50m over breach",
     });
-    expect(reason.source).toBe("figure");
-    expect(reason.text).toBe("The story carries a $50m figure.");
+    expect(reason.source).toBe("coverage");
+    expect(reason.text).toBe("Four publishers reported this.");
   });
 
   it("states the before/after pair as one development", () => {
@@ -250,21 +205,12 @@ describe("reasonFor", () => {
 
   it("falls to the next rung past a duplicated line, not to nothing", () => {
     const reason = reasonFor({
-      sourceCount: 1,
+      sourceCount: 2,
       afterState: "The consortium paid \u20ac450 million for the unit.",
       whatHappened: "The consortium paid \u20ac450 million for the unit",
       title: "Group pays \u20ac450 million for unit",
     });
-    expect(reason.source).toBe("figure");
-  });
-
-  it("counts a magnitude without shrinking it to its leading digits", () => {
-    const reason = reasonFor({
-      sourceCount: 1,
-      title: "Social app loses 2 million users after breach",
-    });
-    expect(reason.source).toBe("figure");
-    expect(reason.text).toBe("The story involves 2 million users.");
+    expect(reason.source).toBe("coverage");
   });
 
   it("refuses a stored impact that is a label rather than a sentence", () => {
@@ -450,18 +396,16 @@ describe("reasonFor", () => {
     expect(stored.source).toBe("stored");
 
     // The why-vs-what gate applies here exactly as it does to every other rung:
-    // a clause that restates the briefing paragraph is dropped. What follows is
-    // the figure rung's own line about the same number — a different claim said
-    // a different way, which the gate admits by design (it refuses copies, not
-    // subjects; deeper restatement is what manual sampling is for).
+    // a clause that restates the briefing paragraph is dropped, and with the
+    // figure rungs gone there is nothing behind it — the slot stays empty rather
+    // than filling with a line about the same number said another way.
     const restated = reasonFor({
       sourceCount: 1,
       title: "Publisher sues over training data",
       whatHappened: "The publisher asks for damages of more than $250 million.",
       evidence: ["The publisher asks for damages of more than $250 million."],
     });
-    expect(restated.source).toBe("figure");
-    expect(restated.text).toBe("The story carries a $250 million figure.");
+    expect(restated).toEqual({ text: "", source: "none" });
   });
 });
 

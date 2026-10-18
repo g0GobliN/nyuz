@@ -163,3 +163,43 @@ starts"* fails (`1 failed | 32 skipped`), and passes with it restored.
 renders no significance block (the 2026-10-17 ruling stands, because the rung cannot explain most
 cards). The yield is low by design: 5 events of 3,455 with enriched evidence, because precision is
 the bar and every wider shape measured worse.
+
+---
+
+## The figure rungs, removed (arbiter ruling #10, 2026-10-18)
+
+Three rungs sat between the binding change and the coverage count and restated a number the card
+already printed:
+
+- `figureLine` money — *"The story carries a $5,300 figure."*
+- `figureLine` CVE — *"The story names CVE-2026-12345."*
+- `figureLine` count — *"The story involves 1,200 jobs."*
+
+**The defect that ended them.** Card 10 of the delivered 2026-10-18 briefing printed
+`Why it matters · The story carries a $5,300 figure.` under a card whose headline
+(`Grab an RTX 5090 for a discounted $5,300 …`) and summary both already carried the $5,300. The line
+is a statement about the article, not about the world, and it was the only why-line on the page
+(1 of 13 cards; the binding census measures 3 of 25 modelled cards).
+
+**Measured cost of removal**, frozen 200-event corpus, the same trees with the rungs restored vs
+removed (`reasonFor` over each event's title, paragraph and publisher count): **5 cards of 200** lose
+a line, **0 gain one**, and the ladder still lines **9 cards**, all by the coverage rung. The five are
+exactly the shape the ruling describes — the MSI price, *"The story carries a $1 million figure."*
+under a lawsuit settlement, `$20 billion` under a SpaceX opinion piece, `$13 billion` under a
+newsletter container title, `$10 billion` under a midterm-money column.
+
+**Ruling, quoted.** Option 2 — *"Remove the three rungs that produce meta-statements and return to
+silence. … Do not replace them with labels or infer consequences from those facts alone. Keep the
+why-line absent unless another permitted, deterministic rule can establish a substantive reason
+grounded in the source."* A label ("$5,300 at stake") was explicitly refused, and so was inferring a
+consequence from the figure alone: `MONEY_AT_STAKE` proved a sentence said what the money was doing,
+which is not the same as proving why it matters.
+
+**What survives, and is untouched.** `consequenceLine` — money the story's outcome turns on
+(damages, fines, settlements, awards), sliced from the story's own evidence — and `bindingLine`, the
+change plus its start date. Both state something the source says about the world; neither is
+implicated by this ruling.
+
+**Verified on the delivered set.** `npm run briefing:checkpoint` against the 2026-10-18 digest after
+the change: `ladder now: none 13`, `stored equals the ladder now 0/13`, and the one stored line —
+the MSI `$5,300` — reports as `differ 9`, i.e. the ladder no longer produces it.
