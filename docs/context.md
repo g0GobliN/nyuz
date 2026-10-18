@@ -1326,8 +1326,12 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   **Measured with the landed rule:** the dashboard's 13 cards → **1 refused** (the deal card); this
   reader's 1,000 matched titles → **2 refused**, both deals; all 22,018 stored event titles → **17
   matches**, every one a deal page. The Lego kit, the review and the mod card are untouched on purpose —
-  that class ships separately, on its own measurement, as the ruling requires. Record:
-  [decisions/dashboard-feed-first-class.md](decisions/dashboard-feed-first-class.md).
+  that class ships separately, on its own measurement, as the ruling requires. **Second class, landed
+  separately:** `isReaderModTitle` — an enthusiast modification (`modder`/`modded`/`modding`, or a bare
+  `mod` followed by a verb of capability) — measured first at **11 of 22,020** stored titles, every one an
+  enthusiast mod, **3 of this reader's 1,000** matched titles, and the live dashboard's card. The Lego-kit
+  card and the flight-sim review stay: the ruling names two classes, and a review is not one of them.
+  Record: [decisions/dashboard-feed-first-class.md](decisions/dashboard-feed-first-class.md).
 
 ## 7. What is next
 

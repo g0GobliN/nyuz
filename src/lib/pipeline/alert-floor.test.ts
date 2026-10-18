@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assessAlertFloor, isReaderDealTitle } from "./alert-floor";
+import { assessAlertFloor, isReaderDealTitle, isReaderModTitle } from "./alert-floor";
 
 /**
  * The alert shape floor — the narrow extension that refuses the five non-news
@@ -215,6 +215,38 @@ describe("isReaderDealTitle", () => {
       "ASML's employee-only High-NA EUV Lego kit gets an open 810-piece fan replica",
     ]) {
       expect(isReaderDealTitle(title), title).toBe(false);
+    }
+  });
+});
+
+/**
+ * The dashboard's second class (arbiter ruling #9, 2026-10-18) — landed on its
+ * own measurement, after the deal class, as the ruling requires.
+ */
+describe("isReaderModTitle", () => {
+  it("refuses the live dashboard card that produced the class", () => {
+    for (const title of [
+      "Modder finishes nine-year Xbox 360 voltage glitch mod with a $4 microcontroller, cracks the console open",
+      "Mod enables DLSS Multi Frame Generation on RTX 40-series GPUs",
+      "Crazed modder straps 360mm AIO radiator to laptop, cuts temps to below 40 degrees",
+      "Modder brings original Xbox emulation to jailbroken PS5",
+    ]) {
+      expect(isReaderModTitle(title), title).toBe(true);
+    }
+  });
+
+  it("keeps real news that merely contains the letters", () => {
+    // `mod` is a substring of words this must not touch, and a noun in real
+    // reporting: the lookahead is what separates them, and these are the
+    // measured controls.
+    for (const title of [
+      "Google releases Gemini 3 with a new model tier for enterprises",
+      "Moderna cuts its vaccine forecast after a regulatory setback",
+      "The modern web is getting faster, a new report says",
+      "Amazon moderates listings under a new EU rule",
+      "Judge reviews the mod ruling in the console repair case",
+    ]) {
+      expect(isReaderModTitle(title), title).toBe(false);
     }
   });
 });

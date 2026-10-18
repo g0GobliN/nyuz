@@ -63,10 +63,26 @@ Measured with the landed rule, 2026-10-18:
 | this reader's matched titles (`user_events`) | 1,000 | **2** — both deals |
 | every stored event title | 22,018 | **17** — every one a deal or shopping page |
 
-The three other non-development cards (Lego kit, review, mod) are deliberately **not** touched — the
-ruling requires that class to be measured and shipped on its own. Everything else about the feed is
-unchanged: no item is deleted, history and the story page keep it, and `gateHomeFeed` still runs
-`assessReadiness` for the title/summary rungs.
+## The second class, measured and landed on its own (same ruling)
+
+`isReaderModTitle` in the same file, wired into the same `gateHomeFeed` call, refuses an enthusiast
+modification: `modder`/`modded`/`modding`, or a bare `mod` followed by a verb of capability (`enables`,
+`adds`, `triples`, …), because `mod` is also a noun in real reporting and a substring of words this must
+not touch (`model`, `Moderna`, `modern`, `moderates`). The alert floor has refused the closest relative
+since 2026-10-14 (`hobby-hack`); this is the same class seen through the verb a modder uses.
+
+Measured with the landed rule, 2026-10-18:
+
+| set | examined | refused |
+| --- | --- | --- |
+| every stored event title | 22,020 | **11** — every one an enthusiast mod (a DLSS port in a browser, a jailbroken PS5, a 360mm radiator inside a laptop, a leaked DLSS injection into Pac-Man) |
+| this reader's matched titles | 1,000 | **3** |
+| the live dashboard's cards | 13 | **1** (the measured card) |
+
+The Lego-kit card and the flight-sim review are deliberately **not** touched: the ruling names two
+classes, and a review is not one of them. Everything else about the feed is unchanged — no item is
+deleted, history and the story page keep it, and `gateHomeFeed` still runs `assessReadiness` for the
+title/summary rungs.
 
 ## What this authorises, and what it does not
 

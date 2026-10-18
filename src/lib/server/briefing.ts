@@ -6,7 +6,7 @@ import { scoreRelatedEvent } from "@/lib/related-events";
 import { rankEventTopics } from "@/lib/pipeline/topic-assign";
 import { reasonFor } from "@/lib/pipeline/inclusion";
 import { deliveredLine, deliveredSummary } from "@/lib/reader-summary";
-import { isReaderDealTitle } from "@/lib/pipeline/alert-floor";
+import { isReaderDealTitle, isReaderModTitle } from "@/lib/pipeline/alert-floor";
 import { assessReadiness } from "@/lib/pipeline/readiness";
 import { signedInOnly } from "./guard";
 import { countOrThrow } from "@/lib/supabase/count";
@@ -1042,7 +1042,11 @@ function gateHomeFeed(stories: Story[]): Story[] {
       // land here one at a time, each measured on this reader's own matched set
       // first, and only the classes the ruling names — the rest of the feed, news
       // and single-source material alike, is untouched.
-      !isReaderDealTitle(s.title),
+      !isReaderDealTitle(s.title) &&
+      // The second class, measured on its own before it landed (11 matches over
+      // all 22,020 stored titles, every one an enthusiast mod; 3 of this
+      // reader's 1,000 matched titles).
+      !isReaderModTitle(s.title),
   );
 }
 

@@ -162,6 +162,32 @@ export function isReaderDealTitle(title: string): boolean {
 const DISCOUNT_FRAME =
   /(?:\b(?:discounted?|lowest price|price (?:drop|cut)|record low|for under|clearance|prime big deal days|big deals? day|% off|\d+%\s?off)\b|\$\s?\d[\d,]*\s?off\b)/i;
 
+/**
+ * An enthusiast modification: a hobbyist's own hardware or software mod.
+ *
+ * The second class the arbiter's ruling #9 (2026-10-18) lands on the dashboard,
+ * measured on its own before it landed. The measured case is the live card
+ * *"Modder finishes nine-year Xbox 360 voltage glitch mod with a $4
+ * microcontroller, cracks the console open"*. The alert floor has refused the
+ * closest relative since 2026-10-14 (`hobby-hack`: "a hack that *delivers* a
+ * feature") — this is the same class seen through the verb a modder uses.
+ *
+ * Measured over all 22,020 stored event titles: **11 matches, every one an
+ * enthusiast mod** (a DLSS port in a browser, a jailbroken PS5, a 360mm radiator
+ * strapped inside a laptop, a leaked DLSS injection into Pac-Man), and none of
+ * them a development the product promises to report. On this reader's 1,000
+ * matched titles: 3 refused. The narrower `mod` form requires a following verb of
+ * capability (`enables`, `adds`, `triples`, …) because `mod` is also a noun in
+ * real news ("the mod was blamed for the outage") and a substring of words this
+ * must not touch ("model", "moderate", "modern").
+ */
+export function isReaderModTitle(title: string): boolean {
+  return READER_MOD.test(title);
+}
+
+const READER_MOD =
+  /\b(?:modder|modded|modding)\b|\bmod\b(?=\s+(?:enables|adds|triples|brings|turns|lets|gives|replaces|unlocks)\b)/i;
+
 export function assessAlertFloor(input: {
   title: string;
   whatHappened?: string | null | undefined;
