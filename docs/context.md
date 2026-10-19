@@ -1547,10 +1547,22 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   provider, in which case the region follows that provider." — the routing caveat is the ruling's own
   qualification, because the endpoint is database configuration.
 
+- **2026-10-19 — the experiment was started and inert; the cadence was the second mechanism.** An hour
+  after `--on`, none of the eight exempted sources had been fetched while ingest was demonstrably alive
+  (other sources fetched at `08:00:10Z`, new events at `07:53Z`). Cause: all eight sit on the **`paused`**
+  polling tier (**10080 minutes**), last fetched `2026-10-17T02:45Z`, so the cadence would not have offered
+  them again until **2026-10-24** — while the gate answered `exempt: 12c-30d` for every one. Two mechanisms
+  deciding one thing, and invisible from the operator's side: the experiment command printed eight released
+  sources as designed. **Fixed** in `ingest.ts` by one exported pure function, `dueCadence`: a source whose
+  gate reason starts `exempt` is due on the ordinary interval (60 minutes), everything else keeps its tier,
+  and the tier row is left alone so the window closing restores the old behaviour by itself. Six regression
+  cases in `ingest.test.ts`. **It cost the experiment five days of its thirty**, and it is why item 2's
+  window now actually starts with the next ingest tick.
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
-handoff ([handoff-2026-10-19-evening.md](handoff-2026-10-19-evening.md)) → this file →
+handoff ([handoff-2026-10-19-late.md](handoff-2026-10-19-late.md)) → this file →
 [reader-quality-10-of-10.md](reader-quality-10-of-10.md), the acceptance checklist whose lines are
 commands. The skill for it is `resume-session`; the entry at the end of §6 records why it exists.
 
