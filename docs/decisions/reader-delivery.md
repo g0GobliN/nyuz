@@ -3485,6 +3485,33 @@ with the clock still stopped (`npm run baseline:sources`, 2026-10-19): **12,733 
 ≥2 publishers**, ladder over the newest 60 live events `none 56 · coverage 3 · consequence 1`. The 45-day
 window change remains unapplied and no archive was touched.
 
+### Started and inert: two mechanisms, one decision (2026-10-19, measured and fixed)
+
+Checked an hour after `--on`, because "the experiment is running" is a claim about feeds moving and not
+about a boolean: **not one of the eight had been fetched**, while ingest itself was demonstrably alive
+(other sources were fetched at `08:00:10Z`, new events were appearing at `07:53Z`). The cause is the
+second mechanism. Every one of the eight sits on the **`paused`** polling tier, whose interval is
+**10080 minutes (7 days)**, and they were last fetched `2026-10-17T02:45Z` — so the cadence filter would
+not have offered them again until **2026-10-24**, five days after the clock started, while the gate said
+`exempt: 12c-30d` for each of them.
+
+This is the shape the repository treats as a defect wherever it appears — two mechanisms deciding one
+thing, one of them silent — and it was invisible from the operator's side: `npm run experiment:sources`
+printed eight released sources, exactly as designed, and nothing would have been collected.
+
+**The fix**, in [ingest.ts](../../src/lib/pipeline/ingest.ts): the cadence a source is due on is now
+decided by the gate's own reason, in one exported pure function. A source whose reason starts `exempt`
+is due on the **ordinary** interval (`normal`, 60 minutes; `MIN_INTERVAL_MINUTES` when the tier table is
+unreadable); every other source keeps its tier's interval, unchanged. The `paused` tier is deliberately
+left untouched on the row, so nothing has to be restored when the window closes: the reason stops saying
+`exempt`, and the tier governs again by itself. Six regression cases in `ingest.test.ts` pin it, including
+`exempt: 12c-30d` on a `paused` tier being due on the ordinary interval and a reason containing
+"exemption" *not* being mistaken for one.
+
+**What it means for the acceptance.** The eight feeds are fetched on the first ingest tick after the fix
+deploys; their coverage then has to cluster into two-publisher events and reach a delivered briefing,
+which is the window item 2 is measured over. The defect cost the experiment five days of its thirty.
+
 ## The gate composed from a different input than the page (2026-10-19, measured and landed)
 
 Ruling #11's contract is one authoritative sentence at the point of delivery: the briefing card must

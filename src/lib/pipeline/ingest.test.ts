@@ -6,7 +6,10 @@
  * it is arithmetic that already went wrong once in production — a 17,082 character
  * request URL that Supabase dropped without an HTTP status, reported as
  * `TypeError: fetch failed` and charged to Rock Paper Shotgun for two runs before
- * anybody looked at the cause.
+ * anybody looked at the cause. `dueCadence` is the other pure decision here — which
+ * interval a source is due on — and it is pinned for the same reason: it shipped a
+ * defect that nothing reported (the eight sources of ruling #12c's experiment sat on
+ * the `paused` tier while the gate released them).
  *
  * Both failure directions are invisible from the outside, which is why they are
  * pinned here rather than left to a live run:
@@ -19,7 +22,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { byUrlLength, URL_FILTER_BUDGET } from "./ingest";
+import { byUrlLength, dueCadence, URL_FILTER_BUDGET } from "./ingest";
 
 /** What one URL costs inside `in.("…","…")`, as the implementation counts it. */
 const cost = (url: string): number => encodeURIComponent(url).length + 3;
@@ -87,5 +90,41 @@ describe("byUrlLength", () => {
       expect(total(group)).toBeLessThanOrEqual(URL_FILTER_BUDGET);
       expect(total(group)).toBeGreaterThan(raw);
     }
+  });
+});
+
+/**
+ * The cadence a source is due on. Pure, and worth pinning because the defect it fixes was invisible:
+ * the demand gate said `exempt: 12c-30d` for eight sources while every one of them sat on the `paused`
+ * tier — 10080 minutes — so an experiment reported as running would not have collected a feed until five
+ * days after it started.
+ */
+describe("dueCadence", () => {
+  const cadence = new Map([
+    ["hot", 15],
+    ["normal", 60],
+    ["paused", 10080],
+  ]);
+
+  it("uses the tier interval when nothing exempts the source", () => {
+    expect(dueCadence("no demand for 50 days", "paused", cadence)).toBe(10080);
+    expect(dueCadence("wanted", "hot", cadence)).toBe(15);
+    expect(dueCadence(undefined, "normal", cadence)).toBe(60);
+  });
+
+  it("uses the ordinary interval while an exemption releases it", () => {
+    // The measured case: exempt and paused at once.
+    expect(dueCadence("exempt: 12c-30d", "paused", cadence)).toBe(60);
+    expect(dueCadence("exempt: some-other-experiment", "normal", cadence)).toBe(60);
+  });
+
+  it("does not mistake a word containing 'exempt' for an exemption", () => {
+    expect(dueCadence("core", "hot", cadence)).toBe(15);
+    expect(dueCadence("no exemption granted", "paused", cadence)).toBe(10080);
+  });
+
+  it("falls back to the minimum interval when the tiers are unreadable", () => {
+    expect(dueCadence("exempt: 12c-30d", "paused", new Map())).toBe(30);
+    expect(dueCadence("wanted", "unknown-tier", cadence)).toBeUndefined();
   });
 });

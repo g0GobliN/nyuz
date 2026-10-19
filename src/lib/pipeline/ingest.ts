@@ -227,10 +227,24 @@ export async function ingest(db: Db, options: IngestOptions = {}): Promise<Inges
   const { wanted, reasons } = await applyDemandGate(db, all, options);
   const cadence = await loadCadence(db, options);
 
+  /**
+   * A source released by an active exemption (ruling #12c) is due on the ordinary cadence, not on the
+   * tier it was parked on.
+   *
+   * Measured 2026-10-19, an hour after the experiment was started: the gate answered `exempt: 12c-30d`
+   * for all eight, and not one feed moved — because all eight sit on the `paused` tier, whose interval
+   * is 10080 minutes (7 days), and they were last fetched on 2026-10-17. The exemption released one
+   * mechanism and left the other parked, which is the two-producers shape this pipeline treats as a
+   * defect: an operator would read "running" and nothing would be collected until 2026-10-24.
+   *
+   * The gate's own reason is the authority here, so nothing else has to be told about the experiment,
+   * and the tier is untouched — when the window closes, `reasons` stops saying `exempt` and the source
+   * returns to whatever cadence its tier gives it.
+   */
   const due =
     options.force === true
       ? wanted
-      : wanted.filter((s) => isDue(s, now, cadence.get(s.polling_tier)));
+      : wanted.filter((s) => isDue(s, now, dueCadence(reasons.get(s.id), s.polling_tier, cadence)));
   const window = due.slice(0, options.limit ?? due.length);
   const attempted = new Set(window);
   const backedOff = new Set(due);
@@ -421,6 +435,25 @@ async function selectSources(db: Db, options: IngestOptions): Promise<Source[]> 
 
   if (error) throw new Error(`Reading sources: ${error.message}`);
   return data ?? [];
+}
+
+/**
+ * The interval a source is due on.
+ *
+ * An active exemption (ruling #12c) means the source is being collected, so it is collected on the
+ * ordinary cadence rather than the tier it happened to be parked on — measured 2026-10-19, the eight
+ * exempted sources all sat on `paused` (10080 minutes) and would not have been offered again until
+ * 2026-10-24, while the gate answered `exempt: 12c-30d` for every one of them. The gate's reason is the
+ * authority, so nothing else has to be told about the experiment, and the tier is left untouched: when
+ * the window closes the reason stops saying `exempt` and the tier governs again on its own.
+ */
+export function dueCadence(
+  reason: string | undefined,
+  tier: string | undefined,
+  cadence: ReadonlyMap<string, number>,
+): number | undefined {
+  if (reason?.startsWith("exempt") === true) return cadence.get("normal") ?? MIN_INTERVAL_MINUTES;
+  return tier === undefined ? undefined : cadence.get(tier);
 }
 
 /**
