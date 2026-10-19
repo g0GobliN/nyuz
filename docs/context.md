@@ -1395,6 +1395,32 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   the installed half does not; account (cloud) copies are a Settings → Skills action, the global file install
   is `~/.agents/skills/<name>/SKILL.md`. Nothing else changed, and nothing in the reader path was touched.
 
+- **2026-10-19 — the first briefing built under ruling #11 still opened three cards on the wrong
+  sentence, and the cause was two producers reading different material.** `npm run audit:delivered-line`
+  read **FAIL 10 / 13** on the briefing delivered 2026-10-18T22:41:37Z — the only reader-facing line red
+  at the start of the session (the other three acceptance lines read: `briefing:checkpoint` exit 0 with
+  `ladder now: none 13`, `audit:surfaces` PASS, `audit:alerts-gate` PASS). The three survivors were
+  bisected against their producers before any code was touched: **10 rows carried the composer's deck**
+  (ruling #11 working), **2 the stored line**, **1 a recovered composition with an attribution frame** —
+  and none was data drift, because all three events' `last_updated_at` (17:47, 14:02, 17:17Z) precede the
+  build. `loadBriefs` in [digest.ts](../src/lib/pipeline/digest.ts) handed the gate each source as the
+  article's `excerpt` alone, while the reader's page
+  ([briefing.ts](../src/lib/server/briefing.ts) `articlesFor` → `enrichedEvidenceFor`) passes the excerpt
+  **and** the article's `article_evidence` units, and the composer reads `enrichedEvidence`. Measured on
+  the delivered rows before the change: gate opening equals page opening **10 / 13** excerpt-only,
+  **13 / 13** with the evidence attached — the miss is exactly the three defects. **Landed:** the gate's
+  source rows now carry `enrichedEvidence`, read in the same pass that already loads the unit texts for
+  the inclusion ladder (no extra query). **Fail-before demonstrated:** with only that attachment removed,
+  [digest-gate-material.test.ts](../src/lib/pipeline/digest-gate-material.test.ts) fails — *"the story the
+  page can open was withheld"* — a story whose excerpt composes no deck and whose own evidence opens on a
+  sentence that stands on its own is withheld as `unbriefable`; with the attachment it ships and its
+  stored line is the page's opening, asserted against the page's own composition rather than a literal.
+  8 affected suites / 150 tests green, typecheck and lint clean. **Not claimed:** the delivered briefing
+  stays as delivered (archives are immutable) and the next build is the first under this fix; item 2 of
+  the checklist (`ladder now` non-zero) is unchanged and its route is ruling #12c's source experiment.
+  Full record:
+  [decisions/reader-delivery.md](decisions/reader-delivery.md#the-gate-composed-from-a-different-input-than-the-page-2026-10-19-measured-and-landed).
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read

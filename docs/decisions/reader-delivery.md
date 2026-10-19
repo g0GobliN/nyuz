@@ -3435,3 +3435,45 @@ order is baseline first, which is now recorded. `demand_driven_sources` stays on
 
 **Status:** ruled (#12c), baselined, and not started. The 45-day window change remains unapplied; no
 source is re-enabled; no archive was touched.
+
+## The gate composed from a different input than the page (2026-10-19, measured and landed)
+
+Ruling #11's contract is one authoritative sentence at the point of delivery: the briefing card must
+carry **the composer's own opening**. It landed, and the first briefing built under it (delivered
+2026-10-18T22:41:37Z) still carried **3 of 13** card lines that differed from their page — the
+measurement `npm run audit:delivered-line` reads `FAIL 10 / 13` on, and the only reader-facing line
+that was red at the start of this session.
+
+**Cause, located by bisecting the row against its two producers rather than guessed.** For each
+delivered item the row was compared with (a) the event's stored line, (b) the page's opening
+composed from the corpus loader, and (c) the opening composed from the **gate's** own material:
+
+| row carries | items |
+| --- | --- |
+| the composer's deck (ruling #11 working) | 10 |
+| the stored line (the no-deck fallback) | 2 |
+| a recovered composition with an attribution frame | 1 |
+
+None was drift: the three events' `last_updated_at` (17:47, 14:02, 17:17Z) all precede the 22:41Z
+build. The two producers read **different material** for the same story: `loadBriefs` in
+[digest.ts](../../src/lib/pipeline/digest.ts) built each source from the article's `excerpt` alone,
+while the reader's page ([briefing.ts](../../src/lib/server/briefing.ts) `articlesFor` →
+`enrichedEvidenceFor`) passes the excerpt **and** the article's `article_evidence` units, and the
+composer reads `enrichedEvidence`. Measured on the delivered briefing's own rows, before touching any
+code: the gate's opening matched the page's **10 / 13** with the excerpt alone and **13 / 13** with the
+article's evidence attached — the three it missed being exactly the three defects.
+
+**Landed:** `loadBriefs` now attaches the article's own `article_evidence` units to the source rows it
+hands the gate (`unitEvidence`, read in the same pass that already loaded the unit texts for the
+inclusion ladder — no extra query), so the gate and the page compose from one input.
+**Fail-before, demonstrated:** with only the attachment line removed, the new test
+[digest-gate-material.test.ts](../../src/lib/pipeline/digest-gate-material.test.ts) fails with *"the
+story the page can open was withheld: expected undefined to be defined"* — a story whose excerpt
+composes no deck (a demonstrative with no antecedent, the D2 rule) and whose own evidence opens on a
+sentence that stands on its own was withheld as `unbriefable`; with the attachment it ships and its
+stored line is the page's opening, asserted against `composeFromSources` on the page's own inputs
+rather than a literal. 8 affected suites / 150 tests pass; `tsc --noEmit` clean; lint clean.
+
+**What this does not claim:** the delivered 2026-10-18 briefing stays as delivered (10/13, archives
+immutable). The next build is the first under this fix, and `npm run audit:delivered-line` on it is
+what settles item 1 of the acceptance checklist.

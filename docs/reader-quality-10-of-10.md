@@ -26,7 +26,7 @@ goal is unfinished.
 
 | item | state | how it was measured |
 | --- | --- | --- |
-| 1. Delivery | contract landed and deployed; the delivered briefing that exists predates it (`FAIL 6 / 13`, 7 defects; `13/13` if built now) | `npm run audit:delivered-line` |
+| 1. Delivery | **first briefing built under the contract read `FAIL 10 / 13` (3 defects) on 2026-10-19, and the cause is found and fixed in the tree** — the gate composed from the article's excerpt while the page composes from the excerpt plus its `article_evidence`; the gate now reads the same material (`10/13 → 13/13` measured on the delivered rows). The next build is the first under the fix | `npm run audit:delivered-line` |
 | 2. Significance | **fails**: `ladder now: none 13`, 12 of 13 items silent, 1 stored line kept verbatim; under the withhold rule **0 of 13 items would survive** | `npm run briefing:checkpoint`, `npm run briefing:withhold-preview` |
 | 3. Other surfaces | **measured, green**: feed `57/57` card lines admitted by the shared boundary (3 gated off before the card), archive `14/14`, 0 defects — but ruling #11's contract is *not* enforced there: `9/57` and `7/14` card lines equal their page opening (counterfactual, not enforced) | `npm run audit:surfaces` |
 | 4. Alerts | **measured, green**: 2 stories would fire, 8 withheld by the readiness gate (3 newsletter, 5 single-source research), 0 firing while a gate refuses it; 49 more withheld earlier in the funnel (28 no reader matched, 14 already alerted, 7 outside the flash window) | `npm run audit:alerts-gate` |
@@ -98,6 +98,31 @@ that has not been ruled on. Its last line today is **`0 of 13 items would reach 
 item is silent for the same two causes (no stored impact, no before/after state), 8 of 13 also lack
 the evidence the binding rung reads, and all 13 have one publisher. That is why withholding cannot
 ship: the briefing would be empty, and the arbiter's #12 already ruled the option premature.
+
+## Update 2026-10-19 — what the four commands read this morning, and what changed
+
+```
+npm run audit:delivered-line     FAIL 10 / 13  (3 defects, 0 no-deck)                            exit 1
+npm run briefing:checkpoint      ladder now: none 13; stored equals the ladder now 0/13           exit 0
+npm run audit:surfaces           PASS  feed 50/50 · archive 27/27 · alerts 2/2 (7 withheld)      exit 0
+npm run audit:alerts-gate        PASS  2 would fire, 7 withheld by a gate, 0 firing unfairly       exit 0
+```
+
+**Item 1's three defects are explained and closed in the tree.** The delivered briefing was the first
+built under ruling #11, and 10 of its 13 lines did carry the composer's own opening; the other three
+came from a gate that composed from a **different input** than the page — `loadBriefs` passed the
+article's `excerpt` only, while the page's loader passes the excerpt **and** the article's
+`article_evidence`, which the composer reads. Measured on those rows: gate opening equals page opening
+**10 / 13** before, **13 / 13** after. The fix is one attachment in the briefing build, proven
+failing-first by a test that fails with only that line removed. The delivered archive is unchanged (it
+is immutable); the next build is the first that can read 13/13, and that build is the evidence.
+
+**Item 2 is unchanged and cannot move today.** `ladder now: none 13` is a corpus fact, not a rule gap:
+all 13 delivered stories have one publisher, no stored impact and no before/after state, so no rung but
+silence can speak. Its route is ruling **#12c** — eight sources reactivated for a bounded 30-day
+experiment through per-source exemptions — whose own acceptance needs delivered items *after* the
+experiment's first window. It is the next slice, and it is not a 2-hour slice: it is a schema change,
+an ingest gate, a test that the other 18 sources stay withheld, and a re-run of the baseline.
 
 ## The order to work in
 

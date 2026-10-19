@@ -44,6 +44,7 @@ import { capFor } from "@/lib/density";
 import { hasStorySpecificLine, reasonFor } from "./inclusion";
 import { assessReadiness } from "./readiness";
 import type { ReaderSource } from "../reader-evidence";
+import type { EvidenceUnit } from "../understand";
 import { composedSummaryArtifact, deliveredTranslatedLine } from "../reader-summary";
 import { needsTranslation, toLanguageTag, type LanguageTag } from "@/lib/languages";
 import { translateEvents, type TranslatableEvent, type TranslatedText } from "./translate";
@@ -2260,7 +2261,16 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
   // reads it and nothing else does — no model, no cost, and the same table the
   // Read page's composer selects from, so the line and the article agree about
   // what the story says.
+  // The same rows, kept whole as well as as text: `enrichedEvidence` is what the
+  // composer reads, and the gate has to hand it the same material the reader's
+  // page does or the two compose different sentences for one story.
+  //
+  // Measured 2026-10-19 on the delivered 2026-10-18 briefing: with the excerpt
+  // alone the gate's opening matched the page's for 10 of 13 stories; with the
+  // article's own evidence it matched 13 of 13 — the three it missed were exactly
+  // the three the delivery audit read as defects.
   const unitTexts = new Map<string, string[]>();
+  const unitEvidence = new Map<string, EvidenceUnit[]>();
   const articleIds = (coverage ?? []).flatMap((row) => (row.id ? [row.id] : []));
   for (let from = 0; from < articleIds.length; from += EVIDENCE_ARTICLE_CHUNK) {
     const { data: units, error: evidenceError } = await db
@@ -2270,10 +2280,14 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
       .eq("status", "enriched");
     if (evidenceError) throw new Error(`reading article evidence: ${evidenceError.message}`);
     for (const unit of units ?? []) {
-      const texts = (Array.isArray(unit.evidence) ? unit.evidence : [])
-        .map((item) => (item as { text?: unknown }).text)
+      const rows = Array.isArray(unit.evidence) ? (unit.evidence as unknown as EvidenceUnit[]) : [];
+      const texts = rows
+        .map((item) => item?.text)
         .filter((text): text is string => typeof text === "string" && text.trim() !== "");
-      if (texts.length > 0) unitTexts.set(unit.article_id, texts);
+      if (texts.length > 0) {
+        unitTexts.set(unit.article_id, texts);
+        unitEvidence.set(unit.article_id, rows);
+      }
     }
   }
   const storyEvidence = new Map<string, string[]>();
@@ -2296,8 +2310,11 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
 
     // The reader's evidence for this story, in the shape `selectReaderEvidence`
     // expects. The gate reads the same list the composer will, so a story is
-    // never admitted here and refused there for want of the same material.
+    // never admitted here and refused there for want of the same material —
+    // including the article-page evidence the Read page's own loader passes
+    // (`briefing.ts` `articlesFor`), which is why it is attached here too.
     const sourceList = evidence.get(row.event_id) ?? [];
+    const units = unitEvidence.get(row.id ?? "");
     sourceList.push({
       name: (row.sources as { name?: string } | null)?.name ?? "Unattributed",
       ...(row.title ? { headline: row.title } : {}),
@@ -2305,6 +2322,7 @@ async function loadBriefs(db: Db, picked: MatchRow[]): Promise<EventBrief[]> {
       // The article's own URL, for the paid-content rung: the lane a publisher
       // files under is the one thing the prose never says about itself.
       ...(row.url ? { url: row.url } : {}),
+      ...(units !== undefined ? { enrichedEvidence: units } : {}),
     });
     evidence.set(row.event_id, sourceList);
   }
