@@ -6,7 +6,7 @@ import { scoreRelatedEvent } from "@/lib/related-events";
 import { rankEventTopics } from "@/lib/pipeline/topic-assign";
 import { reasonFor } from "@/lib/pipeline/inclusion";
 import { deliveredLine, deliveredSummary } from "@/lib/reader-summary";
-import { isReaderDealTitle, isReaderModTitle } from "@/lib/pipeline/alert-floor";
+import { isCouponPageTitle, isReaderDealTitle, isReaderModTitle } from "@/lib/pipeline/alert-floor";
 import { assessReadiness } from "@/lib/pipeline/readiness";
 import { signedInOnly } from "./guard";
 import { countOrThrow } from "@/lib/supabase/count";
@@ -1053,7 +1053,11 @@ function gateHomeFeed(stories: Story[]): Story[] {
       // The second class, measured on its own before it landed (11 matches over
       // all 22,020 stored titles, every one an enthusiast mod; 3 of this
       // reader's 1,000 matched titles).
-      !isReaderModTitle(s.title),
+      !isReaderModTitle(s.title) &&
+      // The third class (ruling #14, 2026-10-19): a publisher's coupon or
+      // promo-code page — the publishing format, never the commercial subject.
+      // Five measured titles; launches, repricing and genuine deals stay.
+      !isCouponPageTitle(s.title),
   );
 }
 

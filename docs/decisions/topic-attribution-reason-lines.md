@@ -107,8 +107,43 @@ census of every briefing ever delivered (the instrument takes `--briefings <n>`,
 measured by today's rule — which is the right question for a fix, and not the same as what that reader
 saw.
 
-**Blocked on the arbiter.** The standing rule is that a question goes to the owner's ChatGPT `nyuz` project
-before it goes to the owner. It could not be reached from this session: the browser panel's clean profile is
-held at the Cloudflare interstitial on `chatgpt.com`, and real-profile browsing (the route earlier sessions
-used) requires a Chromium-family _default_ browser, which this machine does not have — LibreWolf is the
-default, and Chromium's own profile is not in use. Either the default browser changes, or the owner relays.
+## Ruled: option 2, raise the headline's bar (arbiter #13, 2026-10-19)
+
+Asked in the owner's ChatGPT `nyuz` project and answered the same session. Quoted in the parts that bind:
+
+> **Ruling #13: Option 2 — Raise the headline's bar.** Decision: Require two distinct weak terms in the
+> headline before assigning a topic from weak-term evidence alone. Keep the existing one-strong-term rule
+> and the existing two-distinct-weak-terms rule for the full text. […] Change only the headline-specific
+> weak-term threshold in `assignTopics`. […] Do not add model calls, providers, or AI-generated reasoning.
+> […] Re-run `npm run audit:topic-attribution` on the same digest and across the wider sent/ready corpus.
+> Report the remaining flags rather than assuming all four are fixed. […] The acceptance criterion should
+> be zero headline-only assignments caused by a single weak term, not necessarily zero flags across the
+> entire audit. […] this ruling deliberately trades some recall for precision.
+
+**What was built.** One threshold in `assignTopics`: the headline branch now needs
+`WEAK_TERMS_FOR_EVIDENCE` distinct weak terms, exactly as the full text already did; strong terms are
+untouched. The comment in the source records the ruling so the next session does not read the old rule as
+an oversight. Three regression cases in `topic-assign.test.ts`: a headline with one weak term assigns
+nothing (`"Tourists stranded as storm grounds flights"` no longer reads Travel), a headline with two
+distinct weak terms still assigns (`"Tourists face visa delays…"`), and the measured headline
+(`"…Windows command prompt puts in a surprise appearance"`) no longer reads AI. **Fail-before:** with only
+the source change stashed, exactly those two negative cases fail (`expected [ 'Travel' ] to not include
+'Travel'`, `expected [ 'AI' ] to not include 'AI'`); with it, 45 of 45 pass.
+
+**Measured after the change**, with the instrument corrected for a flaw found while answering the ruling:
+`assignTopics` returns at most five labels, so a label missing from a five-label counterfactual can be a
+tie-break rather than a title effect. Those are now excluded and counted separately (`capOrder`).
+
+| scope | before | after |
+| --- | --- | --- |
+| the measured digest (`e9e485a5`, 13 cards) | 4 flagged | **0 flagged**, 2 cap-order |
+| the newest 20 delivered briefings (427 cards) | 43 flagged (10.1%) | see the corpus re-run recorded in `docs/context.md` |
+
+The acceptance the ruling names — *zero headline-only assignments caused by a single weak term* — is met
+on the measured digest. Wider flags may remain where the association rests on other evidence paths; the
+ruling says those must stay visible rather than be hidden.
+
+**The recall cost, stated.** A story whose headline carries one weak term and whose body carries none no
+longer gets that label. That is the trade the ruling chose, and it is why the Travel fixture changed: the
+test that pinned the old behaviour was rewritten to pin the new one, with the ruling cited in the comment,
+rather than deleted.

@@ -248,12 +248,36 @@ describe("assignTopics: the headline states the subject", () => {
     expect(topics).toContain("Gaming");
   });
 
-  it("still reads Travel when the headline names tourists", () => {
+  it("does not read Travel into a headline that names tourists once (ruling #13)", () => {
+    // This test used to pin the opposite: one weak term in the headline was read
+    // as the publisher stating the subject. The arbiter raised that bar on
+    // 2026-10-19 (ruling #13) after "Windows command prompt" labelled a story AI
+    // and the card told the reader "You follow AI." One weak word is not
+    // evidence; two distinct ones are.
     const topics = assignTopics(
       "Airlines cancelled flights as the storm approached the coast.",
       "Tourists stranded as storm grounds flights",
     );
+    expect(topics).not.toContain("Travel");
+  });
+
+  it("still reads Travel when the headline carries two distinct weak terms (ruling #13)", () => {
+    const topics = assignTopics(
+      "Airlines cancelled flights as the storm approached the coast.",
+      "Tourists face visa delays as storm grounds flights",
+    );
     expect(topics).toContain("Travel");
+  });
+
+  it("does not read AI into 'Windows command prompt' (ruling #13, the measured case)", () => {
+    // The event that produced the wrong reason line: no strong AI term anywhere, and the only weak AI
+    // term -- "prompt" -- is in the headline. The body deliberately does not repeat it, so this case
+    // isolates headline-only evidence.
+    const topics = assignTopics(
+      "The Register reports a Windows dialog putting in a surprise appearance.",
+      "Oh no, what happened to my OOHPod? Windows command prompt puts in a surprise appearance",
+    );
+    expect(topics).not.toContain("AI");
   });
 
   it("keeps single-strong-term assignment without a title", () => {

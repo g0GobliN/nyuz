@@ -71,7 +71,12 @@
  */
 
 import { IMPORTANT_FLOOR, withinFlashWindow } from "@/lib/pipeline/alerts";
-import { assessAlertFloor, isReaderDealTitle, isReaderModTitle } from "@/lib/pipeline/alert-floor";
+import {
+  assessAlertFloor,
+  isCouponPageTitle,
+  isReaderDealTitle,
+  isReaderModTitle,
+} from "@/lib/pipeline/alert-floor";
 import { assessReadiness } from "@/lib/pipeline/readiness";
 import { allowedBreaking } from "@/lib/plans";
 import { admissibleReaderSentence, normalizeSummary } from "@/lib/reader-evidence";
@@ -263,7 +268,10 @@ async function feedRows(): Promise<{ rows: Row[]; unmatched: number }> {
     }
     const readiness = assessReadiness({ title: event.title, whatHappened: event.what });
     const onFeed =
-      readiness.ready && !isReaderDealTitle(event.title) && !isReaderModTitle(event.title);
+      readiness.ready &&
+      !isReaderDealTitle(event.title) &&
+      !isReaderModTitle(event.title) &&
+      !isCouponPageTitle(event.title);
     if (!onFeed) {
       unmatched += 1;
       return;

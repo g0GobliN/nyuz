@@ -21,13 +21,21 @@
  *
  * Read-only: SELECTs plus the shipped pure function. Nothing here writes, and no rule is applied.
  *
+ * Two limits, stated because they bound what a "zero" here means. The counterfactual removes the `title`
+ * argument, not the headline's words from the haystack, so a label resting on one headline weak term plus
+ * one distinct body weak term is assigned by both arms and cannot be flagged — the measure is sound for
+ * the ruling's question (assignments from a *single* weak term) and is not a general measure of "the
+ * headline caused this label". And a counterfactual that returns five labels may have lost one to the
+ * five-label cap: those differences are excluded from the flagged count and printed as `capOrder`, which
+ * keeps them visible without attributing a tie-break to the headline.
+ *
  * Usage: npm run audit:topic-attribution [-- --briefings <n>] [--digest <uuid>] [--all]
  *   --briefings  how many of the newest delivered briefings to read (default 20)
  *   --digest     one briefing by id, instead of the newest N
  *   --all        print every card, not only the flagged ones
  */
 
-import { assignTopics } from "@/lib/pipeline/topic-assign";
+import { assignTopics, MAX_ASSIGNED_TOPICS } from "@/lib/pipeline/topic-assign";
 import { db, heading, main, say } from "./lib/db";
 
 const args = process.argv.slice(2);
@@ -70,6 +78,8 @@ async function run(): Promise<void> {
     throw new Error("no delivered briefing found (kind=briefing, status sent|ready)");
 
   const rowsByBriefing: { digest: (typeof digests)[number]; cards: Card[] }[] = [];
+  /** Labels that differed only because a five-label counterfactual lost a tie-break. */
+  let capOrder = 0;
 
   for (const digest of digests) {
     const { data: items, error: itemError } = await client
@@ -123,11 +133,16 @@ async function run(): Promise<void> {
         ...(articles ?? []).map((row) => `${row.title ?? ""} ${row.excerpt ?? ""}`),
       ].join(" ");
       // The same pure function the pipeline runs, twice: once as shipped, once with the headline
-      // removed from the haystack (which switches the title rule off). The difference is what the
-      // headline alone is producing.
+      // removed (which switches the title rule off). The difference is what the headline alone is
+      // producing -- but only when the counterfactual is not itself capped: `assignTopics` returns at
+      // most five labels, so a label missing from a five-label counterfactual may have lost a
+      // tie-break rather than been unassigned. Those are counted separately and never as headline-only.
       const withTitle = assignTopics(haystack, title);
       const withoutTitle = assignTopics(haystack, "");
-      const headlineOnly = withTitle.filter((label: string) => !withoutTitle.includes(label));
+      const raw = withTitle.filter((label: string) => !withoutTitle.includes(label));
+      const capped = withoutTitle.length >= MAX_ASSIGNED_TOPICS;
+      const headlineOnly = capped ? [] : raw;
+      capOrder += capped ? raw.length : 0;
 
       cards.push({
         position: item.position,
@@ -187,6 +202,9 @@ async function run(): Promise<void> {
   say(`  briefings read                              ${rowsByBriefing.length}`);
   say(`  cards examined                              ${totalCards}`);
   say(`  reason names a headline-only topic          ${totalFlagged}`);
+  say(
+    `  labels differing only by the five-label cap ${capOrder}   (excluded: a tie-break, not a title)`,
+  );
   if (totalCards > 0) {
     say(
       `  share of delivered cards                    ${((totalFlagged / totalCards) * 100).toFixed(1)}%`,

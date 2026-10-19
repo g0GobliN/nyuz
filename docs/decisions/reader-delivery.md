@@ -3478,8 +3478,12 @@ npm run baseline:sources               # same run as the before-record, so the c
 refuses if `demand_driven_sources` is off, because the exemption would be inert and the experiment would
 look running while nothing moved.
 
-**Status:** ruled (#12c), baselined, built, **not yet applied and not started**. Nothing is enabled; the
-45-day window change remains unapplied; no archive was touched.
+**Status:** ruled (#12c), baselined, built, **applied and started 2026-10-19**. Eight rows granted for
+`12c-30d`, `enabled = true`, window **2026-10-19T06:46Z → 2026-11-18T06:46Z**; the gate answers
+`exempt: 12c-30d` for all eight and `no demand for 50 days` for the other 18. The before-record was taken
+with the clock still stopped (`npm run baseline:sources`, 2026-10-19): **12,733 complete events, 169 with
+≥2 publishers**, ladder over the newest 60 live events `none 56 · coverage 3 · consequence 1`. The 45-day
+window change remains unapplied and no archive was touched.
 
 ## The gate composed from a different input than the page (2026-10-19, measured and landed)
 

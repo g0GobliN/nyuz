@@ -25,7 +25,7 @@
  */
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isReaderDealTitle, isReaderModTitle } from "@/lib/pipeline/alert-floor";
+import { isCouponPageTitle, isReaderDealTitle, isReaderModTitle } from "@/lib/pipeline/alert-floor";
 import { heading, main, row, say } from "./lib/db";
 
 const limitArg = process.argv.indexOf("--limit");
@@ -88,8 +88,11 @@ main(async () => {
   heading(`Stored corpus — ${events.length} event titles`);
   const dealRefused = events.filter((event) => isReaderDealTitle(event.title));
   const modRefused = events.filter((event) => isReaderModTitle(event.title));
+  const couponRefused = events.filter((event) => isCouponPageTitle(event.title));
   say(row("refused by isReaderDealTitle", dealRefused.length, 62));
   say(row("refused by isReaderModTitle", modRefused.length, 62));
+  say(row("refused by isCouponPageTitle (ruling #14)", couponRefused.length, 62));
+  sample("the coupon/promo-code set this predicate refuses", couponRefused);
 
   const priceShaped = events.filter((event) => PRICE_SHAPE.test(event.title));
   const withVerb = priceShaped.filter((event) => ACQUISITION_VERB.test(event.title));

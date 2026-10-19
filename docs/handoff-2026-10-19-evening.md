@@ -26,18 +26,20 @@ This file records what this session landed, what it measured, and the two action
    The finding: the tempting widening is **not one class** — a rule keyed on price alone would refuse
    product-launch news. Record: [decisions/dashboard-feed-first-class.md](../decisions/dashboard-feed-first-class.md).
 
-## The two blocking actions
+## The two blocking actions — both cleared 2026-10-19
 
-1. **Paste `supabase/migrations/0120_source_experiment_exemptions.sql` into the Supabase SQL editor.**
-   No DDL credential exists in this checkout (the service-role key cannot `create table`). It seeds
-   eight rows `enabled = false`. `demand_driven_sources` was read on 2026-10-19 and is **`true`**, so the
-   sequence that follows will not be refused:
-   `npm run experiment:sources` → `-- --on` → `npm run baseline:sources` (same day).
-2. **Reach the arbiter.** The owner's Chromium profile is now the default browser and
-   `browser.use_real_profile` / `browser.headed` are on, which gets past Cloudflare on `chatgpt.com` —
-   but the profile's ChatGPT session **expired on 2026-09-21**, so the site opens logged out. The owner
-   must log in in the visible browser window, or paste the two prepared requests (topic attribution,
-   dashboard classes) into the `nyuz` project and paste the rulings back.
+1. **Migration 0120 — applied** by the owner in the Supabase SQL editor. Verified: `npm run
+   experiment:sources` read 8 granted rows, 0 honoured, before anything was started. The before-record
+   was then taken with the clock stopped: **12,733 complete events, 169 with ≥2 publishers**, ladder
+   `none 56 · coverage 3 · consequence 1`. `--on` started the window **2026-10-19T06:46Z →
+   2026-11-18T06:46Z**; the gate now answers `exempt: 12c-30d` for all eight and `no demand for 50
+   days` for the other 18.
+   **What remains for item 2:** items delivered *after* the first covering window. Nothing to do until
+   then except read `ladder now:`.
+2. **The arbiter — the owner logged into Chromium**, but the agent's profile snapshot is stale and
+   Hermes refuses to re-snapshot while Chromium is running. Next thread: quit Chromium fully, open
+   `chatgpt.com` in the browser panel (real-profile mode will copy the fresh cookies), and post the two
+   prepared requests — topic attribution (#13) and dashboard classes (#14).
 
 ## The reader bar, measured this session (live)
 

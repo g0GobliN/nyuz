@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { assessAlertFloor, isReaderDealTitle, isReaderModTitle } from "./alert-floor";
+import {
+  assessAlertFloor,
+  isCouponPageTitle,
+  isReaderDealTitle,
+  isReaderModTitle,
+} from "./alert-floor";
 
 /**
  * The alert shape floor — the narrow extension that refuses the five non-news
@@ -247,6 +252,50 @@ describe("isReaderModTitle", () => {
       "Judge reviews the mod ruling in the console repair case",
     ]) {
       expect(isReaderModTitle(title), title).toBe(false);
+    }
+  });
+});
+
+describe("isCouponPageTitle (ruling #14, 2026-10-19)", () => {
+  it("refuses the measured coupon/promo-code pages", () => {
+    for (const title of [
+      "Wired publishes Priceline coupon page with 10% off for September 2026",
+      "Wired publishes Expedia coupon roundup with up to 75% off stays",
+      "AirDoctor Coupon Codes: 40% Off | August 2026",
+      "Wired published a Gametime promo code for up to 10% off",
+      "Skechers Coupon Codes 20% Off",
+      "Wired lists HBO Max promo codes with up to 50% off",
+      "Google Workspace Promo Codes: 14% Off for August 2026",
+    ]) {
+      expect(isCouponPageTitle(title), title).toBe(true);
+    }
+  });
+
+  it("keeps launches, repricing, commercial changes and genuine deals", () => {
+    // The ruling's out-of-scope list: product discounts and deal announcements,
+    // price cuts, a vehicle launch described as going on sale, commercial policy
+    // changes, reviews and buying advice.
+    for (const title of [
+      "Hyundai's all-electric hot hatch goes on sale in the UK, starting at around $25,000",
+      "Anthropic's new Fable release is cheaper, less restrictive",
+      "Waymo is offering transit discounts again, this time with Visa",
+      "Award-winning Anycubic 3D Printers on sale with up to 47% off",
+      "Acer Predator QD-OLED monitor now 36% off — 500 Hz refresh rate slashed to $509.99",
+      "Dell UltraSharp 52 goes on sale for $3,000",
+      "Nvidia cuts the price of its RTX 5080 in Europe",
+      "This 32GB of Team Group DDR5 RAM is the cheapest DDR5-6400 kit on the market – only $405 with promo code, buy this",
+    ]) {
+      expect(isCouponPageTitle(title), title).toBe(false);
+    }
+  });
+
+  it("does not fire on the commercial words alone", () => {
+    for (const title of [
+      "EU opens a probe into discount pricing in online retail",
+      "The coupon market is shrinking as brands go direct",
+      "Retailers report a rise in sale-season returns",
+    ]) {
+      expect(isCouponPageTitle(title), title).toBe(false);
     }
   });
 });

@@ -1497,6 +1497,29 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   included). Recorded in [decisions/dashboard-feed-first-class.md](decisions/dashboard-feed-first-class.md);
   **no rule changed.**
 
+- **2026-10-19 — rulings #13 and #14 both landed: the headline's bar, and the coupon publishing frame.**
+  #13 (got the arbiter from the owner's Chrome session): `assignTopics` now needs **two distinct weak terms
+  in the headline** before a topic is assigned from weak evidence — the rule that read "Windows command
+  prompt" as AI. Fail-before: with only the source change stashed, exactly the two new negative cases fail;
+  with it, 45/45. Measured: the digest went **4 flagged → 0** (plus 2 cap-order, see below) and the newest
+  **20 briefings / 427 cards went 43 → 0 flagged**. #14: `isCouponPageTitle` in `alert-floor.ts`, wired into
+  `gateHomeFeed` and `audit:surfaces` — the publishing format, never the commercial subject — refuses
+  **24 corpus titles, every one a coupon/promo-code page**; its first draft refused a product deal and was
+  tightened, with that title pinned as a control. **Instrument correction, recorded because it changed a
+  number:** the reason-line counterfactual can hit `assignTopics`' five-label cap, so labels that differ
+  only by a tie-break are now excluded and counted (`capOrder`, 49 on the corpus) — the earlier "43 of
+  427" was inflated by that flaw.
+
+- **2026-10-19 — the owner pasted migration 0120, and ruling #12c's experiment is running.** The status
+  read confirmed 8 granted rows, 0 honoured, before anything moved. The before-record was taken with the
+  clock stopped (`npm run baseline:sources`): **12,733 complete events, 169 with ≥2 publishers**, ladder
+  over the newest 60 live events `none 56 · coverage 3 · consequence 1`. Then
+  `npm run experiment:sources -- --on` set `enabled = true` with a window
+  **2026-10-19T06:46Z → 2026-11-18T06:46Z**, and the gate answers `exempt: 12c-30d` for all eight
+  released sources while the other 18 still read `no demand for 50 days`. **Item 2's acceptance is items
+  delivered after the first covering window**; until then the ladder is unchanged (`none 13` on the
+  delivered set) and nothing else in that item is code.
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
@@ -1904,12 +1927,12 @@ Blocked on the owner, not on code (all three measured 2026-10-12, §1 of
   returns without a migration — but nothing in the current pipeline can feed it, and two measured
   attempts to widen the ladder are recorded as negative results.
 
-**2026-10-19, next: one paste, then one command.** Ruling #12c's exemption is built and green; what it
-needs is a human with SQL-editor access to run
-[0120_source_experiment_exemptions.sql](../supabase/migrations/0120_source_experiment_exemptions.sql)
-(it seeds eight rows `enabled = false`), after which `npm run experiment:sources -- --on` starts the
-30-day clock and `npm run baseline:sources` is the same-day before-record the acceptance compares
-against. Nothing else in item 2 is code: the ladder needs a second outlet per story, and the corpus has
+**2026-10-19: the paste happened, the clock is running.** The owner applied
+[0120_source_experiment_exemptions.sql](../supabase/migrations/0120_source_experiment_exemptions.sql) in the
+SQL editor; the before-record was taken with the exemptions still off (**12,733 complete events, 169 with
+≥2 publishers**, ladder `none 56 · coverage 3 · consequence 1`), and `npm run experiment:sources -- --on`
+started the window **2026-10-19T06:46Z → 2026-11-18T06:46Z**, with the gate answering `exempt: 12c-30d` for
+all eight. Nothing else in item 2 is code: the ladder needs a second outlet per story, and the corpus has
 been measured to lack one. The three acceptance conditions (coverage above baseline; ≥1 future delivered
 item with a non-coverage rung line; `briefing:checkpoint` non-zero and traceable) are measured on items
 delivered *after* the first covering window, which is the next thing to read once the clock runs. Also

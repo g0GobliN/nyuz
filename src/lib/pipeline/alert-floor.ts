@@ -188,6 +188,44 @@ export function isReaderModTitle(title: string): boolean {
 const READER_MOD =
   /\b(?:modder|modded|modding)\b|\bmod\b(?=\s+(?:enables|adds|triples|brings|turns|lets|gives|replaces|unlocks)\b)/i;
 
+/**
+ * The third dashboard class (ruling #14, 2026-10-19): a publisher's coupon or
+ * promo-code page — an affiliate listing dressed as a story.
+ *
+ * The ruling's principle is *exclude the publishing format, not the commercial
+ * subject*, so this matches the frame that makes the page a directory (a publisher
+ * that publishes/lists/rounds up coupon or promo codes, or a title that simply *is*
+ * a coupon-code listing) and never the commercial words alone. It deliberately does
+ * not fire on "discount", "sale", "off" or a price: the widening that would have
+ * refused those was measured at 105 titles of 22,569 with 40 of them reported news
+ * (a launch, a repricing, a transit discount), and ruling #14 refused it.
+ *
+ * The measured class is five titles, all a publisher's affiliate page:
+ * *"Wired publishes Priceline coupon page with 10% off for September 2026"*,
+ * *"Skechers Coupon Codes 20% Off"*, *"Google Workspace Promo Codes: 14% Off for
+ * August 2026"*. Kept out of `isReaderDealTitle` on purpose — the ruling authorises
+ * a separate narrowly scoped class and forbids widening either existing predicate.
+ */
+export function isCouponPageTitle(title: string): boolean {
+  return COUPON_LISTING.test(title) || PUBLISHER_COUPON_FRAME.test(title);
+}
+
+/**
+ * A title that IS a coupon-code listing: *"<brand> coupon codes: 40% off"*.
+ *
+ * The phrase has to be the *subject* of the title — at its start, or followed by a
+ * colon — not merely present in it. Measured against the corpus: a bare
+ * "promo code" anywhere refused a product deal (*"This 32GB of Team Group DDR5 RAM
+ * is the cheapest DDR5-6400 kit on the market – only $405 with promo code, buy
+ * this"*), which ruling #14 puts out of scope.
+ */
+const COUPON_LISTING =
+  /^(?:[A-Za-z0-9][\w&.'’+-]*\s+){0,5}(?:coupon|promo(?:tion)?)\s+codes?\b|\b(?:coupon|promo(?:tion)?)\s+codes?\s*:/i;
+
+/** A publisher publishing/listing them: *"Wired lists HBO Max promo codes…"*. */
+const PUBLISHER_COUPON_FRAME =
+  /\b(?:publishes?|published|publishing|lists?|listed|rounds? up|presents?|curates?)\b[\s\S]{0,60}\b(?:coupon|promo(?:tion)?)\b/i;
+
 export function assessAlertFloor(input: {
   title: string;
   whatHappened?: string | null | undefined;

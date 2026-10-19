@@ -142,3 +142,36 @@ false-positive measurement — not "the source is the vendor".
 class out of this population rather than take the whole 105. What the measurement settles is that a rule
 keyed on price alone would refuse a product launch, which the previous draft of the deal rule already
 learned once (47 of 22,018 titles, real news included).
+
+## Ruled: the coupon publishing frame (arbiter #14, 2026-10-19) — landed
+
+Asked from the same session with the population above; the ruling took option 1 and drew the boundary
+tightly. Quoted in the parts that bind:
+
+> Option 1 is the cleanest boundary. A publisher listing coupon codes is publishing an acquisition-oriented
+> affiliate page, not reporting an underlying development. […] It should recognize titles indicating that a
+> publisher publishes, lists, or presents coupon codes or promo codes, including equivalent explicit
+> coupon-page framing. It must not refuse a story merely because its title contains coupon, discount, sale,
+> off, or a price. […] Do not add these to the new predicate's territory: product discounts and deal
+> announcements; price cuts or products becoming cheaper; vehicle launches described as going on sale;
+> commercial policy or pricing changes; reviews and buying advice; vendor-owned engineering, research, or
+> technical blog posts. […] Decision principle: exclude the publishing format, not the commercial subject.
+
+**What landed.** `isCouponPageTitle` in [alert-floor.ts](../../src/lib/pipeline/alert-floor.ts), wired into
+`gateHomeFeed` beside the two existing classes and into `audit:surfaces`. Two arms: a publisher frame
+(*"Wired publishes/lists/rounds up … coupon/promo codes"*) and a listing title (*"<brand> Coupon Codes:
+40% Off"*, matched at the start of the title or before a colon, never anywhere in it). The two existing
+predicates are untouched, as the ruling requires.
+
+**Measured on the corpus** (`npm run audit:dashboard-classes -- --limit 30`, 22,588 stored event titles,
+2026-10-19): **24 refused, every one a coupon or promo-code page** — the five originally measured plus 19
+more the frame found. None is a launch, a repricing, a commercial change, a genuine deal or a review.
+
+**One correction the tightening forced.** The first version matched "coupon/promo code" anywhere in the
+title and refused a product deal (*"This 32GB of Team Group DDR5 RAM is the cheapest DDR5-6400 kit on the
+market – only $405 with promo code, buy this"*), which the ruling puts out of scope. The listing arm now
+requires the phrase to be the title's subject, and that title is pinned as a control in the tests.
+
+**Tests:** `alert-floor.test.ts` — 7 measured coupon pages refused; 8 out-of-scope titles kept (a launch, a
+repricing, a transit discount, two deal pages, a price cut, the DDR5 deal, a review-shaped deal); 3 titles
+with the commercial words alone kept.

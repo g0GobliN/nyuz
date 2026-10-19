@@ -137,19 +137,21 @@ Read as a stranger at `https://nyuz.grgvishal-gurung17.workers.dev/dashboard` on
   (the observed card's bucket, mixed with affiliate listings), and only 5 are the clean coupon/affiliate
   shape. The vendor-blog shape (12 sources, 175 events) likewise contains engineering posts. A class has
   to be cut out of that population; a rule keyed on price alone would refuse product-launch news.
-- **One topic-attribution smell — measured 2026-10-19, awaiting a ruling:** a Windows command-prompt
-  story from The Register reasons **"You follow AI."** (#08). The reason line is the reader's only
+  **Ruled #14 and landed:** option 1, the **coupon publishing frame only** — `isCouponPageTitle`, wired
+  into `gateHomeFeed` and `audit:surfaces`, refusing **24 corpus titles, every one a coupon/promo-code
+  page**; launches, repricing, commercial changes and genuine deals stay eligible, and the first version
+  that refused a product deal was tightened and pinned as a test control.
+- **One topic-attribution smell — ruled #13 and fixed 2026-10-19:** a Windows command-prompt
+  story from The Register reasoned **"You follow AI."** The reason line is the reader's only
   explanation of why a story is on their page, so a wrong one is a defect of the same family as a wrong
-  summary. It now has its own instrument and its own record —
+  summary. The instrument and the record are
   `npm run audit:topic-attribution`, [decisions/topic-attribution-reason-lines.md](decisions/topic-attribution-reason-lines.md).
-  **The mechanism is pure code, no model:** `assignTopics` gives the AI topic the weak term `"prompt"`,
-  the title rule lets one weak term in a headline label a story on its own, and "Windows command
-  **prompt**" is in the headline — recomputing without the headline returns nothing, and the haystack has
-  no strong AI term anywhere. Population on the newest delivered set (13 cards): **4 reasons name a topic
-  whose only evidence is one weak headline term** (#3 Claude via "Anthropic", #7 AI via "prompt", #11
-  Chips via "AMD", #12 World via "Global"). **Widened the same day to the newest 20 delivered briefings:
-  43 of 427 cards (10.1%)**, dominated by Claude (10) and World (7), with the AI case that started it all
-  just 3 of 43. Four numbered options are recorded for the arbiter; no rule has been changed.
+  **The mechanism was pure code, no model:** `assignTopics` gives the AI topic the weak term `"prompt"`,
+  and the rule let one weak term in a headline label a story on its own. **The arbiter ruled option 2
+  (require two distinct weak terms in the headline); it is implemented, fail-before proven, and
+  measured:** the measured digest went **4 flagged → 0** (plus 2 labels that differed only by the
+  five-label cap, now counted separately), and the corpus is re-run in the record. Acceptance is
+  *zero headline-only assignments caused by a single weak term*.
 
 **Item 2 is unchanged and cannot move today.** `ladder now: none 13` is a corpus fact, not a rule gap:
 all 13 delivered stories have one publisher, no stored impact and no before/after state, so no rung but
@@ -158,20 +160,22 @@ experiment through per-source exemptions — whose own acceptance needs delivere
 experiment's first window. It is the next slice, and it is not a 2-hour slice: it is a schema change,
 an ingest gate, a test that the other 18 sources stay withheld, and a re-run of the baseline.
 
-**That slice was built on 2026-10-19 and stops one action short of running.** Migration 0120 adds an
-auditable, per-source, self-expiring exemption and the gate reads it; the PGlite test proves exactly the
-eight are released and the other 18 stay withheld, and that the window closing withholds them again.
-But **it is not applied**: this checkout has no DDL credential (no linked project, no database password,
-no CLI token), so the migration waits for a paste into the SQL editor, and until then the exemption is
-present and off. Item 2 cannot move before that paste plus a first covering window.
+**That slice was built on 2026-10-19, applied later the same day, and the experiment is now running.**
+Migration 0120 adds an auditable, per-source, self-expiring exemption and the gate reads it; the PGlite test
+proves exactly the eight are released and the other 18 stay withheld, and that the window closing withholds
+them again. The owner pasted the migration into the SQL editor on 2026-10-19; the before-record was taken
+with the clock stopped (**12,733 complete events, 169 with ≥2 publishers**, ladder `none 56 · coverage 3 ·
+consequence 1`), then `npm run experiment:sources -- --on` started the window
+**2026-10-19T06:46Z → 2026-11-18T06:46Z**, and the gate answers `exempt: 12c-30d` for all eight. Item 2's
+acceptance is measured on items delivered **after** the first covering window, so its verdict is not
+available today.
 
 ## The order to work in
 
-1. **Apply migration 0120** (paste into the Supabase SQL editor — it seeds eight rows `enabled = false`),
-   then `npm run experiment:sources -- --on` followed by `npm run baseline:sources`. Ruling #12c's
-   exemption is built and tested; applying it is the only step code cannot take from this checkout.
-   That is the only unblocked route to item 2: the significance rung needs a second outlet per story,
-   and the corpus has been measured to lack one.
+1. **Done 2026-10-19:** migration 0120 applied (eight rows), the before-record taken, and
+   `npm run experiment:sources -- --on` started the 30-day window
+   (**2026-10-19T06:46Z → 2026-11-18T06:46Z**). The next thing to read is `ladder now:` after the first
+   covering window — the acceptance is item 2 above.
 2. Re-read `ladder now:` after the experiment's first window; the acceptance is item 2 above.
 3. Items 1, 3 and 4 are now instruments with exit statuses — keep them green rather than re-deriving
    them. Tonight's 22:30Z build is what turns item 1 from `FAIL 6 / 13` into `PASS 13/13`.

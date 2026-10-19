@@ -616,13 +616,17 @@ export function assignTopics(text: string, title = ""): string[] {
 
     const strong = countMentions(normalised, vocabulary.strong);
     const weak = countMentions(normalised, vocabulary.weak ?? []);
-    // A weak term in the headline is the publisher stating the subject, so it
-    // labels on its own: a real travel headline still assigns with no body
-    // mention at all, while a passing body mention alone (the PS5 "tourists"
-    // case) no longer does. Strong terms are unchanged — one anywhere is
-    // still enough.
+    // A weak term in the headline used to label on its own, on the theory that a
+    // publisher's headline states the subject. **Ruling #13 (2026-10-19) raised
+    // that bar:** one weak word is not evidence, because "Windows command prompt"
+    // read as AI and the card told the reader "You follow AI." The headline now
+    // needs the same two distinct weak terms the rest of the text does. Strong
+    // terms are unchanged -- one anywhere is still enough -- and a headline's
+    // weak terms still count toward `weak`, which reads the whole haystack.
     const titleWeak = title ? countMentions(titleNormalised, vocabulary.weak ?? []) : 0;
-    if (strong === 0 && titleWeak === 0 && weak < WEAK_TERMS_FOR_EVIDENCE) continue;
+    if (strong === 0 && weak < WEAK_TERMS_FOR_EVIDENCE && titleWeak < WEAK_TERMS_FOR_EVIDENCE) {
+      continue;
+    }
 
     scored.push({ topic, strong, total: strong + weak + titleWeak });
   }
@@ -680,7 +684,7 @@ function countMentions(normalised: string, terms: readonly string[]): number {
 }
 
 /** Matches `MAX_TOPICS` in analyse.ts, which slices this again on write. */
-const MAX_ASSIGNED_TOPICS = 5;
+export const MAX_ASSIGNED_TOPICS = 5;
 
 /**
  * Deterministically assign tags to an event based on its text content.
