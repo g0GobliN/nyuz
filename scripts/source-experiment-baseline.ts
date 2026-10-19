@@ -14,6 +14,8 @@
  * acceptance conditions are read against:
  *
  *   sources            every source, its kind, and whether the demand gate currently withholds it;
+ *   exemptions         every granted exemption, its window, and the gate's own answer for it — the
+ *                      experiment's state, read from the same function the pipeline calls;
  *   coverage           complete events, and events with >= 2 publishers (the 152 baseline);
  *   ladder             which rung explains the newest live events, by rung name and by silence;
  *   withhold preview   a pointer to `npm run briefing:withhold-preview`, whose line is the 0-of-13
@@ -23,6 +25,7 @@
  */
 
 import { reasonFor } from "@/lib/pipeline/inclusion";
+import type { SourceExemption } from "@/lib/supabase/types";
 import { db, heading, main, row as rowLine, say } from "./lib/db";
 import { loadCorpusEvents } from "./lib/corpus";
 
@@ -74,6 +77,39 @@ main(async () => {
     );
   }
   say(rowLine("  withheld ids", withheld.map((row) => row.source_id.slice(0, 8)).join(" ")));
+
+  // The experiment's own state, in the same run as the number it is measured against. Before 0120 is
+  // applied this read fails, and that is reported rather than thrown: a baseline has to be takeable on
+  // a database that has never heard of the experiment.
+  heading("1b. Exemptions — granted, running, and the gate's answer (`source_exemptions`, 0120)");
+  const verdictOf = new Map(verdicts.map((row) => [row.source_id, row] as const));
+  const { data: exemptions, error: exemptionError } = await client
+    .from("source_exemptions")
+    .select("source_id, experiment, enabled, starts_at, ends_at");
+  if (exemptionError) {
+    say(`  not applied on this database (${exemptionError.message.slice(0, 60)})`);
+  } else {
+    const granted = (exemptions ?? []) as SourceExemption[];
+    const active = granted.filter((row) => {
+      const verdict = verdictOf.get(row.source_id);
+      return verdict?.reason.startsWith("exempt") === true;
+    });
+    say(rowLine("granted", granted.length));
+    say(rowLine("  running now (gate says `exempt:`)", active.length));
+    for (const row of granted) {
+      const name = byId.get(row.source_id)?.name ?? row.source_id;
+      const verdict = verdictOf.get(row.source_id);
+      const window =
+        row.starts_at && row.ends_at
+          ? `${row.starts_at.slice(0, 16)} -> ${row.ends_at.slice(0, 16)}`
+          : "not started";
+      say(
+        `    ${name.slice(0, 34).padEnd(34)} ${row.experiment.padEnd(8)} ` +
+          `${(row.enabled ? "on " : "off").padEnd(4)} ${window.padEnd(37)} ` +
+          `${verdict?.reason ?? "not in the gate's answer"}`,
+      );
+    }
+  }
 
   heading("2. Coverage — the multi-publisher baseline");
   const { count: complete, error: completeError } = await client

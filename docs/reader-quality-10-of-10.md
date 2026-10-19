@@ -143,12 +143,20 @@ experiment through per-source exemptions — whose own acceptance needs delivere
 experiment's first window. It is the next slice, and it is not a 2-hour slice: it is a schema change,
 an ingest gate, a test that the other 18 sources stay withheld, and a re-run of the baseline.
 
+**That slice was built on 2026-10-19 and stops one action short of running.** Migration 0120 adds an
+auditable, per-source, self-expiring exemption and the gate reads it; the PGlite test proves exactly the
+eight are released and the other 18 stay withheld, and that the window closing withholds them again.
+But **it is not applied**: this checkout has no DDL credential (no linked project, no database password,
+no CLI token), so the migration waits for a paste into the SQL editor, and until then the exemption is
+present and off. Item 2 cannot move before that paste plus a first covering window.
+
 ## The order to work in
 
-1. **Implement ruling #12c** (ruled 2026-10-18, per-source exemption for eight sources, 30 days,
-   three acceptance conditions, baseline recorded in `docs/decisions/reader-delivery.md`). That is the
-   only unblocked route to item 2: the significance rung needs a second outlet per story, and the
-   corpus has been measured to lack one.
+1. **Apply migration 0120** (paste into the Supabase SQL editor — it seeds eight rows `enabled = false`),
+   then `npm run experiment:sources -- --on` followed by `npm run baseline:sources`. Ruling #12c's
+   exemption is built and tested; applying it is the only step code cannot take from this checkout.
+   That is the only unblocked route to item 2: the significance rung needs a second outlet per story,
+   and the corpus has been measured to lack one.
 2. Re-read `ladder now:` after the experiment's first window; the acceptance is item 2 above.
 3. Items 1, 3 and 4 are now instruments with exit statuses — keep them green rather than re-deriving
    them. Tonight's 22:30Z build is what turns item 1 from `FAIL 6 / 13` into `PASS 13/13`.

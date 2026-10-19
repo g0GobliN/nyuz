@@ -252,6 +252,29 @@ export type Source = {
   enrichment_last_failure_reason: string | null;
 };
 
+/**
+ * A per-source exemption from the demand gate (0120, ruling #12c).
+ *
+ * One row per source, one named experiment at a time. Seeded `enabled: false`
+ * so applying the migration changes no behaviour; an exemption is live only
+ * while `enabled` and `now()` is inside `[starts_at, ends_at)`, and the check
+ * constraint makes an open-ended window impossible to write.
+ *
+ * Read by `sources_to_collect` — never by the browser: there are no RLS
+ * policies, so the service role is the only reader outside SQL.
+ */
+export type SourceExemption = {
+  source_id: string;
+  experiment: string;
+  reason: string;
+  enabled: boolean;
+  /** Null while granted-but-not-started. */
+  starts_at: string | null;
+  /** Null while granted-but-not-started; set with `starts_at` when the clock starts. */
+  ends_at: string | null;
+  created_at: string;
+};
+
 export type PollingTier = "hot" | "normal" | "low" | "cold" | "paused";
 
 /**
@@ -1189,6 +1212,10 @@ export type Database = {
         | "enrichment_last_success"
         | "enrichment_last_attempt_at"
         | "enrichment_last_failure_reason"
+      >;
+      source_exemptions: Table<
+        SourceExemption,
+        "experiment" | "reason" | "enabled" | "starts_at" | "ends_at" | "created_at"
       >;
       article_evidence: Table<
         ArticleEvidence,

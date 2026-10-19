@@ -44,6 +44,30 @@ assumed.
 4. **One topic-attribution smell:** a Windows command-prompt story reasons "You follow AI." The reason
    line is the reader's only explanation of why a story is on their page; measure before any rule.
 
+## Update, 2026-10-19 afternoon: ruling #12c is built and waiting on one paste
+
+Item 2 of the checklist was taken next, as this handoff said. Its four required parts exist except the last
+step of the last one:
+
+| part | state |
+| --- | --- |
+| auditable exemption | migration `0120_source_experiment_exemptions.sql` — one row per source, `experiment`, `reason`, a **mandatory** bounded window, seeded `enabled = false`, RLS on with no policies |
+| ingest reads it | `sources_to_collect` (same signature) joins the table and answers `exempt: 12c-30d`; ingest needed no change — it prints the gate's reason verbatim |
+| the other 18 stay withheld | `src/lib/pipeline/source-exemptions-db.test.ts` on PGlite: 8 released, 18 still `no demand for 50 days`, core source untouched, expiry withholds all 26 again. Fail-before shown by deleting only the exemption from the gate |
+| baseline re-run after enabling | **blocked**: there is no DDL credential in this checkout (no `config.toml`, no database password, no CLI token), so 0120 is not applied and nothing is enabled |
+
+**So the tree is green with the exemption present and off**, which is the contingency the work was given.
+The one action that unblocks it is a paste of `supabase/migrations/0120_source_experiment_exemptions.sql`
+into the Supabase SQL editor (it seeds eight disabled rows and changes no behaviour), followed by
+`npm run experiment:sources -- --on` and `npm run baseline:sources`. The same-day baseline before starting,
+measured read-only on 2026-10-19: 79 active sources, 26 withheld, all eight present; 12,620 complete events,
+**161 with ≥2 publishers**; ladder over the newest 60 live events none 59 · consequence 1.
+
+**Acceptance line 1 has not had its first chance yet.** No briefing has been generated since `449f979`: the
+newest delivered build is still 2026-10-18T22:41Z, and today's 07:30Z rows are `scheduled` with
+`generated_at` null — the recorded free-plan CPU-kill condition, not a new defect. The next natural build
+is 22:30Z, and `npm run audit:delivered-line` (exit status captured) is what reads it.
+
 ## Boundaries that do not move
 
 No model-written text reaches a reader; delivered archives are immutable; nothing composes on the

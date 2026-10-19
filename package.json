@@ -67,7 +67,8 @@
     "audit:matching": "node --env-file=.env scripts/tsrun.mjs scripts/reader-matching-cause.ts",
     "cluster:backlog": "node --env-file=.env scripts/tsrun.mjs scripts/cluster-backlog.ts",
     "briefing:withhold-preview": "node --env-file=.env scripts/tsrun.mjs scripts/briefing-withhold-preview.ts",
-    "baseline:sources": "node --env-file=.env scripts/tsrun.mjs scripts/source-experiment-baseline.ts"
+    "baseline:sources": "node --env-file=.env scripts/tsrun.mjs scripts/source-experiment-baseline.ts",
+    "experiment:sources": "node --env-file=.env scripts/tsrun.mjs scripts/source-experiment.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"

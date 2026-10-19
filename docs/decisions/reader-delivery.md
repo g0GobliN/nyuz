@@ -3429,12 +3429,57 @@ distinct publishers, no two feeds from one publisher):
 | 8 | Engadget | US consumer technology | Wired |
 
 Four publishers, four beats, each beat carried by two outlets — the shape the coverage rung needs.
-**Not yet implemented:** the per-source exemption is a schema change (an auditable, reversible column
-or a settings list) plus the ingest gate reading it, so it lands as its own slice; the ruling's own
-order is baseline first, which is now recorded. `demand_driven_sources` stays on.
+`demand_driven_sources` stays on.
 
-**Status:** ruled (#12c), baselined, and not started. The 45-day window change remains unapplied; no
-source is re-enabled; no archive was touched.
+### Built on 2026-10-19: the exemption exists, and is off
+
+Migration [`0120_source_experiment_exemptions.sql`](../../supabase/migrations/0120_source_experiment_exemptions.sql)
+adds one table, `source_exemptions`, and widens `sources_to_collect` by one join. Four properties, each
+enforced by the database rather than remembered by a session:
+
+| property | how |
+| --- | --- |
+| **auditable** | one row per source carrying `experiment`, the ruling's `reason`, and its window; nothing anonymous can grant a feed |
+| **per-source, not global** | the gate reads the row for *that* source; the other 18 rows do not exist, so nothing could widen |
+| **bounded** | `check (starts_at is not null and ends_at is not null and ends_at > starts_at)` — an open-ended exemption cannot be written |
+| **off by default** | every seeded row is `enabled = false` with a null window, so applying the migration changes no answer |
+
+The gate stays the single producer: `sources_to_collect` is still what ingest calls, and it now answers
+`exempt: 12c-30d` for a released source instead of `no demand for N days`. Ingest needed no change — it
+has always printed the gate's reason verbatim rather than reconstructing one, which is why the
+experiment is visible in the selection surface without a second implementation of "who may be collected".
+
+**Verification, and what it does not cover.**
+`src/lib/pipeline/source-exemptions-db.test.ts` runs the migration on a real PostgreSQL (PGlite) holding
+the 26 withholds the live gate answers, and asserts: applying it withholds all 26; starting the window
+releases **exactly the eight**, with the other 18 still refused for the same demand reason and the core
+source still `core`; past `ends_at` — or enabled with no window written — all 26 are withheld again.
+Fail-before was demonstrated by deleting only the exemption from the gate's eligible expression: the
+middle block fails (`expected false to be true`) and the other two still pass, so the test is measuring
+the exemption and not the fixture. `npm run baseline:sources` gained a block that prints every granted
+row with its window and the gate's own answer for it, and reports `not applied on this database` when
+the table is absent rather than throwing.
+
+**What is not done, and why: the migration is not applied.** There is no DDL credential in this
+checkout — no `supabase/config.toml`, no database password, no CLI access token, and the service-role
+key writes rows through PostgREST but cannot `create table` or `create function`. Migrations here have
+always been applied by hand in the SQL editor, and this one waits for that paste. Until then the tree is
+exactly the state the ruling's contingency describes: **the exemption is present and off**, `npm run
+experiment:sources` reports `Migration 0120 is not applied on this database`, and no feed moves.
+
+**Starting the 30-day clock** (after the paste; it is one command and it prints the gate's answer):
+
+```bash
+npm run experiment:sources -- --on     # enabled = true, starts_at = now(), ends_at = now() + 30 days
+npm run baseline:sources               # same run as the before-record, so the comparison is like-for-like
+```
+
+`npm run experiment:sources -- --off` stops it, leaving the rows granted and the reasons intact. `--on`
+refuses if `demand_driven_sources` is off, because the exemption would be inert and the experiment would
+look running while nothing moved.
+
+**Status:** ruled (#12c), baselined, built, **not yet applied and not started**. Nothing is enabled; the
+45-day window change remains unapplied; no archive was touched.
 
 ## The gate composed from a different input than the page (2026-10-19, measured and landed)
 

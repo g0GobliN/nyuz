@@ -1421,6 +1421,37 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   Full record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-gate-composed-from-a-different-input-than-the-page-2026-10-19-measured-and-landed).
 
+- **2026-10-19 — ruling #12c's exemption is built, tested, and deliberately off; the migration that
+  creates it cannot be applied from this checkout.** The slice had four required parts and three landed:
+  **schema** — [0120_source_experiment_exemptions.sql](../supabase/migrations/0120_source_experiment_exemptions.sql)
+  adds `source_exemptions` (one row per source: `experiment`, `reason`, `enabled`, `starts_at`, `ends_at`),
+  service-role only (RLS on, no policies); a check constraint makes an open-ended window impossible
+  (`starts_at` and `ends_at` are both null or both set with `ends_at > starts_at`), and the eight rows are
+  seeded `enabled = false` so applying it changes no answer. **The gate** — `sources_to_collect` (same
+  signature, same columns) now joins the table and answers `exempt: 12c-30d` for a released source instead
+  of `no demand for N days`; ingest needed **no** change because it has always printed the gate's reason
+  verbatim, so the experiment is visible in the selection surface without a second implementation of "who
+  may be collected". **The test** —
+  [source-exemptions-db.test.ts](../src/lib/pipeline/source-exemptions-db.test.ts) runs the migration on a
+  real PostgreSQL (PGlite) holding the live gate's 26 withholds: applying it withholds all 26; starting the
+  window releases **exactly the eight** with the other 18 still `no demand for 50 days` and the core source
+  still `core`; past `ends_at`, or `enabled` with no window written, all 26 are withheld again. Fail-before
+  was demonstrated by deleting only `e.experiment is not null` from the eligible expression — the middle
+  block fails, the other two still pass. `npm run baseline:sources` gained a block printing every granted
+  row with its window and the gate's answer, and reports `not applied on this database` instead of
+  throwing when the table is absent; `npm run experiment:sources` (`--on` / `--off` / status) is the one
+  command that starts or stops the bounded clock and prints the gate's answer afterwards.
+  **Not done, and not a code gap:** there is no DDL credential here — no `supabase/config.toml`, no
+  database password, no CLI access token, and the service-role key writes rows through PostgREST but cannot
+  `create table`. Migrations in this repository have always been applied by hand in the SQL editor, so
+  **0120 waits for that paste**; until then the tree is the contingency the request described — exemption
+  present and off, `npm run experiment:sources` refusing with `Migration 0120 is not applied on this
+  database`, and no feed moving. Baseline re-measured this morning, read-only: **79 active sources, 26
+  withheld, all eight present and active**, **12,620 complete events / 161 with ≥2 publishers** (the
+  2026-10-18 record was 153; the number grows on its own, so the comparison must be against a run taken the
+  same day the experiment starts), ladder over the newest 60 live events: none 59 · consequence 1. The
+  superseded 45-day window change is still unapplied and no archive was touched.
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
@@ -1827,6 +1858,19 @@ Blocked on the owner, not on code (all three measured 2026-10-12, §1 of
   [decisions/significance-without-a-model.md](decisions/significance-without-a-model.md)), the slot
   returns without a migration — but nothing in the current pipeline can feed it, and two measured
   attempts to widen the ladder are recorded as negative results.
+
+**2026-10-19, next: one paste, then one command.** Ruling #12c's exemption is built and green; what it
+needs is a human with SQL-editor access to run
+[0120_source_experiment_exemptions.sql](../supabase/migrations/0120_source_experiment_exemptions.sql)
+(it seeds eight rows `enabled = false`), after which `npm run experiment:sources -- --on` starts the
+30-day clock and `npm run baseline:sources` is the same-day before-record the acceptance compares
+against. Nothing else in item 2 is code: the ladder needs a second outlet per story, and the corpus has
+been measured to lack one. The three acceptance conditions (coverage above baseline; ≥1 future delivered
+item with a non-coverage rung line; `briefing:checkpoint` non-zero and traceable) are measured on items
+delivered *after* the first covering window, which is the next thing to read once the clock runs. Also
+still open and not started, named so they are not silently widened into this slice: the price/discount/
+first-party dashboard classes, the "You follow AI." topic attribution, and the context-dependent opening
+in `decisions/context-openings.md`.
 
 ## 8. Invariants an agent must not break
 

@@ -78,6 +78,7 @@ however convenient it looks at the time.
 | `event_impacts`       | One shared "why it matters" per event (0028), reused by every reader. **Never per-user** — that is Story Ask                                  |
 | `event_translations`  | Cached language views (0029), keyed `(event, language, content_version)`. Never per-user                                                      |
 | `user_custom_sources` | Which readers asked for which global source (0030). Many followers, one crawler. **No insert policy** — adds go through `claim_custom_source` |
+| `source_exemptions`   | Per-source exemption from the demand gate (0120, ruling #12c). `experiment`, `reason`, a mandatory bounded window, seeded `enabled = false`; read by `sources_to_collect`, service-role only. Started and stopped with `npm run experiment:sources` |
 
 ### Delivery
 
