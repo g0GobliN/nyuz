@@ -155,11 +155,11 @@ test.describe("the pricing page quotes the right number", () => {
     await page.getByRole("button", { name: /^annual$/i }).click();
 
     // The page's own wording, from annualCaption() in src/routes/pricing.tsx:
-    // "At least 2 months back on an annual plan." It counts *months*, not a
+    // "At least 2 months free on an annual plan." It counts *months*, not a
     // percentage, and it is derived from the least-saving paid plan so it cannot
     // overstate. Asserting the unit here is the point — a copy change from
     // "months" to "%" without recomputing is how a pricing claim starts lying.
-    const caption = page.getByText(/back on an annual plan/i).first();
+    const caption = page.getByText(/months? free on an annual plan/i).first();
     await expect(caption, "an annual saving is advertised").toBeVisible();
     const text = (await caption.innerText()).trim();
 

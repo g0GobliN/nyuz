@@ -55,11 +55,11 @@ export function ProfileDemo() {
 const DIFFS = [
   {
     title: "One event, not thirty articles",
-    body: "When thirty outlets cover the same thing, Nyuz brings them together into one story with the sources attached. You see the event once — not thirty rewrites of the same headline.",
+    body: "When thirty outlets cover the same thing, nyuz brings them together into one story with the sources attached. You see the event once — not thirty rewrites of the same headline.",
   },
   {
     title: "More than just the news",
-    body: "Nyuz doesn't stop at what happened — it gives you the context around a story: what changed, the numbers that matter, and what is worth knowing beyond the headline.",
+    body: "nyuz doesn't stop at what happened — it gives you the context around a story: what changed, the numbers that matter, and what is worth knowing beyond the headline.",
   },
   {
     title: "Important beats endless",
@@ -67,11 +67,11 @@ const DIFFS = [
   },
   {
     title: "It gets more relevant over time",
-    body: "What you read, skip, follow, and exclude helps Nyuz understand what deserves space in your briefing. Use it normally and it gradually becomes more relevant.",
+    body: "What you read, skip, follow, and exclude helps nyuz understand what deserves space in your briefing. Use it normally and it gradually becomes more relevant.",
   },
   {
     title: "Sources stay attached",
-    body: "Nyuz brings information together without hiding where it came from. Every story keeps its original sources close, so you can check the reporting or keep reading at the source.",
+    body: "nyuz brings information together without hiding where it came from. Every story keeps its original sources close, so you can check the reporting or keep reading at the source.",
   },
   {
     title: "You decide how much reaches you",
@@ -79,7 +79,7 @@ const DIFFS = [
   },
   {
     title: "Follow beyond the mainstream",
-    body: "Add the sources you care about — a local publication, research feed, niche blog, project page, or something the bigger news apps might never watch. Nyuz isn't trying to make everyone read the same internet.",
+    body: "Add the sources you care about — a local publication, research feed, niche blog, project page, or something the bigger news apps might never watch. nyuz isn't trying to make everyone read the same internet.",
   },
 ];
 

@@ -190,7 +190,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "Where your data goes",
         p: [
-          "We use a small number of processors to run the service. Each one, what it does and where it holds data, is listed on the Subprocessors page.",
+          "We use a small number of processors to run the service. Each one, what it does and where it holds data, is listed on the Service providers page.",
           "Some providers process data outside your country, including in the United States and China. The locations and the data involved are listed on the Service providers page. We use contractual and other transfer safeguards where applicable law requires them; do not use the service for personal or confidential information.",
         ],
       },

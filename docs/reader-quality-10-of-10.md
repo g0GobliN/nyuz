@@ -170,12 +170,23 @@ consequence 1`), then `npm run experiment:sources -- --on` started the window
 acceptance is measured on items delivered **after** the first covering window, so its verdict is not
 available today.
 
+**Measured an hour later: the experiment was running and inert, and that is now fixed.** The gate released
+all eight and not one feed moved, because every one of them also sat on the **`paused`** polling tier
+(10080 minutes, last fetched `2026-10-17T02:45Z`) — so the cadence would not have offered them a request
+until **2026-10-24**, five days into a thirty-day window. `scripts/` reported eight released sources exactly
+as designed, which is what made it invisible. The fix is `dueCadence()` in
+[ingest.ts](../src/lib/pipeline/ingest.ts): a source whose gate reason starts `exempt` is due on the
+ordinary interval; every other source keeps its tier, and the tier row is untouched so the window closing
+restores the old behaviour by itself. Six cases in `ingest.test.ts`. **It cost the experiment five days of
+its thirty, and item 2's window now starts with the next ingest tick rather than on 2026-10-24.**
+
 ## The order to work in
 
 1. **Done 2026-10-19:** migration 0120 applied (eight rows), the before-record taken, and
    `npm run experiment:sources -- --on` started the 30-day window
-   (**2026-10-19T06:46Z → 2026-11-18T06:46Z**). The next thing to read is `ladder now:` after the first
-   covering window — the acceptance is item 2 above.
+   (**2026-10-19T06:46Z → 2026-11-18T06:46Z**) — then the cadence defect above, found by checking that the
+   feeds were actually moving rather than that the command had printed them. **The next thing to read is
+   `ladder now:` after the first covering window** — the acceptance is item 2 above.
 2. Re-read `ladder now:` after the experiment's first window; the acceptance is item 2 above.
 3. Items 1, 3 and 4 are now instruments with exit statuses — keep them green rather than re-deriving
    them. Tonight's 22:30Z build is what turns item 1 from `FAIL 6 / 13` into `PASS 13/13`.

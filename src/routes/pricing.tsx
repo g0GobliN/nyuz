@@ -72,7 +72,7 @@ function annualCaption(): string | null {
   const least = Math.min(...savings);
   const rounded = Math.round(least * 10) / 10;
   const label = rounded === 1 ? "month" : "months";
-  return `At least ${rounded} ${label} back on an annual plan.`;
+  return `At least ${rounded} ${label} free on an annual plan.`;
 }
 
 const FAQ = [

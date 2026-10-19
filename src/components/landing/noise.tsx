@@ -43,8 +43,8 @@ export function NoiseSection() {
             at the time you choose, in the format you choose.
           </p>
           <p>
-            Most mornings that&apos;s six stories. Some mornings it&apos;s one. Occasionally
-            it&apos;s none, and we tell you that rather than padding it out.
+            Most mornings that&apos;s five stories or fewer. Some mornings it&apos;s one.
+            Occasionally it&apos;s none, and we tell you that rather than padding it out.
           </p>
           <p>
             <a

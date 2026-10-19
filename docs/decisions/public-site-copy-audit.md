@@ -153,3 +153,46 @@ Ruling, quoted in the parts that bind:
 configuration. Routing can be pointed at another provider, in which case the region follows that
 provider."* The privacy sentence is unchanged, nothing new is claimed about today's traffic, and the
 deterministic-product policy is untouched.
+
+---
+
+## The mechanical pass the ruling kept separate (2026-10-19)
+
+Ruling #15 corrected the promise-level defects and deliberately left the cosmetic ones: *"I would keep
+them as a separate cleanup pass rather than bundling them into these contractual decisions."* This is
+that pass. Five items, each measured on the live pages before and after; every change makes the page
+true rather than better-sounding, and none of them moves a price, a plan limit or a pipeline predicate.
+
+**1. One page, two names.** The footer link said **Subprocessors**, the page it opens is headed
+**Service providers**, and the privacy policy used both names one paragraph apart. The page's own title
+is the anchor and "Service providers" is the plainer term, so every reference now reads **Service
+providers** (`footer.tsx` link, the privacy paragraph, and the comment in the footer about what the
+column is for). The URL slug `/legal/subprocessors` is unchanged — it is a link target, not a name a
+reader is shown, and changing it would need a redirect for no reader benefit.
+
+**2. A sentence that read as a date.** `/pricing` printed *"At least 2 months back on an annual plan."*
+under the billing toggle. The number is not editorial: `annualCaption()` derives it from the plan data
+(the least-saving paid plan's annual discount in months), and an e2e test pins that derivation. The
+defect was the wording — a stranger reads "2 months back" as a time reference rather than money. It now
+reads **"At least 2 months free on an annual plan."**, which is the repository's own language for the
+same figure (`plans.ts`: *"Exactly two months free against twelve months of the monthly price"*), and
+the derived number, the unit and the rounding are all unchanged. The test's locator moved with the
+wording; the assertions on the number did not.
+
+**3. A claim over the ceiling.** The landing page said *"Most mornings that's six stories."* while the
+plan it is written for caps at **5** (`LAUNCH_PLANS.uno.storiesPerBriefing`) and the page's own demo
+shows four. Now: *"Most mornings that's five stories or fewer. Some mornings it's one."*
+
+**4. Three labels on two axes.** The density dial printed the current band's name in large type
+("Focused", "Minimal", "Broad", "Deep" as the reader drags) while labelling only two of the four bands
+under the track ("Minimal" … "Deep"), so the reader could not see where the band they were in began or
+ended. The track now carries **one label per band, each over the part of the track that band owns**
+(0-20, 20-45, 45-70, 70-100), taken from `LEVELS`, so the slider and the query cannot disagree about
+what a label means — which is the reason the bands live in `@/lib/density` and not in the component.
+
+**5. Brand case.** The landing page wrote the product as **Nyuz** in six places while the logo and every
+other surface use lowercase **nyuz**. Corrected to the brand's own case.
+
+**Verified:** `npx tsc --noEmit` clean; the two e2e tests that failed on this tree while it was being
+edited pass on the settled tree (`the annual saving is stated in months and not invented`, `the
+recovery path exists…`); the full gate ran on the final tree before the push.

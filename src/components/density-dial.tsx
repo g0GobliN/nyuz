@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { countFor, levelFor } from "@/lib/density";
+import { LEVELS, countFor, levelFor } from "@/lib/density";
 import { usePlan } from "@/lib/plan-state";
 import { cn } from "@/lib/utils";
 
@@ -50,9 +50,31 @@ export function DensityDial({
         }}
       />
 
-      <div className="mt-3 flex justify-between text-[11.5px] uppercase tracking-[0.16em] text-muted-foreground">
-        <span>Minimal</span>
-        <span>Deep</span>
+      {/*
+        One label per band, over the part of the track that band owns. The bands
+        divide the slider 0-20-45-70-100, so even spacing would put "Focused"
+        under a quarter of the track while it governs from 20 to 45 — the label
+        would name a position the reader is not in. The ends take the outer
+        alignment a slider is expected to have; the middles centre in their own
+        span. `deep.max` is 101 so that `density < max` catches 100, and the
+        widths are clamped to the track for the same reason.
+      */}
+      <div className="mt-3 flex text-[11.5px] uppercase tracking-[0.16em] text-muted-foreground">
+        {LEVELS.map((band, i) => {
+          const from = i === 0 ? 0 : Math.min(LEVELS[i - 1]?.max ?? 0, 100);
+          const to = Math.min(band.max, 100);
+          return (
+            <span
+              key={band.key}
+              style={{ flexBasis: `${to - from}%` }}
+              className={cn(
+                i === 0 ? "text-left" : i === LEVELS.length - 1 ? "text-right" : "text-center",
+              )}
+            >
+              {band.label}
+            </span>
+          );
+        })}
       </div>
 
       <p className="mt-6 text-[14px] leading-relaxed text-muted-foreground">{level.detail}</p>

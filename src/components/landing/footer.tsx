@@ -62,15 +62,15 @@ export function SiteFooter({
 
           {/* Trust and Legal are separate columns because they answer different
               questions. Somebody checking who sees their data before they sign
-              up is not reading the refund policy, and burying Subprocessors at
-              the bottom of a six-item legal list hides the page most worth
+              up is not reading the refund policy, and burying Service providers
+              at the bottom of a six-item legal list hides the page most worth
               finding. */}
           <FooterColumn title="Trust">
             <Link to="/legal/$doc" params={{ doc: "security" }} className={footerLink}>
               Security
             </Link>
             <Link to="/legal/$doc" params={{ doc: "subprocessors" }} className={footerLink}>
-              Subprocessors
+              Service providers
             </Link>
             <Link to="/legal/$doc" params={{ doc: "privacy" }} className={footerLink}>
               Privacy
