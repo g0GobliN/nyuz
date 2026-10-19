@@ -1423,8 +1423,8 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 ## 7. What is next
 
-**Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read
-[handoff-2026-10-18-night.md](handoff-2026-10-18-night.md) → this file →
+**Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
+handoff ([handoff-2026-10-19-morning.md](handoff-2026-10-19-morning.md)) → this file →
 [reader-quality-10-of-10.md](reader-quality-10-of-10.md), the acceptance checklist whose lines are
 commands. The skill for it is `resume-session`; the entry at the end of §6 records why it exists.
 

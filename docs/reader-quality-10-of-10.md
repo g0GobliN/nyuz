@@ -117,6 +117,25 @@ article's `excerpt` only, while the page's loader passes the excerpt **and** the
 failing-first by a test that fails with only that line removed. The delivered archive is unchanged (it
 is immutable); the next build is the first that can read 13/13, and that build is the evidence.
 
+### The live read the same morning (deployed origin, dashboard, 12 cards)
+
+Read as a stranger at `https://nyuz.grgvishal-gurung17.workers.dev/dashboard` on 2026-10-19, with
+[screenshots/dashboard-2026-10-19.png](../screenshots/dashboard-2026-10-19.png) as the record:
+
+- **Two delivered cards still show the pre-fix opening** (#02 Disney, #11 Asus monitor). Expected and
+  stated: the archive is immutable, and the next build is the first under the input fix above.
+- **Three cards carry the shapes the 2026-10-18 dashboard ruling lists as remaining classes** — a
+  price card (`Anycubic's award-winning 3D printer hits all-time low pricing`, #07), a discount card
+  (`Lenovo's fast, comfy SteamOS handheld is hundreds off`, #10), and a first-party celebration
+  (`RTX Spark Ignites Global Celebration as New Windows PCs Arrive`, the vendor's own blog, #12).
+  Recorded as the measured population for the next class ruling; nothing was refused on sight, because
+  that ruling requires one class at a time with its own measurement.
+- **One topic-attribution smell:** a Windows command-prompt story from The Register reasons
+  **"You follow AI."** (#08). The reason line is the reader's only explanation of why a story is on
+  their page, so a wrong one is a defect of the same family as a wrong summary. It needs its own
+  measurement (which topics matched, and whether the matcher or the topic taxonomy is at fault) before
+  any rule.
+
 **Item 2 is unchanged and cannot move today.** `ladder now: none 13` is a corpus fact, not a rule gap:
 all 13 delivered stories have one publisher, no stored impact and no before/after state, so no rung but
 silence can speak. Its route is ruling **#12c** — eight sources reactivated for a bounded 30-day
