@@ -1468,7 +1468,9 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   sentence the reader reads, rests on one ambiguous word. **Population** on the newest delivered briefing
   (`e9e485a5`, 2026-10-18T22:30Z, 13 cards): **4 reasons name a topic whose only evidence is one weak
   headline term** — #3 `Claude` via "Anthropic", #7 `AI` via "prompt", #11 `Chips` via "AMD", #12 `World`
-  via "Global". The four are not equally wrong (#3 is arguably right), which is why the fix is a ruling and
+  via "Global". **Widened to the delivered corpus the same day: the newest 20 briefings, 427 cards, 43
+  flagged (10.1%)** — carried mostly by `Claude` (10) and `World` (7), with the AI case that started it 3 of
+  43. The four are not equally wrong (#3 is arguably right), which is why the fix is a ruling and
   not a patch: four numbered options are recorded in
   [decisions/topic-attribution-reason-lines.md](decisions/topic-attribution-reason-lines.md), and **no rule
   was changed.** **Blocked on the arbiter, not on code:** the ChatGPT `nyuz` project could not be reached

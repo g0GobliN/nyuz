@@ -147,8 +147,9 @@ Read as a stranger at `https://nyuz.grgvishal-gurung17.workers.dev/dashboard` on
   **prompt**" is in the headline — recomputing without the headline returns nothing, and the haystack has
   no strong AI term anywhere. Population on the newest delivered set (13 cards): **4 reasons name a topic
   whose only evidence is one weak headline term** (#3 Claude via "Anthropic", #7 AI via "prompt", #11
-  Chips via "AMD", #12 World via "Global"). Four numbered options are recorded for the arbiter; no rule
-  has been changed.
+  Chips via "AMD", #12 World via "Global"). **Widened the same day to the newest 20 delivered briefings:
+  43 of 427 cards (10.1%)**, dominated by Claude (10) and World (7), with the AI case that started it all
+  just 3 of 43. Four numbered options are recorded for the arbiter; no rule has been changed.
 
 **Item 2 is unchanged and cannot move today.** `ladder now: none 13` is a corpus fact, not a rule gap:
 all 13 delivered stories have one publisher, no stored impact and no before/after state, so no rung but

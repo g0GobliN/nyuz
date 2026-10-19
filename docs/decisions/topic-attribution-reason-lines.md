@@ -46,6 +46,36 @@ reason names a headline-only topic          4
 | #11  | You follow **Chips**, NVIDIA                     | Chips              | "…full Nvidia DLSS 5 suite to three generations of **AMD** gaming GPUs"        |
 | #12  | You follow **World**, AI, NVIDIA                 | World              | "RTX Spark Ignites **Global** Celebration…" (the vendor's own blog)            |
 
+**The population, widened to the delivered corpus** (`npm run audit:topic-attribution`, 2026-10-19, the
+newest 20 delivered briefings — the instrument takes `--briefings <n>`):
+
+```
+briefings read                              20
+cards examined                              427
+reason names a headline-only topic          43
+share of delivered cards                    10.1%
+```
+
+| label named | cards |
+| --- | --- |
+| Claude | 10 |
+| World | 7 |
+| Chips | 6 |
+| Cybersecurity | 6 |
+| Open source | 5 |
+| NVIDIA | 5 |
+| AI | 3 |
+| Developer tools | 3 |
+| OpenAI | 1 |
+
+This is the number a ruling needs, and it changes the shape of the question. The label that drew
+attention — AI on a command prompt — is **3 of 43**. The largest carrier is **Claude (10)**, almost all of
+them a headline naming *Anthropic*, which is a Claude vendor; then World (7, headlines carrying "UN",
+"global"), Chips (6), Cybersecurity (6, including *"Hack the World: Why hackathons are still the best
+place to learn to build"*, which reads like the "prompt" case). So most of the 43 are defensible and a
+minority are simply wrong, and the four options below are not four shades of the same fix: option 1
+removes 3 cards, option 3 removes all 43 from the line while leaving matching untouched.
+
 **What this does and does not say.** The four labels are not equally wrong: _#3_ is arguably correct — the
 story is about Anthropic, a Claude vendor — and _#11_ is a chip story in which "AMD" is a fair signal. The
 finding is narrower and it is about the **line**, not the label set: on all four, the sentence the reader
@@ -70,9 +100,12 @@ see):
 4. **Do nothing.** Accept the labels as the taxonomy's judgement and the intersection as an honest report
    of it. Recorded so the choice is deliberate rather than unexamined.
 
-**The measurement is one briefing.** One 13-card set, the newest delivered, read 2026-10-19. A ruling that
-wants a wider population should say so: the instrument takes `--digest <uuid>` and `--all`, and the corpus
-to widen over is every briefing with `status in (sent, ready)`.
+**Scope, after widening.** The first reading was one 13-card set; the corpus reading above is the newest
+20 delivered briefings and 427 cards, so a ruling no longer rests on one morning. What it still is not: a
+census of every briefing ever delivered (the instrument takes `--briefings <n>`, `--digest <uuid>` and
+`--all`), and it recomputes labels from current stored text, so a card delivered under an older rule is
+measured by today's rule — which is the right question for a fix, and not the same as what that reader
+saw.
 
 **Blocked on the arbiter.** The standing rule is that a question goes to the owner's ChatGPT `nyuz` project
 before it goes to the owner. It could not be reached from this session: the browser panel's clean profile is
