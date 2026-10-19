@@ -1450,7 +1450,31 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   withheld, all eight present and active**, **12,620 complete events / 161 with ≥2 publishers** (the
   2026-10-18 record was 153; the number grows on its own, so the comparison must be against a run taken the
   same day the experiment starts), ladder over the newest 60 live events: none 59 · consequence 1. The
-  superseded 45-day window change is still unapplied and no archive was touched.
+  superseded 45-day window change is still unapplied and no archive was touched. **Landed:** the slice was
+  committed as `2edb2b7` and pushed after a full local `npm run ci` on the frozen tree; the runner's jobs —
+  including **Deploy to Cloudflare Workers** — all read success, so `main` is level with production again.
+
+- **2026-10-19 — the wrong reason line is pure code: a weak keyword in a headline is enough to label a
+  story, and it labelled a command prompt "AI".** The dashboard read recorded a topic-attribution smell —
+  a Windows command-prompt story whose card reasoned *"You follow AI."* The checklist asked for its own
+  measurement before any rule, and it now has one: `npm run audit:topic-attribution`
+  ([reader-topic-attribution.ts](../scripts/reader-topic-attribution.ts)), which prints each card's
+  reader-visible reason, the labels the event carries, and what the shipped pure function produces with and
+  without the headline in the haystack. **Mechanism, no model anywhere in it:** `assignTopics` lists
+  `"prompt"` among the AI topic's *weak* terms, the title rule labels on a single weak term in a headline
+  (built so a real travel headline labels with no body mention), and the Register's headline is *"Windows
+  command **prompt** puts in a surprise appearance"*. On the event's own rows the haystack has **no strong
+  AI term at all**, and recomputing with the headline removed returns **nothing** — the label, and so the
+  sentence the reader reads, rests on one ambiguous word. **Population** on the newest delivered briefing
+  (`e9e485a5`, 2026-10-18T22:30Z, 13 cards): **4 reasons name a topic whose only evidence is one weak
+  headline term** — #3 `Claude` via "Anthropic", #7 `AI` via "prompt", #11 `Chips` via "AMD", #12 `World`
+  via "Global". The four are not equally wrong (#3 is arguably right), which is why the fix is a ruling and
+  not a patch: four numbered options are recorded in
+  [decisions/topic-attribution-reason-lines.md](decisions/topic-attribution-reason-lines.md), and **no rule
+  was changed.** **Blocked on the arbiter, not on code:** the ChatGPT `nyuz` project could not be reached
+  from this session — `chatgpt.com` is held at a Cloudflare interstitial in the browser panel's clean
+  profile, and real-profile browsing (the route earlier sessions used) needs a Chromium-family default
+  browser, which this machine does not have (LibreWolf is the default).
 
 ## 7. What is next
 
@@ -1869,8 +1893,11 @@ been measured to lack one. The three acceptance conditions (coverage above basel
 item with a non-coverage rung line; `briefing:checkpoint` non-zero and traceable) are measured on items
 delivered *after* the first covering window, which is the next thing to read once the clock runs. Also
 still open and not started, named so they are not silently widened into this slice: the price/discount/
-first-party dashboard classes, the "You follow AI." topic attribution, and the context-dependent opening
-in `decisions/context-openings.md`.
+first-party dashboard classes, and the context-dependent opening in `decisions/context-openings.md`.
+**The "You follow AI." topic attribution has left that list**: it is measured (`npm run
+audit:topic-attribution`) with its population and its mechanism recorded in
+[decisions/topic-attribution-reason-lines.md](decisions/topic-attribution-reason-lines.md), and it now
+waits on an arbiter ruling over four numbered options — a reader-visible change nobody has approved.
 
 ## 8. Invariants an agent must not break
 

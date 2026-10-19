@@ -130,11 +130,18 @@ Read as a stranger at `https://nyuz.grgvishal-gurung17.workers.dev/dashboard` on
   (`RTX Spark Ignites Global Celebration as New Windows PCs Arrive`, the vendor's own blog, #12).
   Recorded as the measured population for the next class ruling; nothing was refused on sight, because
   that ruling requires one class at a time with its own measurement.
-- **One topic-attribution smell:** a Windows command-prompt story from The Register reasons
-  **"You follow AI."** (#08). The reason line is the reader's only explanation of why a story is on
-  their page, so a wrong one is a defect of the same family as a wrong summary. It needs its own
-  measurement (which topics matched, and whether the matcher or the topic taxonomy is at fault) before
-  any rule.
+- **One topic-attribution smell — measured 2026-10-19, awaiting a ruling:** a Windows command-prompt
+  story from The Register reasons **"You follow AI."** (#08). The reason line is the reader's only
+  explanation of why a story is on their page, so a wrong one is a defect of the same family as a wrong
+  summary. It now has its own instrument and its own record —
+  `npm run audit:topic-attribution`, [decisions/topic-attribution-reason-lines.md](decisions/topic-attribution-reason-lines.md).
+  **The mechanism is pure code, no model:** `assignTopics` gives the AI topic the weak term `"prompt"`,
+  the title rule lets one weak term in a headline label a story on its own, and "Windows command
+  **prompt**" is in the headline — recomputing without the headline returns nothing, and the haystack has
+  no strong AI term anywhere. Population on the newest delivered set (13 cards): **4 reasons name a topic
+  whose only evidence is one weak headline term** (#3 Claude via "Anthropic", #7 AI via "prompt", #11
+  Chips via "AMD", #12 World via "Global"). Four numbered options are recorded for the arbiter; no rule
+  has been changed.
 
 **Item 2 is unchanged and cannot move today.** `ladder now: none 13` is a corpus fact, not a rule gap:
 all 13 delivered stories have one publisher, no stored impact and no before/after state, so no rung but

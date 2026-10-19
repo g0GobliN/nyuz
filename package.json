@@ -68,7 +68,8 @@
     "cluster:backlog": "node --env-file=.env scripts/tsrun.mjs scripts/cluster-backlog.ts",
     "briefing:withhold-preview": "node --env-file=.env scripts/tsrun.mjs scripts/briefing-withhold-preview.ts",
     "baseline:sources": "node --env-file=.env scripts/tsrun.mjs scripts/source-experiment-baseline.ts",
-    "experiment:sources": "node --env-file=.env scripts/tsrun.mjs scripts/source-experiment.ts"
+    "experiment:sources": "node --env-file=.env scripts/tsrun.mjs scripts/source-experiment.ts",
+    "audit:topic-attribution": "node --env-file=.env scripts/tsrun.mjs scripts/reader-topic-attribution.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"
