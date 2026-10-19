@@ -1474,12 +1474,31 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   was changed.** **Blocked on the arbiter, not on code:** the ChatGPT `nyuz` project could not be reached
   from this session — `chatgpt.com` is held at a Cloudflare interstitial in the browser panel's clean
   profile, and real-profile browsing (the route earlier sessions used) needs a Chromium-family default
-  browser, which this machine does not have (LibreWolf is the default).
+  browser, which this machine did not have (LibreWolf was the default). **The route was then restored:**
+  Chromium was set as the default browser and `browser.use_real_profile` / `browser.headed` re-enabled
+  (headed is what gets past the interstitial), and `chatgpt.com` came up **logged out** — the profile's
+  session had expired on 2026-09-21 — so the arbiter was still unreachable and the owner was asked to log
+  in or relay. Those two settings and the default browser are the owner's to revert.
+
+- **2026-10-19 — the dashboard's remaining classes were counted, and the tempting widening is not a
+  class.** `npm run audit:dashboard-classes` ([dashboard-class-census.ts](../scripts/dashboard-class-census.ts))
+  reads all 22,569 stored event titles and prints each count with the predicate that produced it. The two
+  landed rules refuse 21 (deal: marker AND acquisition verb) and 12 (mod) titles. Price/discount-shaped
+  titles are **122**, of which **105 carry no acquisition verb** — the population the two observed cards
+  come from — and cutting those 105 by shape gives **40 that are price movement as the news** (*"Hyundai's
+  all-electric hot hatch goes on sale in the UK"*, *"Anthropic's new Fable release is cheaper, less
+  restrictive"*), **25 explicit discount deals** (the observed card, mixed with affiliate listings), **5
+  coupon/promo-code pages** (the one clean shape), 1 review and 34 unclassified. The vendor-owned-blog
+  shape is 12 sources and **175 events**, including engineering and research posts. **So the ruling has to
+  cut a class out of that population, not take it whole** — a rule keyed on price alone would refuse a
+  product launch, the same lesson the first draft of the deal rule learned (47 of 22,018 titles, real news
+  included). Recorded in [decisions/dashboard-feed-first-class.md](decisions/dashboard-feed-first-class.md);
+  **no rule changed.**
 
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
-handoff ([handoff-2026-10-19-morning.md](handoff-2026-10-19-morning.md)) → this file →
+handoff ([handoff-2026-10-19-evening.md](handoff-2026-10-19-evening.md)) → this file →
 [reader-quality-10-of-10.md](reader-quality-10-of-10.md), the acceptance checklist whose lines are
 commands. The skill for it is `resume-session`; the entry at the end of §6 records why it exists.
 

@@ -99,3 +99,46 @@ title/summary rungs.
   measured; the hobby-hack/review class later, after its own measurement.
 - **Not authorised:** applying the full readiness gate to the dashboard; refusing on a price or a verb
   alone; touching history, search or the story page; folding the second class in without its own evidence.
+
+## The next class, measured: "price/discount without an acquisition verb" is not one class (2026-10-19)
+
+`npm run audit:dashboard-classes` (new with this record; every count names the predicate that produced
+it). Corpus: **22,569 stored event titles**, read 2026-10-19.
+
+```
+refused by isReaderDealTitle                                         21
+refused by isReaderModTitle                                          12
+price/discount-shaped titles                                        122
+  with an acquisition verb (the landed rule)                         17
+  without one (outside the landed rule)                             105
+      coupon / promo-code page                                        5
+      explicit discount deal (% off, $N off, all-time low)           25
+      price movement as the news (on sale, cheaper, price cut)       40
+      review / buying advice                                          1
+      unclassified by those buckets                                  34
+```
+
+**Why the count is not a class.** The tempting shortcut is "widen the landed rule to price shapes without
+an acquisition verb" — that is a 105-title class, and two of its buckets are real news:
+
+- *price movement as the news* (40) contains *"Hyundai's all-electric hot hatch goes on sale in the UK,
+  starting at around $25,000"*, *"Anthropic's new Fable release is cheaper, less restrictive"*, *"Waymo is
+  offering transit discounts again, this time with Visa"* — a launch and a repricing, reported.
+- *explicit discount deal* (25) is where the observed card lives (*"Award-winning Anycubic 3D Printers on
+  sale with up to 47% off"*) but it also holds affiliate listings (*"Wired lists HBO Max promo codes with
+  up to 50% off"*, *"We-Vibe discounts up to 60% off listed by Wired"*), which are a different defect.
+- *coupon / promo-code page* (5) is the narrowest clean shape in the population: *"Wired publishes
+  Priceline coupon page with 10% off for September 2026"*, *"Skechers Coupon Codes 20% Off"* — a
+  publisher's affiliate page, not a development by any reading.
+
+**The vendor-owned-blog shape is not a class either.** 12 vendor-owned sources carry 175 events, and the
+population includes engineering and research posts (*"Open and Emergent Problems in Agentic Privacy and
+Security"*, *"AWS Weekly Roundup: Prime Day 2026 by the numbers"*) beside the observed celebration
+(*"RTX Spark Ignites Global Celebration as New Windows PCs Arrive"*). The class, if it is ruled, is "the
+vendor announcing its own product with celebration framing", which needs its own marker and its own
+false-positive measurement — not "the source is the vendor".
+
+**Status: measured, no rule changed.** The two observed cards still render, and the ruling has to cut a
+class out of this population rather than take the whole 105. What the measurement settles is that a rule
+keyed on price alone would refuse a product launch, which the previous draft of the deal rule already
+learned once (47 of 22,018 titles, real news included).

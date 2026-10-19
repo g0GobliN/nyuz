@@ -129,7 +129,14 @@ Read as a stranger at `https://nyuz.grgvishal-gurung17.workers.dev/dashboard` on
   (`Lenovo's fast, comfy SteamOS handheld is hundreds off`, #10), and a first-party celebration
   (`RTX Spark Ignites Global Celebration as New Windows PCs Arrive`, the vendor's own blog, #12).
   Recorded as the measured population for the next class ruling; nothing was refused on sight, because
-  that ruling requires one class at a time with its own measurement.
+  that ruling requires one class at a time with its own measurement. **Measured 2026-10-19**
+  (`npm run audit:dashboard-classes`, recorded in
+  [decisions/dashboard-feed-first-class.md](decisions/dashboard-feed-first-class.md#the-next-class-measured-pricediscount-without-an-acquisition-verb-is-not-one-class-2026-10-19)):
+  "price/discount without an acquisition verb" is **105 titles of 22,569**, and it is not one class —
+  40 of them are price movement *as the news* (a launch, a repricing), 25 are explicit discount deals
+  (the observed card's bucket, mixed with affiliate listings), and only 5 are the clean coupon/affiliate
+  shape. The vendor-blog shape (12 sources, 175 events) likewise contains engineering posts. A class has
+  to be cut out of that population; a rule keyed on price alone would refuse product-launch news.
 - **One topic-attribution smell — measured 2026-10-19, awaiting a ruling:** a Windows command-prompt
   story from The Register reasons **"You follow AI."** (#08). The reason line is the reader's only
   explanation of why a story is on their page, so a wrong one is a defect of the same family as a wrong

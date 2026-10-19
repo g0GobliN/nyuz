@@ -69,7 +69,8 @@
     "briefing:withhold-preview": "node --env-file=.env scripts/tsrun.mjs scripts/briefing-withhold-preview.ts",
     "baseline:sources": "node --env-file=.env scripts/tsrun.mjs scripts/source-experiment-baseline.ts",
     "experiment:sources": "node --env-file=.env scripts/tsrun.mjs scripts/source-experiment.ts",
-    "audit:topic-attribution": "node --env-file=.env scripts/tsrun.mjs scripts/reader-topic-attribution.ts"
+    "audit:topic-attribution": "node --env-file=.env scripts/tsrun.mjs scripts/reader-topic-attribution.ts",
+    "audit:dashboard-classes": "node --env-file=.env scripts/tsrun.mjs scripts/dashboard-class-census.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"
