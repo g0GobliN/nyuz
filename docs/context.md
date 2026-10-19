@@ -1371,7 +1371,36 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 - **2026-10-18 — the ladder gained one rung, and it is the only shape that measured precise: what a change binds, and when it starts.** The reader's briefing shipped **5 cards with 0 significance lines**; the rungs that could explain them are written by `analyse` (0/33 stored impact, 0/33 after-state), so the ladder had to be fed by code or the cards ship silent. Four shapes were measured over the whole enriched corpus (3,570 `article_evidence` rows, 3,455 events, every hit read by hand): any change-of-state verb, entity-guarded → **432 hits, ~1 in 5 defensible**; an effective-date sentence alone → **39, ~3 in 5**; an effective start **and** a verb that changes what a party may do → **15, ~1 in 2**; that tightened into the shipped rule → **5 hits, 5 of 5 defensible**. **Landed:** `bindingLine` in [inclusion.ts](../src/lib/pipeline/inclusion.ts), between the money consequence and the coverage count (the figure rungs it once sat above were removed on 2026-10-18, ruling #10) — it prints the story's own evidence sentence unchanged when it is an effective change (*"The ban, which went into effect on Thursday, restricts ads …"*, *"Kicking in on October 30, the TOS update won’t allow businesses to opt out …"*) or the story's own instrument imposing a duty (*"CERT-In's directions also require organizations to report cyber incidents to the agency within 6 hours."*). No model call, no new schema, no new caller input: it reads the evidence and title the ladder already receives and derives the event's names with `rankEntities`, the composer's own ranker. The guards are the rejected hits themselves — a change inside a relative clause (a definition, not a change), a dated reporting frame (when the story was told), a launch date (availability), a retrospective, first-person source voice, furniture, and a spec sheet or price. **Measured after:** `npm run briefing-preview` reads **`ships with no why-line 5/5 → 3/5`**, `rungs: none 3, binding 2`, `distinct why-lines 3/5` — the Meta terms card and the CERT-In advisory carry lines; **the preview now names the reason per remainder** ("no stored impact; no after-state; one publisher; 12 evidence units, none stating what a change binds or when it starts" for both RTX Spark cards). Commit census `scripts/reader-binding-census.ts` runs `reasonFor`, not the predicate, so instrument and production cannot drift. **Tests:** 33 in `inclusion.test.ts`, including the two live shapes, the ordering (money at stake still wins), the three near-misses refused, and **a card that must keep shipping unlined** (the RTX cards' real evidence asserted to `{ text: "", source: "none" }`); with the rung's candidate removed the round-trip test fails (`1 failed | 32 skipped`) and passes restored. Record:
   [decisions/significance-without-a-model.md](decisions/significance-without-a-model.md#the-binding-change-the-one-shape-that-measured-precise-landed-2026-10-18). **What this does not claim:** the dashboard card still renders no significance block (the 2026-10-17 ruling stands — this rung cannot explain most cards), and the yield is 5 events because every wider shape printed filler.
 
+- **2026-10-19 — the session-start gap was the one process nobody had a skill for, and it has one now:**
+  **`resume-session`**. Local `main` was **62 commits behind** `origin/main` and one commit ahead — `ce5b355`,
+  whose upstream twin `372e184` had landed the corrected `src/lib/editorial.ts`; the local tree carried a
+  duplicated `briefingText` import and a malformed `recoverCardSummary` body, so it was the pre-fix draft of a
+  change that had already landed, not work to keep. The branch now sits on `origin/main` (`faa14b9`), with the
+  old sha recorded here (it is in the reflog; the `backup/local-main-before-pull` ref used during the move was
+  deleted after `HEAD == origin/main` was confirmed). **What the gap cost is the point:** everything the next
+  session is told to read was on the far side of it —
+  [handoff-2026-10-18-night.md](handoff-2026-10-18-night.md) (where the work stopped, and ruling **#12c**:
+  reactivate eight sources for a bounded 30-day experiment through per-source exemptions, judged by three
+  acceptance conditions; the exemption itself is **not** built),
+  [reader-quality-10-of-10.md](reader-quality-10-of-10.md) (the four acceptance lines and the four commands
+  whose exit status is the check) and the newest §6 entries. **Landed:** the skill in both required places —
+  install fields and body in [skills/resume-session.md](skills/resume-session.md), installed copy at
+  `~/.agents/skills/resume-session/SKILL.md` (frontmatter `name` + 479-character `description` + 5,208
+  characters of instructions, inside the app's own limits) — plus the rule it encodes in
+  [AGENTS.md](../AGENTS.md): **a session begins by syncing and reading, in that order**, and the install is
+  checkable because it is a file. **Drift measured and recorded, not repaired by assertion:** three skills
+  this repository describes as installed account-wide — `arbitrate-first`, `keep-context-current`,
+  `reader-quality-loop` — are **absent from the account snapshot**: `current.json` under the account's
+  `account-skills` directory held 39 skills on that date and none of the three. The repository half exists and
+  the installed half does not; account (cloud) copies are a Settings → Skills action, the global file install
+  is `~/.agents/skills/<name>/SKILL.md`. Nothing else changed, and nothing in the reader path was touched.
+
 ## 7. What is next
+
+**Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read
+[handoff-2026-10-18-night.md](handoff-2026-10-18-night.md) → this file →
+[reader-quality-10-of-10.md](reader-quality-10-of-10.md), the acceptance checklist whose lines are
+commands. The skill for it is `resume-session`; the entry at the end of §6 records why it exists.
 
 **2026-10-18, last: the card line and the page opening are one sentence by construction (ruling #11).**
 The producer-side fix below closed the quote-first class, but the audit of the same day found the seam

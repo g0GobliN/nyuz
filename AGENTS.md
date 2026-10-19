@@ -79,6 +79,13 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
 
 ## The loop does not stop
 
+- **A session begins by syncing and reading, not by editing.** `git fetch` and get the checkout onto
+  the remote before touching a file; then read what the last session left, in this order: the handoff
+  (`docs/handoff-*.md`, whose first line says "start here"), `docs/context.md`, the acceptance
+  checklist whose lines are commands ([reader-quality-10-of-10.md](docs/reader-quality-10-of-10.md)),
+  and the decision log entries the handoff names. The handoff names the next slice and the ruling
+  behind it; the code alone cannot. `resume-session` is the skill for this, and a session that skips
+  it spends its first hour repairing a tree nobody is running.
 - **Work the goal continuously, and never hand back a status report in place of progress.** The
   standing goal outlives any session: get what the reader reads to 10/10, hold it there, then make
   the alert side quiet and meaningful, then move on. Use `run-long-goal`. When the context window is
@@ -150,13 +157,20 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
   for an unknown cause, `surgical-patch` for a narrow fix, `safe-refactor` for structure,
   `migration` for a schema or data transition, `verify-and-stop` for proving finished work,
   `run-long-goal` for a goal that outlives a session, `review-diff` for a diff, `handoff-session`
-  when context is running out. The full set is installed account-wide, not per project.
+  when context is running out, `resume-session` at the start of a session to sync the checkout and
+  read what the last one left. The full set is installed account-wide, not per project.
 - **When a process repeats and no skill covers it, write the skill** — this is a rule from the
   owner, not a preference. It takes two places, both required: the body in
   `docs/skills/<name>.md` in this repository (the install fields plus the text, so it is reviewed
-  and versioned with the code) and the installed copy in the account's global skill set, so the
-  next session in any project gets it. Then use it. A process that lives only in one session's
-  head is not a skill.
+  and versioned with the code) and the installed copy, so the next session in any project gets it.
+  Then use it. A process that lives only in one session's head is not a skill.
+- **The installed copy is a file, and it is checkable.** It lives at
+  `~/.agents/skills/<name>/SKILL.md` — the global skills directory the app reads for every project —
+  with `name` and `description` in frontmatter. If it is not there, the skill is **not** installed,
+  whatever a document in this repository claims; that drift was measured on 2026-10-19 and three
+  skills described as installed account-wide were absent from the account snapshot. A separate
+  cloud-synced (account) copy is a Settings → Skills action in the app, and the three fields to
+  paste are in `docs/skills/<name>.md`.
 
 - `npm run dev` serves on port 8080. `npm run build` produces a nitro server bundle.
 - Routes are file-based under `src/routes/`; `src/routeTree.gen.ts` is generated — never edit it by hand.
