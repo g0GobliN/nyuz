@@ -125,3 +125,31 @@ the four readings of what each item could mean.
 **One item is not copy and is not in that request:** #2 is a factual claim about where data is processed.
 It needs a reading of the actual provider configuration before any wording changes — a page cannot be
 "fixed" to say something the configuration does not do.
+
+## Ruled (#16) and applied: the provider table names DeepSeek and China
+
+The configuration read the ruling asked for first, and what it found:
+
+- the AI provider is **DeepSeek** (`DEEPSEEK_BASE_URL` defaults to `https://api.deepseek.com`,
+  `src/lib/ai/config.ts`, `src/lib/ai/deepseek.ts`) — a China-based service, so the privacy sentence's
+  "China" refers to it and the sentence itself is defensible; the **table** was the vague half;
+- routing can also be set from the database (`ai provider routes` with `slug`, `base_url`, `api_key_env`),
+  so the endpoint is configuration rather than a constant;
+- **no reader data reaches it today:** `ai_usage_ledger` holds no rows in the last seven days and its
+  newest row is 2026-10-01T06:24Z. The pipeline is deterministic and the AI paths are off.
+
+Ruling, quoted in the parts that bind:
+
+> **Ruling #16: Option 1 — name DeepSeek and China in the provider table.** […] The privacy policy names
+> China, while the provider table leaves readers to infer which provider and location that refers to. […]
+> **Current activity: Make no new claim about whether reader data is being sent.** The measured absence of
+> recent ledger entries is relevant operational evidence, but it does not need to become a potentially
+> stale legal disclosure. […] because database routing can change the provider and endpoint, do not present
+> China as the exclusive processing location for every possible configuration. […] **Acceptance criteria:** A
+> stranger reading both pages should be able to connect the privacy policy's reference to China with the
+> named AI provider, without concluding that AI features are necessarily active today.
+
+**Applied:** the row reads *"DeepSeek (the default AI provider)"* … region *"China for the default
+configuration. Routing can be pointed at another provider, in which case the region follows that
+provider."* The privacy sentence is unchanged, nothing new is claimed about today's traffic, and the
+deterministic-product policy is untouched.

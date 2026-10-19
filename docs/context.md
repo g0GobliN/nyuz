@@ -1536,6 +1536,17 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   back", "six stories" against a five-story cap, the noise labels, brand case), ruled a separate cleanup
   pass. Record: [decisions/public-site-copy-audit.md](decisions/public-site-copy-audit.md).
 
+- **2026-10-19 — ruling #16: the provider table now names DeepSeek and China.** The item #15 left on its
+  own footing needed the configuration read first, and the read inverted it: the AI provider **is**
+  DeepSeek (`api.deepseek.com`), so the privacy policy's "including … China" is defensible and the
+  *table* was the vague half. Also measured, and deliberately **not** turned into copy: `ai_usage_ledger`
+  has no rows in the last seven days (newest 2026-10-01T06:24Z), so no reader data reaches the provider
+  today — the ruling accepted that as operational evidence and explicitly refused to make it a legal
+  disclosure that would go stale the moment a flag is flipped. The row now reads "DeepSeek (the default
+  AI provider)" with the region "China for the default configuration. Routing can be pointed at another
+  provider, in which case the region follows that provider." — the routing caveat is the ruling's own
+  qualification, because the endpoint is database configuration.
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest

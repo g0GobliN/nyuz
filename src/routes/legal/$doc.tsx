@@ -405,10 +405,10 @@ const DOCS: Record<string, Doc> = {
               "Global edge",
             ],
             [
-              "AI provider",
+              "DeepSeek (the default AI provider)",
               "AI for grouping and summarising stories, and for answering questions you ask",
               "Published article text. When you ask a question: that story and your question. No name, email or account details.",
-              "Depends on the provider and service configuration",
+              "China for the default configuration. Routing can be pointed at another provider, in which case the region follows that provider.",
             ],
             [
               "Resend",
