@@ -47,7 +47,7 @@ export const HERO_DEFAULT: Hero = {
   ctaHref: "/onboarding",
   secondaryLabel: "See how it works",
   secondaryHref: "/how-it-works",
-  footnote: "Live sources · Email, Telegram or notifications",
+  footnote: "Live sources · Email, push, and Telegram on paid plans",
 };
 
 /* ---------------------------------------------------------------------- */

@@ -21,7 +21,7 @@ export const Route = createFileRoute("/support")({
 const FAQ_ITEMS = [
   {
     q: "How do I change my delivery time?",
-    a: "Go to Settings → Delivery in your dashboard to set when you want your briefing. You can choose a specific time or get it immediately when it's ready.",
+    a: "On Plura and Omni, open Settings → Delivery in your dashboard to set when you want your briefing — a specific time, or as soon as it is ready. Uno briefings arrive on the default schedule.",
   },
   {
     q: "Can I pause my briefing?",

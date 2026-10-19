@@ -82,8 +82,8 @@ function About() {
               </p>
               <p>
                 <strong className="text-foreground">4. You get a briefing.</strong> Receive your
-                personalized digest via email, Telegram, or browser notifications — on your
-                schedule.
+                personalized digest by email and browser notifications — and, on paid plans,
+                Telegram — on your schedule.
               </p>
             </div>
           </div>

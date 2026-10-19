@@ -28,7 +28,7 @@ import { pageHead } from "@/lib/seo";
  */
 const ENTITY = {
   name: "nyuz",
-  operator: 'Vishal "goblin" Gurung',
+  operator: "Vishal Gurung",
   address: "Matsudo, Chiba, 〒270-0004, Japan",
   jurisdiction: "Japan",
   mail: {
@@ -133,7 +133,7 @@ const DOCS: Record<string, Doc> = {
       {
         h: "What we store",
         p: [
-          "Your account email, the topics and exclusions you configure, your delivery schedule, channels and reading language, and the feedback signals you give on individual stories.",
+          "Your account email, the topics and exclusions you configure, your delivery schedule and channels, and the feedback signals you give on individual stories.",
           "If you signed in with Google or GitHub, we also hold the address of the profile picture we show for you. The picture itself stays with them; nothing is uploaded to us.",
           "We also record what you were shown and what you did with it: how many times a story was displayed to you, whether you opened it, how long it stayed on screen, and whether you reached the end. Those are observations rather than statements you made, so they are held separately from your votes — and they are the part that makes a briefing more relevant to you over time.",
           "We store which briefings were generated and delivered so you can read your history and so we can retry failed deliveries.",
@@ -146,7 +146,7 @@ const DOCS: Record<string, Doc> = {
         h: "What the AI provider receives",
         p: [
           "Deciding which stories belong in your briefing happens on our own systems, using what you have told us you care about. Your interests are not sent anywhere in order to do it.",
-          "The stories themselves are read and summarised once, from the published reporting, before anyone is matched to them. Nothing about you goes into that, and your briefing is put together from those summaries on our side. Translations work the same way and are shared between readers of the same language.",
+          "The stories themselves are read and summarised once, from the published reporting, before anyone is matched to them. Nothing about you goes into that, and your briefing is put together from those summaries on our side. There is no translation step, so the summaries are shared exactly as written.",
           "The exception is when you ask a question about a story. To answer it, our AI provider receives that story and the question you typed. It does not receive your name, your email address, your topic list, your exclusions, your history or the reason that story matched you. Processing may take place in the provider's region, so do not put personal or confidential information in a question.",
         ],
       },
@@ -228,7 +228,7 @@ const DOCS: Record<string, Doc> = {
           "nyuz collects publicly available reporting, groups articles describing the same event, and sends you a briefing on the schedule you choose, selected for you from what it has covered.",
           "Story summaries are written once and shared by everyone who receives that story. What is personal to you is the selection: which stories reach you, in what order, and at what threshold.",
           "On a paid plan you can ask us to watch sources of your own, up to the number your plan includes. Feeds are shared between readers who follow the same one. We may decline a source, or stop using it, if it cannot be reached, does not work as a feed, or should not be fetched.",
-          "You can choose a reading language other than English. English is the language nyuz works in, and other languages are translations of it, which may be delayed or unavailable.",
+          "Briefings are delivered in English. Language selection and translation are not currently available.",
           "Availability targets are best-effort. Refunds for a missed or delayed briefing follow the Refunds policy.",
           "A quiet day is a working day. If nothing clears your threshold, you get a short briefing or none — that is the product behaving correctly, not an outage.",
           "Uno briefings pause after 30 days without a visit so unused accounts do not keep generating work. We warn you first, preserve your settings, and resume automatically when you return.",
@@ -307,7 +307,7 @@ const DOCS: Record<string, Doc> = {
         list: [
           "Attack the service — scraping at volume, probing for vulnerabilities without permission, or trying to exhaust our capacity.",
           "Resell briefings, or use nyuz to build a competing summarisation product.",
-          "Share one account across a team. Seats exist; ask us about them.",
+          "Share one account with anyone else. Accounts are per person; there is no team or seat plan.",
           "Use delivery channels to send anything to anyone other than yourself.",
           "Configure topics or instructions designed to make the service generate harassment, or content targeting a private individual.",
           "Circumvent plan limits, whether by automation or by holding multiple Uno accounts.",
@@ -406,7 +406,7 @@ const DOCS: Record<string, Doc> = {
             ],
             [
               "AI provider",
-              "AI for grouping and summarising stories, translation, and answering questions you ask",
+              "AI for grouping and summarising stories, and for answering questions you ask",
               "Published article text. When you ask a question: that story and your question. No name, email or account details.",
               "Depends on the provider and service configuration",
             ],
@@ -640,7 +640,7 @@ const DOCS: Record<string, Doc> = {
             ],
             [
               "動作環境 — Requirements",
-              "A current web browser and a working email address. Telegram and browser notifications are optional extras.",
+              "A current web browser and a working email address. Browser notifications are available to every reader; Telegram delivery is included on paid plans.",
             ],
           ],
         },

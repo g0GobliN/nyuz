@@ -1520,6 +1520,22 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   delivered after the first covering window**; until then the ladder is unchanged (`none 13` on the
   delivered set) and nothing else in that item is code.
 
+- **2026-10-19 — ruling #15: the public pages now say what the product does.** A read of every route in
+  `sitemap.xml`, taken as a stranger, found eleven defects; five were promise-level and went to the
+  arbiter. **Languages** (terms promised "you can choose a reading language"; support says there is no
+  language setting; how-it-works said preferences are stored) — ruled *change the pages*, and the sweep
+  found the same promise twice more in the privacy policy and once in the providers table. **Telegram**
+  (pricing gates it to Plura/Omni while the landing page, About and the commercial disclosure offered it
+  to everyone) — ruled *plan-dependent*, pages changed, the plan matrix untouched. **Custom delivery
+  time** — support no longer instructs Uno readers to operate a control only Plura and Omni have.
+  **Team seats** — the acceptable-use page no longer advertises an entitlement that does not exist.
+  **The operator's name** — `Vishal "goblin" Gurung` is now `Vishal Gurung` in the four pages that name
+  the operator. **Deliberately not touched:** the privacy claim that providers process data in China,
+  which the ruling put on its own footing pending a reading of the provider configuration — *"do not
+  reconcile them by guessing"* — and the mechanical set (two names for one page, "At least 2 months
+  back", "six stories" against a five-story cap, the noise labels, brand case), ruled a separate cleanup
+  pass. Record: [decisions/public-site-copy-audit.md](decisions/public-site-copy-audit.md).
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest

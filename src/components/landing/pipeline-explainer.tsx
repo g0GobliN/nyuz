@@ -381,7 +381,7 @@ const MECHANICS_FAQ: { q: string; a: string }[] = [
   },
   {
     q: "Can I read in a language other than English?",
-    a: "Language preferences are stored, but new AI translations are not generated. Source reporting stays in its original language, with links to read it directly.",
+    a: "Briefings are delivered in English, and there is no language setting yet. Source reporting stays in its original language, with links to read it directly.",
   },
 ];
 
