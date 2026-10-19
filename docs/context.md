@@ -1559,6 +1559,17 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   cases in `ingest.test.ts`. **It cost the experiment five days of its thirty**, and it is why item 2's
   window now actually starts with the next ingest tick.
 
+- **2026-10-19 — the mechanical copy pass the #15 ruling kept separate.** Five cosmetic defects, each
+  corrected to make the page true: **one page had two names** (footer link *Subprocessors*, page headed
+  *Service providers*, privacy using both) → **Service providers** everywhere, slug unchanged;
+  `/pricing`'s *"At least 2 months back on an annual plan."* read as a date → **"At least 2 months free on
+  an annual plan."**, keeping the figure `annualCaption()` derives and the repository's own wording
+  (`plans.ts`: *"exactly two months free"*); the landing page's *"Most mornings that's six stories"*
+  claimed one more than the free plan's **5** → *"five stories or fewer"*; the density dial labelled only
+  two of its four bands under the track → **one label per band, over the track each band owns**, from
+  `LEVELS`; and the landing page's six **Nyuz** became lowercase **nyuz**. No price, plan limit or
+  predicate moved. Recorded in [decisions/public-site-copy-audit.md](decisions/public-site-copy-audit.md).
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
