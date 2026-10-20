@@ -1658,6 +1658,24 @@ live pool. That is reported as a finding, not tuned. The archived briefing's 22-
 rows written before the rules existed; it is not the acceptance, and a build after this change is
 the population the acceptance is taken on (the window read above).
 
+- **2026-10-20 — the fourth dashboard class is measured and cut, and it is waiting on a ruling.** The
+  first-party celebration (the live dashboard's *"RTX Spark Ignites Global Celebration as New Windows PCs
+  Arrive"*) cannot be cut by its title: measured over **23,539** stored titles the celebration lexeme alone
+  refuses **29**, and **26 of them are news** — including *"Grace Hopper Celebration canceled two weeks out
+  as AnitaB.org runs short of funds"*, a development a reader needs. Nor by its source: **20 `company_blog`
+  sources carry 354 events** and the same population holds **49 launches** and **46 engineering/research**
+  posts. The class is both arms — celebration frame **and** every carrier a `company_blog` — which measures
+  **3 refusals**, all first-party celebrations, **0** of the 49 launches, **0** of the 46 engineering posts,
+  **0** of the 26 celebration-shaped news titles, and **2** of this reader's 5,808 matched cards. Two
+  measured causes explain why the card renders: `gateHomeFeed` passes no coverage to `assessReadiness` (so
+  every first-party rung fails open on the dashboard), and `CELEBRATION_TITLE` only sees
+  `celebrating … our` community posts, not the noun. Predicate, 13 tests and the replay
+  (`scripts/vendor-celebration-census.ts`) are on `wt/class-vendor-blog` as new files, **nothing wired**;
+  the wiring is named file by file in
+  [decisions/vendor-celebration-class.md](decisions/vendor-celebration-class.md) — `briefing.ts`'s
+  `articlesFor`/`gateHomeFeed` and `story.ts`'s `sourceList`, with `readiness.ts` converging after forge's
+  merge.
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
