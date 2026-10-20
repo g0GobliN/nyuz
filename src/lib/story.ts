@@ -24,6 +24,15 @@ export type Story = {
   sourceList: {
     articleId?: string;
     name: string;
+    /**
+     * The publisher's stored kind (`sources.kind`), when the loader selected it.
+     *
+     * The dashboard gate reads this to tell a vendor's own announcement from
+     * reportage — the first-party celebration class needs "every carrier a
+     * `company_blog`" — so a loader that omits it makes that class fail open.
+     * Optional because a card fixture or an older caller may not carry it.
+     */
+    kind?: string;
     at: string;
     url?: string;
     headline?: string;
