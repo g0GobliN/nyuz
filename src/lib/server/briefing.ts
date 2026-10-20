@@ -7,6 +7,7 @@ import { rankEventTopics } from "@/lib/pipeline/topic-assign";
 import { reasonFor } from "@/lib/pipeline/inclusion";
 import { deliveredLine, deliveredSummary } from "@/lib/reader-summary";
 import { isCouponPageTitle, isReaderDealTitle, isReaderModTitle } from "@/lib/pipeline/alert-floor";
+import { isVendorCelebrationTitle } from "@/lib/pipeline/vendor-celebration";
 import { assessReadiness } from "@/lib/pipeline/readiness";
 import { signedInOnly } from "./guard";
 import { countOrThrow } from "@/lib/supabase/count";
@@ -1057,8 +1058,32 @@ function gateHomeFeed(stories: Story[]): Story[] {
       // The third class (ruling #14, 2026-10-19): a publisher's coupon or
       // promo-code page — the publishing format, never the commercial subject.
       // Five measured titles; launches, repricing and genuine deals stay.
-      !isCouponPageTitle(s.title),
+      !isCouponPageTitle(s.title) &&
+      // The fourth class (measured 2026-10-20): a first-party celebration — the
+      // vendor's own blog announcing its own ceremony, anniversary or community
+      // recognition. Both arms are required, because each alone refuses news:
+      // the celebration lexeme matches 29 corpus titles and 26 are news (a
+      // cancelled conference among them), and 20 `company_blog` sources carry
+      // 354 events including 46 engineering posts and 49 launches. Measured:
+      // 3 refusals of 23,539 titles, 0 of every control column. The kinds come
+      // from `sourceList`, which `articlesFor` now selects; a card whose kinds
+      // are unknown fails open, the same rule the readiness rungs apply.
+      !isVendorCelebrationTitle(s.title, sourceKindsOf(s)),
   );
+}
+
+/**
+ * The story's carriers as `sources.kind` values, for the class whose second arm
+ * is first-party carriage.
+ *
+ * One carrier with no kind is *unknown* coverage, and unknown must fail open —
+ * the rule `assessReadiness` applies — so it answers with the empty list, which
+ * the predicate reads as "not first-party" rather than "no carriers". A story
+ * with no coverage at all answers the same way for the same reason.
+ */
+function sourceKindsOf(story: Story): string[] {
+  const kinds = story.sourceList.map((entry) => entry.kind);
+  return kinds.every((kind): kind is string => kind !== undefined) ? kinds : [];
 }
 
 /**
@@ -1414,6 +1439,7 @@ async function hydrateEvents(
         sourceList: coverage.map((c) => ({
           articleId: c.id,
           name: c.name,
+          ...(c.kind ? { kind: c.kind } : {}),
           at: clockOf(c.publishedAt),
           url: c.url,
           headline: c.headline,
@@ -1434,6 +1460,8 @@ async function hydrateEvents(
 type Coverage = {
   id: string;
   name: string;
+  /** `sources.kind` — `company_blog`, `news`, … Absent where the join gave none. */
+  kind?: string;
   url: string;
   headline: string;
   publishedAt: string;
@@ -1470,7 +1498,10 @@ async function enrichedEvidenceFor(
 async function articlesFor(db: Db, eventIds: string[]): Promise<Map<string, Coverage[]>> {
   const { data, error } = await db
     .from("articles")
-    .select("id, event_id, url, title, published_at, excerpt, sources ( name )")
+    // `kind` rides along because the dashboard gate's fourth class needs to know
+    // whether the publisher was speaking for itself (the first-party celebration
+    // class in `vendor-celebration.ts`). One embed, no second query.
+    .select("id, event_id, url, title, published_at, excerpt, sources ( name, kind )")
     .in("event_id", eventIds)
     .order("published_at", { ascending: true, nullsFirst: false });
   if (error) throw new Error(`reading articles: ${error.message}`);
@@ -1484,7 +1515,8 @@ async function articlesFor(db: Db, eventIds: string[]): Promise<Map<string, Cove
   const out = new Map<string, Coverage[]>();
   for (const row of rows) {
     if (!row.event_id) continue;
-    const name = (row.sources as { name?: string } | null)?.name ?? "Unattributed";
+    const source = row.sources as { name?: string; kind?: string } | null;
+    const name = source?.name ?? "Unattributed";
     const publishedAt = row.published_at ?? "";
     const excerpt = (row.excerpt ?? "").trim();
     const list = out.get(row.event_id) ?? [];
@@ -1497,6 +1529,7 @@ async function articlesFor(db: Db, eventIds: string[]): Promise<Map<string, Cove
         headline: row.title,
         publishedAt,
         excerpt,
+        ...(source?.kind ? { kind: source.kind } : {}),
         ...(enrichedEvidence ? { enrichedEvidence } : {}),
       });
     }

@@ -645,3 +645,159 @@ it("keeps a deal card and an enthusiast mod out of the digest the dashboard rend
     expect(kept.stories.map((s) => s.title)).toContain(news);
   })();
 });
+
+/**
+ * The fourth dashboard class, measured 2026-10-20, pinned at the gate the other
+ * three classes share.
+ *
+ * The class is two arms — a celebration frame **and** every carrier a
+ * `company_blog` — so it can only fire here if `articlesFor` selects
+ * `sources.kind` and the story carries it through to `sourceList`. Both
+ * dashboard branches are read because the deal class learned this the hard way:
+ * `gateHomeFeed` is one function, but the digest card and the live match reach
+ * it through different loaders, and gating only the matches path left the card
+ * on the reader's page.
+ *
+ * Every control in the measured population is here too: a launch, a repricing,
+ * a genuine partnership and an engineering post from the same vendor blogs must
+ * all stay eligible, and so must a celebration-shaped **news** title — the
+ * cancellation of the Grace Hopper Celebration is the sharpest of the 26, and a
+ * title-only rule would have refused it.
+ */
+it("keeps a first-party celebration off both dashboard branches and every control on", async () => {
+  const db = bundledDb();
+  seedPendingNews(db);
+  await run(startFirstBriefing, db);
+
+  // The fixture's own card is a newsroom report; it is the neutral control that
+  // must survive every read below.
+  const fixtureArticle = db.rows("articles").find((row) => row["id"] === "a")!;
+  fixtureArticle["sources"] = { name: "OpenAI News", kind: "news" };
+  const fixtureTitle = String(db.rows("events")[0]!["title"]);
+
+  const celebration = "RTX Spark Ignites Global Celebration as New Windows PCs Arrive";
+  const cases = [
+    { title: celebration, kind: "company_blog", refused: true },
+    { title: "Introducing GPT-6 Sol and Luna", kind: "company_blog", refused: false },
+    {
+      title:
+        "Introducing Clef-omni with full multimodality, plus a faster Clef and a cheaper Clef-flash",
+      kind: "company_blog",
+      refused: false,
+    },
+    {
+      title: "Atlassian and OpenAI expand partnership to turn enterprise knowledge into action",
+      kind: "company_blog",
+      refused: false,
+    },
+    {
+      title: "Open and Emergent Problems in Agentic Privacy and Security: A Contextual Angle",
+      kind: "company_blog",
+      refused: false,
+    },
+    {
+      title: "Grace Hopper Celebration canceled two weeks out as AnitaB.org runs short of funds",
+      kind: "news",
+      refused: false,
+    },
+  ];
+
+  const now = new Date().toISOString();
+  const what =
+    "The company published the details on its own blog, said the change reaches customers in November 2026, and put a second cohort on the record for early 2027.";
+  const ids = new Map<string, string>();
+  for (const [index, item] of cases.entries()) {
+    const id = `60000000-0000-4000-8000-00000000000${index}`;
+    ids.set(item.title, id);
+    db.rows("events").push({
+      id,
+      title: item.title,
+      what_happened: what,
+      importance: 6,
+      novelty: 4,
+      publisher_count: 1,
+      before_state: null,
+      after_state: null,
+      first_seen_at: now,
+      last_updated_at: now,
+      analysed_at: now,
+      understand: null,
+    });
+    db.rows("articles").push({
+      id: `article-celebration-${index}`,
+      event_id: id,
+      url: `https://vendor.example.com/${index}`,
+      title: item.title,
+      published_at: now,
+      excerpt: what,
+      sources: { name: "NVIDIA Blog", kind: item.kind },
+    });
+    db.rows("user_events").push({
+      user_id: READER_ID,
+      event_id: id,
+      relevance: 8,
+      matched_at: now,
+    });
+  }
+
+  /** What the class is worth: the celebration card and nothing else. */
+  const expectFeed = (titles: string[], branch: string) => {
+    expect(titles, branch).toContain(fixtureTitle);
+    for (const item of cases) {
+      if (item.refused) expect(titles, `${branch}: ${item.title}`).not.toContain(item.title);
+      else expect(titles, `${branch}: ${item.title}`).toContain(item.title);
+    }
+  };
+
+  // Branch 1 — the live matches, no briefing to render.
+  db.rows("digests").length = 0;
+  const matches = (await run(loadHomeFeed, db)) as { source: string; stories: Story[] };
+  expect(matches.source).toBe("matches");
+  expectFeed(
+    matches.stories.map((s) => s.title),
+    "matches",
+  );
+  // The card carries the kind the gate read, so the wiring is visible in what
+  // the loader produced and not only in what it withheld.
+  const posted = matches.stories.find((s) => s.title === cases[1]!.title)!;
+  expect(posted.sourceList[0]?.kind).toBe("company_blog");
+
+  // Branch 2 — a delivered briefing's `digest_items`. This is the branch that
+  // kept the deal card on the page in 2026-10-18.
+  const nowIso = new Date().toISOString();
+  db.rows("digests").push({
+    digest_id: "d-celebration",
+    user_id: READER_ID,
+    scheduled_for: nowIso,
+    status: "ready",
+    kind: "briefing",
+    generated_at: nowIso,
+    generation_deferred_until: null,
+    item_count: cases.length + 1,
+  });
+  db.rows("digest_items").push({
+    digest_id: "d-celebration",
+    event_id: EVENT_ID,
+    position: 0,
+    why_it_matters: "",
+  });
+  for (const [index, item] of cases.entries()) {
+    db.rows("digest_items").push({
+      digest_id: "d-celebration",
+      event_id: ids.get(item.title)!,
+      position: index + 1,
+      why_it_matters: "",
+    });
+  }
+  const digest = (await run(loadHomeFeed, db)) as { source: string; stories: Story[] };
+  expect(digest.source).toBe("digest");
+  expectFeed(
+    digest.stories.map((s) => s.title),
+    "digest",
+  );
+
+  // Refusal is the dashboard's, and only the dashboard's: the story page still
+  // opens the record (ruling #9's own condition).
+  const story = (await run(loadStory, db, { id: ids.get(celebration)! })) as Story;
+  expect(story.title).toBe(celebration);
+});
