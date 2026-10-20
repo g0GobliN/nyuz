@@ -1596,6 +1596,68 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   on a red gate, and verify the run for the pushed sha afterwards. The coverage drop itself was fixed by
   code: the dial's label rule moved into `bandSpans()` in `src/lib/density.ts`, where it is tested.
 
+**Rulings #17, #18 and #19 landed (2026-10-20).** The delivered briefing's prose defects were
+implemented as deterministic rules, no model in any of them, and each has a test that is red on
+`main`:
+
+- **#17, the opening must stand alone.** `contextDependent` / `unresolvedContextOpening` gained the
+  two ruled classes — a bare definite or quantified reference whose head the card's title does not
+  establish (`None of them`, `The authors`), and a subject acronym neither the title nor the opening
+  expands (`The EBU`). The deck walk passes `story.title`, so the repair is the decomposition's
+  existing advance to the next qualifying candidate; a story with no candidate is withheld. The
+  quote-carrying opening is now `quotationCarriesOpening` (the #10a class, widened to a long
+  quotation handed over by a speech verb), which is what moves the Huntress card.
+- **#18, one story must not arrive twice.** A new `security-access` marker group
+  (`hack|hacker|hacking|break in|break into|broke into`), headline-only after the corpus showed a
+  summary-only hit fuses the ShinyHunters arrest with the FBI message, lives in the **delivery**
+  twin pass only; `sameStory`/`cluster.ts` are untouched. The delivered pair keeps **1 of 2** (the
+  Verge card at position 03 suppressed).
+- **#19, hygiene.** `sourceTypo` refuses the `ot` sentence; the sentence splitter no longer cuts a
+  dotted product name and `readerSentences(text, names)` restores `Character. AI` to `Character.AI`
+  only when the card's own entity list holds that name; the notification clamp backs off to a space;
+  `thinStateOpening` withholds a copular/locative deck; and the briefing gate refuses the purchase
+  shape (price + purchase frame + no event) through `isReaderDealTitle`.
+- **The delivery boundary asks with the card's title.** Threading #17 through exposed a rule
+  disagreeing with itself: composition asked `unresolvedContextOpening(text, title)` and the delivery
+  boundary asked it with no title, so 4 of 200 live cards had a composed deck the boundary then
+  refused (`ITV`, `USB`, `AWS` — abbreviations the title carries). `deliveredSummary`, `deliveredLine`,
+  `deliveredTranslatedLine`, `opensAsReport` and `reportingLeadOf` now take the card's title, and the
+  three briefing call sites and the digest call site pass it. Measured after: the window reads
+  183 / 183 with 0 defects.
+
+Measured 2026-10-20, on the delivered briefing `4a6b2ad2` (25 cards, Node 22), and the live corpus:
+
+```
+npm run audit:delivered-rulings   suppressStoryTwins -> 24 kept of 25 (the Verge card at #3)
+                                  suppressStoryTwins(03,04) -> 1 kept of 2
+                                  unresolvedContextOpening REFUSED on #00 (EBU) #01 (None of them)
+                                    #15 (The authors); ruling #19 classes: #02 source-typo,
+                                    #05 #14 #18 thin-state, #19 quote-opening
+                                  a rebuild keeps 20 (twin 1, thin-state 3, deal 1 = #21), and
+                                  20 / 20 kept cards keep line === page opening
+                                  as delivered vs built now: 18 / 25 equal
+                                    (#00 #01 #02 #08 #14 #15 #19 differ)
+npm run audit:twin-corpus         30 days, 16,715 events, 119 headlines carrying the new vocabulary,
+                                  272 pairs newly fused, 48 fused before it as well,
+                                  0 new fusions below the ruled floor -> PASS
+                                  1 pre-existing fusion below it (FBI / Dutch-police ShinyHunters
+                                  pair, fused by the PRIMARY-entity + shared-figure branch, not by
+                                  this widening) — reported as a finding, not tuned here
+npm run audit:delivered-line      the ARCHIVE reads 16 / 22 as delivered, 22 of 25 if built now:
+                                  FAIL, and expected — its 25 stored lines were composed by the old
+                                  rules, so the 6 cards the rulings change (#00 #01 #02 #08 #15 #19)
+                                  now disagree with it (CEO note on the card, 2026-10-20)
+npm run audit:delivered-line:window
+                                  200 live events, 183 decks, before ruling 106 / 183,
+                                  after ruling 183 / 183 -> PASS, 0 defects
+```
+
+The card count in a rebuilt briefing is 20 of the 25 archived items, not 24: the ruling's own #19
+removes three thin cards and the deal gate one more, and a real build fills the freed slots from the
+live pool. That is reported as a finding, not tuned. The archived briefing's 22-of-25 is a read of
+rows written before the rules existed; it is not the acceptance, and a build after this change is
+the population the acceptance is taken on (the window read above).
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest

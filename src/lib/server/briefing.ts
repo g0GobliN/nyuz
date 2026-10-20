@@ -125,7 +125,7 @@ export const loadMatches = createServerFn({ method: "GET" })
         {
           eventId: row.event_id,
           title: event.title,
-          whatHappened: deliveredSummary(event.what_happened) ?? "",
+          whatHappened: deliveredSummary(event.what_happened, event.title) ?? "",
           importance: event.importance ?? 0,
           novelty: event.novelty ?? 0,
           relevance: row.relevance,
@@ -550,7 +550,7 @@ async function relatedEventsFor(
     .map(({ event: e }) => ({
       id: e.id,
       title: e.title,
-      summary: deliveredSummary(e.what_happened) ?? "",
+      summary: deliveredSummary(e.what_happened, e.title) ?? "",
       publishedAt: e.first_seen_at,
     }));
 }
@@ -1351,7 +1351,11 @@ async function hydrateEvents(
         // may be shown (reader-summary.ts). `lead` above stays the raw text,
         // because topic ranking is internal and must not change with what may be
         // shown.
-        what: deliveredLine({ summary: summaries?.get(id) ?? null }, event.what_happened),
+        what: deliveredLine(
+          { summary: summaries?.get(id) ?? null },
+          event.what_happened,
+          event.title,
+        ),
         why: "",
         importance: importanceBand(event.importance),
         score: {

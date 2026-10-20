@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FakeDb, asDb } from "@/lib/test-support/fake-db";
+import { capitalised } from "./news-signals";
+import { STOPWORDS } from "./shortlist";
 import {
   suppressDeliveredDuplicates,
   suppressDeliveredTwins,
@@ -135,6 +137,101 @@ describe("one story per briefing", () => {
     expect(kept.map((b) => b.title)).toEqual([
       "Californian accused of shipping $300M worth of Nvidia chips to China without Uncle Sam's approval",
     ]);
+  });
+
+  it("collapses the delivered 03/04 pair by the break-in vocabulary", () => {
+    // The measured duplicate of the delivered 2026-10-19 briefing (ruling #18,
+    // 2026-10-20). Tom's Hardware's account and The Verge's are one incident:
+    // both titles say a hacker broke into sites with AI agents. Neither title
+    // carries the old security vocabulary (`breach`, `hacked`, `leak`), so
+    // before the ruling the pair never reached the overlap test. The first
+    // telling is kept because the list is in reading order.
+    const kept = suppressStoryTwins([
+      brief(
+        "A Chinese hacker used AI agents to break into more than 100 company websites",
+        "Fewer than 100 Chinese characters were used, yet the agents had attempted ot break into more than 1,200 different websites as of the week ending October 18, 2026.",
+      ),
+      brief(
+        "A hacker broke into John Deere and SharkNinja with an army of AI agents",
+        "A hacker broke into more than 100 websites using an army of AI agents that mostly operated on their own, according to findings from the AI security firm Norforge.",
+      ),
+    ]);
+    expect(kept.map((b) => b.title)).toEqual([
+      "A Chinese hacker used AI agents to break into more than 100 company websites",
+    ]);
+  });
+
+  it("keeps a break-in word in a summary from fusing two stories about one group", () => {
+    // The constraint ruling #18 put on the widening: a pair may only be
+    // suppressed when the word is in the headline on both sides. This arrest and
+    // the FBI's message to the same group share the entity and three content
+    // words, and one summary mentions a hacked portal; counting that would
+    // suppress a distinct story.
+    const kept = suppressStoryTwins([
+      brief(
+        "Dutch police arrest ShinyHunters hacker accused of planning two murders",
+        "Dutch police said the hacker, arrested for being part of the ShinyHunters cybercriminal gang, had plans to organize the murder of two people on his laptop.",
+      ),
+      brief(
+        "FBI to ShinyHunters: 'We know how to find you'",
+        "The FBI's cyber chief has a message for the criminals that hacked the bureau's jobs portal last week: turn yourself in.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("holds the corpus floor: every fused pair shares an entity and three words", () => {
+    // Ruling #18's constraint, frozen as a sample: `npm run audit:twin-corpus`
+    // runs it over all 16,715 stored events of a 30-day window, and this pins the
+    // invariant in the suite on five verbatim headlines that carry the widened
+    // vocabulary, so loosening a marker group or the overlap test fails here even
+    // where no database is reachable. Every pair the pass fuses has to share a
+    // capitalised entity and three content words; a pair that shares less is a
+    // story the reader would not see twice, which is the cost the ruling weighs.
+    //
+    // The delivered pair is in the sample (it must fuse). The two Plex
+    // headlines are the control that keeps the sample from being all one story.
+    const CORPUS = [
+      "PSA: Patch your Plex media server before someone hacks it",
+      "Hackers hit AI coding tool OpenCode, running up charges on users’ AI accounts",
+      "Hackers Exploit Plex2Shell Flaws to Install Crypto Miners and Linux Proxy Backdoor",
+      "A Chinese hacker used AI agents to break into more than 100 company websites",
+      "A hacker broke into John Deere and SharkNinja with an army of AI agents",
+    ];
+    const stem = (word: string): string => {
+      if (word.length <= 4) return word;
+      if (word.endsWith("ing")) return word.slice(0, -3);
+      if (word.endsWith("ed")) return word.slice(0, -2);
+      if (word.endsWith("es")) return word.slice(0, -2);
+      if (word.endsWith("s")) return word.slice(0, -1);
+      return word;
+    };
+    const contentWords = (text: string): Set<string> =>
+      new Set(
+        text
+          .toLowerCase()
+          .split(/[^\p{L}\p{N}]+/u)
+          .filter((word) => word.length >= 3 && !STOPWORDS.has(word))
+          .map(stem),
+      );
+    const shared = (a: string, b: string): number => {
+      const other = contentWords(b);
+      return [...contentWords(a)].filter((word) => other.has(word)).length;
+    };
+    for (let i = 0; i < CORPUS.length; i += 1) {
+      for (let j = i + 1; j < CORPUS.length; j += 1) {
+        const a = CORPUS[i]!;
+        const b = CORPUS[j]!;
+        const pair = [brief(a, ""), brief(b, "")];
+        if (suppressStoryTwins(pair).length !== 1) continue;
+        const entity = [...capitalised(a)].some((word) => capitalised(b).has(word));
+        expect(entity, `${a} || ${b} shares no capitalised entity`).toBe(true);
+        expect(
+          shared(a, b),
+          `${a} || ${b} shares ${shared(a, b)} content words`,
+        ).toBeGreaterThanOrEqual(3);
+      }
+    }
   });
 
   it("keeps two stories about one company apart when no figure is shared", () => {

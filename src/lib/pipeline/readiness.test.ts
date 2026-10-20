@@ -491,6 +491,36 @@ describe("assessReadiness", () => {
     ).toBe(true);
   });
 
+  it("drops a purchase offer that carries a price and no event", () => {
+    // Ruling #19 (2026-10-20), the deal class: the delivered 2026-10-19 briefing
+    // carried "Sony's best noise-canceling earbuds are nearly $100 off today
+    // only" as a card. A price and a purchase frame with no event behind them is
+    // the shape the home feed refuses on a coupon page; the briefing gate asks
+    // it too, through the same `isReaderDealTitle` and the gate's own
+    // `NEWS_VERB`.
+    expect(
+      assessReadiness({
+        title: "Sony’s best noise-canceling earbuds are nearly $100 off today only",
+        whatHappened:
+          "For a very limited time, Sony’s latest high-end noise-canceling earbuds are actually cheaper than their last-gen counterpart, the WF-1000XM5.",
+      }),
+    ).toEqual({ ready: false, kind: "commerce", reason: expect.any(String) });
+
+    // A reported price is still news: the event verb is what separates the two.
+    expect(
+      assessReadiness({
+        title: "Nvidia cuts the RTX Spark price to $2,599 for the holiday quarter",
+        whatHappened: "The company said the reduction applies to every retailer in the region.",
+      }).ready,
+    ).toBe(true);
+    expect(
+      assessReadiness({
+        title: "Nvidia RTX Spark launches with a $2,599 price",
+        whatHappened: "The device ships this month.",
+      }).ready,
+    ).toBe(true);
+  });
+
   it("drops a title that announces a quotation instead of an event", () => {
     expect(
       assessReadiness({

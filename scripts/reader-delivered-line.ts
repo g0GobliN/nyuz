@@ -238,9 +238,13 @@ async function delivered(): Promise<void> {
       title: event.title,
       stored: event.what,
       opening,
-      before: deliveredLine({ summary: composedSummaryArtifact(base) }, event.what),
-      after: deliveredLine({ summary: composedSummaryArtifact({ ...base, opening }) }, event.what),
-      actual: deliveredLine({ summary: item.summary ?? null }, event.what),
+      before: deliveredLine({ summary: composedSummaryArtifact(base) }, event.what, page.title),
+      after: deliveredLine(
+        { summary: composedSummaryArtifact({ ...base, opening }) },
+        event.what,
+        page.title,
+      ),
+      actual: deliveredLine({ summary: item.summary ?? null }, event.what, page.title),
     };
     measured.push(row);
     lines.push(row.actual);
@@ -291,8 +295,12 @@ async function window(): Promise<void> {
       title: event.title,
       stored: event.what,
       opening,
-      before: deliveredLine({ summary: composedSummaryArtifact(base) }, event.what),
-      after: deliveredLine({ summary: composedSummaryArtifact({ ...base, opening }) }, event.what),
+      before: deliveredLine({ summary: composedSummaryArtifact(base) }, event.what, page.title),
+      after: deliveredLine(
+        { summary: composedSummaryArtifact({ ...base, opening }) },
+        event.what,
+        page.title,
+      ),
       actual: null,
     };
   });

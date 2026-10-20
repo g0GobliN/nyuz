@@ -833,8 +833,14 @@ describe("composeArticle", () => {
           {
             name: "The Register",
             at: "10:00",
+            // A change, not a state, since ruling #19 (2026-10-20): the fixture
+            // used to open on "Oracle says the development remains on schedule.",
+            // which `thinStateOpening` now withholds — a card has to carry a
+            // change — and that would empty the composition this test is about
+            // (the `short_block` / `unresolved_context` partition). The sentence
+            // moved; the subject of the test did not.
             excerpt:
-              "Oracle says the development remains on schedule. Regulators must still approve the grid connection before construction can start.",
+              "Oracle has delayed the Wisconsin development again. Regulators must still approve the grid connection before construction can start.",
           },
           {
             name: "Reuters",
