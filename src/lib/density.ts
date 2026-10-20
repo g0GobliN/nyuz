@@ -109,6 +109,33 @@ export const LEVELS: DensityLevel[] = [
   DEEP,
 ];
 
+/**
+ * How much of the dial's track each band owns, for the labels printed under it.
+ *
+ * The bands divide the slider 0-20-45-70-100, so labels spaced evenly would put "Focused" under a quarter of
+ * the track while it governs from 20 to 45 — a label naming a position the reader is not in. `deep.max` is
+ * 101 so that `density < max` catches 100; the shares are clamped to the track for the same reason. The ends
+ * take the outer alignment a slider is expected to have, and the middles centre in their own span.
+ *
+ * It lives here rather than in the component for the same reason the bands do: matching reads these bands
+ * too, and a label whose meaning differed between the slider and the query would be a promise the pipeline
+ * does not keep.
+ */
+export function bandSpans(
+  levels: DensityLevel[] = LEVELS,
+): { key: DensityBand; label: string; share: number; align: "left" | "center" | "right" }[] {
+  return levels.map((band, index) => {
+    const from = index === 0 ? 0 : Math.min(levels[index - 1]?.max ?? 0, 100);
+    const to = Math.min(band.max, 100);
+    return {
+      key: band.key,
+      label: band.label,
+      share: to - from,
+      align: index === 0 ? "left" : index === levels.length - 1 ? "right" : "center",
+    };
+  });
+}
+
 export function levelFor(value: number): DensityLevel {
   return LEVELS.find((l) => value < l.max) ?? DEEP;
 }

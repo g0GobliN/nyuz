@@ -157,18 +157,25 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
   for an unknown cause, `surgical-patch` for a narrow fix, `safe-refactor` for structure,
   `migration` for a schema or data transition, `verify-and-stop` for proving finished work,
   `run-long-goal` for a goal that outlives a session, `review-diff` for a diff, `handoff-session`
-  when context is running out, `resume-session` at the start of a session to sync the checkout and
+  when context is running out, `publish-branch` for committing and pushing (it gates on the
+  runner's own conditions — `GITHUB_ACTIONS=true` — and verifies the run afterwards, because a green
+  local gate is not a green push: three pushes went red on the coverage floor the local run only
+  warns about), `resume-session` at the start of a session to sync the checkout and
   read what the last one left. The full set is installed account-wide, not per project.
 - **When a process repeats and no skill covers it, write the skill** — this is a rule from the
   owner, not a preference. It takes two places, both required: the body in
   `docs/skills/<name>.md` in this repository (the install fields plus the text, so it is reviewed
   and versioned with the code) and the installed copy, so the next session in any project gets it.
   Then use it. A process that lives only in one session's head is not a skill.
-- **The installed copy is a file, and it is checkable.** It lives at
-  `~/.agents/skills/<name>/SKILL.md` — the global skills directory the app reads for every project —
-  with `name` and `description` in frontmatter. If it is not there, the skill is **not** installed,
-  whatever a document in this repository claims; that drift was measured on 2026-10-19 and three
-  skills described as installed account-wide were absent from the account snapshot. A separate
+- **The installed copy is a file, and it is checkable.** Hermes reads its global skills from
+  `~/.hermes/skills/<category>/<name>/SKILL.md` — that is the copy the app actually loads, and the one
+  whose `name` and `description` frontmatter must be right. `~/.agents/skills/<name>/SKILL.md` is the
+  cross-tool copy (Codex, Claude Code and other agents read it), and Hermes only reads it when that path
+  is listed under `skills.external_dirs` in `~/.hermes/config.yaml`. **Measured 2026-10-20:** a skill
+  written to `~/.agents/skills` alone answered `not found` to `skill_view`, while the same body created
+  through the skill tool and landed in `~/.hermes/skills/software-development/` loaded immediately — so
+  write both, and verify the load rather than the file's existence. A skill described as installed in this
+  repository but absent from both paths is not installed; that drift was measured on 2026-10-19. A separate
   cloud-synced (account) copy is a Settings → Skills action in the app, and the three fields to
   paste are in `docs/skills/<name>.md`.
 
@@ -248,7 +255,15 @@ nyuz is a TanStack Start app (React 19, TypeScript, Tailwind v4).
 - **A red push is not a deployed change.** The deploy job is skipped when any check fails, so
   pushing red leaves `main` ahead of production — the worst of both states. Green before the push,
   or the push does not happen.
-- Before any push, run `npm run ci` — typecheck, lint, the suite with coverage, the coverage floor, the production build, the PWA install contract, the route walk's self-test, then Playwright against the built Worker. It is the same list the runner executes, so a green local run is a checked push. Do not treat an earlier partial check as sufficient after the final changes.
+- **Before any push, run `npm run ci`** — typecheck, lint, the suite with coverage, the coverage floor, the production build, the PWA install contract, the route walk's self-test, then Playwright against the built Worker. It is the same list the runner executes, so a green local run is a checked push. Do not treat an earlier partial check as sufficient after the final changes.
+  **But the local floor is not the runner's:** `scripts/coverage-ratchet.mjs` applies the 0.35pp
+  portability band only off CI, so run the gate as `GITHUB_ACTIONS=true npm run ci` (or, at minimum,
+  `npm run test:coverage && GITHUB_ACTIONS=true npm run coverage:ratchet` after it). Measured 2026-10-20:
+  three pushes in a row went red on `Coverage floor` (`src/components: lines 29.15 -> 28.90`) while
+  `npm run ci` passed locally, and a red push skips the deploy — `main` ahead of production. The
+  procedure is [docs/skills/publish-branch.md](docs/skills/publish-branch.md) / the `publish-branch`
+  skill; the gate must also run on a **quiet tree**, because a subagent editing a file mid-run produces
+  a false red.
 - Push one substantial change at a time, in commits that each stand on their own — not one lump per
   session. Conversely, do not dribble out commits for a change still being verified: the unit is the
   finished slice, checked once on the final tree.

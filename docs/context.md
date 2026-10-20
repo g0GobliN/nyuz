@@ -1585,6 +1585,17 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   event. Catalogue, counts and two drafted rulings (#17 opening, #18 duplicate):
   [decisions/delivered-briefing-prose-defects.md](decisions/delivered-briefing-prose-defects.md).
 
+- **2026-10-20 — the push rule, written after three red pushes with a green local gate.** Every slice had
+  passed `npm run ci` locally and the runner failed all three at **`Coverage floor`**
+  (`src/components: lines 29.15 -> 28.90`, 0.25pp): `scripts/coverage-ratchet.mjs` applies its 0.35pp
+  portability band only when `GITHUB_ACTIONS` is not `true`, so the local comparison is lenient and CI's is
+  exact. The owner's words: *"i got a ci fail so i dont want that happen next time"*. The rule now lives as
+  the `publish-branch` skill ([docs/skills/publish-branch.md](docs/skills/publish-branch.md), installed at
+  `~/.agents/skills/publish-branch/SKILL.md`) and in AGENTS.md's Git delivery section: gate with
+  `GITHUB_ACTIONS=true`, on a **quiet tree** (a subagent editing mid-run produced a false red), never push
+  on a red gate, and verify the run for the pushed sha afterwards. The coverage drop itself was fixed by
+  code: the dial's label rule moved into `bandSpans()` in `src/lib/density.ts`, where it is tested.
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
