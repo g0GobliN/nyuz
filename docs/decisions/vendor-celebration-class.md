@@ -1,12 +1,18 @@
-# The vendor-blog celebration class — measured, cut, and waiting on a ruling (request, 2026-10-20)
+# The vendor-blog celebration class — measured, cut, and wired (2026-10-20)
 
-**Where this stands.** No ruling has been given for this class. This is the pack a ruling is cut against:
-the population, the predicate, its false-positive controls, three numbered options and the acceptance
-number each one has to move. **Nothing is wired.** The predicate and its tests are on branch
-`wt/class-vendor-blog` as new files only, because the call site this class needs
-([`gateHomeFeed`](../../src/lib/server/briefing.ts)) is not the call site the other three classes used —
-it needs coverage the feed does not currently load — and the arbiter's ruling #9 rule is one measured
-class at a time.
+**Where this stands (updated by the wiring slice, same day).** The pack below was cut as a request: the
+population, the predicate, its false-positive controls, three numbered options and the acceptance each one
+has to move. **Option 2 is now the rule in `gateHomeFeed`**, and the wiring is described in
+[What the wiring needed](#what-the-wiring-needed--and-what-landed). The line that opened this document
+said no ruling had been given; the wiring was ordered on the card that carried this slice
+(`t_01d2ef9e`, *"Wire the first-party celebration rule into the gate"*), which named option 2's two arms
+and its census acceptance verbatim. **No class was added and no lexeme was widened**: the two arms are the
+measured ones, 13 predicate tests and a gate pin per dashboard branch. If the arbiter later rules
+differently, the rule is one clause in one function and the census re-runs in a minute.
+
+The reason it was held back, for the record: the call site this class needs
+([`gateHomeFeed`](../../src/lib/server/briefing.ts)) is not the call site the other three classes used — it
+needs coverage the feed did not load — and the arbiter's ruling #9 rule is one measured class at a time.
 
 ## Why it was asked
 
@@ -203,30 +209,78 @@ shown to refuse, which is ruling #14's own principle.
 
 That last sentence is ruling #9's own condition and is already how the three landed classes behave.
 
-## What the wiring needs — named, because it is not one line
+## What the wiring needed — and what landed
 
-The class cannot be wired by adding a predicate to the existing `gateHomeFeed` chain: that chain sees a
-`Story` that carries source **names**, not kinds, and `articlesFor` selects `sources ( name )` only. The
-wiring is:
+The class cannot be wired by adding a predicate to the existing `gateHomeFeed` chain: that chain saw a
+`Story` that carries source **names**, not kinds, and `articlesFor` selected `sources ( name )` only.
+
+**Landed, 2026-10-20** (`wt/wire-celebration`):
 
 1. [`src/lib/server/briefing.ts`](../../src/lib/server/briefing.ts) — `articlesFor` selects
-   `sources ( name, kind )`, `Coverage` gains `kind`, and `gateHomeFeed` computes the story's kinds from
-   `s.sourceList` and calls `isVendorCelebrationTitle(s.title, kinds)`. Both dashboard branches
-   (`storiesFromDigest` and `loadMatchedStories`) go through `hydrateEvents → articlesFor`, so one change
-   covers the digest card and the live match alike — the same lesson the deal class learned when gating
-   only the matches path left the card on the page.
-2. [`src/lib/story.ts`](../../src/lib/story.ts) — `Story.sourceList` entries gain an optional `kind`, since
+   `sources ( name, kind )`, `Coverage` gains an optional `kind`, `hydrateEvents` carries it onto
+   `sourceList`, and `gateHomeFeed` reads the story's kinds through a local `sourceKindsOf(story)` and calls
+   `isVendorCelebrationTitle(s.title, kinds)` as the **fourth clause of the one existing chain** — not a
+   second gate. Both dashboard branches (`storiesFromDigest` and `loadMatchedStories`) go through
+   `hydrateEvents → articlesFor`, so one change covers the digest card and the live match alike — the same
+   lesson the deal class learned when gating only the matches path left the card on the page.
+   `sourceKindsOf` answers with the empty list when **any** carrier has no kind, so unknown coverage fails
+   open exactly as it does in `assessReadiness`; the predicate was not loosened to say so.
+2. [`src/lib/story.ts`](../../src/lib/story.ts) — `Story.sourceList` entries gained an optional `kind`, since
    that is what the gate reads.
-3. [`src/lib/server/story-flow.test.ts`](../../src/lib/server/story-flow.test.ts) — the wiring pin the
-   other classes have: a first-party celebration card is excluded on **both** branches, a
-   celebration-shaped news card in the same fixture still renders.
+3. [`src/lib/server/story-flow.test.ts`](../../src/lib/server/story-flow.test.ts) — the wiring pin the other
+   classes have, in one test that reads **both** branches against the same fixtures: the measured celebration
+   card is absent from each, and the launch, repricing, partnership, engineering and celebration-shaped
+   **news** controls are present in each. The pin also asserts the story page still opens the refused card
+   (refusal is the dashboard's alone) and that the loader actually carried `kind` onto the card. Verified red
+   by replacing the clause with `true`: the test fails on the celebration title in the matches branch.
 4. [`src/lib/pipeline/readiness.ts`](../../src/lib/pipeline/readiness.ts) — **not this round** (forge owns
    that file), but the two definitions should converge afterwards: `isFirstPartySource` is private there and
    restated in the new module, and `CELEBRATION_TITLE` should either be subsumed by the new class or stay
    where it is with this class above it. One first-party rule, not two copies.
 
 No change to `alert-floor.ts`: this is a feed class, not an alert class, and the alert floor's own
-celebration-shaped refusals are unaffected.
+celebration-shaped refusals are unaffected. `isCouponPageTitle`, `isReaderDealTitle` and `isReaderModTitle`
+are untouched, so ruling #14 and the two classes before it are unchanged; the new clause is additive.
+
+### Re-measured after the wiring (2026-10-20, second run)
+
+```
+node --env-file=.env scripts/tsrun.mjs scripts/vendor-celebration-census.ts
+```
+
+The census is a read of the stored corpus and does not run the gate, so the predicate's numbers are
+unchanged by construction — which is the point: the wiring did not move the rule. It reads, verbatim:
+
+| the first-party population             | events |
+| -------------------------------------- | ------ |
+| carried only by `company_blog` sources | **354** |
+| **celebration (the predicate)**        | **3**   |
+| engineering / research / roundup       | 46      |
+| launch / announcement                  | 49      |
+| repricing                              | 1       |
+| partnership / acquisition              | 5       |
+| none of those                          | 264     |
+| celebration ∩ engineering              | **0**   |
+| celebration ∩ launch                   | **0**   |
+
+| control column                          | measured | refused |
+| --------------------------------------- | -------- | ------- |
+| product launches, first-party           | 49       | **0**   |
+| engineering / research, first-party     | 46       | **0**   |
+| repricing, first-party                  | 1        | **0**   |
+| partnership / acquisition, first-party  | 5        | **0**   |
+| celebration-shaped news (non-first-party) | 26     | **0**   |
+
+Corpus-wide: **3 refusals of 23,539 titles, every one a first-party celebration**, 0.8% of the first-party
+population. The three, in full, are *"RTX Spark Ignites Global Celebration as New Windows PCs Arrive"*
+(NVIDIA Blog), *"Celebrating Our Newest AWS Heroes – September 2026"* (AWS News) and *"Be There for the
+Beginning: Celebrate the Launch of NVIDIA RTX Spark"* (NVIDIA Blog).
+
+Two numbers moved for a reason that is not this change: this reader's matched set now reads **5,841 rows
+with 2 refused** (was 5,808 in the pack — the corpus grew a day's worth of matches), and both refusals are
+still first-party celebrations. The stored briefings are unchanged at **0 refused of 25 / 9 / 16 cards**:
+no celebration has ever been delivered in a briefing, which is why the card was on the dashboard's matched
+branch and not in an inbox.
 
 ## What this authorises, and what it does not
 
@@ -238,7 +292,13 @@ celebration-shaped refusals are unaffected.
   coverage-dependent rung at once, which would narrow the dashboard below the width ruling #9 requires and
   needs its own ruling.
 
+None of the "not authorised" list is touched by this slice: the clause is in `gateHomeFeed` only, the story
+page reads past it (pinned in the test), and `assessReadiness` still receives a title and a summary.
+
 ## Files on this branch
+
+On `wt/wire-celebration` (PR #26's pack was cherry-picked onto `main` after #27 merged, because #26 was
+marked *do not merge* and conflicts with `main`):
 
 - `src/lib/pipeline/vendor-celebration.ts` — the predicate, two arms, arm names exported for audits.
 - `src/lib/pipeline/vendor-celebration.test.ts` — 13 tests: the 3 measured cards, the 26 news controls,
