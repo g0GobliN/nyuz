@@ -1570,6 +1570,18 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   `LEVELS`; and the landing page's six **Nyuz** became lowercase **nyuz**. No price, plan limit or
   predicate moved. Recorded in [decisions/public-site-copy-audit.md](decisions/public-site-copy-audit.md).
 
+- **2026-10-20 (the 22:30Z build) — item 1's instrument went green and the briefing was not readable.** The
+  first build after ruling #11's fix, `4a6b2ad2` (25 cards, `sent`), reads **PASS 25/25** on
+  `audit:delivered-line` — card line equals page opening — and **eight of its twenty-five cards carry a
+  defect of a class the bar names**: four open on a reference the card never establishes ("None of them…",
+  "The EBU…", "The authors…"), one story is delivered twice (Tom's Hardware and The Verge on the same
+  AI-agents hack), two cards carry garbled text ("ot", "Character. AI"), three are thin, one title is
+  truncated mid-word, one is a shopping deal. The duplicate's mechanism is measured: `sameStory()`'s figure
+  guard rejects a pair when *either* headline carries a number the other omits, so a paraphrase can never
+  pair — and that is also why the ladder reads `none`, since its `coverage` rung needs two publishers on one
+  event. Catalogue, counts and two drafted rulings (#17 opening, #18 duplicate):
+  [decisions/delivered-briefing-prose-defects.md](decisions/delivered-briefing-prose-defects.md).
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest

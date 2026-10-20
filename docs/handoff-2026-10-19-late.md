@@ -3,6 +3,24 @@
 This file replaces the earlier evening handoff. It records the session's four rulings, what landed, what
 is running, and what a fresh thread should do first.
 
+## Read this second: the briefing that was delivered tonight
+
+`4a6b2ad2` (2026-10-19T22:30Z, 25 cards, `sent`) **passes the alignment instrument 25/25** — item 1 is
+green — and **still carries eight reader-facing defects**, catalogued card by card in
+[decisions/delivered-briefing-prose-defects.md](../decisions/delivered-briefing-prose-defects.md).
+Two mechanisms are measured there:
+
+- **an opening that arrives before its subject** (12–16 % of cards: "None of them…", "The EBU…", "The
+  authors…"), which is the bar's own words — *a paragraph that opens on a reference the page never
+  establishes*;
+- **one story delivered twice** (Tom's Hardware and The Verge on the same AI-agents hack, cards 03 and 04),
+  because `sameStory()`'s figure guard fires on *either* title carrying a number, so a paraphrase that
+  omits the number can never pair with the version that states it. That same guard is why the significance
+  ladder reads `none` — its `coverage` rung needs two publishers on one event.
+
+Two rulings are drafted with numbered options in that file (**#17** the opening, **#18** the duplicate).
+**Take them to the arbiter before changing either rule** — both change what a reader receives.
+
 ## Landed and deployed
 
 | commit | what |
