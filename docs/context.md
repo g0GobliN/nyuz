@@ -2708,3 +2708,22 @@ recorded in [decisions/reader-delivery.md](decisions/reader-delivery.md#ruling-1
 (BBC Politics + Guardian Politics, BBC Health + NPR Health, BBC Science + Guardian Environment, Wired +
 Engadget). The exemption itself is a schema-plus-ingest slice and is the next work; nothing was enabled,
 the 45-day window is still unapplied, no archive was touched, and there were no model calls.
+
+**2026-10-20 — ruling #11 is enforced at the feed and the archive, by one resolver, and the price is
+recorded.** `audit:surfaces` used to report the contract as a counterfactual (`9/57` feed, `7/14`
+archive) and the checklist said extending it was a decision. Enforced now: `src/lib/reader-opening.ts`
+holds the single rule (`storyOpening`) the card, the story page and the instrument all call — the
+delivered line through `deliveredLine`, the story's own recovered opening when there is none, nothing
+for furniture — and `story-article.tsx` opens on that same sentence, with `withoutOpening`
+(`reader-article.ts`) keeping the body from repeating it (`19 of 56` stored lines were a whole
+sentence inside a composed paragraph; `0` took part in a `glue` pair). `summariesFor` in
+`briefing.ts` puts the reader's newest `digest_items.summary` into `loadStory`, search and the
+matches feed, so the page and the card resolve one input. Measured same day, live: **feed 53/53 (3
+no line, 0 defects), archive 25/25, delivered briefing `4a6b2ad2` 25/25 exit 0**; the old rule read
+`13/54` and `15/22` on the same rows because the page recomposed from current coverage while the
+card carried the delivered sentence. The trade, recorded rather than hidden: the page opens on the
+delivered line, not a freshly composed deck, because composing per card costs 61 ms p50 / 173 ms p90
+over 56 stories and cannot run on the free plan's CPU or in a feed render. Three feed cards still
+print no line (furniture, the 2026-10-14 ruling) and their pages open on a composed deck — an
+absence, not a contradiction. No model call, no database write, archives untouched.
+Record: [decisions/reader-delivery.md](decisions/reader-delivery.md#one-sentence-at-the-feed-and-the-archive-ruling-11-extended-2026-10-20).

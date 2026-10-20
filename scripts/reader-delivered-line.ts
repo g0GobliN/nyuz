@@ -51,6 +51,7 @@
 import { writeFileSync } from "node:fs";
 import { loadCorpusEvents, storyForEvent } from "./lib/corpus";
 import { composeFromSources } from "../src/lib/editorial";
+import { storyOpening } from "../src/lib/reader-opening";
 import { composedSummaryArtifact, deliveredLine } from "../src/lib/reader-summary";
 import { db, main, say } from "./lib/db";
 
@@ -77,6 +78,14 @@ type Measured = {
   stored: string;
   /** The sentence the story page opens on (the composer's own deck). */
   opening: string;
+  /**
+   * The sentence the page *prints*: `storyOpening` over the line the item was
+   * delivered with, falling back to the composition's deck. Since 2026-10-20 the
+   * page opens on the same sentence its card carried, so this is what ruling
+   * #11's contract is measured against; `opening` stays as the composer's own
+   * answer, which is the drift measurement beside it.
+   */
+  page?: string;
   /** The line a card built before ruling #11 delivered for this item. */
   before: string | null;
   /** The line a card built under the contract delivers for this item. */
@@ -88,8 +97,14 @@ type Measured = {
 type Verdict = "agree" | "no-deck" | "defect";
 
 const classify = (measured: Measured, line: string | null): Verdict => {
-  if (measured.opening.trim() === "") return "no-deck";
-  return line === measured.opening ? "agree" : "defect";
+  const page = measured.page ?? measured.opening;
+  if (page.trim() === "") return "no-deck";
+  // A card that printed no line contradicts nothing: the page opens on its own
+  // sentence and there is nothing on the card to disagree with (the same rule
+  // `audit:surfaces` applies). Counted on its own so it can neither inflate nor
+  // deflate the agreement count.
+  if ((line ?? "").trim() === "") return "no-deck";
+  return line === page ? "agree" : "defect";
 };
 
 const count = (verdicts: Verdict[], verdict: Verdict): number =>
@@ -238,13 +253,24 @@ async function delivered(): Promise<void> {
       title: event.title,
       stored: event.what,
       opening,
+      // What the page prints for this item, resolved exactly as `StoryArticle`
+      // does: the card's sentence when the boundary admits it, the composer's
+      // deck otherwise.
+      page:
+        storyOpening({
+          ...page,
+          what: deliveredLine({ summary: item.summary ?? null }, event.what, page.title),
+        }) || opening,
       before: deliveredLine({ summary: composedSummaryArtifact(base) }, event.what, page.title),
       after: deliveredLine(
         { summary: composedSummaryArtifact({ ...base, opening }) },
         event.what,
         page.title,
       ),
-      actual: deliveredLine({ summary: item.summary ?? null }, event.what, page.title),
+      actual: storyOpening({
+        ...page,
+        what: deliveredLine({ summary: item.summary ?? null }, event.what, page.title),
+      }),
     };
     measured.push(row);
     lines.push(row.actual);
