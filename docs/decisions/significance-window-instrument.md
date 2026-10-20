@@ -107,20 +107,19 @@ cannot choose without inventing a metric, which is the one thing the task that a
    window, but "items delivered after the first covering window" is not defined anywhere: a briefing's
    own 72-hour selection window is a different object from the experiment's 30-day boundary.
 
-## What the instrument does, and does not do
+## What the instrument did before the ruling, and what it does now
 
-It reports every number each of the six paragraphs above needs, labelled with the document and line that
-states it, and then:
+Before 2026-10-20 it reported every number each of the six paragraphs above needs, labelled with the
+document and line that states it, and then refused a verdict:
 
 ```
-before the close   gate 2  PENDING    <close date>        exit 0
-after the close    gate 2  UNDEFINED  <both bars named>   exit 2
+before the close   gate 2  PENDING    <close date>        exit 0     (retired by the ruling)
+after the close    gate 2  UNDEFINED  <both bars named>   exit 2     (retired by the ruling)
 ```
 
-`UNDEFINED` exits **2**, never 0. A gate with no single definition must not read green, and a pending
-gate must not read red either: the exit status is how this repository's instruments state their answer,
-so the absence of an answer has its own status. The moment the definition is ruled, the numbers are
-already there — no second measurement pass is needed on 18 November.
+`UNDEFINED` exited **2**, never 0: a gate with no single definition must not read green. That shape is
+kept for missing evidence, and is replaced for the two documented bars by the two legs below. The
+pre-close `0` is **retired**: the ruling requires an unfinished experiment to exit 2.
 
 ## Numbered options for the arbiter
 
@@ -177,5 +176,93 @@ git add docs/audits/significance-window-12c-30d.json
 ```
 
 Paste the verdict line and the block above it into the board entry, and commit the ledger with them.
-If a ruling has landed by then, the number it names is in that output; if one has not, `UNDEFINED` is
-the honest reading and this file is the blocker to put in front of the arbiter.
+
+## Ruled: two legs, one instrument (arbiter #17 and #17a, 2026-10-20)
+
+The case went to the arbiter (the owner's ChatGPT `nyuz` project, chat *"Gate 2 Ruling"*) with the four
+options above and the measured rows. It ruled **option 3**, then narrowed the population the same day
+after one cross-examination.
+
+**#17 — option 3, and why.** _"The universal reader-quality bar and the experiment's existence condition
+are distinct tests. Neither may substitute for the other."_ Gate 2 is reported as two legs:
+
+- **Leg A — universal delivery quality.** Every item delivered within the defined population carries a
+  non-empty, story-specific `why_it_matters` line justified by the evidence available to the delivery
+  decision. The delivered line is checked against the ladder-derived line under the existing canonical
+  comparison, and _"a line derived now but absent from the delivered row does not retroactively count as
+  delivered"_ — card #16 stays a delivery failure. A missing line is a failure, **not** an implicit
+  withholding decision; the ruling does not authorise withholding publishable stories.
+- **Leg B — significance experiment acceptance.** At least one qualifying delivered briefing item carries
+  a valid, story-specific line from a rung other than coverage, traced to that event's stored evidence,
+  **and attributable to one of the eight released sources** — the attribution the handoff stated and
+  ruling #12c's text omitted. The outlet and its fetch time are recorded in the ledger, not asserted.
+
+The split verdict on the same rows: **Leg A FAIL 1 / 25, Leg B PASS** (card #08, `consequence`, Wired,
+fetched `2026-10-19T11:00:15Z`). _"The experiment can succeed while the product-quality gate fails. That
+is not a contradiction to resolve by weakening either bar; it is the measured finding the two-leg verdict
+exists to expose."_
+
+**#17a — the population, after cross-examination.** The first ruling's population ("all items actually
+delivered … across all readers and delivery surfaces included in the checklist") was too broad, and the
+arbiter withdrew it on the evidence that the feed's matched-story path never carries a `why_it_matters`
+line: _"Your cross-examination identifies a real scope error in my previous ruling: I extended the
+significance-line requirement to surfaces governed by a different checklist item. That was too broad."_
+Leg A is _"delivered briefing items (`digest_items`) generated within the authoritative experiment
+window"_. The archive re-renders those same rows and is not counted twice; the feed's digest-sourced cards
+are the same rows again; the feed's matched-story cards and the alert channel stay under checklist item 3
+— _"do not classify absence of why_it_matters as a Gate 2 failure."_
+
+**The six missing definitions, as ruled:** each one is answered in the ruling above, and the summary is:
+both bars govern, as two independent legs; the eight-source attribution is required for Leg B and recorded
+with the outlet's name and fetch time; the delivered row is authoritative for what the reader received and
+the ladder now for what the evidence supports, with a line derived now but not delivered not counting; the
+`coverage` rung counts on Leg A and not on Leg B; the population is the delivered `digest_items` of the
+window for every reader, with the archive's re-render and the feed's digest copy not counted again; and the
+window is `source_exemptions`' 2026-10-19T06:46:22Z → 2026-11-18T06:46:22Z, the 08:45Z ingest tick being
+"an operational event, not a replacement for the recorded experiment boundary".
+
+**Exit status, which the ruling set and the instrument now implements:**
+
+```
+window still open      gate 2  PENDING    <close date>                        exit 2
+closed, both legs pass gate 2  PASS       Leg A PASS · Leg B PASS             exit 0
+closed, a leg fails    gate 2  FAIL       Leg A FAIL (1/25) · Leg B PASS      exit 1
+evidence incomplete    gate 2  UNDEFINED  <what is missing>                   exit 2
+```
+
+`stored equals the ladder now` is printed as a diagnostic: it is read inside Leg A and is not a threshold
+of its own. A pre-close run records the counts and **no leg verdict** — the ledger's `verdict.legA.verdict`
+and `verdict.legB.verdict` are `null` until the window closes on whole evidence, because a run before the
+close "must not report PASS or FAIL for a window whose acceptance conditions are not yet final".
+
+## What the ruled command printed (2026-10-20)
+
+Open window, `npm run audit:significance-window`, **exit 2**:
+
+```
+Leg A — universal, every delivered briefing item inside the window
+    1 / 25 carry a non-empty, story-specific line, agreed with the ladder now and traced to stored material
+    result: no verdict before the close
+Leg B — the experiment's existence condition (ruling #12c + the handoff's attribution)
+    1 / 1 qualifying line(s) traced and attributable to one of the eight released sources
+    result: no verdict before the close
+      #08 consequence Disney Asked Character.AI to Go Bankrupt for a Get-Out-of-Laws
+         "The company will be refunded the $2 million deposit and receive a breakup fee."
+         traced yes; released source: Wired, fetched 2026-10-19T11:00:15.17196+00:00
+
+gate 2  PENDING  window closes 2026-11-18 06:46:22Z (28d 22h away); 25 delivered item(s) recorded,
+no PASS or FAIL before the close  exit 2
+```
+
+The closed branch, exercised on the same rows with `--now 2026-11-18T07:00:00Z --out /tmp/…`, **exit 1**
+— the verdict *shape* 18 November will produce, not the 18 November reading:
+
+```
+gate 2  FAIL  Leg A FAIL (1/25) · Leg B PASS (1 qualifying)  exit 1
+```
+
+## 18 November is still owed
+
+The window closes `2026-11-18T06:46:22Z`; the reading must be taken on the rows delivered by then, and
+the ledger committed with that run's clock. Nothing about this ruling makes that reading early — it makes
+it **possible**: the command now prints a verdict the ruling names, instead of refusing one.

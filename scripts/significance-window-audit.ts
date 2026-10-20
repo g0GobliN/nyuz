@@ -32,9 +32,9 @@
  * silently rewrite what the verdict was taken on.
  *
  * ---------------------------------------------------------------------------
- * Why the verdict line refuses to choose, until the docs choose
+ * The verdict, ruled: two legs, one instrument (arbiter #17, 2026-10-20)
  * ---------------------------------------------------------------------------
- * Two documents state the bar, and they are not the same measurement:
+ * Two documents stated the bar, and they were not the same measurement:
  *
  *   docs/reader-quality-10-of-10.md:12-14   EVERY delivered item carries a
  *                                           justified line, or is not delivered
@@ -42,22 +42,32 @@
  *                                           carries a story-specific line from a
  *                                           rung other than coverage
  *
- * The first is a universal bar, the second an existence bar, and on the same
- * rows the difference is the verdict itself rather than a rounding. The
- * checklist's "or is not delivered" also contradicts ruling #12's standing
- * instruction not to withhold publishable stories for a missing line
- * (docs/reader-quality-10-of-10.md:66-67), so the universal bar cannot be met
- * by the product as ruled today either. The task that asked for this file says
- * plainly that a wrong instrument is worse than a pending gate, so this command
- * measures both bars and prints neither as the verdict:
+ * A universal bar and an existence bar gave opposite answers on the same rows,
+ * so this command printed both and refused to choose. The arbiter ruled the
+ * question on 2026-10-20 (#17, option 3) and narrowed the population the same
+ * day (#17a): gate 2 is reported as two legs, one instrument, and a PASS on one
+ * never makes the other pass.
  *
- *   before the close   gate 2  PENDING    <close date>             exit 0
- *   after the close    gate 2  UNDEFINED  <both doc lines>         exit 2
+ *   Leg A  universal   every delivered briefing item inside the window carries
+ *                      a non-empty, story-specific why_it_matters line, agreed
+ *                      with the ladder re-derived now and justified by the
+ *                      item's own stored evidence. Coverage is eligible.
+ *   Leg B  existence   at least one delivered briefing item carries a valid,
+ *                      story-specific line from a rung other than coverage,
+ *                      traceable to stored evidence and attributable to one of
+ *                      the eight sources ruling #12c released.
  *
- * `UNDEFINED` exits 2, never 0: a gate with no single definition must not read
- * green. The ruling that closes the gap is recorded in
- * docs/decisions/significance-window-instrument.md, and the moment it lands the
- * numbers below are the ones it needs -- no second measurement pass.
+ * Exit status, per the ruling:
+ *
+ *   window still open   gate 2  PENDING   <close date>        exit 2
+ *   closed, both legs   gate 2  PASS      A PASS, B PASS      exit 0
+ *   closed, one fails   gate 2  FAIL      A FAIL, B PASS      exit 1
+ *   evidence incomplete gate 2  UNDEFINED <what is missing>   exit 2
+ *
+ * A pre-close run exits 2, never 0: an unfinished experiment must not read
+ * green. `UNDEFINED` exits 2 for the same reason -- missing evidence is never a
+ * pass. The ruling and the six definitions it settles are recorded in
+ * docs/decisions/significance-window-instrument.md.
  *
  * `--now` exists so both branches can be verified against real rows instead of
  * waiting for the calendar (the ledger records the clock it was taken with).
@@ -194,6 +204,52 @@ type Measurements = {
   itemsOnExemptSource: number;
   multiPublisherEvents: number | null;
   multiPublisherError: string | null;
+};
+
+/** A leg's answer. `PASS` on one leg never makes the other pass (arbiter #17). */
+type LegVerdict = "PASS" | "FAIL";
+
+/** The gate's answer: pending, both legs green, a leg red, or no reading at all. */
+type VerdictState = "PENDING" | "PASS" | "FAIL" | "UNDEFINED";
+
+/** What the command prints and the ledger keeps, per the 2026-10-20 ruling. */
+type Verdict = {
+  state: VerdictState;
+  /** 0 both legs pass on a closed window, 1 a leg fails, 2 pending or undefined. */
+  exit: 0 | 1 | 2;
+  windowClosed: boolean;
+  legA: {
+    items: number;
+    passing: number;
+    failing: number;
+    /** null when there is no verdict to report: window open, or evidence incomplete. */
+    verdict: LegVerdict | null;
+    failures: {
+      position: number;
+      eventId: string;
+      rung: Rung;
+      stored: string;
+      ladder: string;
+      why: string[];
+    }[];
+  };
+  legB: {
+    qualifying: number;
+    attributed: number;
+    /** null when there is no verdict to report: window open, or evidence incomplete. */
+    verdict: LegVerdict | null;
+    items: {
+      position: number;
+      eventId: string;
+      title: string;
+      rung: Rung;
+      line: string;
+      traced: boolean;
+      source: { id: string | null; name: string; fetchedAt: string | null } | null;
+    }[];
+  };
+  /** Why a closed window still has no verdict. Empty when the evidence is whole. */
+  incomplete: string[];
 };
 
 const args = process.argv.slice(2);
@@ -478,6 +534,103 @@ main(async () => {
     ),
   ).length;
 
+  // ------------------------------------------------------------- the two legs
+  // Leg A (arbiter #17, #17a): every delivered briefing item carries its own
+  // justified line. Non-empty, story-specific, agreed with the ladder now, and
+  // the ladder's line traces to stored material -- a field rung included, since
+  // a stored impact or an after-state is stored evidence too. Coverage is
+  // eligible here; the ruling says so explicitly.
+  const legAFailures = deliveries.flatMap((delivery) => {
+    const fact = evidence.get(delivery.eventId);
+    const traced = (fact?.trace.via ?? "none") !== "none";
+    const why: string[] = [];
+    if (delivery.stored === "") why.push("no line delivered");
+    else if (!hasStorySpecificLine(delivery.stored)) why.push("line is not story-specific");
+    if (delivery.stored !== "" && delivery.storedState === "differs")
+      why.push("delivered line disagrees with the ladder now");
+    if (delivery.stored !== "" && !traced) why.push("the line traces to no stored evidence");
+    if (why.length === 0) return [];
+    return [
+      {
+        position: delivery.position,
+        eventId: delivery.eventId,
+        rung: delivery.rung,
+        stored: delivery.stored,
+        ladder: (fact?.ladder.text ?? "").trim(),
+        why,
+      },
+    ];
+  });
+  const legAPassing = deliveries.length - legAFailures.length;
+
+  // Leg B (ruling #12c + the handoff's attribution): one qualifying item, on a
+  // rung other than coverage, traced, and on an event one of the eight released
+  // sources touched inside the window. The attribution is recorded with the
+  // outlet and its fetch time rather than asserted.
+  const insideWindow = (value: string | null): boolean =>
+    value !== null && new Date(value) >= startsAt && new Date(value) < endsAt;
+  const legBItems = qualifying.map((entry) => {
+    const fact = evidence.get(entry.eventId);
+    const traced = fact !== undefined && fact.trace.via !== "none";
+    const released = (fact?.outlets ?? []).filter(
+      (outlet) => outlet.id !== null && exemptIds.has(outlet.id) && insideWindow(outlet.fetchedAt),
+    );
+    const attributed = released[0] ?? null;
+    return {
+      ...entry,
+      traced,
+      source:
+        attributed === null
+          ? null
+          : { id: attributed.id, name: attributed.name, fetchedAt: attributed.fetchedAt },
+    };
+  });
+  const legBPassing = legBItems.filter((entry) => entry.traced && entry.source !== null).length;
+
+  const windowClosed = now >= endsAt;
+  const incomplete: string[] = [];
+  if (deliveries.length === 0)
+    incomplete.push("no delivered briefing item inside the window: there is no population to read");
+  const unreadable = [
+    ...new Set(deliveries.map((delivery) => delivery.eventId).filter((id) => !evidence.has(id))),
+  ];
+  if (unreadable.length > 0)
+    incomplete.push(`${unreadable.length} delivered item(s) name an event that could not be read`);
+
+  const legAVerdict: LegVerdict = legAPassing === deliveries.length ? "PASS" : "FAIL";
+  const legBVerdict: LegVerdict = legBPassing > 0 ? "PASS" : "FAIL";
+  const state: VerdictState = !windowClosed
+    ? "PENDING"
+    : incomplete.length > 0
+      ? "UNDEFINED"
+      : legAVerdict === "PASS" && legBVerdict === "PASS"
+        ? "PASS"
+        : "FAIL";
+  const exit: 0 | 1 | 2 = !windowClosed || incomplete.length > 0 ? 2 : state === "PASS" ? 0 : 1;
+  // A leg's answer exists only once the window has closed on whole evidence; a
+  // pre-close run records the counts and no verdict, because the ruling forbids
+  // reporting PASS or FAIL for a window whose acceptance conditions are not final.
+  const reported = windowClosed && incomplete.length === 0;
+  const verdict: Verdict = {
+    state,
+    exit,
+    windowClosed,
+    legA: {
+      items: deliveries.length,
+      passing: legAPassing,
+      failing: legAFailures.length,
+      verdict: reported ? legAVerdict : null,
+      failures: legAFailures,
+    },
+    legB: {
+      qualifying: legBItems.length,
+      attributed: legBPassing,
+      verdict: reported ? legBVerdict : null,
+      items: legBItems,
+    },
+    incomplete,
+  };
+
   const multiPublisher = await countMultiPublisher(client);
 
   const measurements: Measurements = {
@@ -537,7 +690,15 @@ main(async () => {
     events: Object.fromEntries(evidence.entries()),
     deliveries,
     measurements,
-    verdict: now < endsAt ? "PENDING" : "UNDEFINED",
+    verdict,
+    ruling: {
+      decided: "2026-10-20",
+      source: "ChatGPT `nyuz` project, arbiter #17 (option 3) and #17a (Leg A population)",
+      gate2: "two legs, reported apart; a PASS on one never makes the other pass",
+      legA: "every delivered briefing item inside the window carries a non-empty, story-specific line, agreed with the ladder now and traced to stored material; coverage eligible",
+      legB: "at least one delivered briefing item carries a story-specific, non-coverage line traced to stored evidence and attributable to one of the eight released sources",
+      exit: { 0: "closed, both legs pass", 1: "closed, a leg fails", 2: "pending or undefined" },
+    },
   };
   writeLedger(out, ledger);
 
@@ -593,7 +754,7 @@ main(async () => {
   if (deliveries.length > shown.length)
     say(`  … and ${deliveries.length - shown.length} more in the ledger`);
 
-  heading("The numbers each documented bar is read against");
+  heading("The evidence each leg is read against, and the documents' own lines");
   showRungs(measurements);
   say("");
   say(`(a) docs/reader-quality-10-of-10.md:12   every delivered item carries a justified line`);
@@ -607,8 +768,8 @@ main(async () => {
       `${measurements.silent} / ${measurements.items} none and delivered`,
   );
   say(
-    "    nothing withholds a story for a missing line (ruling #12 option 1), so the second leg " +
-      "is measured on delivered rows only",
+    "    nothing withholds a story for a missing line (ruling #12 option 1), so the withheld clause " +
+      "cannot be met by the product as ruled; Leg A counts a missing line as a failure (arbiter #17)",
   );
   say(`(c) docs/decisions/reader-delivery.md:3391   one delivered item on a non-coverage rung`);
   say(
@@ -625,7 +786,7 @@ main(async () => {
   say(`(d) docs/reader-quality-10-of-10.md:14   stored equals the ladder now (drift check)`);
   say(
     `    measured: ${measurements.storedEqualsLadder} / ${measurements.items}   ` +
-      "(the document gives no passing threshold for this line)",
+      "(diagnostic; the ruling reads it inside Leg A, not as a threshold of its own)",
   );
   say(`(e) docs/decisions/reader-delivery.md:3392   the qualifying line traces to stored evidence`);
   say(
@@ -646,20 +807,71 @@ main(async () => {
       "event with an article from one of the eight, fetched inside the window",
   );
 
+  heading("The two legs (arbiter #17 / #17a, 2026-10-20)");
+
+  const legALabel =
+    verdict.legA.verdict ??
+    (verdict.state === "UNDEFINED" ? "undefined — see below" : "no verdict before the close");
+  say("Leg A — universal, every delivered briefing item inside the window");
+  say(
+    `    ${verdict.legA.passing} / ${verdict.legA.items} carry a non-empty, story-specific line, ` +
+      "agreed with the ladder now and traced to stored material",
+  );
+  say(`    result: ${legALabel}`);
+  for (const failure of verdict.legA.failures.slice(0, 10)) {
+    say(
+      `      #${String(failure.position).padStart(2, "0")} ${failure.rung.padEnd(11)} ` +
+        `${failure.why.join("; ")}`,
+    );
+  }
+  if (verdict.legA.failures.length > 10)
+    say(`      … and ${verdict.legA.failures.length - 10} more in the ledger`);
+  say(
+    "    a missing line is a failure, not an implicit withholding decision (ruling #12 option 1 " +
+      "still forbids withholding); coverage is eligible on this leg",
+  );
+
+  say("");
+  const legBLabel =
+    verdict.legB.verdict ??
+    (verdict.state === "UNDEFINED" ? "undefined — see below" : "no verdict before the close");
+  say("Leg B — the experiment's existence condition (ruling #12c + the handoff's attribution)");
+  say(
+    `    ${verdict.legB.attributed} / ${verdict.legB.qualifying} qualifying line(s) traced and ` +
+      "attributable to one of the eight released sources",
+  );
+  say(`    result: ${legBLabel}`);
+  for (const entry of verdict.legB.items) {
+    say(
+      `      #${String(entry.position).padStart(2, "0")} ${entry.rung.padEnd(10)} ` +
+        `${entry.title.slice(0, 62)}`,
+    );
+    say(`         ${JSON.stringify(entry.line.slice(0, 88))}`);
+    say(
+      `         traced ${entry.traced ? "yes" : "no"}; released source: ` +
+        (entry.source === null
+          ? "none of the eight"
+          : `${entry.source.name}, fetched ${entry.source.fetchedAt ?? "unknown"}`),
+    );
+  }
+
   // ------------------------------------------------------------- the verdict
   say("");
-  const verdict =
-    now < startsAt
-      ? `gate 2  PENDING  window opens ${short(startsAt.toISOString())}Z; nothing is delivered ` +
-        "inside it yet"
-      : now < endsAt
-        ? `gate 2  PENDING  window closes ${short(endsAt.toISOString())}Z (${days(now, endsAt)} away); ` +
-          `${measurements.items} delivered item(s) recorded, no verdict before the close`
-        : "gate 2  UNDEFINED  two documented bars disagree (docs/reader-quality-10-of-10.md:12-14 " +
-          "is universal, docs/decisions/reader-delivery.md:3391 is existence); no verdict computed — " +
-          "see docs/decisions/significance-window-instrument.md";
-  say(verdict);
-  process.exitCode = now < endsAt ? 0 : 2;
+  if (verdict.state === "PENDING") {
+    say(
+      `gate 2  PENDING  window closes ${short(endsAt.toISOString())}Z (${days(now, endsAt)} away); ` +
+        `${measurements.items} delivered item(s) recorded, no PASS or FAIL before the close  exit 2`,
+    );
+  } else if (verdict.state === "UNDEFINED") {
+    say(`gate 2  UNDEFINED  ${verdict.incomplete.join("; ")}  exit 2`);
+  } else {
+    say(
+      `gate 2  ${verdict.state}  Leg A ${legAVerdict} ` +
+        `(${verdict.legA.passing}/${verdict.legA.items}) · ` +
+        `Leg B ${legBVerdict} (${verdict.legB.attributed} qualifying)  exit ${verdict.exit}`,
+    );
+  }
+  process.exitCode = verdict.exit;
 });
 
 /**

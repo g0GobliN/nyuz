@@ -9,9 +9,13 @@ of what still fails.
 
 1. **Delivery.** `npm run audit:delivered-line` reads `PASS n / n card lines equal their page opening
    (0 defects, …)` against a briefing a reader actually received. Exit 0.
-2. **Significance.** Every delivered item either carries a line a stored fact justifies, or is not
-   delivered. The command is `npm run briefing:checkpoint` — `ladder now:` must be non-zero, and every
-   `none` must be an item that was withheld. `stored equals the ladder now` is the drift check.
+2. **Significance.** Every delivered briefing item carries a line a stored fact justifies (Leg A, the
+   universal bar — a missing line is a failure, and no story is withheld for it, per ruling #12 option 1),
+   and at least one delivered item carries a story-specific, non-coverage line traced to stored evidence
+   and attributable to the eight released sources (Leg B — ruling #12c's experiment condition). The
+   command is `npm run audit:significance-window`: `PENDING` exit 2 while the window is open, exit 0 only
+   when both legs pass on the closed window. `briefing:checkpoint`'s `ladder now:` and `stored equals the
+   ladder now` remain its drift diagnostic.
 3. **The rest of the reader's surfaces.** Home feed, archive and the alert channel are measured the way
    the briefing now is (one instrument, one verdict line, exit status as the check). Nothing has been
    audited there yet.
@@ -27,7 +31,7 @@ goal is unfinished.
 | item | state | how it was measured |
 | --- | --- | --- |
 | 1. Delivery | **first briefing built under the contract read `FAIL 10 / 13` (3 defects) on 2026-10-19, and the cause is found and fixed in the tree** — the gate composed from the article's excerpt while the page composes from the excerpt plus its `article_evidence`; the gate now reads the same material (`10/13 → 13/13` measured on the delivered rows). The next build is the first under the fix | `npm run audit:delivered-line` |
-| 2. Significance | **fails**: `ladder now: none 13`, 12 of 13 items silent, 1 stored line kept verbatim; under the withhold rule **0 of 13 items would survive**. **2026-10-20:** the verdict instrument and its evidence ledger exist (`npm run audit:significance-window`), and a PASS is still undefined — the two documented bars disagree, see the section below | `npm run briefing:checkpoint`, `npm run briefing:withhold-preview`, `npm run audit:significance-window` |
+| 2. Significance | **fails, and the verdict is now split by ruling**: measured on the experiment's window, **Leg A (universal) FAIL — 1 / 25** delivered items carry their own justified line (23 silent), **Leg B (existence, #12c) PASS** — card #08, `consequence`, traced to Wired, one of the eight, fetched 2026-10-19T11:00Z. `gate 2 PENDING` until 2026-11-18T06:46:22Z, exit 2; on today's rows the closed branch reads `FAIL  Leg A FAIL (1/25) · Leg B PASS` exit 1 | `npm run audit:significance-window` |
 | 3. Other surfaces | **measured, green**: feed `57/57` card lines admitted by the shared boundary (3 gated off before the card), archive `14/14`, 0 defects — but ruling #11's contract is *not* enforced there: `9/57` and `7/14` card lines equal their page opening (counterfactual, not enforced) | `npm run audit:surfaces` |
 | 4. Alerts | **measured, green**: 2 stories would fire, 8 withheld by the readiness gate (3 newsletter, 5 single-source research), 0 firing while a gate refuses it; 49 more withheld earlier in the funnel (28 no reader matched, 14 already alerted, 7 outside the flash window) | `npm run audit:alerts-gate` |
 
@@ -180,31 +184,47 @@ ordinary interval; every other source keeps its tier, and the tier row is untouc
 restores the old behaviour by itself. Six cases in `ingest.test.ts`. **It cost the experiment five days of
 its thirty, and item 2's window now starts with the next ingest tick rather than on 2026-10-24.**
 
-## Gate 2's instrument, and the definition it still needs (2026-10-20)
+## Gate 2's instrument, and what a PASS is (ruled 2026-10-20)
 
 `npm run audit:significance-window` is the command for 18 November. It reads the window from
 `source_exemptions` (not a literal), enumerates every briefing generated inside it, re-derives the ladder
 for every delivered item with `briefing:checkpoint`'s own inputs, and writes the per-event evidence to
 `docs/audits/significance-window-12c-30d.json` — one copy per event, never per reader, with delivery rows
-referencing event ids. Before the close it prints `PENDING` with the close date and exits 0; after it, it
-prints `UNDEFINED` and exits 2, because **the documents name two different bars** and choosing one would
-be inventing a metric. The report, with the quoted lines and the numbered options, is
-[decisions/significance-window-instrument.md](decisions/significance-window-instrument.md).
+referencing event ids.
 
-First real output (2026-10-20T07:39Z): window `2026-10-19T06:46:22Z → 2026-11-18T06:46:22Z`, 5 briefings
-generated (1 with items), 25 delivered items, 3 readers, `ladder now: consequence 1, coverage 1, none 23`,
-`stored equals the ladder now 1 / 25` — **`gate 2  PENDING  window closes 2026-11-18T06:46Z`**.
+**The two bars are ruled to be two legs, not a choice** (arbiter #17, option 3; population narrowed by
+#17a, both 2026-10-20 — [decisions/significance-window-instrument.md](decisions/significance-window-instrument.md)):
 
-**A PASS is not defined yet, and that is the finding.** Read as this item's own sentence ("every
-delivered item carries a line a stored fact justifies"), today's rows are **FAIL 1 / 25**. Read as ruling
-#12c's significance condition ("at least one future delivered item, story-specific, on a rung other than
-coverage, traced to stored evidence"), the same rows are **PASS** — card #08, whose line traces to Wired,
-one of the eight released sources. The command prints both numbers. The ruling that says which bar is
-gate 2 is the blocker; the recommended resolution is option 3 in the report (two legs, one instrument).
+- **Leg A — this item's own sentence, universal.** Every delivered briefing item inside the window carries
+  a non-empty, story-specific `why_it_matters` line, agreed with the ladder re-derived now under the
+  existing canonical comparison, and traced to the item's stored material. `coverage` is eligible. A
+  missing line is a failure — and still no reason to withhold a publishable story (ruling #12 option 1).
+  **Today: FAIL — 1 / 25.**
+- **Leg B — ruling #12c's experiment condition, existence.** At least one delivered briefing item carries
+  a valid, story-specific line from a rung other than coverage, traced to the event's stored evidence and
+  attributable to one of the eight released sources (the attribution is recorded with the outlet and its
+  fetch time). **Today: PASS — card #08, `consequence`, Wired, fetched `2026-10-19T11:00:15Z`.**
 
-**On 18 November:** run the command, commit the ledger, and paste the verdict line with the block above it
-into the board entry. If the ruling has landed, the number it names is in that output; if not,
-`UNDEFINED` is the honest reading and the report goes to the arbiter with it.
+A PASS on one leg does not make the other PASS: the arbiter's words are *"The experiment can succeed while
+the product-quality gate fails."* The population ruling is specific — Leg A is the delivered `digest_items`
+of the window for every reader; the archive re-rendering those rows is not counted twice, and the feed's
+matched-story cards and the alerts stay under item 3, because that path never carried a `why_it_matters`
+line to begin with.
+
+**Exit status, which is the check:** window open → `PENDING`, exit 2 (an unfinished experiment must not
+read green; the old pre-close 0 is retired). Window closed → exit 0 only when both legs pass, exit 1 when
+either fails, exit 2 when the evidence or the population is incomplete. A run before the close records the
+counts and no leg verdict.
+
+First real output (2026-10-20T08:42Z): window `2026-10-19T06:46:22Z → 2026-11-18T06:46:22Z`, 5 briefings
+generated (1 with items), 25 delivered items, 3 readers, `ladder now: consequence 1, coverage 1, none 23`
+— **`gate 2  PENDING  window closes 2026-11-18T06:46:22Z  exit 2`**. The closed branch, exercised on the
+same rows with `--now 2026-11-18T07:00:00Z`, prints **`gate 2  FAIL  Leg A FAIL (1/25) · Leg B PASS
+(1 qualifying)  exit 1`** — the verdict shape 18 November will produce, not the 18 November reading.
+
+**On 18 November:** run the command on the rows delivered by then, commit the ledger with that run's
+clock, and paste the verdict line with the block above it into the board entry. There is no definition
+left to wait for; a green read would need Leg A at 25 / 25.
 
 ## The order to work in
 
