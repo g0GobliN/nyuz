@@ -1567,8 +1567,11 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   (`plans.ts`: *"exactly two months free"*); the landing page's *"Most mornings that's six stories"*
   claimed one more than the free plan's **5** → *"five stories or fewer"*; the density dial labelled only
   two of its four bands under the track → **one label per band, over the track each band owns**, from
-  `LEVELS`; and the landing page's six **Nyuz** became lowercase **nyuz**. No price, plan limit or
-  predicate moved. Recorded in [decisions/public-site-copy-audit.md](decisions/public-site-copy-audit.md).
+  `LEVELS`; and the brand case was **measured and reversed** — the landing page's five *Nyuz* were made
+  lowercase, then the rest of the product was measured (**32 capitalised occurrences** in reader-facing
+  strings), and the five were restored: the convention is a lowercase wordmark with capitalised prose. No
+  price, plan limit or predicate moved. Recorded in
+  [decisions/public-site-copy-audit.md](decisions/public-site-copy-audit.md).
 
 - **2026-10-20 (the 22:30Z build) — item 1's instrument went green and the briefing was not readable.** The
   first build after ruling #11's fix, `4a6b2ad2` (25 cards, `sent`), reads **PASS 25/25** on

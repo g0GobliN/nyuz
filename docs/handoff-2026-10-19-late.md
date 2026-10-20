@@ -67,8 +67,11 @@ daemon if `page_info()` starts failing.
 1. **The mechanical copy pass** the #15 ruling kept separate — **done and pushed on 2026-10-19**: one page
    now has one name (Service providers, everywhere it is shown), the pricing caption reads "At least 2
    months free on an annual plan." while staying derived, the landing page says "five stories or fewer"
-   against the five-story cap, the density dial labels all four bands over the track each owns, and the
-   brand is lowercase. Record: [decisions/public-site-copy-audit.md](../decisions/public-site-copy-audit.md).
+   against the five-story cap, and the density dial labels all four bands over the track each owns. The
+   brand case was **measured and reversed**: five landing *Nyuz* were made lowercase, the rest of the product
+   turned out to write it capitalised in **32 reader-facing strings**, and the five were restored — lowercase
+   wordmark, capitalised prose. Record:
+   [decisions/public-site-copy-audit.md](../decisions/public-site-copy-audit.md).
 2. **Item 1's evidence** — the first build with content after `449f979`. Today's builds were honest
    quiet-day skips (0 items); the reader's next slot is 22:30Z.
 3. **Item 2's evidence** — after the experiment's first covering window. **The clock actually starts with

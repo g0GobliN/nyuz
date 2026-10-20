@@ -190,8 +190,13 @@ ended. The track now carries **one label per band, each over the part of the tra
 (0-20, 20-45, 45-70, 70-100), taken from `LEVELS`, so the slider and the query cannot disagree about
 what a label means — which is the reason the bands live in `@/lib/density` and not in the component.
 
-**5. Brand case.** The landing page wrote the product as **Nyuz** in six places while the logo and every
-other surface use lowercase **nyuz**. Corrected to the brand's own case.
+**5. Brand case — measured, and reversed.** The landing page wrote **Nyuz** in five places and the wordmark
+is lowercase. I changed the prose to lowercase, then measured the rest of the product before pushing it as
+done: **32 further occurrences in reader-facing product strings are capitalised** ("Install Nyuz", "Add Nyuz
+to your Home Screen", "opened Nyuz", the delivery and install cards). The convention is therefore *lowercase
+wordmark, capitalised prose* — ordinary, and what 32 strings already do — so the five landing strings were
+**restored to Nyuz** and the claim in the first version of this record ("every other surface is lowercase")
+is withdrawn as unmeasured. Nothing here is a defect: the drift was my premise, not the copy.
 
 **Verified:** `npx tsc --noEmit` clean; the two e2e tests that failed on this tree while it was being
 edited pass on the settled tree (`the annual saving is stated in months and not invented`, `the
