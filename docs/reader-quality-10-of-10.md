@@ -27,7 +27,7 @@ goal is unfinished.
 | item | state | how it was measured |
 | --- | --- | --- |
 | 1. Delivery | **first briefing built under the contract read `FAIL 10 / 13` (3 defects) on 2026-10-19, and the cause is found and fixed in the tree** — the gate composed from the article's excerpt while the page composes from the excerpt plus its `article_evidence`; the gate now reads the same material (`10/13 → 13/13` measured on the delivered rows). The next build is the first under the fix | `npm run audit:delivered-line` |
-| 2. Significance | **fails**: `ladder now: none 13`, 12 of 13 items silent, 1 stored line kept verbatim; under the withhold rule **0 of 13 items would survive** | `npm run briefing:checkpoint`, `npm run briefing:withhold-preview` |
+| 2. Significance | **fails**: `ladder now: none 13`, 12 of 13 items silent, 1 stored line kept verbatim; under the withhold rule **0 of 13 items would survive**. **2026-10-20:** the verdict instrument and its evidence ledger exist (`npm run audit:significance-window`), and a PASS is still undefined — the two documented bars disagree, see the section below | `npm run briefing:checkpoint`, `npm run briefing:withhold-preview`, `npm run audit:significance-window` |
 | 3. Other surfaces | **measured, green**: feed `57/57` card lines admitted by the shared boundary (3 gated off before the card), archive `14/14`, 0 defects — but ruling #11's contract is *not* enforced there: `9/57` and `7/14` card lines equal their page opening (counterfactual, not enforced) | `npm run audit:surfaces` |
 | 4. Alerts | **measured, green**: 2 stories would fire, 8 withheld by the readiness gate (3 newsletter, 5 single-source research), 0 firing while a gate refuses it; 49 more withheld earlier in the funnel (28 no reader matched, 14 already alerted, 7 outside the flash window) | `npm run audit:alerts-gate` |
 
@@ -179,6 +179,32 @@ as designed, which is what made it invisible. The fix is `dueCadence()` in
 ordinary interval; every other source keeps its tier, and the tier row is untouched so the window closing
 restores the old behaviour by itself. Six cases in `ingest.test.ts`. **It cost the experiment five days of
 its thirty, and item 2's window now starts with the next ingest tick rather than on 2026-10-24.**
+
+## Gate 2's instrument, and the definition it still needs (2026-10-20)
+
+`npm run audit:significance-window` is the command for 18 November. It reads the window from
+`source_exemptions` (not a literal), enumerates every briefing generated inside it, re-derives the ladder
+for every delivered item with `briefing:checkpoint`'s own inputs, and writes the per-event evidence to
+`docs/audits/significance-window-12c-30d.json` — one copy per event, never per reader, with delivery rows
+referencing event ids. Before the close it prints `PENDING` with the close date and exits 0; after it, it
+prints `UNDEFINED` and exits 2, because **the documents name two different bars** and choosing one would
+be inventing a metric. The report, with the quoted lines and the numbered options, is
+[decisions/significance-window-instrument.md](decisions/significance-window-instrument.md).
+
+First real output (2026-10-20T07:39Z): window `2026-10-19T06:46:22Z → 2026-11-18T06:46:22Z`, 5 briefings
+generated (1 with items), 25 delivered items, 3 readers, `ladder now: consequence 1, coverage 1, none 23`,
+`stored equals the ladder now 1 / 25` — **`gate 2  PENDING  window closes 2026-11-18T06:46Z`**.
+
+**A PASS is not defined yet, and that is the finding.** Read as this item's own sentence ("every
+delivered item carries a line a stored fact justifies"), today's rows are **FAIL 1 / 25**. Read as ruling
+#12c's significance condition ("at least one future delivered item, story-specific, on a rung other than
+coverage, traced to stored evidence"), the same rows are **PASS** — card #08, whose line traces to Wired,
+one of the eight released sources. The command prints both numbers. The ruling that says which bar is
+gate 2 is the blocker; the recommended resolution is option 3 in the report (two legs, one instrument).
+
+**On 18 November:** run the command, commit the ledger, and paste the verdict line with the block above it
+into the board entry. If the ruling has landed, the number it names is in that output; if not,
+`UNDEFINED` is the honest reading and the report goes to the arbiter with it.
 
 ## The order to work in
 

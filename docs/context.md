@@ -1722,6 +1722,22 @@ handoff ([handoff-2026-10-19-late.md](handoff-2026-10-19-late.md)) → this file
 [reader-quality-10-of-10.md](reader-quality-10-of-10.md), the acceptance checklist whose lines are
 commands. The skill for it is `resume-session`; the entry at the end of §6 records why it exists.
 
+**2026-10-20: gate 2's evidence ledger is built, and its verdict is blocked on one ruling.** Ruling
+#12c's window (2026-10-19T06:46Z → 2026-11-18T06:46Z) is item 2's calendar, so the reading is now a
+command: `npm run audit:significance-window` takes the window from `source_exemptions`, enumerates every
+briefing generated inside it, re-derives the ladder per delivered item on `briefing:checkpoint`'s own
+inputs, and persists the per-event evidence to `docs/audits/significance-window-12c-30d.json` (one copy
+per event; delivery rows reference event ids). First output, 2026-10-20T07:39Z: 5 briefings generated (1
+with items), **25 delivered items, 3 readers**, `ladder now: consequence 1, coverage 1, none 23`, `stored
+equals the ladder now 1 / 25`, verdict `PENDING`. **The finding is a definition gap, not a missing
+number:** the checklist's bar is universal (*every* delivered item carries a justified line → FAIL 1/25)
+and ruling #12c's is existence (*at least one* story-specific non-coverage line traced to evidence → PASS,
+card #08, whose line traces to Wired, one of the eight, fetched 2026-10-19T11:00Z). The command prints
+both and refuses a single verdict (`UNDEFINED`, exit 2, once the window closes). Options and the
+recommended two-leg resolution are in
+[decisions/significance-window-instrument.md](decisions/significance-window-instrument.md); until that is
+ruled, no instrument may pick one.
+
 **2026-10-18, last: the card line and the page opening are one sentence by construction (ruling #11).**
 The producer-side fix below closed the quote-first class, but the audit of the same day found the seam
 was wider than one producer: **54 of 121** delivered rows opened the card on a sentence the page did not
@@ -2731,3 +2747,50 @@ recorded in [decisions/reader-delivery.md](decisions/reader-delivery.md#ruling-1
 (BBC Politics + Guardian Politics, BBC Health + NPR Health, BBC Science + Guardian Environment, Wired +
 Engadget). The exemption itself is a schema-plus-ingest slice and is the next work; nothing was enabled,
 the 45-day window is still unapplied, no archive was touched, and there were no model calls.
+
+**Gate 2's evidence ledger, and the two bars it cannot choose between (2026-10-20).** Item 2 parked its
+verdict on ruling #12c's calendar, so the thing that was missing was not a rule but an instrument: nothing
+in the repository enumerated *delivered items inside the window* and recorded what the ladder would say
+about each. `npm run audit:significance-window`
+([scripts/significance-window-audit.ts](../scripts/significance-window-audit.ts)) is that instrument,
+read-only and deterministic. It reads the window from `source_exemptions` (the row the gate honours, not
+a literal), enumerates every briefing whose `generated_at` falls inside it, re-derives the ladder per
+delivered item with `reasonFor` on the same inputs `briefing:checkpoint` reads, and writes
+[docs/audits/significance-window-12c-30d.json](audits/significance-window-12c-30d.json) — 25 events,
+one copy per event with delivery rows referencing event ids, so the record survives a redeploy and does
+not copy event content per reader ([database.md](database.md)'s cost model).
+
+**First real output, measured 2026-10-20T07:39Z** (`npm run audit:significance-window`, exit 0): window
+`2026-10-19T06:46:22Z → 2026-11-18T06:46:22Z`, 8 of 8 enabled rows, **5 briefings generated, 1 with
+items, 1 sent, 4 skipped, 3 readers, 25 delivered items, 25 distinct events**; `ladder now: consequence
+1, coverage 1, none 23`; `carried any line at all 1 / 25`; `stored equals the ladder now 1 / 25`;
+`ladder now yields a line 2 / 25`; verdict **`gate 2  PENDING  window closes 2026-11-18 06:46:22Z`**. The
+closed branch was exercised on the same rows with `--now 2026-11-18T07:00:00Z`: `UNDEFINED`, exit 2.
+Also measured in the same run, for ruling #12c's other legs: events with ≥2 publishers **184 vs the 169
+baseline**, and 3 delivered items sit on an event with an article from one of the eight fetched inside the
+window.
+
+**The finding is a definition gap, and it decides the verdict.** The checklist states a **universal** bar
+(*"every delivered item either carries a line a stored fact justifies, or is not delivered"*,
+[reader-quality-10-of-10.md](reader-quality-10-of-10.md) 12–14) and ruling #12c states an **existence**
+bar (*"at least one future delivered briefing item carries a valid, story-specific line from a rung other
+than coverage"*, [reader-delivery.md](decisions/reader-delivery.md) 3391), which the handoff adds
+attribution to (*"did the eight … produce at least one"*,
+[handoff-2026-10-19-afternoon.md](handoff-2026-10-19-afternoon.md) 35). On today's rows the first reads
+**FAIL 1 / 25** and the second reads **PASS** — card #08's consequence line (*"The company will be
+refunded the $2 million deposit and receive a breakup fee."*) is story-specific, traces to the event's
+evidence, and that evidence is **Wired**, one of the eight, fetched `2026-10-19T11:00Z`. The checklist's
+*"or is not delivered"* also contradicts ruling #12's *"do not withhold publishable stories for a missing
+line"* (lines 66–67), so the universal bar cannot be met by the product as ruled today. The checklist's
+`stored equals the ladder now` is labelled a drift check but carries no passing threshold, and card #16
+shows the other seam: its event would now produce the `coverage` line while the delivered row carries
+nothing. **No metric was invented.** The instrument prints every documented bar's number and refuses a
+single verdict; the quoted lines, six missing definitions, four numbered options and the recommended
+two-leg resolution are in
+[decisions/significance-window-instrument.md](decisions/significance-window-instrument.md). That ruling
+is the blocker on gate 2, not the calendar alone.
+
+Files: `scripts/significance-window-audit.ts`, `package.json` (`audit:significance-window`),
+`docs/audits/significance-window-12c-30d.json`, `docs/decisions/significance-window-instrument.md`,
+`docs/reader-quality-10-of-10.md`, this file. No model call, no database write, no product behaviour
+change.
