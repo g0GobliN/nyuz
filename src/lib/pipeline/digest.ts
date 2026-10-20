@@ -2974,7 +2974,7 @@ async function loadMailItems(db: Db, digestId: string, language: LanguageTag): P
           // refused line: the composed artifact leads, a translation is printed
           // only for a line the boundary admits, and a refused one is withheld in
           // every language (reader-summary.ts).
-          what: deliveredTranslatedLine(row, event?.what_happened, translated?.whatHappened),
+          what: deliveredTranslatedLine(row, event?.what_happened, translated?.whatHappened, title),
           before: translated?.beforeState ?? event?.before_state ?? "",
           after: translated?.afterState ?? event?.after_state ?? "",
           excerpts: excerpts.get(row.event_id) ?? [],

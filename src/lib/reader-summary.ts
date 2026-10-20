@@ -42,12 +42,15 @@ import {
  * makes the delivered surface honest until it lands -- it also covers the rows already stored, which
  * no build-time fix can reach.
  */
-export function deliveredSummary(text: string | null | undefined): string | null {
+export function deliveredSummary(
+  text: string | null | undefined,
+  title?: string | null,
+): string | null {
   const trimmed = (text ?? "").trim();
   if (trimmed === "") return null;
   if (!admissibleReaderSentence(trimmed)) return null;
   if (editorialNoise(trimmed)) return null;
-  if (unresolvedContextOpening(trimmed)) return null;
+  if (unresolvedContextOpening(trimmed, title)) return null;
   return trimmed;
 }
 
@@ -70,8 +73,9 @@ export function deliveredSummary(text: string | null | undefined): string | null
 export function deliveredLine(
   stored: { summary?: string | null } | null | undefined,
   raw: string | null | undefined,
+  title?: string | null,
 ): string {
-  return deliveredSummary(stored?.summary) ?? deliveredSummary(raw) ?? "";
+  return deliveredSummary(stored?.summary, title) ?? deliveredSummary(raw, title) ?? "";
 }
 
 /**
@@ -102,10 +106,11 @@ export function deliveredTranslatedLine(
   stored: { summary?: string | null } | null | undefined,
   raw: string | null | undefined,
   translated: string | null | undefined,
+  title?: string | null,
 ): string {
-  const artifact = deliveredSummary(stored?.summary);
+  const artifact = deliveredSummary(stored?.summary, title);
   if (artifact !== null) return artifact;
-  const own = deliveredSummary(raw);
+  const own = deliveredSummary(raw, title);
   if (own === null) return "";
   return translated?.trim() ? translated.trim() : own;
 }
@@ -147,8 +152,9 @@ export function composedSummaryArtifact(input: {
 }): string | null {
   const composed = (input.opening ?? "").trim();
   if (composed !== "") return composed;
-  if (deliveredSummary(input.whatHappened) !== null) return null;
+  if (deliveredSummary(input.whatHappened, input.title) !== null) return null;
   return deliveredSummary(
     recoveredSummaryFromSources(input.title, input.sources, { publishedAt: input.publishedAt }),
+    input.title,
   );
 }

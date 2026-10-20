@@ -48,10 +48,23 @@ export function partOfDay(hour: number | null): PartOfDay | null {
   return "evening";
 }
 
+/**
+ * Clip a headline to the notification line without cutting inside a word.
+ *
+ * The clamp used a plain character slice, and the delivered 2026-10-19 briefing
+ * paid for it: the ConnectWise title reached a reader as *"…services to probe
+ * securi…"* — a broken word, on the one surface a reader gets before opening
+ * anything (ruling #19, 2026-10-20). The stored title is complete; the cut is
+ * the fault. Back off to the last space in the budget, and keep the hard cut
+ * only when the budget holds no space at all.
+ */
 function clip(title: string): string {
   const trimmed = title.trim();
   if (trimmed.length <= LEAD_TITLE_MAX) return trimmed;
-  return `${trimmed.slice(0, LEAD_TITLE_MAX - 1).trimEnd()}…`;
+  const budget = trimmed.slice(0, LEAD_TITLE_MAX - 1);
+  const space = budget.lastIndexOf(" ");
+  const kept = space > 0 ? budget.slice(0, space) : budget;
+  return `${kept.trimEnd()}…`;
 }
 
 /**

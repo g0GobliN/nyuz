@@ -1275,14 +1275,117 @@ export function normalizeEvidenceText(text: string): string {
 const CONNECTOR_PRONOUN_OPENING =
   /^(?:However|But|And|Still|Yet|So|Instead|Meanwhile|Also|Now|Then|Today|Yesterday|This week|That said|Even so|As a result|In addition)[,;]?\s+(?:they|them|their|it|its|this|these|those|he|she|him|her|both)\b/i;
 
-/** Whether the sentence needs a subject from somewhere else to be readable. */
-export function contextDependent(text: string): boolean {
+/**
+ * A reference the sentence itself cannot supply, whose head the headline must
+ * establish.
+ *
+ * The first of the two classes arbiter ruling #17 (2026-10-20) added, and the
+ * measured one: the delivered 2026-10-19 briefing opened card 02 on *"None of
+ * them were particularly impressive by themselves"* and card 16 on *"The authors
+ * were looking at it wrong"*. `contextDependent` had no class for either —
+ * `None of them` is not a pronoun subject, and `The authors` is a definite noun
+ * phrase — so `unresolvedContextOpening` returned **false for all 25 delivered
+ * lines**, including all four of that briefing's dangling openings.
+ *
+ * Both halves are closed sets, because this is a reference test and not a noun
+ * test: a quantified `X of them` and the person-groups whose identity lives
+ * outside the sentence. A definite noun phrase with a content head (`The
+ * Department of Homeland Security`, `The Prometheus supercluster`) is what the
+ * rule must leave alone, and it does.
+ */
+const QUANTIFIED_REFERENCE_OPENING =
+  /^(?:none|neither|either|some|most|many|all|few|several|both)\s+of\s+(?:them|these|those|which|whom)\b/i;
+
+/** `The authors`, `The researchers`, `These scientists`: people the card never names. */
+const PERSON_GROUP_OPENING = /^(?:the|these|those)\s+(?:authors?|researchers?|scientists?)\b/i;
+
+/**
+ * Whether the headline already establishes the person group the opening leans on.
+ *
+ * `The authors were looking at it wrong` is a defect against a headline that
+ * names nobody, and is ordinary prose against a headline that says the paper has
+ * authors. The words that establish the group are the ones a paper's own title
+ * uses to say so; nothing here guesses at a person's name.
+ */
+function titleEstablishesGroup(title: string | null | undefined): boolean {
+  if (title === null || title === undefined) return false;
+  return /\b(?:authors?|researchers?|scientists?|study|paper|report|survey|team)\b/i.test(title);
+}
+
+function bareReferenceOpening(text: string, title: string | null | undefined): boolean {
+  if (QUANTIFIED_REFERENCE_OPENING.test(text)) return true;
+  return PERSON_GROUP_OPENING.test(text) && !titleEstablishesGroup(title);
+}
+
+/**
+ * The second class: an acronym the opening's reader has no way to expand.
+ *
+ * Card 01 of the delivered briefing opened *"The EBU and NVIDIA are expanding
+ * the sovereign standards …"* against a headline that says *European Public
+ * Service Broadcasting*, which is not the acronym's expansion (`EBU` is the
+ * European Broadcasting Union). The test is deliberately about the **subject
+ * head**: an acronym followed by a capitalised word is a modifier of a named
+ * body (`The US Treasury`, `The UK government`), which is readable without an
+ * expansion, while a bare acronym standing as the subject is not.
+ *
+ * Three ways an opening establishes it, and no fourth: the headline carries the
+ * same token (case-insensitively, so `NVIDIA` meets `Nvidia`); the opening
+ * expands it (`European Broadcasting Union (EBU)` or `EBU (European Broadcasting
+ * Union)`); or the acronym modifies a named body in the same subject. Anything
+ * else is the class. Two-letter tokens are excluded on purpose — `AI`, `US`,
+ * `UK`, `EU`, `UN` are modifiers every reader already holds, and the measured
+ * class is three letters or longer.
+ */
+const SUBJECT_ACRONYM = /^(?:(?:The|A|An)\s+)?([A-Z][A-Z0-9]{2,5})(?![\p{L}\p{N}])/u;
+
+/** The initials a parenthetical expansion spells. */
+function initialsOf(phrase: string): string {
+  return (phrase.match(/\b[\p{L}]/gu) ?? []).join("").toUpperCase().slice(0, 6);
+}
+
+function acronymExpandedInOpening(text: string, acronym: string): boolean {
+  for (const match of text.matchAll(/\(([^()]{3,90})\)/g)) {
+    const inner = match[1] ?? "";
+    const before = text.slice(0, match.index ?? 0).trimEnd();
+    const head = before.match(/([\p{Lu}][\p{L}-]*(?:\s+[\p{Lu}][\p{L}-]*){0,5})$/u)?.[1] ?? "";
+    if (initialsOf(inner) === acronym || initialsOf(head) === acronym) return true;
+  }
+  return false;
+}
+
+function unexpandedAcronymOpening(text: string, title: string | null | undefined): boolean {
+  const match = SUBJECT_ACRONYM.exec(text);
+  if (match === null) return false;
+  const acronym = match[1] ?? "";
+  const after = text.slice(match[0].length).trimStart();
+  // A capitalised word after the acronym names the body it modifies.
+  if (/^[\p{Lu}]/u.test(after)) return false;
+  if (acronymExpandedInOpening(text, acronym)) return false;
+  if (title !== null && title !== undefined) {
+    const token = acronym.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`\\b${token}\\b`, "i").test(title)) return false;
+  }
+  return true;
+}
+
+/**
+ * Whether the sentence needs a subject from somewhere else to be readable.
+ *
+ * `title` is the card's own material, not the page's: ruling #17 (2026-10-20)
+ * widened the test with exactly two classes — a bare definite or quantified
+ * reference whose head the title does not establish, and an acronym neither the
+ * title nor the opening expands. Callers that do not have the title get the
+ * stricter answer, which is the one a delivered line has to satisfy on its own.
+ */
+export function contextDependent(text: string, title?: string | null): boolean {
   const trimmed = text.trim();
   return (
     (PRONOUN_SUBJECT_OPENING.test(trimmed) && !POSSESSIVE_DETERMINER_OPENING.test(trimmed)) ||
     CONNECTOR_PRONOUN_OPENING.test(trimmed) ||
     frontedClauseNeedsContext(trimmed) ||
-    /\bthe figure\b/i.test(trimmed)
+    /\bthe figure\b/i.test(trimmed) ||
+    bareReferenceOpening(trimmed, title) ||
+    unexpandedAcronymOpening(trimmed, title)
   );
 }
 
@@ -1653,12 +1756,37 @@ const NOT_A_PAST_PARTICIPLE = new Set(
  * that no longer produces these is only proven by reading what came out, not by
  * trusting the counter that refused them.
  */
-export function unresolvedContextOpening(text: string): boolean {
+export function unresolvedContextOpening(text: string, title?: string | null): boolean {
   const trimmed = text.trim();
   // One definition, shared with the deck rule: a demonstrative that heads the
   // document the reader is holding is resolved by reading, not by context.
   if (SELF_REFERENTIAL_DOCUMENT_OPENING.test(trimmed)) return false;
-  return contextDependent(trimmed) && !recoverableContext(trimmed);
+  return contextDependent(trimmed, title) && !recoverableContext(trimmed);
+}
+
+/**
+ * Whether a sentence's payload is somebody's quotation rather than a report.
+ *
+ * Ruling #10a (2026-10-18) made a report outrank a quotation at the deck, and
+ * the delivered 2026-10-19 card 20 shows the class it missed: *"Security outfit
+ * Huntress offered a starker view and wrote "A Microsoft 365 credential (API
+ * secret) belonging to ConnectWise Cloud Backup has been compromised …""* — a
+ * sentence whose first character is a name, not a quotation mark, and whose
+ * substance is still the quotation. Ruling #19 (2026-10-20) names that card as
+ * one the quote rule has to catch.
+ *
+ * Two shapes, both literal and both cheap: a sentence that opens on a quotation
+ * mark (`OPENS_ON_QUOTE`, the class #10a already had), and one that hands the
+ * reader a long quotation through a speech verb (`wrote`, `said`, `stated` …).
+ * The length floor is what keeps an epithet -- `called the deal "deeply
+ * flawed"` -- from being read as the sentence's payload.
+ */
+const SPEECH_VERB_QUOTE =
+  /\b(?:said|says|wrote|writes|stated|states|added|adds|noted|notes|argued|argues|claimed|claims|explained|explains|reported|reports|told|tells)\b[^.!?]{0,40}["“][^"”]{40,}/i;
+
+export function quotationCarriesOpening(text: string): boolean {
+  const trimmed = text.trim();
+  return OPENS_ON_QUOTE.test(trimmed) || SPEECH_VERB_QUOTE.test(trimmed);
 }
 
 /** Quoted speech belongs to its speaker, not the publication. */
@@ -1708,7 +1836,55 @@ export function editorialNoise(text: string): boolean {
  * stay eligible.
  */
 export function sourceTypo(text: string): boolean {
-  return /\bnothing\s+(?:the|a|an)\s+(?:\w+\s+){0,2}that\b/iu.test(text);
+  return (
+    /\bnothing\s+(?:the|a|an)\s+(?:\w+\s+){0,2}that\b/iu.test(text) ||
+    // Ruling #19 (2026-10-20): `ot` is the source's typo in the delivered
+    // 2026-10-19 card 03 — *"the agents had attempted ot break into"* — and
+    // ruling #6's precedent applies: the sentence is refused, not repaired,
+    // because rewriting the source's word is a correction the product has no
+    // policy for. Lowercase `ot` standing alone before another word is the
+    // shape; `OT` (operational technology) keeps its capitals and is untouched,
+    // and `other`, `nothing` and `robot` never match because the token has to
+    // be whole.
+    /\bot\s+[a-z]/.test(text)
+  );
+}
+
+/**
+ * A copular or locative opening: a state, where a card has to carry a change.
+ *
+ * Ruling #19 (2026-10-20), the thin-card class. Three delivered cards carried a
+ * state as their whole opening — *"Everything becomes effectively open source,
+ * which closes down substantial revenue streams"*, *"The response to music gear
+ * that uses AI and vibe coding has been mixed."*, *"The Prometheus supercluster
+ * is housed in Meta's New Albany, Ohio, data center."* — and the rule is that a
+ * card must carry a change, not a state. `is housed in` and `was built in` are
+ * locative predicates; `has been mixed` and `becomes effectively open source`
+ * are copular ones; none of them is an event.
+ *
+ * The predicate list is closed on purpose. It is read off the first clause (a
+ * comma, semicolon, colon or dash starts the next one), because a fronted
+ * subordinate clause has its own verb — *"If Disney is chosen …, it has agreed
+ * to pay …"* opens on `is chosen` and is not a state. A passive with an unknown
+ * participle (`was acquired`, `was charged`) is not in the list and keeps its
+ * card: withholding a real story is the worse error here. The three measured
+ * strings are the class; nothing here is a grammar checker.
+ */
+const STATE_OPENING =
+  /\b(?:is|are|was|were|has been|have been|had been)\s+(?:housed|located|based|situated|sited|built|constructed|headquartered|composed|formed|mixed|unchanged|uncertain|unclear|part of|made up of|home to)\b|\b(?:becomes?|became)\s+(?:effectively|essentially|increasingly|largely|virtually|now|soon)\b|\b(?:remains?|remained|seems?|seemed)\s+[\p{L}'-]+/iu;
+
+/** A sentence that opens inside a clause the main clause follows. */
+const LEADING_SUBORDINATOR =
+  /^(?:if|when|while|after|before|although|though|because|since|as|once|unless|until|despite|given|should|had|were)\b/i;
+
+export function thinStateOpening(text: string): boolean {
+  const trimmed = text.trim();
+  // A subordinate opening is judged by its main clause, which a string test
+  // cannot reliably find without a parser -- so it is left alone rather than
+  // guessed at. The measured class all open on their main clause.
+  if (LEADING_SUBORDINATOR.test(trimmed)) return false;
+  const clause = trimmed.split(/[,;:—]/)[0] ?? trimmed;
+  return STATE_OPENING.test(clause);
 }
 
 /**
@@ -3082,8 +3258,8 @@ function quoteSeamAt(text: string): number[] {
  * A seam inside a quotation is the quote's own text, never a paste, so a seam
  * with an unbalanced quotation to its left is skipped.
  */
-export function captionSeamSplit(text: string): string[] {
-  const clean = text.replace(/\s+/g, " ").trim();
+export function captionSeamSplit(text: string, names: readonly string[] = []): string[] {
+  const clean = restoreDottedNames(text, names).replace(/\s+/g, " ").trim();
   if (!clean) return [];
   const seams: { left: number; next: number }[] = [];
   for (const match of clean.matchAll(CAPTION_SEAM)) {
@@ -3104,13 +3280,40 @@ export function captionSeamSplit(text: string): string[] {
   return parts.filter(Boolean);
 }
 
+/**
+ * Put a product's own dotted name back together.
+ *
+ * `Character.AI` is one word, and the delivered 2026-10-19 card 09 printed it as
+ * `Character. AI` — twice — because the sentence scanner treats the stop before
+ * an all-caps token as a boundary. Ruling #19 (2026-10-20) is explicit that this
+ * is not a typo to be corrected by a dictionary: the spaced form is normalised
+ * **only** where the card's own entity list holds the canonical name, so the
+ * repair is driven by the coverage rather than by a list of products this file
+ * would have to keep.
+ */
+function restoreDottedNames(text: string, names: readonly string[]): string {
+  let out = text;
+  for (const name of names) {
+    const parts = name.split(".");
+    if (parts.length !== 2) continue;
+    const [head, tail] = parts;
+    if (!head || !tail || !/\p{L}/u.test(head) || !/\p{L}/u.test(tail)) continue;
+    const spaced = new RegExp(
+      `${head.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.\\s*${tail.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+      "g",
+    );
+    out = out.replace(spaced, name);
+  }
+  return out;
+}
+
 /** Do not split a quotation away from its speaker or split decimals and versions. */
-export function readerSentences(text: string): string[] {
+export function readerSentences(text: string, names: readonly string[] = []): string[] {
   const out: string[] = [];
   // A caption pasted onto a sentence leaves no punctuation between them, so the
   // scanner below has no boundary to find. The seam is cut first, while it is
   // still detectable, and each half is then read as the sentence it is.
-  for (const clean of captionSeamSplit(text)) {
+  for (const clean of captionSeamSplit(text, names)) {
     let quote = "";
     let start = 0;
     for (let i = 0; i < clean.length; i++) {
@@ -3127,9 +3330,14 @@ export function readerSentences(text: string): string[] {
         // no space at all -- what pasting a caption onto a sentence leaves behind:
         // "... for a temporary injunction.Stop calling it safe." The tight form
         // needs a lowercase letter before the stop, so "U.S.Army" and "3.5" are
-        // not boundaries.
+        // not boundaries, and a word after it -- the next token has to be a
+        // sentence-shaped capitalised word and not an all-caps token, or
+        // "Character.AI" is cut in two (`Character.` + `AI …`), which is the
+        // delivered 2026-10-19 card 09 defect.
         (clean[i + 1] === " " ||
-          (/[A-Z]/.test(clean[i + 1] ?? "") && /[a-z]/.test(clean[i - 1] ?? ""))) &&
+          (/[A-Z]/.test(clean[i + 1] ?? "") &&
+            /[a-z]/.test(clean[i - 1] ?? "") &&
+            /^[A-Z][a-z]/.test(clean.slice(i + 1)))) &&
         // A sentence does not end at a single-capital initial: "... by Wellington
         // and T. Rowe Price, large institutional investors..." was split into a
         // fragment ending "T." and a second starting "Rowe Price", which the
@@ -3336,7 +3544,7 @@ export function rankEntities(title: string, sources: ReaderSource[]): RankedEnti
   for (const s of sources) if (s.name) add(s.name);
   // Article sentences do not depend on the candidate entity, so split each source
   // once rather than rescanning a long excerpt for every name in it.
-  const sourceUnits = [...new Set(texts.flatMap(readerSentences))];
+  const sourceUnits = [...new Set(texts.flatMap((text) => readerSentences(text)))];
   const aliases = new Map<string, string[]>();
   for (const [key, name] of names) {
     const parts = name.split(" ");
@@ -5265,8 +5473,8 @@ export const OPENS_ON_QUOTE = /^["\u201c]/u;
  * (attribution, sentence shape) is caught by that rule when the sentence is
  * composed, not by a second list kept in this file.
  */
-export function opensAsReport(fact: ReaderFact): boolean {
-  return !OPENS_ON_QUOTE.test(fact.text) && !unresolvedContextOpening(fact.text.trim());
+export function opensAsReport(fact: ReaderFact, title?: string | null): boolean {
+  return !quotationCarriesOpening(fact.text) && !unresolvedContextOpening(fact.text.trim(), title);
 }
 
 /**
@@ -5291,9 +5499,10 @@ export function opensAsReport(fact: ReaderFact): boolean {
 export function reportingLeadOf(
   lead: ReaderFact | undefined,
   facts: readonly ReaderFact[],
+  title?: string | null,
 ): ReaderFact | undefined {
   return [lead, ...facts.filter((fact) => fact !== lead)].find(
-    (fact): fact is ReaderFact => fact !== undefined && opensAsReport(fact),
+    (fact): fact is ReaderFact => fact !== undefined && opensAsReport(fact, title),
   );
 }
 
@@ -5301,6 +5510,10 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
   const stats = emptyNormalizationStats();
   const normalizedSources = sources.map((source) => normalizeReaderSource(source, stats));
   const entities = rankEntities(title, normalizedSources);
+  // The card's own entity list is what makes a spaced product name repairable:
+  // `Character. AI` is put back together only because `Character.AI` is in this
+  // list (ruling #19, 2026-10-20). Nothing is guessed from a dictionary.
+  const dottedNames = entities.map((entity) => entity.name).filter((name) => /\S\.\S/.test(name));
   const raw: ReaderFact[] = [];
   normalizedSources.forEach((source, index) => {
     // A paper's authors are plural, a news desk's narrator is one person. Both are
@@ -5320,14 +5533,14 @@ export function selectReaderEvidence(title: string, sources: ReaderSource[]) {
       ...(source.enrichedEvidence ?? []).flatMap((u) =>
         u.kind === "quote"
           ? [{ ...u, origin: "enriched" as const, sourceOrder: enrichedOrder++ }]
-          : captionSeamSplit(u.text).map((text) => ({
+          : captionSeamSplit(u.text, dottedNames).map((text) => ({
               ...u,
               text,
               origin: "enriched" as const,
               sourceOrder: enrichedOrder++,
             })),
       ),
-      ...readerSentences(source.excerpt ?? "").map((text, order) => ({
+      ...readerSentences(source.excerpt ?? "", dottedNames).map((text, order) => ({
         text,
         kind: "fact",
         origin: "rss" as const,

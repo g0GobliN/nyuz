@@ -498,7 +498,10 @@ export function quoteOpeningEvidence(input: {
   let duplicateOf = "";
   const above = earlier.flatMap((text) => readerSentences(text));
   const aboveKeys = new Map(above.map((sentence) => [sentenceKey(sentence), sentence]));
-  const candidates = [...readerSentences(block), ...quotedSpeech(block).flatMap(readerSentences)];
+  const candidates = [
+    ...readerSentences(block),
+    ...quotedSpeech(block).flatMap((text) => readerSentences(text)),
+  ];
   for (const sentence of candidates) {
     const hit = aboveKeys.get(sentenceKey(sentence));
     if (hit !== undefined) {

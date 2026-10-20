@@ -118,6 +118,26 @@ describe("the summary a reader may be shown", () => {
       "A set of taskflow YAMLs, one per stage, which are essentially the prompts that tell the LLM agent what to do at each step.";
     expect(deliveredSummary(line)).toBe(line);
   });
+
+  /**
+   * The boundary asks with the card's own title, which is what ruling #17 is
+   * about: an acronym or a person group is established by the title the reader
+   * sees above the line, and the same line must not be withheld because the
+   * boundary was asked with nothing to check it against.
+   *
+   * Measured before the title was threaded through (`audit:delivered-line
+   * --window`, 2026-10-20, 200 live events): 184 decks, 180 agreeing and 4
+   * defects, every defect a line the composer published and the boundary then
+   * refused on an abbreviation the title carries — `ITV`, `USB`, `AWS`. That is
+   * one rule disagreeing with itself, not a reader being protected.
+   */
+  it("admits an acronym the card's own title carries", () => {
+    const line = "AWS is committed to supporting the PyTorch ecosystem by providing trainers.";
+    expect(
+      deliveredSummary(line, "Introducing TorchNeuron: Native PyTorch backend for AWS Trainium"),
+    ).toBe(line);
+    expect(deliveredSummary(line, "Something else entirely happens here")).toBeNull();
+  });
 });
 
 /**

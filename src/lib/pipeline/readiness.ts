@@ -34,6 +34,7 @@
 import { composeFromSources } from "../editorial";
 import { selectReaderEvidence, type ReaderSource } from "../reader-evidence";
 import { isPaidContentUrl } from "./paid-content";
+import { isReaderDealTitle } from "./alert-floor";
 
 export type ArtifactKind =
   | "empty"
@@ -195,6 +196,14 @@ const NEWS_VERB =
 
 /** A price promotion. Requires money and a sales verb. */
 const COMMERCE_TITLE = /\$\s*[\d,]+(?:\.\d{2})?/;
+
+/**
+ * Money stated as an amount off: the purchase frame in a deal headline that
+ * carries no acquisition verb — *"nearly $100 off today only"*. Ruling #19
+ * (2026-10-20) added it to the gate's purchase-shape rung, not to the home
+ * feed's existing deal class.
+ */
+const MONEY_OFF = /\$\s?[\d,]+(?:\.\d{2})?\s*(?:off|cheaper)\b/i;
 
 /**
  * What the money is doing, in a sales verb. `deal` and `deals` are deliberately
@@ -485,6 +494,32 @@ export function assessReadiness(input: {
 
   if (COMMERCE_TITLE.test(title) && COMMERCE_VERBS.test(title)) {
     return { ready: false, kind: "commerce", reason: "title is a price promotion" };
+  }
+
+  /**
+   * The purchase shape: a price, a purchase frame, and no event (ruling #19,
+   * 2026-10-20).
+   *
+   * The delivered 2026-10-19 briefing carried *"Sony's best noise-canceling
+   * earbuds are nearly $100 off today only"* as a card. It is the shape the home
+   * feed already refuses on a coupon page — something to buy, nothing that
+   * happened — and the arbiter ruled the briefing gate has to ask it too. The
+   * two halves are the existing vocabulary, not a second copy of it: the frame
+   * is `isReaderDealTitle` (the home feed's own deal class, imported from
+   * `alert-floor`) plus the money-off form, the price is `COMMERCE_TITLE`, and
+   * the exemption is `NEWS_VERB` — a title with a news verb in it is a report
+   * about commerce, not an offer.
+   *
+   * Measured on the delivered 25: this refuses card 22 and no other card. The
+   * keep cases are the ones the existing rungs already protect — *"Nvidia RTX
+   * Spark launches with a $2,599 price"* carries the news verb, *"Lambda raises
+   * $1B in debt to buy Nvidia chips"* carries no offer frame.
+   */
+  if (
+    !NEWS_VERB.test(title) &&
+    (isReaderDealTitle(title) || (COMMERCE_TITLE.test(title) && MONEY_OFF.test(title)))
+  ) {
+    return { ready: false, kind: "commerce", reason: "title is a purchase offer with no event" };
   }
 
   if (COMMERCE_PROMO.test(title) && COMMERCE_URGENCY.test(title)) {

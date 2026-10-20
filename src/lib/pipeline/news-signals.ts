@@ -463,7 +463,7 @@ export function finalizeMetadata(
    * which is the ruling's fallback.
    */
   if (OPENS_ON_QUOTE.test(summary)) {
-    const report = reportingLeadOf(selection.lead, selection.facts);
+    const report = reportingLeadOf(selection.lead, selection.facts, title);
     const replacement =
       report !== undefined && report.text !== first ? summaryFor(title, report.text) : "";
     if (replacement !== "" && !OPENS_ON_QUOTE.test(replacement)) summary = replacement;

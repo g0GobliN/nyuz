@@ -114,7 +114,13 @@ export async function suppressDeliveredDuplicates(
  * `generic` marks a marker that a hundred different stories about a company can
  * carry — a launch, a breach, a ban. Those need a third shared title word.
  */
-const MARKER_GROUPS: readonly { key: string; words: readonly string[]; generic?: boolean }[] = [
+const MARKER_GROUPS: readonly {
+  key: string;
+  words: readonly string[];
+  generic?: boolean;
+  /** Only a hit in the headline counts (see `security-access` below). */
+  titleOnly?: boolean;
+}[] = [
   { key: "ipo", words: ["ipo", "prospectus", "public offering", "filing"] },
   {
     key: "arrest",
@@ -136,6 +142,32 @@ const MARKER_GROUPS: readonly { key: string; words: readonly string[]; generic?:
     key: "security",
     words: ["breach", "breached", "hacked", "ransomware", "leak", "leaked"],
     generic: true,
+  },
+  {
+    /**
+     * The break-in vocabulary ruling #18 (2026-10-20) added, as its own marker.
+     *
+     * The measured duplicate is the delivered 2026-10-19 pair — Tom's Hardware's
+     * "A Chinese hacker used AI agents to break into more than 100 company
+     * websites" and The Verge's "A hacker broke into John Deere and SharkNinja
+     * with an army of AI agents". Neither title carried a word from `security`,
+     * so the overlap test below was never reached. This group is the
+     * **delivery pass's** vocabulary only: `news-signals.ts` keeps the narrower
+     * clustering class, because a wrong merge is permanent and visible on every
+     * surface while a suppressed card is one story the reader does not see
+     * twice.
+     *
+     * `titleOnly` is the constraint the corpus measured: the pair carries
+     * `hacker` / `broke into` in **both headlines**, and a summary-only hit is a
+     * weaker signal. The arrest of a ShinyHunters member and the FBI's message
+     * to the same group share the entity and three content words, and only a
+     * summary on one side mentions a break-in — counting that would suppress a
+     * distinct story, which is exactly the cost the ruling weighs.
+     */
+    key: "security-access",
+    words: ["hack", "hacker", "hacking", "break in", "break into", "broke into"],
+    generic: true,
+    titleOnly: true,
   },
   {
     key: "disruption",
@@ -223,11 +255,15 @@ function namePairs(title: string): Set<string> {
   return names;
 }
 
-const markersOf = (title: string, summary: string): Set<string> => {
+const markersOf = (title: string, summary: string, options: TwinOptions = {}): Set<string> => {
+  const titleText = title.toLowerCase();
   const text = `${title} ${summary}`.toLowerCase();
   const out = new Set<string>();
   for (const group of MARKER_GROUPS) {
-    if (group.words.some((word) => text.includes(word))) out.add(group.key);
+    // The census's "before" column runs the pass without ruling #18's group.
+    if (options.securityAccess === false && group.key === "security-access") continue;
+    const haystack = group.titleOnly === true ? titleText : text;
+    if (group.words.some((word) => haystack.includes(word))) out.add(group.key);
   }
   return out;
 };
@@ -282,6 +318,20 @@ type Shape = {
 };
 
 /**
+ * Ruling #18's vocabulary, as a switch for the **census only**.
+ *
+ * The ruling widened the delivery pass's marker vocabulary and put a floor on
+ * what the widening may suppress. Measuring that needs the counterfactual — what
+ * the same corpus would have fused *before* the widening — and the honest way to
+ * get it is the same function under the old vocabulary rather than a second
+ * implementation of the comparison in the instrument. Production callers pass
+ * nothing and get the widened pass (see `suppressStoryTwins`'s signature); the
+ * census in `scripts/twin-corpus-census.ts` passes `false` for the "before"
+ * column, exactly as `audit:delivered-line` prints its pre-ruling counts.
+ */
+export type TwinOptions = { securityAccess?: boolean };
+
+/**
  * Whether two briefs tell one story, by exactly the conditions
  * `suppressStoryTwins` documents. Extracted so the delivered-history pass and
  * the in-batch pass cannot drift apart: a pair that is twins inside one briefing
@@ -322,12 +372,12 @@ const GENERIC_MARKERS = new Set(
   MARKER_GROUPS.filter((group) => group.generic === true).map((group) => group.key),
 );
 
-const shapeOf = (brief: TwinBrief): Shape => {
+const shapeOf = (brief: TwinBrief, options: TwinOptions = {}): Shape => {
   const summary = brief.whatHappened ?? "";
   return {
     words: new Set([...contentWords(brief.title), ...contentWords(summary)]),
     entities: capitalised(brief.title),
-    markers: markersOf(brief.title, summary),
+    markers: markersOf(brief.title, summary, options),
     primary: new Set(
       rankEntities(brief.title, [{ excerpt: summary }])
         .filter((entity) => entity.role === "PRIMARY")
@@ -341,8 +391,11 @@ const shapeOf = (brief: TwinBrief): Shape => {
   };
 };
 
-export function suppressStoryTwins<T extends TwinBrief>(briefs: readonly T[]): T[] {
-  const shape = briefs.map(shapeOf);
+export function suppressStoryTwins<T extends TwinBrief>(
+  briefs: readonly T[],
+  options: TwinOptions = {},
+): T[] {
+  const shape = briefs.map((brief) => shapeOf(brief, options));
   const kept: T[] = [];
   const keptAt: number[] = [];
   for (let i = 0; i < briefs.length; i += 1) {

@@ -37,6 +37,8 @@ import {
   stripHeadingLabel,
   stripProviderNavigation,
   sourceTypo,
+  quotationCarriesOpening,
+  thinStateOpening,
   stripSourceFurniture,
   stripUnanchorableTime,
   unitTextRejection,
@@ -2741,5 +2743,182 @@ describe("a document named after the reference that relies on it", () => {
     );
     expect(text).toContain("The assessment, titled Analysis of Ukraine’s Energy, does not specify");
     expect(text).not.toContain("titled titled");
+  });
+});
+
+/* ------------------------------------------------------------------------- */
+/* Ruling #17 and #19 (2026-10-20): the delivered briefing's own openings     */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * The strings are the delivered 2026-10-19 briefing (`4a6b2ad2`), verbatim.
+ *
+ * Every assertion here is a defect a reader received, and every control is a
+ * line the same briefing delivered that must keep its card. On `main` the four
+ * rulings below are red: `unresolvedContextOpening` returned false for all 25
+ * delivered lines, and the four unions the ruling names were invisible to it.
+ */
+const DELIVERED_EBU =
+  "The EBU and NVIDIA are expanding the sovereign standards they introduced in 2025 for European public service media.";
+const DELIVERED_NONE =
+  "None of them were particularly impressive by themselves, but together they took about $0.20 off every review.";
+const DELIVERED_AUTHORS =
+  "The authors were looking at it wrong: What seemed like tangled, unreadable neural networks may actually follow a hidden logic.";
+const DELIVERED_QUOTE =
+  "Security outfit Huntress offered a starker view and wrote “A Microsoft 365 credential (API secret) belonging to ConnectWise Cloud Backup has been compromised, and Huntress has confirmed it is being used to gain unauthorized access to customers' M365 environments.”";
+const DELIVERED_EBU_TITLE =
+  "NVIDIA Advances Agentic Security for Media, From European Public Service Broadcasting to Global Content Production";
+
+describe("ruling #17: an opening must stand alone", () => {
+  it("refuses the delivered dangling references", () => {
+    expect(unresolvedContextOpening(DELIVERED_NONE)).toBe(true);
+    expect(unresolvedContextOpening(DELIVERED_AUTHORS)).toBe(true);
+    expect(
+      unresolvedContextOpening(
+        DELIVERED_AUTHORS,
+        "“We were looking at it wrong”: The explosive claim that’s upended the AI world",
+      ),
+    ).toBe(true);
+    expect(unresolvedContextOpening(DELIVERED_EBU, DELIVERED_EBU_TITLE)).toBe(true);
+    expect(unresolvedContextOpening(DELIVERED_EBU)).toBe(true);
+  });
+
+  it("keeps the openings the same briefing had already established", () => {
+    expect(
+      unresolvedContextOpening(
+        "The Department of Homeland Security has issued a sweeping restriction to remove DeepSeek use across all federal civilian agencies and their IT systems.",
+        "Homeland Security bans DeepSeek use in federal civilian agencies",
+      ),
+    ).toBe(false);
+    expect(
+      unresolvedContextOpening(
+        "The Prometheus supercluster is housed in Meta’s New Albany, Ohio, data center.",
+        "Inside Prometheus: Meta’s Journey to a Gigawatt-Scale Supercluster",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts an acronym the title carries or the opening expands", () => {
+    expect(
+      unresolvedContextOpening(DELIVERED_EBU, "EBU and NVIDIA expand sovereign media standards"),
+    ).toBe(false);
+    expect(
+      unresolvedContextOpening(
+        "The European Broadcasting Union (EBU) and NVIDIA are expanding the sovereign standards.",
+        DELIVERED_EBU_TITLE,
+      ),
+    ).toBe(false);
+    // A modifier of a named body is readable without an expansion.
+    expect(unresolvedContextOpening("The US Treasury has issued new guidance on AI chips.")).toBe(
+      false,
+    );
+    // Two-letter acronyms are the established vocabulary, not the class.
+    expect(unresolvedContextOpening("AI agents are being deployed across call centres.")).toBe(
+      false,
+    );
+  });
+
+  it("treats a person group as established by a headline that names the paper", () => {
+    expect(
+      unresolvedContextOpening(
+        DELIVERED_AUTHORS,
+        "Study finds neural networks may follow a hidden logic",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a report that quotes a source with attribution", () => {
+    expect(
+      unresolvedContextOpening(
+        "A Microsoft spokesperson said the company would appeal the ruling.",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("ruling #19: hygiene, one rule each", () => {
+  it("catches the quotation that carries a delivered opening", () => {
+    expect(quotationCarriesOpening(DELIVERED_QUOTE)).toBe(true);
+    expect(quotationCarriesOpening("“We were looking at it wrong,” the researcher said.")).toBe(
+      true,
+    );
+    expect(
+      quotationCarriesOpening(
+        "A flaw in Broadcom's Wi-Fi setup software lets an attacker within radio range run code as root.",
+      ),
+    ).toBe(false);
+    // An epithet is not the sentence's payload.
+    expect(quotationCarriesOpening('The reviewer called the phone "deeply flawed".')).toBe(false);
+  });
+
+  it("refuses the source's `ot` typo instead of repairing it", () => {
+    expect(
+      sourceTypo(
+        "Fewer than 100 Chinese characters were used, yet the agents had attempted ot break into more than 1,200 different websites.",
+      ),
+    ).toBe(true);
+    expect(sourceTypo("The OT security team said the breach was contained.")).toBe(false);
+    expect(sourceTypo("It takes a lot of work to ship a compiler.")).toBe(false);
+  });
+
+  it("does not cut a dotted product name in two", () => {
+    const text =
+      "If Disney is chosen as the winning bidder by Character.AI and a committee of unsecured creditors—and courts approve the deal—it has agreed to pay Character.AI an additional $12.5 million as a closing payment.";
+    const parts = readerSentences(text);
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toContain("Character.AI");
+  });
+
+  it("restores the spaced form only when the card's entity list holds the name", () => {
+    expect(
+      readerSentences("A spokesperson for Character. AI referred WIRED to Disney.", [
+        "Character.AI",
+      ]),
+    ).toEqual(["A spokesperson for Character.AI referred WIRED to Disney."]);
+    // No canonical name in the card: nothing is guessed.
+    expect(
+      readerSentences("A spokesperson for Character. AI referred WIRED to Disney."),
+    ).toHaveLength(2);
+  });
+
+  it("calls a state opening thin, and a change opening not", () => {
+    expect(
+      thinStateOpening(
+        "The Prometheus supercluster is housed in Meta’s New Albany, Ohio, data center.",
+      ),
+    ).toBe(true);
+    expect(
+      thinStateOpening("The response to music gear that uses AI and vibe coding has been mixed."),
+    ).toBe(true);
+    expect(
+      thinStateOpening(
+        "Everything becomes effectively open source, which closes down substantial revenue streams for big companies who had assumed lock-in.",
+      ),
+    ).toBe(true);
+    expect(
+      thinStateOpening(
+        "The Department of Homeland Security has issued a sweeping restriction to remove DeepSeek use across all federal civilian agencies.",
+      ),
+    ).toBe(false);
+    expect(
+      thinStateOpening(
+        "Tenstorrent, a chip startup focused on inference, has raised $1.5 billion at a $6.2 billion valuation.",
+      ),
+    ).toBe(false);
+    expect(
+      thinStateOpening(
+        "If Disney is chosen as the winning bidder by Character.AI, it has agreed to pay an additional $12.5 million.",
+      ),
+    ).toBe(false);
+    expect(thinStateOpening("Meta was acquired by a consortium of investors.")).toBe(false);
+  });
+
+  it("withholds the card a state opening would have produced", () => {
+    const text = composedText(
+      "The Prometheus supercluster is housed in Meta’s New Albany, Ohio, data center. The campus runs closed-loop liquid cooling across its halls.",
+      "Meta Engineering",
+      "Inside Prometheus: Meta’s Journey to a Gigawatt-Scale Supercluster",
+    );
+    expect(text).toBe("");
   });
 });

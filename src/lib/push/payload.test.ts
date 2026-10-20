@@ -82,6 +82,21 @@ describe("briefingPush", () => {
     expect(body).toMatch(/…, and 4 more stories\.$/);
     expect(body.length).toBeLessThan(100);
   });
+
+  it("clips a long headline between words, never inside one", () => {
+    // The delivered 2026-10-19 briefing reached a reader with "…services to
+    // probe securi…" — the clamp cutting through the source's own word (ruling
+    // #19, 2026-10-20). The stored title is complete; the cut is the fault.
+    const title =
+      "ConnectWise turns off its SaaS-y backup, security, and management services to probe security SNAFU";
+    const body = briefingPush({ titles: [title], total: 1, ...base }).body;
+    expect(body.endsWith("….")).toBe(true);
+    const clipped = body.slice(0, -2); // drop the ellipsis and the trailing period
+    expect(title.startsWith(clipped)).toBe(true);
+    // The cut fell on a space, so every word it kept is whole.
+    expect(title[clipped.length]).toBe(" ");
+    expect(clipped.endsWith("securi")).toBe(false);
+  });
 });
 
 describe("partOfDay", () => {

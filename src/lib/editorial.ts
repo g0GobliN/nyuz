@@ -28,8 +28,9 @@ import {
   normalizeReaderSources,
   normalizeSummary,
   normalizedNumericKey,
-  OPENS_ON_QUOTE,
+  quotationCarriesOpening,
   preferCleaner,
+  thinStateOpening,
   selectReaderEvidence,
   sentenceKey,
   sourceNameForEvidence,
@@ -1121,8 +1122,8 @@ function cannotWrap(text: string): boolean {
  * What stays here is the deck's question, which only the deck has: nothing precedes
  * it, so no ordering of the page can supply the reference.
  */
-function needsAntecedentToOpen(text: string): boolean {
-  return unresolvedContextOpening(text.trim());
+function needsAntecedentToOpen(text: string, title?: string | null): boolean {
+  return unresolvedContextOpening(text.trim(), title);
 }
 
 /**
@@ -3158,14 +3159,14 @@ export function composeArticleWithDiagnostics(story: Story): {
     for (const candidate of deckCandidates) {
       const text = safeLead(candidate, story, independentSources, surveys).text;
       if (text === "") continue;
-      if (needsAntecedentToOpen(text)) {
+      if (needsAntecedentToOpen(text, story.title)) {
         needsAntecedent.push({ fact: candidate.text, text });
         continue;
       }
       composedDeck.push({ fact: candidate, text });
     }
     const chosenDeck =
-      composedDeck.find((entry) => !OPENS_ON_QUOTE.test(entry.text)) ?? composedDeck[0];
+      composedDeck.find((entry) => !quotationCarriesOpening(entry.text)) ?? composedDeck[0];
     if (chosenDeck !== undefined) {
       lead = chosenDeck.fact;
       leadText = chosenDeck.text;
@@ -3179,7 +3180,7 @@ export function composeArticleWithDiagnostics(story: Story): {
     // on a sentence the reader cannot see is refused here as well, which is what
     // stops the rule above from being routed around by the one path that does not
     // go through `safeLead`.
-    if (deck.text !== "" && needsAntecedentToOpen(deck.text)) {
+    if (deck.text !== "" && needsAntecedentToOpen(deck.text, story.title)) {
       needsAntecedent.push({ fact: deck.text, text: deck.text });
       deck.text = "";
       deck.evidence = [];
@@ -3358,6 +3359,30 @@ export function composeArticleWithDiagnostics(story: Story): {
     // The page, read in the order the reader reads it.
     refuseUnestablishedOpenings({ deck, paragraphs }, story.title, diagnostics, ledger);
     const gated = qualityGate({ deck, paragraphs }, story.title, diagnostics, ledger);
+    /**
+     * A card must carry a change, not a state (ruling #19, 2026-10-20).
+     *
+     * Measured on the delivered 2026-10-19 briefing: *"The Prometheus
+     * supercluster is housed in Meta's New Albany, Ohio, data center."*,
+     * *"The response to music gear that uses AI and vibe coding has been
+     * mixed."* and *"Everything becomes effectively open source …"* each opened
+     * a card without saying what happened. The check is on the composed opening
+     * — the one sentence a card is guaranteed to carry — and a story that opens
+     * on a copular or locative state publishes nothing, which is the same floor
+     * the deck walk already applies to a story no candidate can open.
+     */
+    if (gated.deck.text !== "" && thinStateOpening(gated.deck.text)) {
+      for (const block of [gated.deck, ...gated.paragraphs]) {
+        // Charged by fact as well as by sentence: on the selected set a
+        // withheld story's facts must read as "refused by a rule", never as
+        // facts nobody can account for (the ledger's `lost`).
+        markSentence(ledger, block.text, "thin_state");
+        refuseBlock(block.text, "thin_state", diagnostics);
+      }
+      gated.deck.text = "";
+      gated.deck.evidence = [];
+      gated.paragraphs.length = 0;
+    }
     // After the gate, because the gate reads each block as the composer wrote
     // it. Removing a repeated attribution can only shorten a sentence, never
     // break one, so a block that passed stays publishable.
