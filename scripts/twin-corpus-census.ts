@@ -16,6 +16,15 @@
  * separates what the widening bought from what the pass already did. A new fusion
  * below the floor exits non-zero, so the check can gate a later widening.
  *
+ * The floor itself lives in `src/lib/pipeline/twin-floor.ts`, not here, so the
+ * regression fixtures in the suite assert the same bar this reads. Its two legs
+ * were tightened on 2026-10-20 after the Plex2Shell / BeyondTrust pair showed
+ * both of them accepting evidence that is not evidence: a sentence-initial
+ * capital counted as a name ("Hackers"), and function words counted as content
+ * (`and`, absent from the shortlist's stop set). Both pairs of anchors are
+ * printed with a failing pair, because the count of pairs below a tightened
+ * floor is a question about the bar and not a number to tune away.
+ *
  * The read is **paged**, because PostgREST returns at most the server's max-rows
  * (1000 on the hosted project) and a single `.limit()` therefore reads a prefix
  * of the window while printing a count that looks like the whole of it. Measured
@@ -26,9 +35,8 @@
  * Read-only.
  */
 
-import { capitalised } from "../src/lib/pipeline/news-signals";
 import { suppressStoryTwins } from "../src/lib/pipeline/duplicates";
-import { STOPWORDS } from "../src/lib/pipeline/shortlist";
+import { twinFloor } from "../src/lib/pipeline/twin-floor";
 import { db, main, say } from "./lib/db";
 
 const args = process.argv.slice(2);
@@ -49,24 +57,6 @@ const LIMIT = flag("--limit", 20000);
 
 /** The vocabulary ruling #18 added: the only words that can newly fuse a pair. */
 const NEW_WORDS = ["hack", "hacker", "hacking", "break in", "break into", "broke into"];
-
-const stem = (word: string): string => {
-  if (word.length <= 4) return word;
-  if (word.endsWith("ing")) return word.slice(0, -3);
-  if (word.endsWith("ed")) return word.slice(0, -2);
-  if (word.endsWith("es")) return word.slice(0, -2);
-  if (word.endsWith("s")) return word.slice(0, -1);
-  return word;
-};
-
-const contentWords = (text: string): Set<string> =>
-  new Set(
-    text
-      .toLowerCase()
-      .split(/[^\p{L}\p{N}]+/u)
-      .filter((word) => word.length >= 3 && !STOPWORDS.has(word))
-      .map(stem),
-  );
 
 type Event = { id: string; title: string; what_happened: string | null; first_seen_at: string };
 
@@ -117,17 +107,11 @@ main(async () => {
    *                  would be a change no ruling covers, so it is counted and
    *                  named rather than silently folded into either column.
    *   `floor`        whether a pair shares a capitalised entity and three
-   *                  content words — the ruling's own bar.
+   *                  content words — the ruling's own bar, as implemented in
+   *                  `src/lib/pipeline/twin-floor.ts`. The verdict comes with
+   *                  its anchors so a failing pair can be argued with rather
+   *                  than merely counted.
    */
-  const floor = (a: Event, b: Event): { entity: boolean; words: number } => {
-    const entities = new Set([...capitalised(a.title)].map((word) => word.toLowerCase()));
-    const entity = [...capitalised(b.title)].some((word) => entities.has(word.toLowerCase()));
-    const other = contentWords(`${b.title} ${b.what_happened ?? ""}`);
-    const words = [...contentWords(`${a.title} ${a.what_happened ?? ""}`)].filter((word) =>
-      other.has(word),
-    ).length;
-    return { entity, words };
-  };
   const fuses = (a: Event, b: Event, securityAccess: boolean): boolean =>
     suppressStoryTwins(
       [
@@ -136,6 +120,11 @@ main(async () => {
       ],
       { securityAccess },
     ).length === 1;
+
+  const anchors = (entities: string[], words: string[]): string => {
+    const names = entities.length === 0 ? "none" : entities.join(", ");
+    return `entity ${names}  words ${words.length === 0 ? "none" : words.join(", ")}`;
+  };
 
   let newly = 0;
   let violations = 0;
@@ -146,22 +135,25 @@ main(async () => {
       const a = carrying[i]!;
       const b = carrying[j]!;
       if (!fuses(a, b, true)) continue;
-      const { entity, words } = floor(a, b);
+      const { entities, words, clears } = twinFloor(
+        { title: a.title, whatHappened: a.what_happened },
+        { title: b.title, whatHappened: b.what_happened },
+      );
       if (fuses(a, b, false)) {
         preexisting += 1;
-        if (entity && words >= 3) continue;
+        if (clears) continue;
         preexistingViolations += 1;
         say("");
-        say(`PRE-EXISTING (not this ruling)  shared entity ${entity}, words ${words}`);
+        say(`PRE-EXISTING (not this ruling)  ${anchors(entities, words)}`);
         say(`  A ${a.title}`);
         say(`  B ${b.title}`);
         continue;
       }
       newly += 1;
-      if (entity && words >= 3) continue;
+      if (clears) continue;
       violations += 1;
       say("");
-      say(`VIOLATION  shared entity ${entity}, shared content words ${words}`);
+      say(`VIOLATION  ${anchors(entities, words)}`);
       say(`  A ${a.title}`);
       say(`  B ${b.title}`);
     }
@@ -175,11 +167,13 @@ main(async () => {
     `pre-existing fusions below it       ${preexistingViolations}   (another rule's; reported, not tuned)`,
   );
   if (violations > 0) {
-    say("ruling #18  FAIL  the widening suppresses a pair the ruling does not allow");
+    say(
+      `ruling #18  FAIL  ${violations} newly fused pair(s) do not clear the floor — a ruling is needed, not a wider vocabulary and not a looser floor`,
+    );
     process.exitCode = 1;
   } else {
     say(
-      `ruling #18  PASS  every suppressed pair shares a capitalised entity and three content words`,
+      `ruling #18  PASS  every pair the widening newly fuses shares a capitalised name and three content words`,
     );
   }
 });

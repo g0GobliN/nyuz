@@ -1681,6 +1681,40 @@ the population the acceptance is taken on (the window read above).
   `readiness.ts`'s `isFirstPartySource`/`CELEBRATION_TITLE` still want converging, and that is forge's file.
   [decisions/vendor-celebration-class.md](decisions/vendor-celebration-class.md)
 
+**The twin floor was clearing pairs on capitals that select nothing (2026-10-20).** Ruling #18's
+acceptance floor — "a suppressed pair must also share a capitalised entity and three content words" —
+was measured against the rows it exists to judge, and both legs were accepting evidence that is not
+evidence. `src/lib/pipeline/twin-floor.ts` now holds the floor (the census reads it, the suite asserts
+it): a capitalisation counts only where it **discriminates** (mid-title, in a headline that is not Title
+Case, and not a function word), with the other side's capitalisation as corroboration; and the
+content-word leg carries its own `FUNCTION_WORDS` on top of the shortlist's `STOPWORDS`, so `and`, `the`,
+`for`, `but` and their siblings are not content. It is *not* added to `STOPWORDS`, which
+`duplicates.ts` and `titleTokens` also read — that would narrow the delivery pass, and a ruling is not
+this branch's to make. The delivery pass, `sameStory`, `sameIncident`, `cluster.ts` and every #17/#19 rule
+are untouched; `npm run audit:delivered-line` reads identically to `main` (`15 / 22` as delivered, `22`
+of 25 built now), which is the evidence for that.
+
+The card's premise did not survive the rows: `suppressStoryTwins` on the stored Plex2Shell /
+BeyondTrust pair (summaries included) keeps **1 of 2** — it fuses them — so F18-1 was the instrument *and*
+the pass, not only the instrument. The 2-of-2 in the earlier note came from a probe with invented
+summaries. Measured after the tightening:
+
+```
+npm run audit:twin-corpus  30 days, 16,828 events, 119 headlines carrying the vocabulary
+                           272 pairs newly fused, 48 fused before it as well
+                           164 newly fused pairs below the floor -> FAIL
+                             (entity leg only 56, content words only 75, both 33)
+                           19 pre-existing fusions below it (was 1 under the lenient legs)
+```
+
+Every one of the 164 is listed with the anchors it was fused on in
+[decisions/twin-floor-below-floor.md](decisions/twin-floor-below-floor.md); the reading and the four
+numbered options are in [decisions/delivered-twin-floor.md](decisions/delivered-twin-floor.md). **No
+floor was loosened, no vocabulary narrowed, and the census is red on purpose** — whether the delivery
+pass narrows to the bar, or the floor becomes a report rather than a gate, is an arbiter question. The
+pair is pinned in both directions so neither side can be "fixed" by moving the other: the floor refuses
+it (`twin-floor.test.ts`) and the pass still fuses it (`it.fails` in `duplicates.test.ts`).
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest

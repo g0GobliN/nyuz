@@ -234,6 +234,32 @@ describe("one story per briefing", () => {
     }
   });
 
+  /**
+   * Pinned in the direction the ruling has not yet taken.
+   *
+   * The tightened floor in `twin-floor.test.ts` refuses this pair and the
+   * delivery pass above still fuses it, on the *stored* rows: `Hackers` (the
+   * first word of one headline, a Title Case capital in the other) plus
+   * `hacker`, `exploit`, `flaw`, `server` and `day`, under the `security-access`
+   * marker. Two stories lose a card. Changing the pass is a ruling, not an
+   * implementer's call, so the two instruments are pinned pointing opposite ways
+   * and this is the tripwire: the day the pass starts keeping both, this test
+   * begins to fail and whoever fixed it flips `it.fails` to `it`.
+   */
+  it.fails("keeps the Plex2Shell and BeyondTrust stories apart", () => {
+    const kept = suppressStoryTwins([
+      brief(
+        "Hackers Exploit Plex2Shell Flaws to Install Crypto Miners and Linux Proxy Backdoor",
+        "Threat actors have begun to exploit a chain of vulnerabilities in Plex Media Server to deploy cryptocurrency miners and reverse proxy software, a day after a proof-of-concept (PoC) went public.",
+      ),
+      brief(
+        "China-Linked Hackers Exploited BeyondTrust Zero-Day to Take Over Remote Support Servers",
+        "The China-nexus cyber espionage group tracked as Armory Castle (previously UNC5221 or Warp Panda) exploited a newly disclosed security flaw in BeyondTrust Remote Support (formerly Bomgar) as a zero-day in late August 2026.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
   it("keeps two stories about one company apart when no figure is shared", () => {
     // The DGX Spark pair from the corpus: same actor, and only one side carries
     // a figure, so neither the shape test nor the marker test may fuse them.
