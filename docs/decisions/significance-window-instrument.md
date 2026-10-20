@@ -261,6 +261,39 @@ The closed branch, exercised on the same rows with `--now 2026-11-18T07:00:00Z -
 gate 2  FAIL  Leg A FAIL (1/25) · Leg B PASS (1 qualifying)  exit 1
 ```
 
+## Re-read on 2026-10-20T23:48Z, with the window still open
+
+A second real run, on the rows delivered since the first one, so the 1 / 25 above is not read as the
+current state. `npm run audit:significance-window`, exit **2**:
+
+```
+window (source_exemptions)   2026-10-19 06:46:22Z -> 2026-11-18 06:46:22Z
+clock                        2026-10-20 23:48:35Z  28d 6h to close
+briefings generated           6
+  with items                  2
+readers                       3
+items                        50
+ladder now: consequence 2, coverage 1, none 47
+carried any line at all          2 / 50
+stored equals the ladder now     2 / 50
+silent (nothing carried)        47 / 50
+(a) every delivered item carries a justified line     2 / 50
+(f) events with >=2 publishers                       198 now vs 169 baseline
+Leg A  2 / 50 carry a justified line                 no verdict before the close
+Leg B  2 / 2 qualifying line(s) traced and attributable to one of the eight
+       #08 consequence, Wired, fetched 2026-10-19T11:00:15Z
+       #09 consequence, Wired, fetched 2026-10-20T19:30:14Z
+gate 2  PENDING  window closes 2026-11-18 06:46:22Z (28d 6h away)
+```
+
+The second qualifying line (#09, _French Government Calls Emergency Meetings…_) is the ruling's Leg B
+satisfied again on a later delivery, from the same released outlet — the experiment's condition is not
+resting on a single card. Leg A's ratio moved 1 / 25 → 2 / 50 because the population doubled, not
+because delivery improved: 47 of 50 delivered items are still silent.
+
+The ledger committed beside this report is deliberately the **2026-10-20T08:42Z snapshot (25 items)** so
+the prose and the file describe the same run; the 18 November run regenerates it with the verdict.
+
 ## 18 November is still owed
 
 The window closes `2026-11-18T06:46:22Z`; the reading must be taken on the rows delivered by then, and

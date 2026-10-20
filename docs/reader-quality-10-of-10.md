@@ -31,7 +31,7 @@ goal is unfinished.
 | item | state | how it was measured |
 | --- | --- | --- |
 | 1. Delivery | **first briefing built under the contract read `FAIL 10 / 13` (3 defects) on 2026-10-19, and the cause is found and fixed in the tree** — the gate composed from the article's excerpt while the page composes from the excerpt plus its `article_evidence`; the gate now reads the same material (`10/13 → 13/13` measured on the delivered rows). The next build is the first under the fix | `npm run audit:delivered-line` |
-| 2. Significance | **fails, and the verdict is now split by ruling**: measured on the experiment's window, **Leg A (universal) FAIL — 1 / 25** delivered items carry their own justified line (23 silent), **Leg B (existence, #12c) PASS** — card #08, `consequence`, traced to Wired, one of the eight, fetched 2026-10-19T11:00Z. `gate 2 PENDING` until 2026-11-18T06:46:22Z, exit 2; on today's rows the closed branch reads `FAIL  Leg A FAIL (1/25) · Leg B PASS` exit 1 | `npm run audit:significance-window` |
+| 2. Significance | **fails, and the verdict is now split by ruling**: measured on the experiment's window, **Leg A (universal) FAIL — 1 / 25** delivered items carry their own justified line (23 silent), **Leg B (existence, #12c) PASS** — card #08, `consequence`, traced to Wired, one of the eight, fetched 2026-10-19T11:00Z. `gate 2 PENDING` until 2026-11-18T06:46:22Z, exit 2; on today's rows the closed branch reads `FAIL  Leg A FAIL (1/25) · Leg B PASS` exit 1 (re-read 2026-10-20T23:48Z: `Leg A 2 / 50 · Leg B 2 / 2`, still `PENDING` exit 2) | `npm run audit:significance-window` |
 | 3. Other surfaces | **measured, green**: feed `57/57` card lines admitted by the shared boundary (3 gated off before the card), archive `14/14`, 0 defects — but ruling #11's contract is *not* enforced there: `9/57` and `7/14` card lines equal their page opening (counterfactual, not enforced) | `npm run audit:surfaces` |
 | 4. Alerts | **measured, green**: 2 stories would fire, 8 withheld by the readiness gate (3 newsletter, 5 single-source research), 0 firing while a gate refuses it; 49 more withheld earlier in the funnel (28 no reader matched, 14 already alerted, 7 outside the flash window) | `npm run audit:alerts-gate` |
 
@@ -199,11 +199,12 @@ referencing event ids.
   a non-empty, story-specific `why_it_matters` line, agreed with the ladder re-derived now under the
   existing canonical comparison, and traced to the item's stored material. `coverage` is eligible. A
   missing line is a failure — and still no reason to withhold a publishable story (ruling #12 option 1).
-  **Today: FAIL — 1 / 25.**
+  **Today: FAIL — 1 / 25** (re-read 2026-10-20T23:48Z: **2 / 50**, 47 silent, still `PENDING`).
 - **Leg B — ruling #12c's experiment condition, existence.** At least one delivered briefing item carries
   a valid, story-specific line from a rung other than coverage, traced to the event's stored evidence and
   attributable to one of the eight released sources (the attribution is recorded with the outlet and its
-  fetch time). **Today: PASS — card #08, `consequence`, Wired, fetched `2026-10-19T11:00:15Z`.**
+  fetch time). **Today: PASS — card #08, `consequence`, Wired, fetched `2026-10-19T11:00:15Z`** (re-read
+  2026-10-20T23:48Z: **2 / 2**, #09 also `consequence`, Wired, `2026-10-20T19:30:14Z`).
 
 A PASS on one leg does not make the other PASS: the arbiter's words are *"The experiment can succeed while
 the product-quality gate fails."* The population ruling is specific — Leg A is the delivered `digest_items`

@@ -2809,7 +2809,11 @@ no reason to withhold, per ruling #12 option 1) and **Leg B** (existence: at lea
 a rung other than coverage, traced to stored evidence **and attributable to one of the eight released
 sources** — the attribution the handoff stated and #12c omitted, now recorded with the outlet and its
 fetch time). The same rows read **Leg A FAIL 1 / 25 · Leg B PASS** (#08, `consequence`, Wired, fetched
-`2026-10-19T11:00:15Z`).
+`2026-10-19T11:00:15Z`). A re-read on **2026-10-20T23:48Z**, window still open, reads **6 briefings (2
+with items), 50 delivered items, 3 readers, Leg A 2 / 50, Leg B 2 / 2** — #09, _French Government Calls
+Emergency Meetings…_, also `consequence` on Wired, fetched `2026-10-20T19:30:14Z` — `gate 2 PENDING` exit
+2: the population doubled overnight and the silence with it (47 of 50). The ledger committed with the
+08:42Z snapshot stays that snapshot; the 18 November run replaces it.
 
 **One cross-examination changed the population.** The first ruling extended Leg A to "all delivery
 surfaces included in the checklist"; the feed's matched-story path never carries a `why_it_matters` line,
