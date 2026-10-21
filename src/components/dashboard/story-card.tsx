@@ -9,14 +9,12 @@ import {
   ThumbsUp,
   VolumeX,
 } from "lucide-react";
-import { recoverCardSummary } from "@/lib/editorial";
+import { storyOpening } from "@/lib/reader-opening";
 import { becauseYouFollow } from "@/lib/matching";
 import { sourceCount, type Story } from "@/lib/story";
 import type { FeedbackState, Vote } from "@/lib/feedback-store";
 import { formatStoryTime } from "@/lib/story-time";
 import { cn } from "@/lib/utils";
-import { admissibleReaderSentence, normalizeSummary } from "@/lib/reader-evidence";
-import { briefingText, cardSummaryRefused } from "@/lib/understand";
 
 const TONE: Record<Story["importance"], string> = {
   High: "text-signal border-signal/40",
@@ -56,54 +54,21 @@ export function StoryCard({
   const because = becauseYouFollow(matched);
   const provenance = story.personalization?.explanation ?? because;
   /**
-   * The summary line. The stored event summary is the fast path -- it costs
-   * nothing and it is what nearly every card prints.
+   * The summary line — the sentence this story opens on everywhere.
    *
-   * The slower path exists because the card and the story page must not have
-   * different standards for trustworthy prose: this card used to publish the
-   * GitHub Taskflow list item as its summary while the story page had withheld
-   * it as an incomplete explanatory statement (2026-10-14). When the deck
-   * predicate refuses the stored line, the card recovers the story's own opening
-   * published sentence instead of printing the refused text, and withholds the
-   * line entirely when there is nothing valid to recover. Composing is 150-220
-   * ms, and it happens only for a card whose stored line was refused -- 13 of
-   * 679 summary lines in the 2026-10-15 window, and 24 more once the shared
-   * sentence boundary is asked -- which is also why it is memoized on the story
-   * the way the article component memoizes its own composition.
+   * It used to be the card's own rule: the stored event summary as the fast
+   * path, and a composition only for a card whose stored line the boundary
+   * refused. That gave the card and the page two different opening sentences
+   * (`9 of 57` feed cards agreed, measured 2026-10-18), which is the defect
+   * ruling #11 emptied at the briefing and this slice empties here.
    *
-   * Two checks, and the boundary is the wider one (the arbiter's ruling of
-   * 2026-10-15, option 1). `cardSummaryRefused` owns the card's own two classes,
-   * the deck predicate and the reference predicate. `admissibleReaderSentence`
-   * is the shared boundary the story page and the email both ask, and asking it
-   * here is what refuses the rest of the measured set: a feed description
-   * truncated with an ellipsis, a commit record carrying its author's email
-   * (whose card headline was often a commit sha), a raw media payload, marketing
-   * copy, an unsupported attribution or an unattributed quotation -- **24 of 679
-   * live card lines were printing text that boundary refuses.** The order is the
-   * ruling's too: the checks come first, so a refused line is never rendered
-   * just because the fast path can render it.
+   * The rule now lives in `storyOpening` (`reader-opening.ts`) and the story
+   * page prints the same call, so the two surfaces cannot drift: one rule, both
+   * readers of it. Memoized on the story the way the article component memoizes
+   * its own composition — the recovery composition costs 150-220 ms and only
+   * runs for a card whose delivered line the boundary refuses.
    */
-  const summary = useMemo(() => {
-    const raw = story.what.trim();
-    // No stored line at all is not a refusal to remedy: most events carry none,
-    // and composing one here would pay 150-220 ms for every such card in a feed.
-    if (raw === "") return "";
-    const stored = briefingText(raw);
-    if (stored === "") {
-      // `briefingText` withheld the line, and the two reasons are different
-      // decisions. Provider furniture or a metadata leak keeps its own
-      // behaviour at the card and recovers nothing (the ruling of 2026-10-14).
-      // A block it cut is the shared boundary's `trailing_ellipsis` refusal, so
-      // it goes down the same recovery path as any other refused line -- the
-      // ruling of 2026-10-15, whose test is that a truncated description "no
-      // longer reaches readers through the card summary".
-      if (normalizeSummary(raw).reason !== null) return "";
-      return recoverCardSummary(story);
-    }
-    if (cardSummaryRefused(raw) || !admissibleReaderSentence(stored))
-      return recoverCardSummary(story);
-    return stored;
-  }, [story]);
+  const summary = useMemo(() => storyOpening(story), [story]);
 
   return (
     <article className="reveal rounded-3xl border border-hairline bg-surface p-6 sm:p-7">
