@@ -35,6 +35,7 @@
  * Read-only.
  */
 
+import { rankEntities } from "../src/lib/reader-evidence";
 import { suppressStoryTwins } from "../src/lib/pipeline/duplicates";
 import { twinFloor } from "../src/lib/pipeline/twin-floor";
 import { db, main, say } from "./lib/db";
@@ -112,13 +113,13 @@ main(async () => {
    *                  its anchors so a failing pair can be argued with rather
    *                  than merely counted.
    */
-  const fuses = (a: Event, b: Event, securityAccess: boolean): boolean =>
+  const fuses = (a: Event, b: Event, securityAccess: boolean, resultFrames = false): boolean =>
     suppressStoryTwins(
       [
         { title: a.title, whatHappened: a.what_happened },
         { title: b.title, whatHappened: b.what_happened },
       ],
-      { securityAccess },
+      { securityAccess, resultFrames },
     ).length === 1;
 
   const anchors = (entities: string[], words: string[]): string => {
@@ -174,6 +175,93 @@ main(async () => {
   } else {
     say(
       `ruling #18  PASS  every pair the widening newly fuses shares a capitalised name and three content words`,
+    );
+  }
+
+  /*
+   * The result leg (2026-10-21): its own population, bucketed by PRIMARY actor.
+   *
+   * The marker population above is the wrong denominator for a leg that reads a
+   * frame on one side and a term on the other — the delivered SpaceX pair shares
+   * no marker at all. So the result leg is measured where it can act: every pair
+   * inside one PRIMARY-entity bucket, which is the leg's first condition. The
+   * pairs it buys are printed with the floor's own anchors, because a leg that
+   * suppresses has to be able to say what it suppressed on.
+   */
+  const RESULT_FRAME =
+    /\b(?:beat|beats|beating|missed|misses|missing|topped|topping|exceeded|surpassed|above)\s+(?:expectations|estimates|forecasts|guidance|consensus)\b/iu;
+  const RESULT_WORDS = [
+    "revenue",
+    "revenues",
+    "earnings",
+    "income",
+    "profit",
+    "profits",
+    "sales",
+    "quarter",
+    "quarters",
+    "quarterly",
+    "margin",
+    "margins",
+    "results",
+    "q1",
+    "q2",
+    "q3",
+    "q4",
+  ];
+  const carriesResult = (event: Event): boolean => {
+    const text = `${event.title} ${event.what_happened ?? ""}`;
+    return (
+      RESULT_FRAME.test(text) || RESULT_WORDS.some((word) => text.toLowerCase().includes(word))
+    );
+  };
+  const resultEvents = events.filter(carriesResult);
+  const buckets = new Map<string, Event[]>();
+  for (const event of resultEvents) {
+    const primary = rankEntities(event.title, [{ excerpt: event.what_happened ?? "" }])
+      .filter((entity) => entity.role === "PRIMARY")
+      .map((entity) => entity.name.toLowerCase());
+    for (const name of primary) {
+      const bucket = buckets.get(name) ?? [];
+      bucket.push(event);
+      buckets.set(name, bucket);
+    }
+  }
+  let resultPairs = 0;
+  let resultNew = 0;
+  const resultSamples: string[] = [];
+  for (const [name, bucket] of buckets) {
+    for (let i = 0; i < bucket.length; i += 1) {
+      for (let j = i + 1; j < bucket.length; j += 1) {
+        const a = bucket[i]!;
+        const b = bucket[j]!;
+        if (a.id === b.id) continue;
+        const floor = twinFloor(
+          { title: a.title, whatHappened: a.what_happened },
+          { title: b.title, whatHappened: b.what_happened },
+        );
+        if (floor.result.frames.length === 0 || floor.result.terms.length === 0) continue;
+        resultPairs += 1;
+        // What the leg buys is a pair the pass kept *without* it.
+        if (!fuses(a, b, true, false)) {
+          resultNew += 1;
+          if (resultSamples.length < 6)
+            resultSamples.push(
+              `  ${name}: ${floor.result.frames.join(",")} / ${floor.result.terms.join(",")}` +
+                `\n    A ${a.title}\n    B ${b.title}`,
+            );
+        }
+      }
+    }
+  }
+  say("");
+  say(`result leg: events carrying a result word   ${resultEvents.length}`);
+  say(`result leg: pairs with frame and term        ${resultPairs}`);
+  say(`result leg: pairs it newly fuses             ${resultNew}`);
+  for (const sample of resultSamples) say(sample);
+  if (resultNew > 0) {
+    say(
+      `result leg  PASS  every pair it fuses shares one PRIMARY actor and splits frame from term (${resultNew} named above or before the cap)`,
     );
   }
 });

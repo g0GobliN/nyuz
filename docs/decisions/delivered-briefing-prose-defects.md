@@ -200,3 +200,62 @@ card titles                                   -> no mid-word cut
 
 A card count below 24 is a finding, not a pass: it means #17 or #19 withheld something the bar would have
 kept, and it gets reported before it gets tuned.
+
+## The six defects scout found in the post-merge deck (closed 2026-10-21)
+
+**Measured on the delivered briefing `3fcbb21c`** — built `2026-10-20T22:55:38.736Z`, **25 cards**, push
+delivered, read as a stranger by `scout` on 2026-10-21 (`t_ca702a9c`). Ruling #11 passes **25/25** when the
+page is composed on the Worker's clock; the deck still did not read clean. Six defects, each closed by one
+rule, each rule pinned by a test that is red on `main` before it (the failure demonstration is in the PR).
+
+| # | card | delivered line (verbatim) | rule that now catches it | test |
+| --- | --- | --- | --- | --- |
+| 1 | [16] | `20, 2026 – The PyTorch Foundation, … on 20 October 2026 announced …` | `truncatedDateline` — a day, a year and a dash at the start of the sentence is a dateline the extractor cut; refused as `editorial_noise` (ruling #6: refuse, never repair) | `reader-prose-rules.test.ts` → "deck 3fcbb21c — [16] a dateline cut to a day and a year" |
+| 2 | [24] | `A lot of companies … for robotics,” she said, … “LEGO era.` | `brokenQuotation` — the first quotation mark is a closing one, or the marks do not pair; folded into `unresolvedContextOpening` (the #17 family), so the deck walk advances | `reader-prose-rules.test.ts` → "[24] an opening that starts inside a quotation" |
+| 3 | [08]/[09] | SpaceX's Q3 release, twice | the **result leg** in `suppressStoryTwins`: one PRIMARY actor, a frame phrase on one side (`beating expectations`) and a term on the other (`revenue`) | `duplicates.test.ts` → "collapses the delivered 2026-10-20 SpaceX earnings pair by the result leg" |
+| 4a | [11] | `… closed an $150 million Series A round` | `wrongArticleBeforeAmount` in `sourceTypo`: `an` before a spoken number that starts with a consonant sound | `reader-prose-rules.test.ts` → "refuses the wrong article before an amount" |
+| 4b | [06] | `(BSC) ’s AI Factory Accelerator Programme` | **not** the source's: the source's excerpt reads `(BSC)’s`, the extracted unit has the space, so it is joined by `normalizeEvidenceText` (a punctuation normalisation, not a repair of a source word) | `reader-prose-rules.test.ts` → "joins the space the extractor put inside a possessive" |
+| 4c | [24] title | `… Physical AI is in it’s LEGO era` | `sourceTypo` at the readiness title rung (`prep + it's` can only be possessive); the story is withheld, because a title cannot be refused without the card | `readiness.test.ts` → "drops a title that carries the source's own typo" |
+| 5 | [18], [25] | `Meet the Java Champions.` / `Some FairStress scenarios have a clearly stronger candidate …` | `fillerOpening` — an invitation heading, or a quantified class with a stative/comparative predicate and no figure; read **at the deck walk**, so the next candidate gets the chance [25] never had | `reader-prose-rules.test.ts` → "[18] [25] a line that says nothing a reader can act on" |
+| 6 | count | **25, not 24** | the 25th card is **position 8**, The Verge's second telling of the SpaceX release (`50bdeef2`); the twin pass now keeps **24 of 25** and drops it | `duplicates.test.ts` (above), and the census below |
+
+### Why the pair was not fused, measured before the vocabulary changed
+
+`suppressStoryTwins` over the two stored rows keeps **2 of 2**. None of its legs could see the pair: no
+marker group holds financial vocabulary; the word overlap is **one** content word (`spacex`; `ai` is below
+the three-character floor); and the two stored lines share no figure (`AI was the engine.`). Adding an
+`earnings` marker group would not have fused it either, because `areTwins` requires the *same marker on both
+sides* and only the Verge headline says `revenue`. The leg therefore had to be new, and it had to bring its
+own floor.
+
+**The first draft of the leg was too broad.** With the frame read as single words (`beat`, `topping`,
+`misses`), `npm run audit:twin-corpus` over 30 days fused **78 pairs**, of which exactly one was the
+delivered duplicate: `beat AT&T`, `topping $1B valuation`, `near-misses with Starlink` and an arXiv
+forecasting pair all counted as earnings. Narrowing to a **frame phrase** (`beat|beating|missed|topped …
+expectations|estimates|forecasts|guidance|consensus`) and reading both anchors off the **headline** (never
+the summary) leaves **1 pair** in the same window: the delivered duplicate. That is the acceptance number,
+and `twin-floor.ts` carries the same leg so the census can say what the pass suppresses on.
+
+The marker census is unchanged by this work and still reads **FAIL 184 newly fused pairs below ruling #18's
+floor** on the 2026-10-21 window (295 pairs newly fused), which is the pre-existing F18-1 population of
+unrelated security stories joined by `hack`; it is reported there and not tuned here.
+
+### What the fix does to this deck, row by row
+
+`tmp/deck-rebuild.ts`-style recomposition of the same 25 rows (scratch, not committed):
+
+```
+card count as delivered        25
+changed openings if rebuilt    7      [01] [05] [10] [15] [17] [23] [24]
+withheld if rebuilt            0
+title source typos             1      [24]
+twin pass over the same rows   keeps 24 of 25   (drops "SpaceX says big AI growth fueled revenue jump")
+```
+
+So a build from these rows after the change is **24 cards before the title rule and 23 after it**: the 25th
+card is gone because it is the duplicate, and card [24] is withheld because its headline carries the
+source's `it's`. A count of 23 is stated as a finding, as #19 requires: it is this card's title typo, not a
+rule withholding something readable. The two filler lines are replaced by the next candidate in the same row
+rather than withheld ([17] opens on `On Linux, GitHub reports that Copilot was navigating the application
+with tmux.`; [25] opens on the finding), which is the #19 rule applied at the walk instead of the floor.
+
