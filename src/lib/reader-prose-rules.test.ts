@@ -39,6 +39,10 @@ import {
   sourceTypo,
   quotationCarriesOpening,
   thinStateOpening,
+  brokenQuotation,
+  fillerOpening,
+  normalizeEvidenceText,
+  truncatedDateline,
   stripSourceFurniture,
   stripUnanchorableTime,
   unitTextRejection,
@@ -2920,5 +2924,179 @@ describe("ruling #19: hygiene, one rule each", () => {
       "Inside Prometheus: Meta’s Journey to a Gigawatt-Scale Supercluster",
     );
     expect(text).toBe("");
+  });
+});
+
+/* ------------------------------------------------------------------------- */
+/* The delivered 2026-10-20 briefing (`3fcbb21c`): the six defects scout read */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Every string here is a delivered card line of `3fcbb21c`, verbatim.
+ *
+ * Scout read that deck as a stranger on 2026-10-21 and found six defects; the
+ * assertions below are the rules that now catch them, each with the control that
+ * keeps it narrow. The card numbers are 1-based, as the decision log numbers
+ * them; the digest's own `position` is one lower.
+ */
+const DECK_DATELINE =
+  "20, 2026 – The PyTorch Foundation, a community-driven hub for open source AI under the Linux Foundation, on 20 October 2026 announced the addition of nine new members at PyTorch Conference North America 2026.";
+const DECK_DATELINE_CLEAN =
+  "The PyTorch Foundation, a community-driven hub for open source AI under the Linux Foundation, on 20 October 2026 announced the addition of nine new members at PyTorch Conference North America 2026.";
+const DECK_MIDQUOTE =
+  "A lot of companies and experts have been talking about the ChatGPT moment for robotics,” she said, adding that right now the industry was more in a “LEGO era.";
+const DECK_MIDQUOTE_CLEAN =
+  "It’s the moment everyone is waiting for — the ChatGPT moment for robotics, Amulya Vishwanath explained to TechCrunch’s Equity.";
+
+/** The composed deck alone, which is the one sentence a card is guaranteed to carry. */
+const deckOf = (excerpt: string, name = "The Register", title = "A story"): string =>
+  composeArticleWithDiagnostics(oneSource(excerpt, name, title)).article.deck.text;
+
+describe("deck 3fcbb21c — [16] a dateline cut to a day and a year", () => {
+  it("refuses the sentence the extractor cut", () => {
+    expect(truncatedDateline(DECK_DATELINE)).toBe(true);
+    expect(editorialNoise(DECK_DATELINE)).toBe(true);
+    expect(unitTextRejection(DECK_DATELINE, false)).toBe("editorial_noise");
+  });
+
+  it("keeps a date that is inside the sentence, or a number that opens one", () => {
+    expect(truncatedDateline(DECK_DATELINE_CLEAN)).toBe(false);
+    expect(truncatedDateline("20, 2026 was the year the foundation rewrote its charter.")).toBe(
+      false,
+    );
+    expect(truncatedDateline("Twenty-nine members joined the foundation on 20 October 2026.")).toBe(
+      false,
+    );
+  });
+
+  it("advances to the sentence under the cut dateline", () => {
+    const deck = deckOf(
+      `${DECK_DATELINE} ${DECK_DATELINE_CLEAN}`,
+      "PyTorch Foundation",
+      "PyTorch Foundation Welcomes Nine New Members As Momentum Builds Around Open Source AI Center of Gravity",
+    );
+    expect(deck).not.toContain("20, 2026");
+    expect(deck).toContain("on 20 October 2026 announced");
+  });
+});
+
+describe("deck 3fcbb21c — [24] an opening that starts inside a quotation", () => {
+  it("catches the delivered mid-quote fragment", () => {
+    expect(brokenQuotation(DECK_MIDQUOTE)).toBe(true);
+    expect(unresolvedContextOpening(DECK_MIDQUOTE)).toBe(true);
+  });
+
+  it("keeps balanced quotations, including one that legitimately opens a sentence", () => {
+    expect(brokenQuotation("“We were looking at it wrong,” the researcher said.")).toBe(false);
+    expect(brokenQuotation('The reviewer called the phone "deeply flawed".')).toBe(false);
+    // Inches are not quotation marks.
+    expect(brokenQuotation('The 6" pipe burst on Tuesday.')).toBe(false);
+    expect(brokenQuotation(DECK_MIDQUOTE_CLEAN)).toBe(false);
+    expect(unresolvedContextOpening(DECK_MIDQUOTE_CLEAN)).toBe(false);
+  });
+
+  it("advances past the fragment to a sentence that can open the page", () => {
+    // The delivered row's own clean sentence ("It’s the moment everyone is
+    // waiting for…") is refused by the pronoun rule in its own right, and the
+    // delivered fragment's last quotation is never closed, so the fixture keeps
+    // the fragment's shape — it starts on a closing quote — with the quotation
+    // closed, which is what makes it one sentence the walk can pass over.
+    const fragment =
+      "A lot of companies and experts have been talking about the ChatGPT moment for robotics,” she said, adding that right now the industry was more in a “LEGO era”.";
+    const clean =
+      "Amulya Vishwanath told TechCrunch’s Equity that the industry is more in a LEGO era than a ChatGPT moment.";
+    const deck = deckOf(
+      `${fragment} ${clean}`,
+      "TechCrunch",
+      "Ex-Nvidia-turned-VC Amulya Vishwanath: ‘Physical AI is in it’s LEGO era’",
+    );
+    expect(brokenQuotation(fragment)).toBe(true);
+    expect(deck).not.toContain("she said");
+    expect(deck).toContain("LEGO era than a ChatGPT moment");
+  });
+});
+
+describe("deck 3fcbb21c — [06] [11] [24-title] the source's own typos", () => {
+  it("refuses the wrong article before an amount", () => {
+    expect(
+      sourceTypo(
+        "Founded by MIT professor Pulkit Agrawal and former Google DeepMind researcher Tuomas Haarnoja, the startup just closed an $150 million Series A round that values it at $1.45 billion post-money.",
+      ),
+    ).toBe(true);
+    expect(sourceTypo("The fund closed an $8 million round.")).toBe(false);
+    expect(sourceTypo("It raised an $11 billion fund.")).toBe(false);
+    expect(sourceTypo("It raised an $18 million seed round.")).toBe(false);
+    expect(sourceTypo("It raised an $80 million round.")).toBe(false);
+    expect(sourceTypo("The company raised a $150 million round.")).toBe(false);
+  });
+
+  it("refuses `it's` where only the possessive can stand", () => {
+    expect(sourceTypo("Physical AI is in it's LEGO era")).toBe(true);
+    expect(sourceTypo("It's the moment everyone is waiting for, she said.")).toBe(false);
+    expect(sourceTypo("The company said it's hiring again.")).toBe(false);
+  });
+
+  it("joins the space the extractor put inside a possessive, and changes no word", () => {
+    // The source's own excerpt reads `(BSC)’s`; the extracted unit reads
+    // `(BSC) ’s`, so the space is ours and is removed rather than refused.
+    expect(
+      normalizeEvidenceText(
+        "The Barcelona Supercomputing Center (BSC) ’s AI Factory Accelerator Programme, now in full operation, gives startups access to sovereign compute.",
+      ),
+    ).toBe(
+      "The Barcelona Supercomputing Center (BSC)’s AI Factory Accelerator Programme, now in full operation, gives startups access to sovereign compute.",
+    );
+    // An apostrophe that is not a possessive is not touched.
+    expect(normalizeEvidenceText("The companies ’ plans differ.")).toBe(
+      "The companies ’ plans differ.",
+    );
+  });
+});
+
+describe("deck 3fcbb21c — [18] [25] a line that says nothing a reader can act on", () => {
+  it("calls the delivered heading and the delivered definition filler", () => {
+    expect(fillerOpening("Meet the Java Champions.")).toBe(true);
+    expect(
+      fillerOpening(
+        "Some FairStress scenarios have a clearly stronger candidate whose profile better satisfies the stated criteria.",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps a line that carries a change", () => {
+    expect(
+      fillerOpening(
+        "To meet growing demand for memory, Samsung is building a massive new semiconductor manufacturing complex in Pyeongtaek, South Korea.",
+      ),
+    ).toBe(false);
+    expect(
+      fillerOpening(
+        "Three U.S. nuclear reactors are being restarted after many years offline, expected to bring 2.25 GW total to the grid.",
+      ),
+    ).toBe(false);
+    // A quantified class with a past tense is an account of what happened.
+    expect(fillerOpening("Some analysts said the deal would close in the first quarter.")).toBe(
+      false,
+    );
+    expect(fillerOpening("Most of the 200 models tested were wrong about the date.")).toBe(false);
+  });
+
+  it("advances from the definition to the finding in the same row", () => {
+    const deck = deckOf(
+      "Some FairStress scenarios have a clearly stronger candidate whose profile better satisfies the stated criteria. Frontier models including Claude Opus 5 and GPT-5.5 selected the minority-coded candidate about 60–65% of the time.",
+      "arXiv",
+      "FairStress: A deeper evaluation of fairness in LLM decision-making",
+    );
+    expect(deck).toContain("60–65%");
+    expect(deck).not.toContain("clearly stronger candidate");
+  });
+
+  it("withholds the card when the heading is all the row offers", () => {
+    const deck = deckOf(
+      "Meet the Java Champions.",
+      "GitHub Blog",
+      "How 3 Java Champions are using GitHub Copilot for increased productivity",
+    );
+    expect(deck).toBe("");
   });
 });

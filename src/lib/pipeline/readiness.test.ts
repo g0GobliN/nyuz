@@ -209,6 +209,27 @@ describe("assessReadiness", () => {
     ).toEqual({ ready: false, kind: "commit-message", reason: expect.any(String) });
   });
 
+  it("drops a title that carries the source's own typo", () => {
+    // Delivered card 24 of the 2026-10-20 briefing: the headline keeps the
+    // source's `it's` where the possessive belongs. Ruling #6 says refuse, do
+    // not repair, and a title cannot be refused without the card.
+    expect(
+      assessReadiness({
+        title: "Ex-Nvidia-turned-VC Amulya Vishwanath: ‘Physical AI is in it’s LEGO era’",
+        whatHappened:
+          "It’s the moment everyone is waiting for — the ChatGPT moment for robotics, Amulya Vishwanath explained to TechCrunch’s Equity.",
+      }),
+    ).toEqual({ ready: false, kind: "source-typo", reason: expect.any(String) });
+    // The same apostrophe as a contraction is ordinary English and keeps its card.
+    expect(
+      assessReadiness({
+        title: "It’s the ChatGPT moment for robotics, VC says",
+        whatHappened:
+          "Amulya Vishwanath said the industry is more in a LEGO era than a ChatGPT moment right now.",
+      }).ready,
+    ).toBe(true);
+  });
+
   it("drops a single-source preprint or code release from the briefing", () => {
     // Operator decision, 2026-10-08: six of the day's twenty-five shippable
     // items were single-source arXiv preprints and one was a GitHub release.
