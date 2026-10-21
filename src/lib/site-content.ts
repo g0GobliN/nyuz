@@ -84,6 +84,7 @@ export const ANNOUNCEMENT_DEFAULT: Announcement = { text: "", href: "", linkLabe
  * disappearance. Both are worse than a validation error.
  */
 export const SECTION_KEYS = [
+  "coverage",
   "interestDemo",
   "noise",
   "howItWorks",
@@ -192,6 +193,7 @@ export function moveSection(sections: Sections, index: number, delta: -1 | 1): S
 
 /** Human labels for the console's checkbox list. */
 export const SECTION_LABELS: Record<SectionKey, string> = {
+  coverage: "What nyuz covers",
   interestDemo: "Interest picker demo",
   noise: "The noise problem",
   howItWorks: "How it works (summary)",
@@ -299,7 +301,7 @@ export type Seo = z.infer<typeof seoSchema>;
 export const SEO_DEFAULT: Seo = {
   title: "nyuz — Stop searching. Start knowing.",
   description:
-    "Tell nyuz what matters. It keeps watch across relevant sources, connects duplicate coverage into events, and delivers a personalized news briefing without the noise.",
+    "Tell nyuz what matters. It keeps watch across relevant sources, connects duplicate coverage into events, and delivers a personalized information briefing without the noise.",
   ogImage: "/og-image.png",
 };
 
