@@ -3049,24 +3049,57 @@ const MONTH_NAMES = [
   "December",
 ];
 
+/**
+ * The zone the page anchor dates are written in.
+ *
+ * The instrument and the page are two processes that read the same anchor. When
+ * either used the host's local zone, the day label they wrote depended on the
+ * host's `TZ`: the page composed on the Worker's clock (UTC), the audit composed
+ * on the laptop's, and the same event published on 21 October (UTC) read as
+ * 20 October under `America/New_York` -- a real defect the audit could not see
+ * on the Worker's machine and the Worker could not see on the auditor's. UTC
+ * pins the calendar day to the absolute moment the event was published, so
+ * both processes agree.
+ */
+const ANCHOR_TZ = "UTC";
+
+/**
+ * A clone of `at` zeroed to the start of its UTC day, for day/month/year math.
+ *
+ * `Date` setters obey the host zone, so writing `setMonth(getMonth() + 1)` to
+ * a date near a month boundary in a negative-offset zone landed on the prior
+ * month -- the day label the page published then disagreed with the day label
+ * the audit published. Doing the arithmetic in UTC means the clone and the
+ * caller agree regardless of `TZ`.
+ */
+function atUTC(at: Date): Date {
+  const clone = new Date(at.getTime());
+  clone.setUTCHours(0, 0, 0, 0);
+  return clone;
+}
+
 /** `in July 2026`, unless a preposition is already in front of the phrase. */
 function monthPhrase(shift: number, at: Date, before: string): string {
-  const date = new Date(at.getTime());
-  date.setDate(1);
-  date.setMonth(date.getMonth() + shift);
-  const label = `${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
+  const date = atUTC(at);
+  date.setUTCDate(1);
+  // `setUTCMonth` rolls the year when the month overflows, but the math has to
+  // be UTC too -- `setMonth(getMonth() + 1)` worked on the Worker because the
+  // Worker runs in UTC, and broke everywhere else, which is the same defect
+  // the audit surfaced.
+  date.setUTCMonth(date.getUTCMonth() + shift);
+  const label = `${MONTH_NAMES[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
   return PREPOSED.test(before) ? label : `in ${label}`;
 }
 
 function yearPhrase(shift: number, at: Date, before: string): string {
-  const year = String(at.getFullYear() + shift);
+  const year = String(at.getUTCFullYear() + shift);
   return PREPOSED.test(before) ? year : `in ${year}`;
 }
 
 function dayPhrase(shift: number, at: Date, before: string): string {
-  const date = new Date(at.getTime());
-  date.setDate(date.getDate() + shift);
-  const label = `${date.getDate()} ${MONTH_NAMES[date.getMonth()]} ${date.getFullYear()}`;
+  const date = atUTC(at);
+  date.setUTCDate(date.getUTCDate() + shift);
+  const label = `${date.getUTCDate()} ${MONTH_NAMES[date.getUTCMonth()]} ${date.getUTCFullYear()}`;
   return PREPOSED.test(before) ? label : `on ${label}`;
 }
 

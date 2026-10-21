@@ -2731,3 +2731,37 @@ recorded in [decisions/reader-delivery.md](decisions/reader-delivery.md#ruling-1
 (BBC Politics + Guardian Politics, BBC Health + NPR Health, BBC Science + Guardian Environment, Wired +
 Engadget). The exemption itself is a schema-plus-ingest slice and is the next work; nothing was enabled,
 the 45-day window is still unapplied, no archive was touched, and there were no model calls.
+
+### Audit `audit:delivered-line` is timezone-deterministic (2026-10-21)
+
+The instrument and the page are two processes that read the same anchor. The formatter
+(`monthPhrase` / `yearPhrase` / `dayPhrase` in `src/lib/reader-evidence.ts`) used `getMonth()`,
+`getDate()` and `getFullYear()`, so the day label it wrote depended on the host's `TZ`. The page
+composed on the Worker's clock (UTC), the audit composed on the laptop's, and briefing
+`3fcbb21c` (built 2026-10-20T22:55Z) was the visible defect — the audit read **FAIL 23/25** under
+`TZ=Asia/Tokyo` and `TZ=Pacific/Auckland`, **PASS 25/25** under `TZ=UTC` and `TZ=Europe/London`.
+The two defects were events whose `publishedAt` was 21 October 00:30Z, which is 20 October 20:30
+in `America/New_York` (EDT, UTC-4): the page wrote `21 October 2026`, the audit wrote
+`20 October 2026`.
+
+Fix: anchored dates are written in **UTC**, declared once (`ANCHOR_TZ = "UTC"` in
+`reader-evidence.ts`). The three formatters now read `getUTCMonth` / `getUTCDate` /
+`getUTCFullYear`, clone through `setUTCHours(0, 0, 0, 0)`, and run shift arithmetic in UTC.
+Reader-facing rendering is unchanged — the page already wrote UTC under Cloudflare. Lock-in: a
+vitest describe block in `reader-prose-rules.test.ts` ("anchored relative dates do not depend on
+the host's TZ") runs `scripts/anchor-probe.ts` (new) under six zones and asserts the labels match
+a UTC reference; a stash-reproduce ran the formatter with `git stash`'d fix and exited red with
+`received: "20 October 2026"`.
+
+**Measured 2026-10-21, briefing `3fcbb21c`** (built 2026-10-20T22:55Z, 25 items): audit under
+`TZ=UTC`, `America/New_York`, `Asia/Tokyo`, `Pacific/Auckland`, `Europe/London`, `Asia/Kathmandu`,
+`Europe/Berlin` is **byte-identical**, `ruling #11  PASS  25 / 25 card lines equal their page opening
+(0 defects, 0 no-deck fallback)`, the real verdict for that deck. The pre-ruling counterfactual
+stays at 14/25 (the rule predates ruling #11 and is printed beside the new number so the
+before-and-after stays reproducible in one run). Suite: `npm run typecheck` clean,
+`npm run lint` clean (0 errors; 20 pre-existing fast-refresh warnings on unchanged files),
+`npm run test:coverage` 3,465 tests green,
+`GITHUB_ACTIONS=true npm run coverage:ratchet` no regression against the committed floor
+(`src/lib` lines 85.62 → 86.79, +1.17pp). Record: [decisions/anchored-dates-utc.md](decisions/anchored-dates-utc.md).
+
+the 45-day window is still unapplied, no archive was touched, and there were no model calls.

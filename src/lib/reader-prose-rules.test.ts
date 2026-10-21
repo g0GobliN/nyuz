@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import process from "node:process";
+import path from "node:path";
 import {
   capAttributionRepetition,
   composeArticleWithDiagnostics,
@@ -2920,5 +2924,100 @@ describe("ruling #19: hygiene, one rule each", () => {
       "Inside Prometheus: Meta’s Journey to a Gigawatt-Scale Supercluster",
     );
     expect(text).toBe("");
+  });
+});
+
+/**
+ * The anchored-date formatter is timezone-deterministic.
+ *
+ * The instrument and the page are two processes that read the same anchor. The
+ * formatter used to read `getMonth()`, `getDate()` and `getFullYear()`, so the
+ * day label it wrote depended on the host's `TZ`: the page composed on the
+ * Worker's clock (UTC), the audit composed on the laptop's, and the same
+ * event published on 21 October (UTC) read as 20 October under
+ * `America/New_York`. The audit is only honest when its outputs match the
+ * page's outputs, so this test runs `normalizeRelativeTime` under five zones
+ * through a child process and asserts they all land on the same labels.
+ */
+describe("anchored relative dates do not depend on the host's TZ", () => {
+  // Anchored at 01:00 UTC on 21 October 2026 -- the moment the shipped
+  // briefing `3fcbb21c` exposed the bug, where `America/New_York` was reading
+  // it as 20 October 21:00 local. UTC hosts write `21 October`; local hosts
+  // previously wrote `20 October`.
+  const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const RUNNER = path.join(ROOT, "scripts", "tsrun.mjs");
+  const SCRIPT = path.join(ROOT, "scripts", "anchor-probe.ts");
+  const ZONES = [
+    "UTC",
+    "America/New_York",
+    "Asia/Tokyo",
+    "Pacific/Auckland",
+    "Europe/London",
+    "Asia/Kathmandu",
+  ] as const;
+
+  /**
+   * Run `anchor-probe.ts` under `zone` and return the JSON object its stdout
+   * prints. A non-zero exit is a test failure rather than a silent retry:
+   * `tsrun.mjs` writes the bundling error to stderr when the source no longer
+   * compiles, which is exactly the message a future change wants to surface.
+   */
+  const runUnder = (zone: string): Record<string, unknown> => {
+    const stdout = execFileSync(process.execPath, [RUNNER, SCRIPT], {
+      cwd: ROOT,
+      env: { ...process.env, TZ: zone },
+      encoding: "utf8",
+    });
+    return JSON.parse(stdout.trim());
+  };
+
+  it.each(ZONES)("prints the same labels under %s", (zone) => {
+    const result = runUnder(zone);
+    expect(result["yesterday"]).toBe("on 20 October 2026 the plant closed.");
+    expect(result["today"]).toBe("on 21 October 2026 the plant reopens.");
+    expect(result["tomorrow"]).toBe("on 22 October 2026 the plant closes.");
+    expect(result["thisMonth"]).toBe("The pattern turned up in October 2026.");
+    expect(result["lastMonth"]).toBe("Sales fell in September 2026.");
+    expect(result["nextYear"]).toBe("First quarter of 2027.");
+    expect(result["yearShiftedByFeb"]).toBe("The campaign closed in 2025.");
+  });
+
+  it("agrees across every zone the suite was run under", () => {
+    // The one assertion the disagreement used to fail: yesterday's hosts,
+    // today's hosts, and any host someone tries in the future. If two zones
+    // diverge, the formatter is reading a local-time getter.
+    const reference = runUnder("UTC");
+    for (const zone of ZONES) {
+      if (zone === "UTC") continue;
+      const result = runUnder(zone);
+      for (const key of Object.keys(reference)) {
+        if (key === "zone") continue;
+        expect(result[key], `zone=${zone}, key=${key}`).toBe(reference[key]);
+      }
+    }
+  });
+
+  it("writes the UTC calendar day, not the host's", () => {
+    // A direct check that defends the assertion above: anchored at the same
+    // moment, the day label is the UTC day regardless of where the formatter
+    // runs. Tested here through the same script so the assertion stays bound
+    // to the production code path.
+    for (const zone of ZONES) {
+      const result = runUnder(zone);
+      expect(result["today"], `zone=${zone}`).toBe("on 21 October 2026 the plant reopens.");
+    }
+  });
+});
+
+describe("AT is anchored in UTC, so day arithmetic is timezone-stable", () => {
+  // In-process check: pick a `publishedAt` whose host-local day disagrees with
+  // its UTC day by one, and confirm the anchored label is the UTC day. Under
+  // a `TZ=UTC` host the assertion is trivially true; under a `TZ=America/New_York`
+  // host (where Node's local-zone formatter would have written `20 October`)
+  // it is the assertion the bug broke.
+  it("produces '21 October 2026' for an event at 2026-10-21T01:00:00Z", () => {
+    const at = new Date("2026-10-21T01:00:00Z");
+    const result = normalizeRelativeTime("Today the plant reopens.", at);
+    expect(result?.text).toBe("on 21 October 2026 the plant reopens.");
   });
 });
