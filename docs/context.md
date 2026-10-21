@@ -3187,3 +3187,30 @@ reading queue has two sources (`home`, `alerts`), so a story opened from the bri
 order — which for today's briefing is the same list, because `loadHomeFeed` reads the latest digest
 (`briefing.ts:252-264`) — while an archived briefing (`?digest=`) is not a queue source. Adding one is
 a follow-up, not part of this slice, and the link itself opens the right story.
+
+### The briefing fix passed design sign-off on the deployed origin (2026-10-21)
+
+PR #40 merged as `f77e448` and deployed by run `39556590513`; `docs/design-signoff-2026-10-21.md` records the
+acceptance pass, read on the live Worker (`https://nyuz.grgvishal-gurung17.workers.dev`) signed in as a reader at
+1280 / 768 / 360. **B1 PASS:** 25 stories → **25 anchors, 25 unique ids, 0 `tabindex`, `cursor: pointer` on all 25**,
+**25/25 links opened the matching story** (headline compared page by page), the `Tab` walk reaches the 25 links in
+document order after the nav/header/chips, and focus carries the product's ring
+(`oklch(0.53 0.12 240)` 2 px on a white 2 px offset, `outline: none`) on every card (single shared class). Back from a
+briefing-opened story returns to `/dashboard/briefing`. **B2 PASS:** at 1280 the card is 512 px, the summary column
+**454 px** at 14.5 px, and 59 full rendered lines measure **median 66 / max 72** characters per line (was 144); 768 is
+identical; 360 reflows to a 305 px card and a 263 px column with **no horizontal overflow** and the same 25 links.
+The characters-per-line figures were measured by walking a `Range` over each paragraph and grouping glyphs by line
+top, not estimated.
+
+**The sweep found the fix leaked only where it was allowed to.** Feed card summary still 14 px / 619 px column / median
+96 (audit baseline 94); story body still 14.5 px / 669 px column; archive and alerts structurally identical. The shared
+component's 13.5 → 14.5 px step did move the marketing card on `/`, and it **improved** that card's measure from ~80 to
+**72–73** characters on its 490 px column while leaving it 548 px wide, link-free and intact at 1280 and 360.
+
+**One should-fix came out of the pass, and it qualifies a claim in the entry above.** A story opened from the briefing
+prints **`1 of 24 in your nyuz`** while the briefing the reader left says **25 things worth knowing** — the feed holds
+24 stories and the briefing 25, so the "same list" assumption does not hold on the live corpus, and the `←` / `→` keys
+and pager cards walk the feed from a briefing entry. Either `briefing` becomes a queue source or the position line is
+suppressed when the entry context is unknown; the link itself is right and the reader can get back, so it is not a
+blocker. Recorded rather than fixed: this task is a sign-off, not a code change.
+
