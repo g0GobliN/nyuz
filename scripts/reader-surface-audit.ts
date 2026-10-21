@@ -6,6 +6,8 @@
  *   npm run audit:surfaces -- --archive
  *   npm run audit:surfaces -- --alerts [--days 7]
  *   npm run audit:surfaces -- --limit 120  rows per surface population (default 60)
+ *   npm run audit:surfaces -- --fixture    the seeded pair: the same report, one
+ *                                          deliberate defect, exit 1
  *
  * ---------------------------------------------------------------------------
  * Why this exists
@@ -29,24 +31,48 @@
  * ---------------------------------------------------------------------------
  *
  * **Feed** — the home feed's cards (`loadHomeFeed` -> `storiesFromDigest`/`loadMatchedStories` ->
- * `gateHomeFeed` -> `StoryCard`). The population is the reader's own matched stories, newest first,
- * filtered by the same per-card gate the loader applies (`assessReadiness` plus the two title
- * classes ruling #9 landed) — because an unmatched event never reaches a feed card, and measuring it
- * would report defects on a surface no reader has. The card prints one line under its headline, and
- * the component's own rule for it is `briefingText` -> `cardSummaryRefused` ->
- * `admissibleReaderSentence` -> `recoverCardSummary`, in that order; that sequence is reproduced
- * here, from the same functions, so the audit and the card cannot drift apart. The bar is the one
- * the arbiter set on 2026-10-15: a card line is a sentence the shared boundary admits — never a
- * truncated feed description, a reference the card never establishes, a metadata leak, provider
- * furniture or the headline repeated as its own summary. A card that prints no line is `no-line`:
- * the boundary's honest outcome, counted on its own so it can neither inflate nor deflate the
- * agreement count.
+ * `gateHomeFeed` -> `StoryCard`). The population is the cards a reader's feed is actually given:
+ * the newest ready-or-sent briefing's items for each reader, and matched stories for the readers
+ * whose newest briefing is not ready or sent (filtered to matches after a skipped slot), each
+ * filtered by the same per-card gate the loader applies (`assessReadiness` plus the title classes
+ * rulings #9, #14 and the 2026-10-20 first-party-celebration class added). A matched story that the
+ * reader's newest ready-or-sent briefing does not carry is not a card today, so it is not measured —
+ * and the skipped branch is applied as the loader applies it, counting the matches that fall before
+ * its slot rather than pretending they are on the feed. **The bar is ruling #11, the one the arbiter
+ * set on 2026-10-18 and this instrument now enforces here: a card's line is the sentence its story
+ * page opens on.**
+ *
+ * The two sides read a different row wherever the product lets them, and the same row on the one
+ * path where the product makes them:
+ *
+ *   card   the row *that surface's loader* hands the card — the newest briefing's own stored
+ *          `summary` for its items (`storiesFromDigest`), the reader's newest delivered artifact
+ *          for a matched story (`loadMatchedStories`), resolved through `deliveredLine` and then
+ *          the card's boundary (`storyOpening`);
+ *   page   the reader's newest delivered artifact for the event, which is what the story page's
+ *          loader resolves (`summariesFor`), through the same two calls.
+ *
+ * On the digest path those are genuinely different rows, and that is the class of defect ruling #11
+ * was written for: the 2026-10-19 briefing composed its gate from the article's excerpt while the
+ * page composed from the excerpt and its evidence, and three cards opened on a sentence their page
+ * never said. A re-delivered event, or an alert that lands after a briefing with no artifact of its
+ * own, is where the two still part today — and a row that parts is a defect, and fails the run.
+ *
+ * On the matches path they are the same row *by design*: `loadMatchedStories` and the story page
+ * both call `summariesFor`, so there is no second input for a data-level check to read. This
+ * instrument does not pretend otherwise. The claim that survives on that path is the *population* —
+ * how many cards carry a line at all — and the defect that would break it (a component that stops
+ * calling `storyOpening`, or a loader that stops passing the summary) is caught by
+ * `src/components/dashboard/story-opening-surfaces.test.ts`, which renders the card and the page and
+ * compares the text a reader would read, and by `story-card.test.ts`, which fails if the card prints
+ * a refused stored line instead of recovering the story's own opening. A data audit cannot see a
+ * component's rule; saying so here is part of the measurement.
  *
  * **Archive** — the same card, rendered over the items of the newest delivered briefings. It is a
- * separate population because the archive takes a different read path (`whyLinesFor` recomputes the
- * ladder, the card still applies its own summary rule), and because the delivered archive is
- * immutable: a row that fails here is a re-render defect at read time, never a reason to rewrite the
- * digest. The classes are identical to the feed's, for that same reason.
+ * separate population because the archive takes a different read path (a briefing card carries *its
+ * digest's* stored sentence, while the page carries the reader's newest one), and because the
+ * delivered archive is immutable: a row that fails here is a re-render defect at read time, never a
+ * reason to rewrite the digest. The classes are identical to the feed's, for that same reason.
  *
  * **Alerts** — the stories that reach the send path now: matched to a listing reader, still inside
  * the flash window at match time, not yet alerted. The bar is what the alert path asks before it
@@ -60,6 +86,56 @@
  * catch: a row that clears both gates yet still reaches a reader, or one the send path would carry
  * while a gate refuses it (`alerts.ts` asks both before sending; this is the check that it still
  * does, on this pool).
+ *
+ * ---------------------------------------------------------------------------
+ * What makes this instrument able to fail
+ * ---------------------------------------------------------------------------
+ *
+ * A check that cannot return `defect` on any input is not a check, and both of
+ * this file's card comparisons were one on 2026-10-20: the feed passed the same
+ * artifact to both sides of `classifyCard`, so the equality was a tautology and
+ * "feed 53/53" could not detect anything. Three things keep that from happening
+ * again, and the run is red if any of them stops holding:
+ *
+ * 1. `selfTest()` runs on every invocation, before the database is touched, and
+ *    classifies a seeded pair whose two artifacts differ: it must come back
+ *    `defect`, and the same artifact on both sides must come back `agree`. It
+ *    calls `cardArtifactFor()` — the function that *picks* which row each side
+ *    reads — rather than handing `classifyCard` two literals, because picking
+ *    the row is the part that actually broke. A regression to one expression
+ *    makes the self-test say so and the run fail with "the check cannot fail"
+ *    rather than pass with a full count.
+ * 2. `--fixture` runs the audit over that seeded pair instead of the live
+ *    population, through the same report and verdict lines, and exits non-zero.
+ *    That is the demonstration, reproduced on demand: `npm run audit:surfaces --
+ *    --fixture` is a FAIL with one defect, and the real run is a PASS.
+ * 3. Each population says which two rows it read and how many rows took each
+ *    path, so "card line === page opening" can be read beside the evidence that
+ *    the two sides were ever different inputs.
+ *
+ * **Measured 2026-10-21, and this is why point 1 is worded the way it is.** With
+ * the card side collapsed back to the page's artifact at the call site, the real
+ * run still printed `PASS feed 23/23` — a correct run and a tautological one were
+ * indistinguishable from the output, because on today's data the two rows are
+ * usually the same row. Only the self-test, fed a pair that parts, caught it. The
+ * `--fixture` mode alone would not have: it exercises `classifyCard` directly, so
+ * it said nothing about which row the live path chose.
+ *
+ * ---------------------------------------------------------------------------
+ * Measured 2026-10-20, on the merged tree
+ * ---------------------------------------------------------------------------
+ *
+ *   feed     24/24 on the digest path (0 defects, 0 no line, 1 gated off). The
+ *            population is the newest sent briefing's items for the reader who has
+ *            one, which is what that reader's feed is; the old population counted
+ *            the newest 60 matched events and reported 56 cards, 53 of them
+ *            "agreeing" with a second copy of themselves.
+ *   archive  25/25 (0 defects, 0 no line).
+ *   fixture  1/2 with 1 defect, exit 1: the same report over the seeded pair.
+ *
+ * The feed count moved because the population is now the cards a reader is shown.
+ * 53 was never a feed count; it was a sample of matched events that most readers'
+ * feeds do not carry on the day it was taken.
  *
  * ---------------------------------------------------------------------------
  * What a reader is told here, and what it cost
@@ -78,10 +154,11 @@ import {
   isReaderModTitle,
 } from "@/lib/pipeline/alert-floor";
 import { assessReadiness } from "@/lib/pipeline/readiness";
+import { isVendorCelebrationTitle } from "@/lib/pipeline/vendor-celebration";
 import { allowedBreaking } from "@/lib/plans";
-import { admissibleReaderSentence, normalizeSummary } from "@/lib/reader-evidence";
-import { composeFromSources, recoverCardSummary } from "@/lib/editorial";
-import { briefingText, cardSummaryRefused } from "@/lib/understand";
+import { composeFromSources } from "@/lib/editorial";
+import { storyOpening } from "@/lib/reader-opening";
+import { deliveredLine } from "@/lib/reader-summary";
 import { db, heading, main, row as rowLine, say } from "./lib/db";
 import { loadCorpusEvents, storyForEvent, type CorpusEvent } from "./lib/corpus";
 
@@ -106,23 +183,54 @@ const numeric = (name: string, fallback: number): number => {
 
 const LIMIT = numeric("--limit", DEFAULT_LIMIT);
 const DAYS = numeric("--days", DEFAULT_DAYS);
+/**
+ * `--fixture` runs the seeded pair instead of the live population, through the
+ * same report and verdict lines, and exits non-zero. It is the demonstration
+ * that the comparison can fail, reproducible without the database.
+ */
+const FIXTURE = args.includes("--fixture");
 const ONLY = (["--feed", "--archive", "--alerts"] as const).filter((name) => args.includes(name));
 const WANT = (population: "feed" | "archive" | "alerts"): boolean =>
   ONLY.length === 0 || ONLY.includes(`--${population}`);
 
 /**
- * Ruling #11's counterfactual, measured at every card surface and enforced at none.
+ * Ruling #11 at every card surface: the card's line *is* the page's opening.
  *
- * The briefing card was made to print the sentence its story page opens on (2026-10-18); the feed and
- * archive cards still print the event's stored summary, which is usually a different sentence. Whether
- * those surfaces should adopt the same contract is a ruling, not a repair — so the number is reported
- * beside the agreement count and never counted as a defect. It is the one measurement that says what
- * the ruling would cost at each surface.
+ * The briefing has enforced this since 2026-10-18 (`audit:delivered-line`), but
+ * the feed and the archive only reported it: **9 of 57** feed card lines and
+ * **7 of 14** archive card lines were also the sentence their page opened on,
+ * measured 2026-10-18. A reader met the story one way on the card and another
+ * way on the page — the defect the ruling exists to empty, on the surfaces most
+ * readers actually use.
+ *
+ * Both surfaces now resolve that sentence through one function (`storyOpening`,
+ * `reader-opening.ts`), and this instrument compares the row each loader hands
+ * its card with the row the story page resolves, rather than trusting either to
+ * have used the function:
+ *
+ *   card   the newest briefing's own stored `summary` for a digest item
+ *          (`storiesFromDigest`), the reader's newest delivered artifact for a
+ *          matched card (`loadMatchedStories`) — then `deliveredLine`, then the
+ *          card's boundary;
+ *   page   the reader's newest delivered artifact for the event, which is what
+ *          the story page's loader resolves (`summariesFor`), through the same
+ *          two calls.
+ *
+ * On the digest path and the archive those are *different* rows, and that is the
+ * class of defect ruling #11 was written for: a surface that composes from one
+ * row while the page composes from another. On the matches path they are one row
+ * by design, and the header says so rather than claiming a comparison the code
+ * cannot make.
  */
-function openingOf(event: CorpusEvent): string {
-  const story = storyForEvent(event);
-  return composeFromSources(story.title, story.sourceList, { publishedAt: story.publishedAt })
-    .article.deck.text;
+function openingCounterfactual(rows: Row[]): string {
+  const withLine = rows.filter((row) => row.line.trim() !== "");
+  const same = withLine.filter(
+    (row) => row.composition !== undefined && row.line.trim() === row.composition.trim(),
+  ).length;
+  return rowLine(
+    "  the fresh composition is the same sentence (reported, not enforced)",
+    `${same} / ${withLine.length}`,
+  );
 }
 
 type Class = "agree" | "withheld" | "defect";
@@ -133,135 +241,462 @@ type Row = {
   title: string;
   /** The line the reader is actually given, or "" when the surface prints none. */
   line: string;
+  /**
+   * The sentence the story page opens on for the same reader. Absent on the
+   * alert rows, which have no page opening to compare with.
+   */
+  opening?: string;
   verdict: Class;
   /** The gate that refused it, in its own words. Absent on `agree`. */
   bar?: string;
-  /** The precise point the line parts from the bar, for a survivor. */
+  /** The precise point the line parts from the bar (or the page). */
   part?: string;
-  /** The sentence the story page opens on, for the ruling-#11 counterfactual. */
-  opening?: string;
+  /** The deck a fresh composition chooses, for the drift line. Reported only. */
+  composition?: string;
 };
 
-/** Collapse for comparison: case, punctuation and whitespace, as the other instruments do. */
-const flat = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/[\p{P}\p{S}]/gu, "")
-    .replace(/\s+/gu, " ")
-    .trim();
-
-/**
- * The line the card prints, reproduced from `StoryCard`'s own memo.
- *
- * Kept as a transcription rather than a shared export on purpose: the component is a React module
- * (hooks, router imports) and a script cannot import it, and a *second* implementation of the rule
- * would be the defect this instrument exists to find. If the component's sequence ever changes, this
- * function changes in the same commit — the audit is the contract's test, so it has to say the same
- * thing the code does.
- */
-function cardLine(story: ReturnType<typeof storyForEvent>): string {
-  const raw = story.what.trim();
-  if (raw === "") return "";
-  const stored = briefingText(raw);
-  if (stored === "") {
-    if (normalizeSummary(raw).reason !== null) return "";
-    return recoverCardSummary(story);
+/** The first character at which the card and the page part, for a survivor. */
+function partPoint(line: string, opening: string): string {
+  if (opening.trim() === "") {
+    return `the page opens on nothing and the card prints ${JSON.stringify(line.slice(0, 70))}`;
   }
-  if (cardSummaryRefused(raw) || !admissibleReaderSentence(stored))
-    return recoverCardSummary(story);
-  return stored;
-}
-
-/** The first character at which a refused line gives itself away. */
-function partPoint(line: string, title: string): string {
-  const normalized = normalizeSummary(line);
-  if (normalized.reason !== null) {
-    const at = Math.max(0, line.length - 60);
-    return `gate ${normalized.reason}  at ${line.length}: ${JSON.stringify(line.slice(at))}`;
-  }
-  if (flat(line) === flat(title)) {
-    return `gate headline-echo  at 0: ${JSON.stringify(line.slice(0, 70))}`;
-  }
-  const ellipsis = line.search(/[…]\s*$/u);
-  if (ellipsis >= 0) {
-    return `gate truncated-description  at ${ellipsis}: ${JSON.stringify(line.slice(Math.max(0, ellipsis - 40)))}`;
-  }
-  if (!admissibleReaderSentence(line)) {
-    return `gate inadmissible-sentence  at 0: ${JSON.stringify(line.slice(0, 70))}`;
-  }
-  if (cardSummaryRefused(line)) {
-    return `gate card-summary  at 0: ${JSON.stringify(line.slice(0, 70))}`;
-  }
-  return `gate unclassified  at 0: ${JSON.stringify(line.slice(0, 70))}`;
+  let index = 0;
+  while (index < line.length && index < opening.length && line[index] === opening[index]) index++;
+  const from = Math.max(0, index - 40);
+  return [
+    `at ${index}: card  ${JSON.stringify(line.slice(from, index + 70))}`,
+    `            page  ${JSON.stringify(opening.slice(from, index + 70))}`,
+  ].join("\n");
 }
 
 /**
- * One event, through the card's rule, classified against the bar.
+ * One event, as its card and as its page.
  *
- * A printed line that survives the boundary is `agree` unless it is the headline in different words
- * — the one shape the card must never print, because the reader already read it above. A card that
- * prints nothing is `no-line`; it is the outcome the boundary chose, and the card is complete without
- * it (headline, sources, provenance).
+ * `cardArtifact` is the delivered line the surface's own loader hands the card;
+ * `pageArtifact` is the one the story page's loader resolves, which is the
+ * reader's newest delivery. Both are passed through `deliveredLine` and then
+ * `storyOpening`, the same two calls the components make, so this measures the
+ * two loaders against each other and not the prose rules.
  */
-function classifyCard(label: string, event: CorpusEvent): Row {
-  const story = storyForEvent(event);
-  const line = cardLine(story);
-  const opening = openingOf(event);
-  const base = { label, title: event.title, line, opening };
+function classifyCard(
+  label: string,
+  event: CorpusEvent,
+  cardArtifact: string | null,
+  pageArtifact: string | null,
+): Row {
+  const base = storyForEvent(event);
+  const cardStory = {
+    ...base,
+    what: deliveredLine({ summary: cardArtifact }, event.what, event.title),
+  };
+  const pageStory = {
+    ...base,
+    what: deliveredLine({ summary: pageArtifact }, event.what, event.title),
+  };
+  const composition = composeFromSources(base.title, base.sourceList, {
+    publishedAt: base.publishedAt,
+  }).article.deck.text;
+  const line = storyOpening(cardStory);
+  // The page's opening, exactly as `StoryArticle` prints it: the card's sentence
+  // when the read boundary admits it, the composition's own deck otherwise.
+  const pageOpening = storyOpening(pageStory) || composition;
+  const row = { label, title: event.title, line, opening: pageOpening, composition };
+  // A card with no line contradicts nothing. It is the product's complete-card
+  // state (the arbiter's 2026-10-17 ruling: headline, what happened, provenance),
+  // and the class keeps it out of both the agreement count and the defects —
+  // the same job `no-line` did before the contract was enforced.
   if (line.trim() === "")
     return {
-      ...base,
+      ...row,
       verdict: "withheld",
       bar: "no line",
-      part: `the card prints headline and provenance only  at 0: ${JSON.stringify(event.what.slice(0, 70))}`,
+      part: `the card prints no line, so it opens the story no way at all  at 0: page ${JSON.stringify(pageOpening.slice(0, 90))}`,
     };
-  if (flat(line) === flat(event.title)) {
-    return { ...base, verdict: "defect", bar: "headline-echo", part: partPoint(line, event.title) };
-  }
-  if (!admissibleReaderSentence(line) || cardSummaryRefused(line)) {
-    const normalized = normalizeSummary(line);
-    return {
-      ...base,
-      verdict: "defect",
-      bar: normalized.reason ?? "inadmissible-sentence",
-      part: partPoint(line, event.title),
-    };
-  }
-  return { ...base, verdict: "agree" };
+  if (line !== pageOpening)
+    return { ...row, verdict: "defect", bar: "page-opening", part: partPoint(line, pageOpening) };
+  return { ...row, verdict: "agree" };
+}
+
+/* ---------------------------------------------------------------------- */
+/* The seeded pair: the evidence that this check can fail                  */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * One story, two artifacts, and the answer each must produce.
+ *
+ * A comparison that is handed the same artifact on both sides can only say
+ * `agree`, and on 2026-10-20 that is exactly what the feed path did — so
+ * "feed 53/53" was a tautology. This pair is the counter-example the instrument
+ * checks itself against: two admissible sentences that differ, classified
+ * through the same `classifyCard` the live rows use. If a future edit collapses
+ * the two sides into one expression again, `selfTest()` reports the verdict it
+ * actually returned and the run fails before it reads a row.
+ *
+ * Both sentences are plain single sentences on purpose: `deliveredLine` and
+ * `briefingText` pass them unchanged, so the only thing the classification can
+ * turn on is the difference between the two artifacts.
+ */
+const SEEDED_EVENT: CorpusEvent = {
+  id: "00000000-0000-4000-8000-00000000f11e",
+  title: "A regulator opens an inquiry into a payments processor",
+  what: "The inquiry covers fee disclosure and settlement delays across two markets.",
+  status: "complete",
+  org: "Example News",
+  sources: 2,
+  publishedAt: "2026-10-01T00:00:00Z",
+  sourceList: [
+    {
+      name: "Example News",
+      at: "",
+      headline: "Regulator opens inquiry into payments processor",
+      excerpt:
+        "The regulator said the inquiry covers fee disclosure and settlement delays across two markets, and that it expects to publish its findings next year.",
+    },
+    {
+      name: "Example Wire",
+      at: "",
+      headline: "Payments processor faces inquiry over fees",
+      excerpt:
+        "The inquiry covers fee disclosure and settlement delays across two markets, according to a statement issued on Monday by the regulator.",
+    },
+  ],
+  sourceKinds: ["news", "news"],
+  coverage: [
+    {
+      name: "Example News",
+      kind: "news",
+      publishedAt: "2026-10-01T00:00:00Z",
+      headline: "Regulator opens inquiry into payments processor",
+      excerpt:
+        "The regulator said the inquiry covers fee disclosure and settlement delays across two markets, and that it expects to publish its findings next year.",
+      enrichment: "none",
+    },
+    {
+      name: "Example Wire",
+      kind: "news",
+      publishedAt: "2026-10-01T00:00:00Z",
+      headline: "Payments processor faces inquiry over fees",
+      excerpt:
+        "The inquiry covers fee disclosure and settlement delays across two markets, according to a statement issued on Monday by the regulator.",
+      enrichment: "none",
+    },
+  ],
+};
+
+/** What a briefing build stored for the item — the card's row. */
+const SEEDED_CARD_ARTIFACT =
+  "The regulator opened an inquiry into how the payments processor discloses fees and settles payments.";
+/** What the reader's newest delivery says — the page's row. */
+const SEEDED_PAGE_ARTIFACT =
+  "Officials said the inquiry will examine fee disclosure and settlement delays across two markets.";
+
+/** A story with nothing to print: furniture, and no coverage to recover from. */
+const SEEDED_SILENT_EVENT: CorpusEvent = {
+  ...SEEDED_EVENT,
+  id: "00000000-0000-4000-8000-00000000f11f",
+  title: "A photograph caption from a wire service",
+  what: "Photograph: Alexandra Topping/The Guardian.",
+  sources: 0,
+  sourceList: [],
+  sourceKinds: [],
+  coverage: [],
+};
+
+/**
+ * Which row the card side reads, and which the page side reads.
+ *
+ * `digest` carries the briefing's own stored `summary` (`storiesFromDigest`);
+ * `matches` carries the reader's newest artifact (`loadMatchedStories`) — which is
+ * the same row the story page resolves. These are two named reads, not one
+ * expression, and `selfTest()` calls *this* function rather than handing
+ * `classifyCard` two literals: on 2026-10-20 the feed passed one artifact to both
+ * sides of the comparison, so "feed 53/53" was a tautology. A self-test that
+ * bypassed this function would not have caught that, and a later edit collapsing
+ * it to `return pageArtifact` would otherwise pass again in silence. Measured
+ * 2026-10-21: with this collapsed the real run still reported PASS 23/23, which is
+ * exactly the failure the self-test exists to make red.
+ */
+function cardArtifactFor(card: FeedCard, pageArtifact: string | null): string | null {
+  return card.path === "digest" ? card.card : pageArtifact;
 }
 
 /**
- * The reader's own feed, as `loadHomeFeed` gates it.
- *
- * `leads` is the newest matched event ids; the gate is transcribed from `gateHomeFeed`
- * (`briefing.ts`) because that function is module-private and a second implementation is what this
- * instrument must not be. Ruling #9's two title classes belong to the same gate and are asked here
- * with the readiness check, in the same order, or the audit would report cards a reader never gets.
+ * Null when the classifier still parts two different artifacts — through the same
+ * wiring the live rows use — or the reason it does not. A non-null answer fails
+ * the run: the instrument is measuring nothing.
  */
-async function feedRows(): Promise<{ rows: Row[]; unmatched: number }> {
-  const client = db();
-  const { data: matches, error } = await client
-    .from("user_events")
-    .select("event_id, matched_at")
-    .order("matched_at", { ascending: false })
-    .limit(LIMIT * 10);
-  if (error) throw new Error(`user_events: ${error.message}`);
-  const ids: string[] = [];
-  const seen = new Set<string>();
-  for (const row of matches ?? []) {
-    if (seen.has(row.event_id)) continue;
-    seen.add(row.event_id);
-    ids.push(row.event_id);
-    if (ids.length >= LIMIT) break;
-  }
-  if (ids.length === 0) return { rows: [], unmatched: 0 };
+function selfTest(): string | null {
+  const reasons: string[] = [];
+  // The classifier itself, on two artifacts that differ and on one that repeats.
+  const different = classifyCard(
+    "self-test",
+    SEEDED_EVENT,
+    SEEDED_CARD_ARTIFACT,
+    SEEDED_PAGE_ARTIFACT,
+  );
+  const same = classifyCard("self-test", SEEDED_EVENT, SEEDED_CARD_ARTIFACT, SEEDED_CARD_ARTIFACT);
+  if (different.verdict !== "defect")
+    reasons.push(
+      `two different artifacts classified "${different.verdict}" (line ${JSON.stringify(different.line)}, page ${JSON.stringify(different.opening)})`,
+    );
+  if (same.verdict !== "agree")
+    reasons.push(`one artifact on both sides classified "${same.verdict}", not agree`);
+  // The wiring: a digest card's own stored line against the page's newest
+  // artifact. This is the check that went missing — with the card side reading
+  // the page's row, this is the row that parts and the run must go red.
+  const digestCard: FeedCard = {
+    reader: "00000000-0000-4000-8000-00000000f11d",
+    eventId: SEEDED_EVENT.id,
+    card: SEEDED_CARD_ARTIFACT,
+    path: "digest",
+  };
+  const wired = classifyCard(
+    "self-test",
+    SEEDED_EVENT,
+    cardArtifactFor(digestCard, SEEDED_PAGE_ARTIFACT),
+    SEEDED_PAGE_ARTIFACT,
+  );
+  if (wired.verdict !== "defect")
+    reasons.push(
+      `a digest card's own line against the page's artifact classified "${wired.verdict}", so the card side is not reading its own row`,
+    );
+  return reasons.length === 0 ? null : reasons.join("; ");
+}
 
+/**
+ * The same report and verdict lines, over the seeded pair, so the failure this
+ * instrument is able to produce can be read rather than argued.
+ */
+function fixtureRows(): Row[] {
+  return [
+    classifyCard("fixture", SEEDED_EVENT, SEEDED_CARD_ARTIFACT, SEEDED_PAGE_ARTIFACT),
+    classifyCard("fixture", SEEDED_EVENT, SEEDED_CARD_ARTIFACT, SEEDED_CARD_ARTIFACT),
+    classifyCard("fixture", SEEDED_SILENT_EVENT, null, null),
+  ];
+}
+
+/**
+ * The reader's newest delivered sentence per (reader, event).
+ *
+ * The story page's loader resolves exactly this (`summariesFor` in
+ * `src/lib/server/briefing.ts`), so it is the page's side of every comparison
+ * below. Select only; one round trip for the whole population.
+ */
+const artifactKey = (userId: string, eventId: string): string => `${userId}\u0000${eventId}`;
+
+async function newestArtifacts(
+  pairs: { userId: string; eventId: string }[],
+): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (pairs.length === 0) return out;
+  const ids = [...new Set(pairs.map((pair) => pair.eventId))];
+  const client = db();
+  const { data, error } = await client
+    .from("digest_items")
+    .select("event_id, summary, digests ( user_id, scheduled_for )")
+    .in("event_id", ids);
+  if (error) throw new Error(`digest_items: ${error.message}`);
+  const wanted = new Set(pairs.map((pair) => artifactKey(pair.userId, pair.eventId)));
+  const newest = new Map<string, string>();
+  for (const row of data ?? []) {
+    const digest = row.digests as { user_id?: string; scheduled_for?: string } | null;
+    const userId = digest?.user_id;
+    if (!userId) continue;
+    const key = artifactKey(userId, row.event_id);
+    if (!wanted.has(key)) continue;
+    const at = digest?.scheduled_for ?? "";
+    const best = newest.get(key);
+    if (best !== undefined && at <= best) continue;
+    newest.set(key, at);
+    out.set(key, row.summary ?? null);
+  }
+  return out;
+}
+
+/**
+ * The newest briefing of every reader, with its items in the order the card list
+ * would show them.
+ *
+ * `loadHomeFeed` asks `latestDigest` for the reader's newest *briefing* — any of
+ * ready, sent, skipped, generating or failed — and branches on it: ready or sent
+ * renders that digest's items; skipped renders matches that arrived after its
+ * slot; anything else renders the live matches. So the status decides which row a
+ * feed card carries, which is what this comparison turns on.
+ */
+type Briefing = {
+  reader: string;
+  digestId: string;
+  status: string;
+  scheduledFor: string;
+  /** `(eventId, summary)` in `position` order; empty unless ready or sent. */
+  items: { eventId: string; summary: string | null }[];
+};
+
+async function latestBriefings(): Promise<Map<string, Briefing>> {
+  const out = new Map<string, Briefing>();
+  const client = db();
+  const { data, error } = await client
+    .from("digests")
+    .select("digest_id, user_id, scheduled_for, status")
+    .eq("kind", "briefing")
+    .in("status", ["ready", "sent", "skipped", "generating", "failed"])
+    .order("scheduled_for", { ascending: false })
+    .limit(400);
+  if (error) throw new Error(`digests: ${error.message}`);
+  for (const row of data ?? []) {
+    const userId = row.user_id;
+    if (!userId) continue;
+    const scheduledFor = row.scheduled_for ?? "";
+    const best = out.get(userId);
+    if (best !== undefined && scheduledFor <= best.scheduledFor) continue;
+    out.set(userId, {
+      reader: userId,
+      digestId: row.digest_id,
+      status: row.status ?? "",
+      scheduledFor,
+      items: [],
+    });
+  }
+  // Only a ready or sent briefing carries cards; the others decide the branch
+  // and their items are not read.
+  const carrying = [...out.values()].filter(
+    (briefing) => briefing.status === "ready" || briefing.status === "sent",
+  );
+  const digestOf = new Map(carrying.map((briefing) => [briefing.digestId, briefing] as const));
+  const ids = carrying.map((briefing) => briefing.digestId);
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { data: items, error: itemError } = await client
+      .from("digest_items")
+      .select("digest_id, event_id, position, summary")
+      .in("digest_id", ids.slice(i, i + CHUNK))
+      .order("position", { ascending: true });
+    if (itemError) throw new Error(`digest_items: ${itemError.message}`);
+    for (const item of items ?? []) {
+      digestOf
+        .get(item.digest_id)
+        ?.items.push({ eventId: item.event_id, summary: item.summary ?? null });
+    }
+  }
+  return out;
+}
+
+/**
+ * The story's carriers as `sources.kind` values, for the first-party class.
+ *
+ * `gateHomeFeed` reads this through `sourceKindsOf(story)`: one carrier with no
+ * kind makes the list unknown and the class fails open. The corpus keeps the same
+ * kinds per coverage row, so the same rule is applied here — an audit that read
+ * the deduplicated union instead would refuse a card the reader is actually shown.
+ */
+function gateKinds(event: CorpusEvent): string[] {
+  const kinds = event.coverage.map((entry) => entry.kind);
+  return kinds.length > 0 && kinds.every((kind) => kind !== "") ? kinds : [];
+}
+
+/**
+ * One card a reader is shown, before it is classified.
+ *
+ * `path` is which branch of `loadHomeFeed` put it there, and therefore which row
+ * its line came from: `digest` carries that briefing's stored `summary`,
+ * `matches` carries the reader's newest artifact — the same row the page reads.
+ */
+type FeedCard = {
+  reader: string;
+  eventId: string;
+  card: string | null;
+  path: "digest" | "matches";
+};
+
+/**
+ * The feed's cards, as `loadHomeFeed` chooses and `gateHomeFeed` gates them.
+ *
+ * The population is the cards a reader is actually shown, not the newest events
+ * in the database: for a reader whose newest briefing is ready or sent, that
+ * briefing's items and nothing else — a story matched after the build is not on
+ * their feed today — and for every other reader, their matched stories, filtered
+ * to those that arrived after a skipped slot when that is the newest briefing.
+ *
+ * The gate is transcribed from `gateHomeFeed` (`briefing.ts`) because that
+ * function is module-private: readiness plus the title classes rulings #9, #14
+ * and the 2026-10-20 celebration class landed, asked in the loader's own order.
+ *
+ * The two paths are the point of the comparison. On the digest path the card
+ * reads *this briefing's* stored summary (`storiesFromDigest`) while the page
+ * reads the reader's newest artifact (`summariesFor`), which is a genuinely
+ * different row whenever an event was re-delivered or alerted afterwards. On the
+ * matches path both read the newest artifact, which is one row by design — the
+ * header says what that means for the count rather than claiming otherwise.
+ */
+async function feedRows(): Promise<{
+  rows: Row[];
+  unmatched: number;
+  absent: number;
+  digest: number;
+  matches: number;
+}> {
+  const client = db();
+  const briefings = await latestBriefings();
+  const carrying = [...briefings.values()].filter(
+    (briefing) => briefing.status === "ready" || briefing.status === "sent",
+  );
+  const cards: FeedCard[] = [];
+  const seenCards = new Set<string>();
+  const push = (card: FeedCard): boolean => {
+    const key = artifactKey(card.reader, card.eventId);
+    if (seenCards.has(key)) return cards.length < LIMIT;
+    seenCards.add(key);
+    cards.push(card);
+    return cards.length < LIMIT;
+  };
+  for (const briefing of carrying) {
+    for (const item of briefing.items) {
+      if (
+        !push({
+          reader: briefing.reader,
+          eventId: item.eventId,
+          card: item.summary,
+          path: "digest",
+        })
+      )
+        break;
+    }
+    if (cards.length >= LIMIT) break;
+  }
+
+  let absent = 0;
+  if (cards.length < LIMIT) {
+    const { data: matches, error } = await client
+      .from("user_events")
+      .select("user_id, event_id, matched_at")
+      .order("matched_at", { ascending: false })
+      .limit(LIMIT * 10);
+    if (error) throw new Error(`user_events: ${error.message}`);
+    for (const row of matches ?? []) {
+      const briefing = briefings.get(row.user_id);
+      if (briefing && (briefing.status === "ready" || briefing.status === "sent")) continue;
+      // The skipped branch renders only matches that arrived after its slot.
+      if (briefing?.status === "skipped" && (row.matched_at ?? "") < briefing.scheduledFor) {
+        absent += 1;
+        continue;
+      }
+      if (!push({ reader: row.user_id, eventId: row.event_id, card: null, path: "matches" })) break;
+    }
+  }
+
+  const ids = [...new Set(cards.map((card) => card.eventId))];
+  if (ids.length === 0) return { rows: [], unmatched: 0, absent, digest: 0, matches: 0 };
   const events = await loadCorpusEvents(ids.length, undefined, undefined, ids);
   const byId = new Map(events.map((event) => [event.id, event] as const));
+  const artifacts = await newestArtifacts(
+    cards.map((card) => ({ userId: card.reader, eventId: card.eventId })),
+  );
+
   const rows: Row[] = [];
   let unmatched = 0;
-  ids.forEach((id, index) => {
-    const event = byId.get(id);
+  let digestRows = 0;
+  let matchRows = 0;
+  cards.forEach((card, index) => {
+    const event = byId.get(card.eventId);
     if (!event) {
       unmatched += 1;
       return;
@@ -271,23 +706,35 @@ async function feedRows(): Promise<{ rows: Row[]; unmatched: number }> {
       readiness.ready &&
       !isReaderDealTitle(event.title) &&
       !isReaderModTitle(event.title) &&
-      !isCouponPageTitle(event.title);
+      !isCouponPageTitle(event.title) &&
+      !isVendorCelebrationTitle(event.title, gateKinds(event));
     if (!onFeed) {
       unmatched += 1;
       return;
     }
-    rows.push(classifyCard(`${`${index + 1}`.padStart(3, "0")}`, event));
+    const pageArtifact = artifacts.get(artifactKey(card.reader, card.eventId)) ?? null;
+    const cardArtifact = cardArtifactFor(card, pageArtifact);
+    if (card.path === "digest") digestRows += 1;
+    else matchRows += 1;
+    rows.push(
+      classifyCard(`${`${index + 1}`.padStart(3, "0")}`, event, cardArtifact, pageArtifact),
+    );
   });
-  return { rows, unmatched };
+  return { rows, unmatched, absent, digest: digestRows, matches: matchRows };
 }
 
-type ItemRow = { event_id: string; position: number; digest_id: string };
+type ItemRow = {
+  event_id: string;
+  position: number;
+  digest_id: string;
+  summary: string | null;
+};
 
 async function archiveRows(): Promise<Row[]> {
   const client = db();
   const { data: digests, error } = await client
     .from("digests")
-    .select("digest_id, generated_at, kind, scheduled_for")
+    .select("digest_id, generated_at, kind, scheduled_for, user_id")
     .eq("kind", "briefing")
     .not("generated_at", "is", null)
     .order("scheduled_for", { ascending: false })
@@ -300,7 +747,7 @@ async function archiveRows(): Promise<Row[]> {
   for (const digestId of ids) {
     const { data, error: itemError } = await client
       .from("digest_items")
-      .select("event_id, position, digest_id")
+      .select("event_id, position, digest_id, summary")
       .eq("digest_id", digestId)
       .order("position", { ascending: true });
     if (itemError) throw new Error(`digest_items: ${itemError.message}`);
@@ -315,15 +762,30 @@ async function archiveRows(): Promise<Row[]> {
     items.map((row) => row.event_id),
   );
   const byId = new Map(events.map((event) => [event.id, event] as const));
+  const readerOf = new Map(
+    (digests ?? []).map((row) => [row.digest_id, row.user_id ?? ""] as const),
+  );
   const digestLabel = new Map(
     (digests ?? []).map((row) => [row.digest_id, (row.scheduled_for ?? "").slice(0, 10)] as const),
+  );
+  // The page's side: the reader's newest delivered sentence for the event.
+  const artifacts = await newestArtifacts(
+    items.map((item) => ({
+      userId: readerOf.get(item.digest_id) ?? "",
+      eventId: item.event_id,
+    })),
   );
   const rows: Row[] = [];
   for (const item of items) {
     const event = byId.get(item.event_id);
     if (!event) continue;
     const label = `#${item.position} ${digestLabel.get(item.digest_id) ?? ""}`.trim();
-    rows.push(classifyCard(label, event));
+    // The briefing card carries *this* digest's stored sentence; the page
+    // carries the reader's newest one. That is the pair worth comparing: a
+    // re-briefed event is where the two can genuinely part.
+    const pageArtifact =
+      artifacts.get(artifactKey(readerOf.get(item.digest_id) ?? "", item.event_id)) ?? null;
+    rows.push(classifyCard(label, event, item.summary ?? null, pageArtifact));
   }
   return rows;
 }
@@ -536,18 +998,6 @@ const tally = (rows: Row[]) => ({
  * say which gate withheld it — so the class prints here for both kinds, in one list, and the label
  * distinguishes them. Defects print first because they are the only ones that fail the run.
  */
-/** How many card lines are also the sentence the story page opens on. Reported, not enforced. */
-function openingCounterfactual(rows: Row[]): string {
-  const withLine = rows.filter((row) => row.line.trim() !== "");
-  const same = withLine.filter(
-    (row) => row.opening !== undefined && row.line.trim() === row.opening.trim(),
-  ).length;
-  return rowLine(
-    "  card line === page opening (ruling #11 if it reached here)",
-    `${same} / ${withLine.length}   (counterfactual, not enforced at this surface)`,
-  );
-}
-
 function reportSurvivors(name: string, rows: Row[]): void {
   const survivors = rows.filter((row) => row.verdict !== "agree");
   if (survivors.length === 0) return;
@@ -579,7 +1029,7 @@ function verdictLine(results: Result[]): string {
       continue;
     }
     parts.push(
-      `${result.name} ${agree}/${comparable} (${withheld} withheld, ${defects} defect${defects === 1 ? "" : "s"})`,
+      `${result.name} ${agree}/${comparable} (${withheld} no line, ${defects} defect${defects === 1 ? "" : "s"})`,
     );
     if (defects > 0) failed = true;
   }
@@ -587,19 +1037,50 @@ function verdictLine(results: Result[]): string {
 }
 
 main(async () => {
+  // The instrument's own test, before any row is read: two artifacts that differ
+  // must classify as a defect. A comparator that cannot say `defect` reports
+  // nothing, and a run that says PASS is the one thing it must not do.
+  const broken = selfTest();
+  if (broken !== null) {
+    say(`reader surfaces  FAIL  the check cannot fail: ${broken}`);
+    process.exitCode = 1;
+    return;
+  }
+
   const results: Result[] = [];
 
+  if (FIXTURE) {
+    heading("The seeded pair — two artifacts that differ, through the same report");
+    const rows = fixtureRows();
+    reportSurvivors("fixture", rows);
+    const { checked, agree, withheld, defects } = tally(rows);
+    say();
+    say(rowLine("seeded rows read", checked));
+    say(rowLine("  card line === page opening", agree));
+    say(rowLine("  no line — headline and provenance only", withheld));
+    say(rowLine("  DEFECT — a line the page does not open on", defects));
+    results.push({ name: "fixture", rows });
+    const line = verdictLine(results);
+    say();
+    say(line);
+    process.exitCode = line.includes(" PASS ") ? 0 : 1;
+    return;
+  }
+
   if (WANT("feed")) {
-    heading(`The feed — the newest ${LIMIT} events, as a card renders them`);
-    const { rows, unmatched } = await feedRows();
+    heading(`The feed — the newest ${LIMIT} cards a reader's home feed is shown`);
+    const { rows, unmatched, absent, digest, matches } = await feedRows();
     const { checked, agree, withheld, defects } = tally(rows);
     reportSurvivors("feed", rows);
     say();
     say(rowLine("cards a reader is shown", checked));
+    say(rowLine("  on the digest path (card and page read different rows)", digest));
+    say(rowLine("  on the matches path (card and page read the same row)", matches));
     say(rowLine("  gated off the feed before the card (never seen)", unmatched));
-    say(rowLine("  line admitted by the boundary", agree));
-    say(rowLine("  no line (headline and provenance only)", withheld));
-    say(rowLine("  DEFECT — a line the boundary refuses", defects));
+    say(rowLine("  matched before a skipped slot (no card today)", absent));
+    say(rowLine("  card line === page opening (ruling #11, enforced)", agree));
+    say(rowLine("  no line — headline and provenance only", withheld));
+    say(rowLine("  DEFECT — a line the page does not open on", defects));
     say(openingCounterfactual(rows));
     results.push({ name: "feed", rows });
   }
@@ -611,9 +1092,9 @@ main(async () => {
     reportSurvivors("archive", rows);
     say();
     say(rowLine("archived items read", checked));
-    say(rowLine("  line admitted by the boundary", agree));
-    say(rowLine("  no line (headline and provenance only)", withheld));
-    say(rowLine("  DEFECT — a line the boundary refuses", defects));
+    say(rowLine("  card line === page opening (ruling #11, enforced)", agree));
+    say(rowLine("  no line — headline and provenance only", withheld));
+    say(rowLine("  DEFECT — a line the page does not open on", defects));
     say(openingCounterfactual(rows));
     results.push({ name: "archive", rows });
   }

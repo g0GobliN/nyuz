@@ -179,6 +179,58 @@ export function articleMinutes(article: ReaderArticle): number {
   return Math.max(1, Math.ceil(words / 220));
 }
 
+/** Collapse for comparison: case, punctuation and whitespace, as every instrument does. */
+const flatSentence = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+
+/**
+ * The body with its own opening removed, so a reader never reads one sentence twice.
+ *
+ * **Why this exists.** The page's opening is now the sentence the card printed
+ * (`storyOpening`, `reader-opening.ts`), not necessarily the deck the composer
+ * built. The composition picks its body facts from the same evidence, and when
+ * the stored line *is* one of those facts the reader would meet it twice: once
+ * as the opening and again inside the first paragraph. Measured on the feed's
+ * own 56 cards (2026-10-20): **19** stored lines are a whole sentence inside a
+ * composed paragraph, **1** is a whole paragraph, and **none** of the 19 takes
+ * part in a `glue` pair — so the sentence can be lifted without breaking the
+ * adjacency the composer restored.
+ *
+ * The rule is exact equality after case/punctuation collapse, never a prefix or
+ * a fuzzy match: a sentence that merely resembles the opening is a different
+ * fact and stays. When the opening is the composition's own deck nothing
+ * matches (the composer spends that fact on the deck), so the rule is a no-op
+ * for every story that already agreed.
+ */
+export function withoutOpening(article: ReaderArticle, opening: string): ReaderArticle {
+  const target = flatSentence(opening);
+  if (target === "") return article;
+  const paragraphs = article.paragraphs.flatMap((paragraph) => {
+    const sentences = readerSentences(paragraph.text);
+    if (sentences.length <= 1) {
+      return flatSentence(paragraph.text) === target ? [] : [paragraph];
+    }
+    const kept = sentences.filter((sentence) => flatSentence(sentence) !== target);
+    if (kept.length === sentences.length) return [paragraph];
+    if (kept.length === 0) return [];
+    const glue = paragraph.glue?.filter(
+      (pair) => kept.includes(pair.dependent) && kept.includes(pair.predecessor),
+    );
+    return [
+      {
+        ...paragraph,
+        text: kept.join(" "),
+        ...(glue !== undefined && glue.length > 0 ? { glue } : {}),
+      },
+    ];
+  });
+  return { ...article, paragraphs };
+}
+
 export const READER_ARTICLE_CONTRACT = `
 article is the reader-facing article, separate from internal structured analysis.
 First understand all the supplied evidence and its limitations, then write one

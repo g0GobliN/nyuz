@@ -32,7 +32,7 @@
  */
 
 import { composeFromSources } from "../editorial";
-import { selectReaderEvidence, type ReaderSource } from "../reader-evidence";
+import { selectReaderEvidence, sourceTypo, type ReaderSource } from "../reader-evidence";
 import { isPaidContentUrl } from "./paid-content";
 import { isReaderDealTitle } from "./alert-floor";
 
@@ -49,6 +49,7 @@ export type ArtifactKind =
   | "transcript"
   | "personal-blog"
   | "paid-content"
+  | "source-typo"
   | "unbriefable";
 
 export type ReadinessVerdict =
@@ -450,6 +451,28 @@ export function assessReadiness(input: {
 
   if (BUILD_NUMBER_TITLE.test(title)) {
     return { ready: false, kind: "build-number", reason: `headline is an identifier: ${title}` };
+  }
+
+  /**
+   * The headline carries the source's own typo, and a title is not something the
+   * product may correct (ruling #6, 2026-10-17: refuse, do not repair). Measured
+   * on the delivered 2026-10-20 briefing, card 24: *"Ex-Nvidia-turned-VC Amulya
+   * Vishwanath: ‘Physical AI is in it's LEGO era'"* — the plan text keeps `it's`
+   * where the possessive `its` belongs. There is no sentence to refuse without
+   * the card, because the title *is* the card's name, so the story is withheld
+   * rather than shown with a typo the reader cannot unsee.
+   *
+   * The predicate is the sentence one (`sourceTypo`), so the title and the prose
+   * cannot disagree about what a typo is; the closing-bracket spacing defect is
+   * not one of its shapes because that space is the extractor's, not the
+   * source's, and it is joined instead (`normalizeEvidenceText`).
+   */
+  if (sourceTypo(title)) {
+    return {
+      ready: false,
+      kind: "source-typo",
+      reason: `headline carries the source's typo: ${title}`,
+    };
   }
 
   if (COMMIT_PREFIX.test(what) || COMMIT_PREFIX.test(title) || COMMIT_MARKERS.test(what)) {

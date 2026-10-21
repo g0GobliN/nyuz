@@ -111,7 +111,7 @@ must-be-zero lines are the acceptance test.
 | Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                                                                                                                                                                             |
 | **Deploy path (GitHub Actions)**             | Working — it was **blocked for about twenty minutes on 2026-10-16** (hosted runners stopped starting: `"recent account payments have failed or your spending limit needs to be increased"`, run `38853848933`, every job failed in ~3 s and the deploy showed *skipped*; the run before it, same day, deployed `17d1b36`). Making the repository public restored its free runner minutes, the run was re-queued, and it deployed `6e88b8d` at **05:20Z** with every job green and the origin contract 23/23; the 40 digest ticks after it all ran `healthy`, read on the live Worker. `main` is level with production again. The shape recurs while the repository is private, so it is a stage condition, not a code defect — [deployment.md](deployment.md#deploying). |
 | Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                               |
-| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick |
+| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick. **One briefing is built per reader, at `send_at` in the reader's own zone** (`digest.ts:587-601`), not once globally, and the measured consequence of one brief per tick is **25m43s late** on the 2026-10-20T22:30Z build with **8,690 ms** of CPU per build — [decisions/briefing-delivery-time.md](decisions/briefing-delivery-time.md) |
 | Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled (R1) and extended one measured class at a time (2026-10-17)                                                                                                    |
 | **Briefing email actually delivered**        | **Off on purpose until launch (owner, 2026-10-16)** — the Resend key is deliberately disabled to keep the free send quota for launch, so every email row fails `Resend 401 API key is invalid` by design and nothing has been accepted since 2026-08-26T22:59. The earlier `Missing EMAIL_UNSUBSCRIBE_SECRET` run (26 Aug → 11 Sep) is fixed. Pre-launch channels are push and the dashboard; re-enabling email is a launch-time owner action, not a defect — [AGENTS.md](../AGENTS.md) |
 | Reader article (deterministic composer)      | Built, under active quality work (see §5)                                                                                                                                                                           |
@@ -1715,12 +1715,126 @@ pass narrows to the bar, or the floor becomes a report rather than a gate, is an
 pair is pinned in both directions so neither side can be "fixed" by moving the other: the floor refuses
 it (`twin-floor.test.ts`) and the pass still fuses it (`it.fails` in `duplicates.test.ts`).
 
+**The three rules did not spend the read path's budget; the gate's cost moved a day earlier (measured
+2026-10-20, re-measured and corrected 2026-10-21).** Rulings #17/#18/#19 (PR #27), the twin floor (#28)
+and the celebration wiring (#29) run on
+every card, and the question was whether they spent the ~710 ms grace the build's stages are measured
+against. A new read-only instrument answers it with numbers: `npm run timing:read-path`
+(`scripts/reader-read-path-timing.ts`) times `selectStage` / `screenStage` / `gateStage` / `writeStage`
+with `process.cpuUsage()` per phase and for every brief inside the gate, and `--freeze` writes the
+screen/gate/write inputs so two worktrees read the identical corpus (`--replay` needs no database).
+
+Measured on `640a69b6` — the 22:30Z reader that carried the CPU work: **1,000 live matches → 133
+eligible → 37 considered → 33 after twins → 25 shipped**, cap 25 — Node 22, one frozen pool, **six
+matched alternating cold processes per tree** (a tick is a cold invocation), medians:
+
+```
+phase                                    before #27 (3e6c5f6)   main 3ee81ae   delta   ±spread
+screen · suppressStoryTwins                            459.2ms        450.8ms   -1.8%    15.9%
+screen · suppressDeliveredTwins                        445.5ms        443.2ms   -0.5%    14.4%
+gate · assessReadiness                                9621.9ms       9318.7ms   -3.2%    16.1%
+  one selectReaderEvidence pass (the gate runs two)   1673.2ms       1678.2ms   +0.3%     9.4%
+write · payload                                        217.4ms        179.1ms  -17.6%    40.1%
+total, every row                                      12457.1ms      12046.2ms   -3.3%    13.1%
+per-brief gate median                                   193.1ms        192.9ms   -0.1%
+per-brief gate p95                                       795.7ms        815.9ms   +2.5%
+paired per-brief ratio, median of 6 pairs, 33 briefs each     0.998  (0.969 – 1.018)
+```
+
+Every phase sits inside its own run-to-run spread, and the paired ratio — the same brief timed on both
+trees in the same minute, which cancels machine noise — is **0.998**. The new predicates' own self
+time in a `--cpu-prof` of the same replay is single-digit milliseconds each — `unexpandedAcronymOpening`
+12.1 ms, `restoreDottedNames` 8.4, `thinStateOpening` 6.5, `bareReferenceOpening` 3.4, `markersOf` 2.0
+of a 10,219 ms profile — and the dashboard's per-request predicates are **0.27 µs**
+(`isVendorCelebrationTitle`) and **0.64 µs** (`isReaderDealTitle`) per title. **No rule from
+#17/#18/#19 spent the budget; nothing was weakened, and no production code changed.** The one
+behavioural difference on the corpus is the intended one: the widened twin vocabulary drops one more
+pair (34 → 33 briefs).
+
+**The instrument's first version was wrong, and the fix moved a row by 3×.** The first run of this
+script dropped the gate's own `opening` on the way to the payload (`gate()` returned `ready`/`cpu`/
+`perBrief` but not `openings`, so `writePayload` received `undefined`), which made every shipped brief
+re-compose its opening from scratch inside the write — work production does not do, because
+`writeStage` reads the gate's opening back from `progress.verdicts` (digest.ts:1487-1491). Both trees
+were measured with that bug, so the comparison stayed fair but the row was inflated (**647 ms → 217 ms**
+once fixed, and the payload 2,340 → 5,851 bytes, because the recovered compositions were shorter than
+the gate's own sentences). The lesson recorded for the next reader: a phase that re-does work an
+earlier phase already did is a defect in the *instrument*, and it is invisible on a relative comparison
+because both sides carry it.
+
+**What the measurement did find is an older move, and it changes the budget reading.** A cold live
+build now costs **8.2–12.4 s of CPU** across runs — select 1.26 s (`loadMatches` 164 ms,
+`alreadyBriefed` 28, `selectItems` 35, `suppressDeliveredDuplicates` 968), screen 1.29 s, gate
+5.5–9.8 s, write payload 0.18–0.22 s — with the gate's per-brief median **123–210 ms**, p95
+**487–816 ms**, worst **1,021 ms**, against the recorded 6.4 s / median 18 ms / worst 435 ms. The
+cause is not #17–#19: commit `449f979` (2026-10-19, *"Compose the gate's opening from the same
+material the page reads"*, ruling #11) attached `article_evidence` to the gate's sources. Replayed
+with the evidence stripped, the same 33 briefs gate in **2,863–4,719 ms at a 7–16 ms median** — the
+recorded shape — and with it attached, **~9.3 s at ~193 ms**. The gate also runs `selectReaderEvidence`
+**twice** per brief (readiness.ts:641 for the fact count, then the composer at editorial.ts:3031 after
+normalization); one pass is **1.67–1.68 s** of the gate, which is where a bounded optimization would
+go if the spend is to come back. Nothing was changed here: the attachment is a reader-facing quality
+fix (it took the delivered page/card match from 10 of 13 to 13 of 13), weakening it is a ruling, and
+deduping the selection needs the normalization shared before it can be proved identical. **Budget
+reading now:** one gate brief per tick (`GATE_BRIEFS_PER_INVOCATION` 1) at a 123–199 ms median fits
+the ~710 ms grace, but the p95 and the ~1 s worst do not, so the largest stories can still cost a gate
+tick. Replay:
+
+```
+nvm use 22
+npm run timing:read-path -- --user 640a69b6 --runs 3
+npm run timing:read-path -- --user 640a69b6 --freeze pool.json
+npm run timing:read-path -- --replay pool.json --runs 6 --json after.json
+```
+
+**2026-10-21 — the delivery-time decision: there is no single 22:30Z build, and the lateness is the
+clock.** A decision task asked whether the briefing should be built once, in timezone bands, per
+reader, or at read time. Measured read-only against the live project and written up in
+[decisions/briefing-delivery-time.md](decisions/briefing-delivery-time.md): the scheduler already
+writes one digest per reader per day at `send_at` resolved in their own zone (`digest.ts:587-601`,
+`schedule.ts:39`). The live rows are 3 readers, `07:30` on every one, zones `UTC ×2` and
+`Asia/Tokyo ×1`, so **2 instants** — `07:30Z` and `22:30Z` — and every reader's slot reads 07:30 on
+their own clock; a 07:30-local briefing has **35** distinct UTC clock times per day across 418 IANA
+zones (37 offsets; measured with `Intl`, same day), so a three-band design would coarsen what already
+runs. The cited
+build `3fcbb21c` (2026-10-20T22:30Z) ran 22:20:33→22:55:38 (**35m05s**), wrote 1 digest, 25 items and
+2 deliveries (push sent; email 401 by owner ruling), and landed **1,543 s late**; the three builds
+before it read 1,722 / 702 / 1,789 s. `npm run timing:read-path` on the same pool measures
+**8,690 ms of CPU per build** — gate 5,832 ms (67%), per-brief median 131.6 ms, p95 498.7 ms, worst
+508.3 ms. **The lateness is arithmetic, not scheduling:** 33 briefs ÷ `GATE_BRIEFS_PER_INVOCATION` 1 =
+~35 ticks from T−10. `BATCH = 8` builds on one instant would cost 1,053 ms against the ~710 ms grace,
+so a shared instant carries 5 readers at the median and 1 at the p95 — the launch ceiling, and one
+bands cannot raise because the 37 instants already exist. Recommendation: keep B (already shipped), fix
+the signup `timezone` default (`0001_init.sql:38/55/263` inserts `'UTC'`; only onboarding overwrites
+it, `prefs-store.ts:76-85`), and make `lateness_seconds ≤ 600` (today 1,543) with gate p95 ≤ 140 ms
+(today 498.7) the acceptance numbers before any band is built. **No product code, migration or deploy
+was changed.**
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
 handoff ([handoff-2026-10-19-late.md](handoff-2026-10-19-late.md)) → this file →
 [reader-quality-10-of-10.md](reader-quality-10-of-10.md), the acceptance checklist whose lines are
 commands. The skill for it is `resume-session`; the entry at the end of §6 records why it exists.
+
+**2026-10-20: gate 2's evidence ledger is built, and the verdict is ruled — two legs, one instrument.**
+Ruling #12c's window (2026-10-19T06:46Z → 2026-11-18T06:46Z) is item 2's calendar, so the reading is now a
+command: `npm run audit:significance-window` takes the window from `source_exemptions`, enumerates every
+briefing generated inside it, re-derives the ladder per delivered item on `briefing:checkpoint`'s own
+inputs, and persists the per-event evidence to `docs/audits/significance-window-12c-30d.json` (one copy
+per event; delivery rows reference event ids). The documents stated two bars and on the same rows they
+read opposite — the checklist's universal bar **FAIL 1/25**, ruling #12c's existence bar **PASS** (card
+#08, whose line traces to Wired, one of the eight, fetched 2026-10-19T11:00Z). **The arbiter ruled the
+question (ChatGPT `nyuz` project, #17, option 3; population narrowed by #17a after one cross-examination):
+gate 2 is two legs, reported apart, and a PASS on one never makes the other pass** — Leg A universal
+(every delivered briefing item carries its own justified line) and Leg B the experiment's existence
+condition (one qualifying non-coverage line, traced, attributable to one of the eight). The ruling retired
+the pre-close exit 0: `PENDING` exits **2**, a closed window exits 0 only when both legs pass, 1 when
+either fails, 2 when evidence or population is incomplete. Today: **Leg A FAIL 1/25, Leg B PASS**, so
+`gate 2 PENDING` (exit 2) now and `FAIL` exit 1 on today's rows once closed. The six definitions and the
+ruling are recorded in [decisions/significance-window-instrument.md](decisions/significance-window-instrument.md);
+what a PASS is now stated in [reader-quality-10-of-10.md](reader-quality-10-of-10.md). The 18 November
+reading is still owed — the ruling makes it possible, not early.
 
 **2026-10-18, last: the card line and the page opening are one sentence by construction (ruling #11).**
 The producer-side fix below closed the quote-first class, but the audit of the same day found the seam
@@ -2193,6 +2307,7 @@ From [AGENTS.md](../AGENTS.md), which is authoritative:
 | Rulings on the reader-delivery path, with their dates | [decisions/reader-delivery.md](decisions/reader-delivery.md) |
 | Why briefings shipped without their shared explanations (2026-10-12) | [decisions/briefing-explanations.md](decisions/briefing-explanations.md) |
 | Why the 22:30 slot failed, and what the 1,936 stuck receipts say | [decisions/briefing-slot-failures.md](decisions/briefing-slot-failures.md) |
+| Whether the briefing should be built once, per band, per reader, or at read time (2026-10-21) | [decisions/briefing-delivery-time.md](decisions/briefing-delivery-time.md) |
 | The security findings, classified before any revocation (R1 item 6) | [decisions/security-classification.md](decisions/security-classification.md) |
 | The reader-quality loop in more depth | [briefing-quality-handoff.md](briefing-quality-handoff.md) |
 | Reader quality audit method | [reader-quality-audit.md](reader-quality-audit.md) |
@@ -2215,6 +2330,7 @@ npm run audit:reader -- --corpus tmp/corpus-after.json   # the composer's publis
 npm run audit:reader -- --find "DigiCert"                # one event's raw rows
 npm run audit:fusion                                     # re-extract sources to confirm fusions
 npm run briefing:checkpoint                              # one command, end to end
+npm run timing:read-path -- --user <id> --runs 3         # the build's CPU, per phase and per brief
 node --env-file=.env scripts/tsrun.mjs scripts/reader-corpus-freeze.ts --out tmp/corpus-after.json
 ```
 
@@ -2764,4 +2880,205 @@ before-and-after stays reproducible in one run). Suite: `npm run typecheck` clea
 `GITHUB_ACTIONS=true npm run coverage:ratchet` no regression against the committed floor
 (`src/lib` lines 85.62 → 86.79, +1.17pp). Record: [decisions/anchored-dates-utc.md](decisions/anchored-dates-utc.md).
 
-the 45-day window is still unapplied, no archive was touched, and there were no model calls.
+**2026-10-20 — ruling #11 is enforced at the feed and the archive, by one resolver, and the price is
+recorded.** `audit:surfaces` used to report the contract as a counterfactual (`9/57` feed, `7/14`
+archive) and the checklist said extending it was a decision. Enforced now: `src/lib/reader-opening.ts`
+holds the single rule (`storyOpening`) the card, the story page and the instrument all call — the
+delivered line through `deliveredLine`, the story's own recovered opening when there is none, nothing
+for furniture — and `story-article.tsx` opens on that same sentence, with `withoutOpening`
+(`reader-article.ts`) keeping the body from repeating it (`19 of 56` stored lines were a whole
+sentence inside a composed paragraph; `0` took part in a `glue` pair). `summariesFor` in
+`briefing.ts` puts the reader's newest `digest_items.summary` into `loadStory`, search and the
+matches feed, so the page and the card resolve one input. Measured same day, live: **feed 53/53 (3
+no line, 0 defects), archive 25/25, delivered briefing `4a6b2ad2` 25/25 exit 0**; the old rule read
+`13/54` and `15/22` on the same rows because the page recomposed from current coverage while the
+card carried the delivered sentence. The trade, recorded rather than hidden: the page opens on the
+delivered line, not a freshly composed deck, because composing per card costs 61 ms p50 / 173 ms p90
+over 56 stories and cannot run on the free plan's CPU or in a feed render. Three feed cards still
+print no line (furniture, the 2026-10-14 ruling) and their pages open on a composed deck — an
+absence, not a contradiction. No model call, no database write, archives untouched.
+Record: [decisions/reader-delivery.md](decisions/reader-delivery.md#one-sentence-at-the-feed-and-the-archive-ruling-11-extended-2026-10-20).
+
+**2026-10-21 — both instruments above were tautologies on two of three surfaces, and are now able to
+fail.** The CEO's refusal of PR #30 measured the defect: the feed passed one artifact to both sides
+of `classifyCard`, and `audit:delivered-line` built its `page` and `actual` from the same
+`item.summary` expression — identical input to one function, so the equality was guaranteed and
+`feed 53/53` and `PASS 25/25` were not evidence. `classifyCard` now takes the card's artifact and the
+page's artifact as separate arguments; the card side reads the row that surface's loader hands it
+(the newest briefing's own stored `summary`, or the reader's newest artifact on the matches path) and
+the page side reads the reader's newest delivered row. `audit:delivered-line` reads its page side from
+that newest delivery by its own query rather than rebuilding it from the audited item. The feed
+population is now the cards a reader is actually shown, modelled on both branches of `loadHomeFeed`,
+which is why the feed count moved. The doc comment no longer claims two sides read different rows on
+the matches path, where they are one row by design; it names the render tests instead.
+
+The instructive part is what the seed did *not* cover. `selfTest()` first classified two literals, and
+`--fixture` exercised `classifyCard` directly — so with the card side collapsed back onto the page's
+row at the **call site**, the real runs still printed `PASS feed 23/23` and `PASS 25 / 25`, because on
+today's data the two rows are the same row and a correct instrument is indistinguishable from a
+tautological one by output alone (measured 2026-10-21, both collapsed deliberately). The self-tests now
+call the *named* row-selection functions (`cardArtifactFor`; `cardArtifactOf`/`pageArtifactOf` and
+`pageSentence`), which the live path also calls, and each collapse is then caught with exit 1 and "the
+check cannot fail" before a row is read. A fixture that cannot fail is worse than no fixture, because
+it is evidence.
+
+Measured on the merged tree, Node 22: typecheck clean; lint 0 errors (20 pre-existing warnings); 204
+test files / 3472 tests pass; coverage floor no regression (total 45.41, +2.55pp); `audit:surfaces`
+PASS feed 23/23 · archive 25/25 · alerts 4/4; `audit:delivered-line` PASS 25/25 on briefing `4a6b2ad2`;
+both `--fixture` modes FAIL with one defect and exit 1. Counts that moved, as findings and not as
+tuning targets: **feed 53 → 23** (53 was a sample of newest matched events, not a feed); archive 25
+and delivered 25 unchanged. No model call, no database write, archives untouched, instrument-only.
+
+**Gate 2's evidence ledger, and the two bars it cannot choose between (2026-10-20).** Item 2 parked its
+verdict on ruling #12c's calendar, so the thing that was missing was not a rule but an instrument: nothing
+in the repository enumerated *delivered items inside the window* and recorded what the ladder would say
+about each. `npm run audit:significance-window`
+([scripts/significance-window-audit.ts](../scripts/significance-window-audit.ts)) is that instrument,
+read-only and deterministic. It reads the window from `source_exemptions` (the row the gate honours, not
+a literal), enumerates every briefing whose `generated_at` falls inside it, re-derives the ladder per
+delivered item with `reasonFor` on the same inputs `briefing:checkpoint` reads, and writes
+[docs/audits/significance-window-12c-30d.json](audits/significance-window-12c-30d.json) — 25 events,
+one copy per event with delivery rows referencing event ids, so the record survives a redeploy and does
+not copy event content per reader ([database.md](database.md)'s cost model).
+
+**First real output, measured 2026-10-20T07:39Z** (`npm run audit:significance-window`, exit 0): window
+`2026-10-19T06:46:22Z → 2026-11-18T06:46:22Z`, 8 of 8 enabled rows, **5 briefings generated, 1 with
+items, 1 sent, 4 skipped, 3 readers, 25 delivered items, 25 distinct events**; `ladder now: consequence
+1, coverage 1, none 23`; `carried any line at all 1 / 25`; `stored equals the ladder now 1 / 25`;
+`ladder now yields a line 2 / 25`; verdict **`gate 2  PENDING  window closes 2026-11-18 06:46:22Z`**. The
+closed branch was exercised on the same rows with `--now 2026-11-18T07:00:00Z`: `UNDEFINED`, exit 2.
+Also measured in the same run, for ruling #12c's other legs: events with ≥2 publishers **184 vs the 169
+baseline**, and 3 delivered items sit on an event with an article from one of the eight fetched inside the
+window.
+
+**The finding is a definition gap, and it decides the verdict.** The checklist states a **universal** bar
+(*"every delivered item either carries a line a stored fact justifies, or is not delivered"*,
+[reader-quality-10-of-10.md](reader-quality-10-of-10.md) 12–14) and ruling #12c states an **existence**
+bar (*"at least one future delivered briefing item carries a valid, story-specific line from a rung other
+than coverage"*, [reader-delivery.md](decisions/reader-delivery.md) 3391), which the handoff adds
+attribution to (*"did the eight … produce at least one"*,
+[handoff-2026-10-19-afternoon.md](handoff-2026-10-19-afternoon.md) 35). On today's rows the first reads
+**FAIL 1 / 25** and the second reads **PASS** — card #08's consequence line (*"The company will be
+refunded the $2 million deposit and receive a breakup fee."*) is story-specific, traces to the event's
+evidence, and that evidence is **Wired**, one of the eight, fetched `2026-10-19T11:00Z`. The checklist's
+*"or is not delivered"* also contradicts ruling #12's *"do not withhold publishable stories for a missing
+line"* (lines 66–67), so the universal bar cannot be met by the product as ruled today. The checklist's
+`stored equals the ladder now` is labelled a drift check but carries no passing threshold, and card #16
+shows the other seam: its event would now produce the `coverage` line while the delivered row carries
+nothing. **No metric was invented.** The instrument prints every documented bar's number and refuses a
+single verdict; the quoted lines, six missing definitions, four numbered options and the recommended
+two-leg resolution are in
+[decisions/significance-window-instrument.md](decisions/significance-window-instrument.md). That ruling
+is the blocker on gate 2, not the calendar alone.
+
+Files: `scripts/significance-window-audit.ts`, `package.json` (`audit:significance-window`),
+`docs/audits/significance-window-12c-30d.json`, `docs/decisions/significance-window-instrument.md`,
+`docs/reader-quality-10-of-10.md`, this file. No model call, no database write, no product behaviour
+change.
+
+**2026-10-20 — gate 2's verdict is ruled: two legs, one instrument, and the population narrowed on
+cross-examination.** The definition gap above went to the arbiter (the owner's ChatGPT `nyuz` project,
+chat *"Gate 2 Ruling"*) with the four options and the measured rows. **Ruling #17: option 3** — _"The
+universal reader-quality bar and the experiment's existence condition are distinct tests. Neither may
+substitute for the other."_ Gate 2 is now **Leg A** (universal: every delivered briefing item carries a
+non-empty, story-specific line, agreed with the ladder re-derived now under the existing canonical
+comparison and traced to its stored material; `coverage` eligible; a missing line is a failure and still
+no reason to withhold, per ruling #12 option 1) and **Leg B** (existence: at least one qualifying item on
+a rung other than coverage, traced to stored evidence **and attributable to one of the eight released
+sources** — the attribution the handoff stated and #12c omitted, now recorded with the outlet and its
+fetch time). The same rows read **Leg A FAIL 1 / 25 · Leg B PASS** (#08, `consequence`, Wired, fetched
+`2026-10-19T11:00:15Z`). A re-read on **2026-10-20T23:48Z**, window still open, reads **6 briefings (2
+with items), 50 delivered items, 3 readers, Leg A 2 / 50, Leg B 2 / 2** — #09, _French Government Calls
+Emergency Meetings…_, also `consequence` on Wired, fetched `2026-10-20T19:30:14Z` — `gate 2 PENDING` exit
+2: the population doubled overnight and the silence with it (47 of 50). The ledger committed with the
+08:42Z snapshot stays that snapshot; the 18 November run replaces it.
+
+**One cross-examination changed the population.** The first ruling extended Leg A to "all delivery
+surfaces included in the checklist"; the feed's matched-story path never carries a `why_it_matters` line,
+so that would have counted ~57 cards as failures by construction. Put with the code paths (the feed's two
+paths, the archive re-rendering the same `digest_items`, checklist item 3 owning the shared card bar), the
+arbiter withdrew it — **#17a: _"I extended the significance-line requirement to surfaces governed by a
+different checklist item. That was too broad."_** Leg A is "delivered briefing items (`digest_items`)
+generated within the authoritative experiment window"; the archive's re-render of those rows is not
+counted twice, and the feed's matched-story cards and the alerts stay under item 3 — "do not classify
+absence of why_it_matters as a Gate 2 failure."
+
+**The instrument now prints the ruled verdict, and its exit status changed.** `PENDING` (window open)
+exits **2**, not the old 0 — an unfinished experiment must not read green; a closed window exits 0 only
+when both legs pass, 1 when either fails, and 2 when the evidence or population is incomplete. A pre-close
+run records the counts and **no leg verdict** (the ledger's leg verdicts are `null`), because PASS or FAIL
+before the close is forbidden. Measured 2026-10-20T08:42Z on the open window: `gate 2 PENDING window closes
+2026-11-18 06:46:22Z … exit 2`. Exercised on the same rows with `--now 2026-11-18T07:00:00Z`: `gate 2 FAIL
+Leg A FAIL (1/25) · Leg B PASS (1 qualifying) exit 1` — the shape 18 November will produce, **not** the 18
+November reading, which is still owed on the rows delivered by then.
+
+Files: `scripts/significance-window-audit.ts`, `docs/decisions/significance-window-instrument.md`,
+`docs/reader-quality-10-of-10.md` (item 2's sentence and the state row now state what a PASS is),
+`docs/audits/significance-window-12c-30d.json` (regenerated with the `verdict` block and the ruling it was
+read under), this file. Read-only and deterministic: no model call, no database write, no product
+behaviour change, no withholding rule added.
+
+**2026-10-21 — the production audit went red on a new vite advisory, and a patch-level pin closed it.**
+`npm audit --omit=dev --audit-level=high` began reporting `vite@8.1.5` as **high** severity when three
+launch-editor advisories were published (GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw, GHSA-587h-7wmj-h5pm),
+so **Dependencies and secret names** failed on every branch including `main` and the deploy job was
+skipped — nothing in the tree changed; the advisory feed did. `vite` is reachable from production
+dependencies (`package-lock.json` carries no `dev` flag on it), which is why `--omit=dev` audits it. The
+exact pin moved **8.1.5 → 8.3.4** (npm's named fix), with `postcss` 8.5.31 and `nanoid` 3.3.20 re-resolved
+inside vite's own ranges and no range of ours widened. Re-read: **0 vulnerabilities**. Same shape as the
+2026-10-16 `@tanstack/*` bump above.
+
+**2026-10-21 — read the live product as a reader: one welded paragraph, a briefing that cannot be
+read from, and an alert channel firing on a tablet discount.** Read at 01:04–01:30Z on `f0b2761`
+(bundle `assets/index-_3YT2emD.js`, CI run 39524919444; the origin still served
+`assets/index-Dj2sHqc7.js` at 01:04Z, so the read spans that deploy). 25 cards in the feed and the
+same 25 in the delivered briefing. **24 of 25 card lines equal their story page's opening sentence**;
+the exception is `How 3 Java Champions…`, whose card line is `Meet the Java Champions.` Story 17
+(Samsung's Pyeongtaek hub) carries a sentence verbatim from MIT Technology Review's 2026-08-26
+Hugging Face piece, mid-paragraph and uncited. `/dashboard/briefing` has **zero story links** under a
+footer that says every story links to the original reporting. **6 of 25 story opens returned an error
+page** (Cloudflare 1102, 503, "Something failed on our side", blank) on a back-to-back sweep; each
+returned 200 in 7.7–11.2 s when paced, so the failures are load-shaped. Alerts had fired **5 times by
+09:16**, including a Fire HD discount and an Oblivion FPS mod, on a surface that says most days are
+silent. An anonymous browser gets `/auth` on every reader route (HTTP 200, client-side), so the read
+was taken **read-only** in a browser holding a reader session. The deck is the 07:30 JST one, so it
+was composed by 22:30Z 2026-10-20, **before** `f0b2761` merged at 01:02Z — its text is evidence about
+the composer up to that point, not about the merge. Report and screenshots: [live-read-2026-10-21.md](live-read-2026-10-21.md),
+[screenshots/live-2026-10-21/](screenshots/live-2026-10-21/). No product code, no deploy, no
+migration, no write to production.
+
+**2026-10-21 — the six defects read in the delivered deck `3fcbb21c` are closed, one rule each.** Scout read
+the post-merge briefing (25 cards, built `2026-10-20T22:55:38Z`) as a stranger and found six defects; the
+full record, the rule and the test per defect are in
+[decisions/delivered-briefing-prose-defects.md](decisions/delivered-briefing-prose-defects.md#the-six-defects-scout-found-in-the-post-merge-deck-closed-2026-10-21).
+Landed: `truncatedDateline` (a day-and-year dateline cut before the sentence, refused as `editorial_noise`);
+`brokenQuotation`, folded into `unresolvedContextOpening` so the deck walk advances past a sentence that
+starts inside somebody's quotation; the **result leg** in `suppressStoryTwins` plus its floor in
+`twin-floor.ts` (one PRIMARY actor, a frame phrase on one side and an earnings term on the other); the wrong
+article before an amount (`an $150`) and `prep + it's` in `sourceTypo`, with the title rung in
+`assessReadiness` withholding a card whose *headline* carries the source's typo; and `fillerOpening` at the
+deck walk, so a heading or a definition is skipped instead of opening the story. The closing-bracket
+possessive (`(BSC) ’s`) is joined rather than refused, because the space is the extractor's and the source's
+own excerpt has none. **Measured on the same 25 rows recomposed (scratch probe):** 7 openings change, 0 are
+withheld, 1 title typo, and the twin pass keeps **24 of 25** — dropping position 8, The Verge's second
+telling of the SpaceX release, which is the 25th card. `npm run audit:twin-corpus` over 30 days shows the
+result leg fusing **1 pair**, the delivered duplicate; the marker census still reports its pre-existing
+**184** below-floor fusions, untouched. A count of **23** for this deck after all six rules is a finding and
+is reported: 24 after the twin fusion, minus card 24 for its headline typo. `npm run audit:delivered-line`
+stays **PASS 25/25** on the archive because that instrument reads stored artifacts and the rules changed no
+stored row.
+
+**Design audit of the deployed reader surfaces (2026-10-21).** The signed-in product was read at
+1280 / 768 / 360 plus a 320 px reflow probe — feed, briefing, archive, story, alerts, alert history —
+with every number measured from the live DOM and the evidence committed under
+`docs/screenshots/design-audit-2026-10-21/` (account name and avatar redacted). Record:
+[design-audit-2026-10-21.md](design-audit-2026-10-21.md). Two blockers on the briefing: it renders its
+**25 stories with zero links** (the marketing `BriefingPreview` was mounted in the product unchanged, so
+the surface is a dead end), and it sets **144 characters on a 911 px line** where the rest of the product
+runs 88–109. Should-fix: two `<h1>`s on every desktop dashboard page; the briefing's `H1 → H3` skip with
+no headings on its 25 items; archive rows that respond only on a 76×19 text link; a 13-month strip hiding
+9 months behind an invisible horizontal scroll; no authored focus ring on nav and icon controls; story
+prose at 109 cpl; a 46×19 dismiss button; and briefing copy claiming an inbox delivery that email — dark
+until launch — does not perform. Measured as sound and not to be changed: the three-colour palette in the
+DOM, a 5.20 contrast floor, no horizontal overflow at 320–1280, and one page-header pattern across five
+surfaces. No product code changed and no vote, save, dismiss or preference was touched.

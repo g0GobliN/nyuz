@@ -64,6 +64,7 @@
     "audit:alerts-gate": "node --env-file=.env scripts/tsrun.mjs scripts/reader-surface-audit.ts --alerts",
     "audit:delivered-line:window": "node --env-file=.env scripts/tsrun.mjs scripts/reader-delivered-line.ts --window",
     "diagnostic:composition": "node --env-file=.env scripts/tsrun.mjs scripts/reader-composition-diagnostic.ts",
+    "timing:read-path": "node --env-file=.env scripts/tsrun.mjs scripts/reader-read-path-timing.ts",
     "audit:posture": "node --env-file=.env scripts/tsrun.mjs scripts/product-posture.ts",
     "audit:backlog": "node --env-file=.env scripts/tsrun.mjs scripts/backlog-attribution.ts",
     "audit:matching": "node --env-file=.env scripts/tsrun.mjs scripts/reader-matching-cause.ts",
@@ -72,7 +73,8 @@
     "baseline:sources": "node --env-file=.env scripts/tsrun.mjs scripts/source-experiment-baseline.ts",
     "experiment:sources": "node --env-file=.env scripts/tsrun.mjs scripts/source-experiment.ts",
     "audit:topic-attribution": "node --env-file=.env scripts/tsrun.mjs scripts/reader-topic-attribution.ts",
-    "audit:dashboard-classes": "node --env-file=.env scripts/tsrun.mjs scripts/dashboard-class-census.ts"
+    "audit:dashboard-classes": "node --env-file=.env scripts/tsrun.mjs scripts/dashboard-class-census.ts",
+    "audit:significance-window": "node --env-file=.env scripts/tsrun.mjs scripts/significance-window-audit.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"
@@ -154,7 +156,7 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "8.1.5",
+    "vite": "8.3.4",
     "vitest": "^3.2.7",
     "wrangler": "4.147.0"
   }

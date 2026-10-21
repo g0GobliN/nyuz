@@ -1109,10 +1109,10 @@ async function loadMatchedStories(
   const { data, error } = await query.order("relevance", { ascending: false }).limit(limit);
   if (error) throw new Error(`reading user_events: ${error.message}`);
   const rows = data ?? [];
-  const stories = await hydrateEvents(
-    db,
-    rows.map((r) => r.event_id),
-  );
+  const eventIds = rows.map((r) => r.event_id);
+  // The delivered sentence, when this reader has one for the event, so the card
+  // prints the same opening its page prints (see `summariesFor`).
+  const stories = await hydrateEvents(db, eventIds, await summariesFor(db, userId, eventIds));
   const relevance = new Map(rows.map((r) => [r.event_id, r.relevance] as const));
   // The occurrence clock, not `matched_at`, and not the analysis write time:
   // every list and the story page have to print the same moment for the same
@@ -1131,7 +1131,9 @@ async function loadMatchedStories(
 async function storiesFromEventIds(db: Db, userId: string, eventIds: string[]): Promise<Story[]> {
   if (eventIds.length === 0) return [];
   const [stories, why, personalization, relevance] = await Promise.all([
-    hydrateEvents(db, eventIds),
+    // The reader's delivered sentence rides in, so the story page opens on the
+    // same line its card printed (see `summariesFor`).
+    summariesFor(db, userId, eventIds).then((summaries) => hydrateEvents(db, eventIds, summaries)),
     whyFor(db, userId, eventIds),
     personalizationFor(db, userId, eventIds),
     matchRelevanceFor(db, userId, eventIds),
@@ -1178,6 +1180,47 @@ async function whyFor(db: Db, userId: string, eventIds: string[]): Promise<Map<s
     if (!why.has(row.event_id)) why.set(row.event_id, row.why_it_matters);
   }
   return why;
+}
+
+/**
+ * The sentence this reader was actually delivered for each event, newest first.
+ *
+ * **Why every surface asks this.** The briefing build stores the composer's own
+ * opening in `digest_items.summary` (ruling #11), and that stored sentence is
+ * the one a reader has already met. The story page used to load the event
+ * without it and compose its own opening from current coverage, so the card
+ * said one thing and the page said another — the same defect the ruling emptied
+ * at the briefing, seen from the other side. Now the page resolves the artifact
+ * exactly as the feed and the archive do (`hydrateEvents`' `summaries`), and
+ * `storyOpening` prints one sentence on every surface.
+ *
+ * The newest row wins because a re-briefed event has more than one artifact and
+ * the latest delivery is the current sentence. `null` is a real answer — an item
+ * whose build stored no artifact — and is passed through so the read path falls
+ * back to the event's own line exactly as it always did.
+ */
+async function summariesFor(
+  db: Db,
+  userId: string,
+  eventIds: string[],
+): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (eventIds.length === 0) return out;
+  const { data } = await db
+    .from("digest_items")
+    .select("event_id, summary, digests ( user_id, scheduled_for )")
+    .in("event_id", eventIds);
+  const newest = new Map<string, string>();
+  for (const row of data ?? []) {
+    const digest = row.digests as { user_id?: string; scheduled_for?: string } | null;
+    if (digest?.user_id !== userId) continue;
+    const at = digest?.scheduled_for ?? "";
+    const best = newest.get(row.event_id);
+    if (best !== undefined && at <= best) continue;
+    newest.set(row.event_id, at);
+    out.set(row.event_id, row.summary ?? null);
+  }
+  return out;
 }
 
 /**

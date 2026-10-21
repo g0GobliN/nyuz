@@ -298,6 +298,10 @@ type Shape = {
   markers: Set<string>;
   /** PRIMARY entity names: the actor a claim is about, not merely a capital. */
   primary: Set<string>;
+  /** Words that announce a financial result ("beat", "expectations", "guidance"). */
+  resultFrames: Set<string>;
+  /** Words that name a financial result ("revenue", "earnings", "q3"). */
+  resultTerms: Set<string>;
   /**
    * Figures, so two accounts of one incident can meet without shared words.
    *
@@ -329,7 +333,11 @@ type Shape = {
  * census in `scripts/twin-corpus-census.ts` passes `false` for the "before"
  * column, exactly as `audit:delivered-line` prints its pre-ruling counts.
  */
-export type TwinOptions = { securityAccess?: boolean };
+export type TwinOptions = {
+  securityAccess?: boolean;
+  /** The result leg (2026-10-21), as a switch for the census's "before" column. */
+  resultFrames?: boolean;
+};
 
 /**
  * Whether two briefs tell one story, by exactly the conditions
@@ -358,6 +366,11 @@ function areTwins(a: Shape, b: Shape): boolean {
   // Ruled 2026-10-17 — no event marker is required for this pair, because a
   // review announces nothing and its identity is entirely in the name.
   for (const name of a.names) if (b.names.has(name)) return true;
+  // Two accounts of one financial result (2026-10-21): the same PRIMARY actor,
+  // one side framing the result and the other naming it. Read before the word
+  // tests because the measured pair shares one content word, and it needs no
+  // marker because the frame/term split *is* the event.
+  if (resultLeg(a, b)) return true;
   const overlap = sharedCount(a.words, b.words);
   if (overlap < 2) return false;
   if (sharedCount(a.entities, b.entities) === 0) return false;
@@ -372,6 +385,86 @@ const GENERIC_MARKERS = new Set(
   MARKER_GROUPS.filter((group) => group.generic === true).map((group) => group.key),
 );
 
+/**
+ * A financial result, written two ways.
+ *
+ * The delivered 2026-10-20 briefing carried the same SpaceX quarterly release
+ * twice, back to back: *"SpaceX's AI business is beating expectations"*
+ * (TechCrunch) and *"SpaceX says big AI growth fueled revenue jump"* (The
+ * Verge). The pass kept both, and the measurement says why none of its existing
+ * legs could see the pair:
+ *
+ *   - the marker groups hold no financial vocabulary at all, so the marker leg
+ *     never fired on either side — and adding a group would not have fused it
+ *     either, because `areTwins` requires the *same marker on both sides* and
+ *     only the Verge headline says `revenue`;
+ *   - the word overlap is one content word (`spacex`; `ai` is below the
+ *     three-character floor), against the two the marker leg needs and the three
+ *     the floor asks for;
+ *   - the two accounts share no figure: one stored line is *"AI was the engine."*
+ *
+ * So the leg is a **frame and a term**: one account of the release frames it as
+ * beating or missing expectations, the other names the number (revenue,
+ * earnings, quarterly, Q3). Both sides of the pair must serve a different role,
+ * which is what keeps the leg from fusing two stories that merely mention the
+ * same company's money: a launch announcement with `revenue` in its summary
+ * carries no frame, and a frame with no term has nothing to be the same release
+ * as. The actor must be the same PRIMARY entity on both sides, so `SpaceX`
+ * paying customers is not `SpaceX` selling rockets.
+ */
+const RESULT_FRAME =
+  /\b(?:beat|beats|beating|missed|misses|missing|topped|topping|exceeded|surpassed|above)\s+(?:expectations|estimates|forecasts|guidance|consensus)\b/iu;
+const RESULT_TERM = new Set(
+  `revenue revenues earnings income profit profits sales quarter quarters quarterly margin margins results q1 q2 q3 q4`
+    .split(/\s+/)
+    .filter((word) => word !== ""),
+);
+
+/** Lowercased words, unstemmed: the financial vocabulary has to read literally. */
+const plainWords = (text: string): Set<string> =>
+  new Set(
+    text
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((word) => word !== ""),
+  );
+
+const wordsIn = (words: ReadonlySet<string>, vocabulary: ReadonlySet<string>): Set<string> => {
+  const out = new Set<string>();
+  for (const word of words) if (vocabulary.has(word)) out.add(word);
+  return out;
+};
+
+/**
+ * The result leg: one account frames a result, the other names it, and both are
+ * about the same PRIMARY entity.
+ *
+ * The frame is a **phrase**, not a word: "beating expectations", "topped
+ * estimates". A bare `beat` or `misses` is ordinary English in a hundred other
+ * headlines (`beat AT&T`, `near-misses with Starlink`, `topping $1B valuation`),
+ * and the first draft of this leg measured 78 newly fused pairs of which one was
+ * the delivered duplicate and the rest were unrelated stories joined by a verb.
+ * With the phrase required, the leg reads what an earnings headline actually
+ * says.
+ *
+ * Exported because the corpus census measures this leg on its own population:
+ * the marker-vocabulary switch (`TwinOptions`) cannot express a leg that reads
+ * two different vocabularies, and a second implementation in the instrument
+ * would drift from this one.
+ */
+function resultLeg(a: Shape, b: Shape): boolean {
+  if (sharedCount(a.primary, b.primary) === 0) return false;
+  return (
+    (a.resultFrames.size > 0 && b.resultTerms.size > 0) ||
+    (b.resultFrames.size > 0 && a.resultTerms.size > 0)
+  );
+}
+
+/** The result leg over two whole briefs, for the census and for its fixtures. */
+export function resultTwin(a: TwinBrief, b: TwinBrief, options: TwinOptions = {}): boolean {
+  return resultLeg(shapeOf(a, options), shapeOf(b, options));
+}
+
 const shapeOf = (brief: TwinBrief, options: TwinOptions = {}): Shape => {
   const summary = brief.whatHappened ?? "";
   return {
@@ -383,6 +476,18 @@ const shapeOf = (brief: TwinBrief, options: TwinOptions = {}): Shape => {
         .filter((entity) => entity.role === "PRIMARY")
         .map((entity) => entity.name.toLowerCase()),
     ),
+    // Both anchors are read off the **headline**, never the summary. Measured on
+    // the 30-day corpus (2026-10-21): with the summary allowed, the leg fused the
+    // delivered duplicate *and* a merger story whose summary happened to mention
+    // revenue; with the headline only, it fuses the duplicate alone. The ruling's
+    // cost boundary for the marker vocabulary is the same shape — a summary-only
+    // hit is the weaker signal.
+    resultFrames:
+      options.resultFrames === false
+        ? new Set()
+        : new Set((brief.title.match(RESULT_FRAME) ?? []).map((phrase) => phrase.toLowerCase())),
+    resultTerms:
+      options.resultFrames === false ? new Set() : wordsIn(plainWords(brief.title), RESULT_TERM),
     figures: new Set([
       ...numericKeys(`${brief.title} ${summary}`),
       ...magnitudeKeys(`${brief.title} ${summary}`),

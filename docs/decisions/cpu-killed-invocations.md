@@ -302,3 +302,38 @@ largest at 709,805 us. These are laptop measurements and upper bounds on a singl
 the Worker's own `cpuTimeUs` for the repaired ticks is still not measured. What changed is that every
 stage of this reader's build — selection ~250 ms, screening ~200 ms, one gated brief's worst 435 ms,
 the write ~52 ms — now sits inside that observed grace, where the gate at two briefs a tick did not.
+
+## 2026-10-20, corrected 2026-10-21 — the three delivery rules cost nothing; the gate's cost moved on 2026-10-19
+
+**The question.** Rulings #17/#18/#19, the twin floor and the celebration wiring landed after the
+measurement above and run on every card. Did they spend the grace?
+
+**Method.** `npm run timing:read-path` (`scripts/reader-read-path-timing.ts`), `process.cpuUsage()` per
+phase of `select`/`screen`/`gate`/`write` and per brief inside the gate, same reader (`640a69b6`,
+1,000 matches → 37 considered → 33 after twins), one frozen pool replayed on two worktrees, six
+alternating cold processes each.
+
+**Answer: no.** Gate 9,622 → 9,319 ms (−3.2%), screen·twins 459 → 451 ms, screen·delivered 446 → 443 ms,
+write payload 217 → 179 ms, per-brief median 193.1 → 192.9 ms, paired median ratio **0.998** across six
+matched pairs — every term inside the run-to-run spread (the paired ratio ranged 0.969–1.018). The new
+predicates are single-digit ms of a 10 s profile each; the dashboard's per-request predicates are
+0.27–0.64 µs per title.
+
+**A correction to this entry's own first draft.** The instrument's first version dropped the gate's
+`opening` before the write payload, so each shipped brief re-composed its opening inside the phase —
+work production does not do, since `writeStage` reads it back from `progress.verdicts`. Both trees
+carried the bug, so the relative comparison was unaffected, but the write row was inflated (647 ms,
+not 217) and the numbers above are the fixed instrument's. A defect in the *instrument* is invisible on
+a relative comparison because both sides carry it; that is the reason the fix was found by a `tsc`
+error rather than by the measurement.
+
+**What the same run did find.** A cold live build now costs **8.2–12.4 s** of CPU against the recorded
+6.4 s, and the gate's worst brief is **~1.0 s** against the 435 ms recorded — above the ~710 ms grace
+with `GATE_BRIEFS_PER_INVOCATION` at 1. The cause predates the three rules: `449f979` (2026-10-19)
+attached `article_evidence` to the gate's sources so the gate composes from the page's own material
+(ruling #11; the delivered page/card match went 10 of 13 → 13 of 13). Replayed with that evidence
+stripped, the gate is **2,863–4,719 ms at a 7–16 ms median** — the recorded shape. The gate also selects
+evidence twice per brief (once at readiness.ts:641 for the fact count, once inside the composer); one
+pass is 1.67–1.68 s of the ~9.3 s. Neither lever is a rule to weaken: the attachment is a reader-facing
+quality fix, and the dedupe needs the normalization shared before equivalence can be proved. Both are
+recorded in [context.md](../context.md) §6 as the next budget question, not as a bounded repair.

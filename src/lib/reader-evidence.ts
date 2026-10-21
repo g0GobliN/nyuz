@@ -1250,15 +1250,24 @@ function frontedClauseNeedsContext(text: string): boolean {
  * already present in the sentence.
  */
 export function normalizeEvidenceText(text: string): string {
-  return text
-    .replace(/\bthat makes a [^,]+ remember how to be a [^,]+/gi, "")
-    .replace(/\bworld away from\b/gi, "different from")
-    .replace(/\beye[- ]popping\s+/gi, "")
-    .replace(/\balarming\s+(?=(?:valuations?|investments?|figures?)\b)/gi, "")
-    .replace(/\ball[- ]encompassing\s+/gi, "")
-    .replace(/\bolder,?\s+less attractive\s+/gi, "older ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  return (
+    text
+      .replace(/\bthat makes a [^,]+ remember how to be a [^,]+/gi, "")
+      .replace(/\bworld away from\b/gi, "different from")
+      .replace(/\beye[- ]popping\s+/gi, "")
+      .replace(/\balarming\s+(?=(?:valuations?|investments?|figures?)\b)/gi, "")
+      .replace(/\ball[- ]encompassing\s+/gi, "")
+      .replace(/\bolder,?\s+less attractive\s+/gi, "older ")
+      // A space before a possessive is never English, and on the delivered
+      // 2026-10-20 card 06 it was ours: the source's excerpt reads
+      // `(BSC)’s`, the extracted unit reads `(BSC) ’s`. Joining it changes no
+      // word — it removes a space the extractor put inside one — so this is the
+      // same punctuation normalisation as the spaced product name of ruling
+      // #19, not the source repair ruling #6 forbids.
+      .replace(/\s+([’'](?:s|t|re|ve|ll|d|m)\b)/g, "$1")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+  );
 }
 
 /**
@@ -1761,6 +1770,13 @@ export function unresolvedContextOpening(text: string, title?: string | null): b
   // One definition, shared with the deck rule: a demonstrative that heads the
   // document the reader is holding is resolved by reading, not by context.
   if (SELF_REFERENTIAL_DOCUMENT_OPENING.test(trimmed)) return false;
+  // A quotation that starts mid-way cannot open a page however well the page
+  // establishes its nouns: the reader is handed the second half of somebody's
+  // sentence (ruling #17's family, measured on the delivered card 24 of
+  // 2026-10-20). `quotationCarriesOpening` is the other half of the same
+  // question and stays where it is: a sentence may *open* on a quotation and be
+  // legal as a fallback, but it may not *start inside* one.
+  if (brokenQuotation(trimmed)) return true;
   return contextDependent(trimmed, title) && !recoverableContext(trimmed);
 }
 
@@ -1803,6 +1819,7 @@ export function editorialNoise(text: string): boolean {
     SOURCE_COLOUR.test(text) ||
     publisherFurniture(text) ||
     sourceTypo(text) ||
+    truncatedDateline(text) ||
     sourcingNote(text)
   );
 }
@@ -1846,8 +1863,41 @@ export function sourceTypo(text: string): boolean {
     // shape; `OT` (operational technology) keeps its capitals and is untouched,
     // and `other`, `nothing` and `robot` never match because the token has to
     // be whole.
-    /\bot\s+[a-z]/.test(text)
+    /\bot\s+[a-z]/.test(text) ||
+    // The delivered 2026-10-20 deck, card 11: *"closed an $150 million Series A
+    // round"*. The article is wrong before a spoken number that starts with a
+    // consonant sound, and the rule reads the number rather than a dictionary:
+    // `an $8 million`, `an $11 billion` and `an $18 million` are correct and
+    // keep their sentence; `an $80`, `an $800`, `an $11,000` start with eight,
+    // eleven or eighteen and are correct too. Anything else is refused, not
+    // repaired, on ruling #6's precedent.
+    wrongArticleBeforeAmount(text) ||
+    // Card 24 of the same deck carries *"Physical AI is in it's LEGO era"* in
+    // the headline. `it's` after a preposition can only be the possessive — "in
+    // it is", "at it has" are not sentences — so the token is a typo wherever
+    // it appears. Refused, not corrected.
+    /\b(?:in|on|at|of|for|with|from|to|by|into|onto|over|under|about|after|before|during|across|through|within|without)\s+it['’]s\b/iu.test(
+      text,
+    )
   );
+}
+
+/**
+ * Whether an amount takes `a` rather than `an`.
+ *
+ * The spoken form decides, and only its first sound: a number that begins with
+ * eight, eleven or eighteen takes `an`; every other number in front of a
+ * currency figure takes `a`. Decimals and commas are stripped because they are
+ * never spoken as a vowel sound.
+ */
+export function wrongArticleBeforeAmount(text: string): boolean {
+  const match =
+    /\ban\s+\$([\d][\d,]*(?:\.\d+)?)\s*(?:million|billion|trillion|thousand|[MBK])?\b/iu.exec(text);
+  if (match === null) return false;
+  const digits = (match[1] ?? "").replace(/,/g, "");
+  if (digits.startsWith("8")) return false;
+  if (/^(?:11|18)0*$/.test(digits)) return false;
+  return true;
 }
 
 /**
@@ -1885,6 +1935,97 @@ export function thinStateOpening(text: string): boolean {
   if (LEADING_SUBORDINATOR.test(trimmed)) return false;
   const clause = trimmed.split(/[,;:—]/)[0] ?? trimmed;
   return STATE_OPENING.test(clause);
+}
+
+/**
+ * A dateline whose month the extractor dropped, left in front of the sentence.
+ *
+ * Card 16 of the delivered 2026-10-20 briefing opened *"20, 2026 – The PyTorch
+ * Foundation, a community-driven hub …, on 20 October 2026 announced the
+ * addition of nine new members …"*: the source's dateline was cut to a day and
+ * a year, and the sentence then states the same date again. The stored evidence
+ * unit carries the cut dateline verbatim (`article_evidence` unit 0 of article
+ * `132ca74f`), so this is the source's own text and it is refused, not repaired
+ * (ruling #6's precedent): a sentence that opens on a day with no month has no
+ * reading that is true.
+ *
+ * The shape is a day, a comma, a year and a dash at the very start. A sentence
+ * that merely begins with a number does not match (`20, 2026 was the year …`),
+ * and neither does a date inside the sentence.
+ */
+const TRUNCATED_DATELINE = /^\d{1,2},\s*\d{4}\s*[–—−-]\s+/u;
+
+export function truncatedDateline(text: string): boolean {
+  return TRUNCATED_DATELINE.test(text.trim());
+}
+
+/**
+ * Whether a sentence starts inside a quotation the page never opens.
+ *
+ * Card 24 of the delivered 2026-10-20 briefing opened *"A lot of companies and
+ * experts have been talking about the ChatGPT moment for robotics,” she said,
+ * adding that right now the industry was more in a “LEGO era."* — the first
+ * quotation mark is a **closing** one, `she` has no antecedent in the line, and
+ * the last quotation is never closed. `unresolvedContextOpening` returned
+ * `false` for it, which is the #17-class miss: the sentence cannot open a page
+ * because the reader joins it mid-conversation.
+ *
+ * Two literal tests, no grammar: the first quotation mark must not be a closing
+ * one, and the marks must pair. Straight quotes are counted only when they are
+ * quotation marks — inches and minutes (`The 6" pipe`) are not — and curly
+ * marks are counted as themselves.
+ */
+const QUOTATION_MARK = /[\u201c\u201d"]/u;
+const INCH_MARK = /(?<=\d)["\u2033]|["\u2033](?=\d)/gu;
+
+export function brokenQuotation(text: string): boolean {
+  const trimmed = text.trim();
+  const first = trimmed.search(QUOTATION_MARK);
+  if (first >= 0 && trimmed[first] === "\u201d") return true;
+  const opens = (trimmed.match(/\u201c/gu) ?? []).length;
+  const closes = (trimmed.match(/\u201d/gu) ?? []).length;
+  if (opens !== closes) return true;
+  const straight = (trimmed.replace(INCH_MARK, "").match(/"/gu) ?? []).length;
+  return straight % 2 === 1;
+}
+
+/**
+ * A card opening that says nothing a reader can act on.
+ *
+ * Two delivered lines of the 2026-10-20 briefing are the class (ruling #19's
+ * thin-card bar, applied to the line rather than to the story): *"Meet the Java
+ * Champions."* — a heading used as the card's opening, with no news in it — and
+ * *"Some FairStress scenarios have a clearly stronger candidate whose profile
+ * better satisfies the stated criteria."* — a description of the method where
+ * the finding existed in the same row.
+ *
+ * Both shapes are closed and measured, and neither is a grammar test:
+ *
+ *   - **the invitation**: an imperative `Meet …` / `Introducing …` heading. A
+ *     card that opens by introducing its subject has announced no event.
+ *   - **the definition**: a quantified class (`Some …`, `Most …`) carrying a
+ *     stative or comparative predicate and no figure and no past tense. A
+ *     finding states what happened; a definition states what could.
+ *
+ * The caller advances to the next candidate first (the walk in `editorial.ts`),
+ * so this only withholds a story whose every candidate is one of these.
+ */
+const INVITATION_OPENING =
+  /^(?:meet|introducing|introduces|say hello to|get to know|here['’]s how|here is how|what you need to know|a look at)\b/iu;
+const QUANTIFIED_CLASS_OPENING = /^(?:some|most|many|several|a few|each|every|any)\s+[\p{L}]/iu;
+const STATIVE_COMPARATIVE =
+  /\b(?:have|has|had|contain|contains|include|includes|consist|consists|differ|differs|vary|varies|depend|depends|satisf(?:y|ies)|better|stronger|weaker|larger|smaller|higher|lower|more|less)\b/iu;
+
+export function fillerOpening(text: string): boolean {
+  const trimmed = text.trim();
+  if (INVITATION_OPENING.test(trimmed) && trimmed.split(/\s+/).length <= 12) return true;
+  if (!QUANTIFIED_CLASS_OPENING.test(trimmed)) return false;
+  const clause = trimmed.split(/[,;:—]/)[0] ?? trimmed;
+  if (!STATIVE_COMPARATIVE.test(clause)) return false;
+  // A figure is a result the reader can hold on to, even in a present-tense
+  // sentence ("Some 60% of the models chose the minority candidate"), so the
+  // definition class is the one with no number in it at all.
+  return !/\d/.test(clause);
 }
 
 /**
@@ -4325,6 +4466,10 @@ export function unitTextRejection(
   // `nothing` where `noting` belongs, measured on the live story of 2026-10-17
   // and ruled into this class the same day (ruling #6). Refused, not repaired.
   if (sourceTypo(text)) return "editorial_noise";
+  // A dateline whose month the extractor dropped: the sentence opens on a day
+  // with no month and then states the date again (delivered card 16 of
+  // 2026-10-20). The source's own text, refused rather than repaired.
+  if (truncatedDateline(text)) return "editorial_noise";
   // The same family, one layer closer to the reader: a sourcing note the article
   // writes about how it got the story. It is a complete sentence with no fact in
   // it, so the grammar tests pass it -- and one of them reached the Combs story
