@@ -221,11 +221,11 @@ treatment.
 
 **Acceptance measure.** At 1280 on `/dashboard/history`: each day-with-stories renders exactly **one**
 anchor whose rect is the card's (~964 × 150 px in the capture) and `document.querySelectorAll("a
-a").length === 0`; no anchor contains the text "Open briefing" as its own element, and the text is still
-on screen at 12.5 px. Clicking the card's centre navigates to `/dashboard/briefing?digest=<that day>` —
-check the id in the URL against the day clicked, not just that navigation happened. Skipped days: 0
-anchors. Keyboard: one tab stop per day card, and the focus ring is the authored one after S5 (this
-card is a nav target, so it takes `focusRing`).
+a").length === 0`; the words "Open briefing" are still on screen at 12.5 px inside that anchor, not as a
+second link. Clicking the card's centre navigates to `/dashboard/briefing?digest=<that day>` — check the
+id in the URL against the day clicked, not just that navigation happened. Skipped days: 0 anchors.
+Keyboard: one tab stop per day card, and the focus ring is the authored one after S5 (this card is a nav
+target, so it takes `focusRing`).
 
 **Owner.** rook. Unit **A** with S4. No blocking dependency.
 
@@ -252,13 +252,14 @@ label shrinks, truncates or abbreviates.
 
 **Smallest change.** Two utilities on the existing elements, no wrapper and no new component:
 
-1. On the `<nav>`: keep `mb-6 overflow-x-auto border-b border-hairline`, add `sm:overflow-visible` and
-   the mobile-only fade `max-sm:[mask-image:linear-gradient(to_right,black_88%,transparent)]`. The mask
-   is alpha only — it introduces no colour — and it is on the scroller itself, which is why no extra
-   element is needed (a fade element inside a scroller would scroll away with the content).
-2. On the inner row (`flex min-w-max gap-5`): add `max-sm:snap-x max-sm:scroll-px-2` and
-   `sm:min-w-0 sm:flex-wrap`; on each button add `max-sm:snap-start`. Below `sm` the row still scrolls;
-   at `sm` and up it wraps and nothing is hidden.
+1. On the `<nav>` — the scroll container, so the snap and the padding belong here, not on the row: keep
+   `mb-6 overflow-x-auto border-b border-hairline`, add `sm:overflow-visible` and the mobile-only
+   `max-sm:snap-x max-sm:snap-mandatory max-sm:scroll-px-2 max-sm:[mask-image:linear-gradient(to_right,black_88%,transparent)]`.
+   The mask is alpha only — it introduces no colour — and it is on the scroller itself, which is why no
+   extra element is needed (a fade element inside a scroller would scroll away with the content).
+2. On the inner row (`flex min-w-max gap-5`): add `sm:min-w-0 sm:flex-wrap`; on each button add
+   `max-sm:snap-start`. Below `sm` the row still scrolls and snaps to a month; at `sm` and up it wraps and
+   nothing is hidden.
 
 `months.length <= 1` still returns `null`. Do not change `py-3`, the 13 px label size, the 2 px
 `border-b-2` active rule, or the `text-signal`/`text-muted-foreground` states.
@@ -269,9 +270,9 @@ label shrinks, truncates or abbreviates.
 **Acceptance measure.** At 1280 and at 768: `nav.scrollWidth === nav.clientWidth` (0 px hidden), all
 13 buttons' rects inside the nav's rect, and the nav grows by rows rather than clipping (≤ 120 px at
 1280, ≤ 160 px at 768 — the single-row baseline capture is 57 px). At 360: scrolling is allowed
-(`scrollWidth > clientWidth`), computed `mask-image` on the nav is
-not `none`, computed `scroll-snap-type` on the row is `x mandatory` or `x proximity`, and scrolling the
-nav fully right reveals the last button. At 320/360/768/1280:
+(`scrollWidth > clientWidth`), computed `mask-image` on the nav is not `none`, computed
+`scroll-snap-type` on the **nav** is `x mandatory`, and scrolling the nav fully right reveals the last
+button. At 320/360/768/1280:
 `document.documentElement.scrollWidth === document.documentElement.clientWidth` (no page-level
 overflow). Labels unchanged: 13 px, no `text-overflow` ellipsis anywhere in the strip.
 
