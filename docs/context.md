@@ -2912,8 +2912,8 @@ page** (Cloudflare 1102, 503, "Something failed on our side", blank) on a back-t
 returned 200 in 7.7–11.2 s when paced, so the failures are load-shaped. Alerts had fired **5 times by
 09:16**, including a Fire HD discount and an Oblivion FPS mod, on a surface that says most days are
 silent. An anonymous browser gets `/auth` on every reader route (HTTP 200, client-side), so the read
-was taken **read-only** in a browser holding a reader session. The deck was composed 22:30Z
-2026-10-20, **before** `f0b2761`, so its text is evidence about the composer up to that point, not
-about the merge. Report and screenshots: [live-read-2026-10-21.md](live-read-2026-10-21.md),
+was taken **read-only** in a browser holding a reader session. The deck is the 07:30 JST one, so it
+was composed by 22:30Z 2026-10-20, **before** `f0b2761` merged at 01:02Z — its text is evidence about
+the composer up to that point, not about the merge. Report and screenshots: [live-read-2026-10-21.md](live-read-2026-10-21.md),
 [screenshots/live-2026-10-21/](screenshots/live-2026-10-21/). No product code, no deploy, no
 migration, no write to production.
