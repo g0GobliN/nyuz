@@ -2839,3 +2839,13 @@ Files: `scripts/significance-window-audit.ts`, `docs/decisions/significance-wind
 `docs/audits/significance-window-12c-30d.json` (regenerated with the `verdict` block and the ruling it was
 read under), this file. Read-only and deterministic: no model call, no database write, no product
 behaviour change, no withholding rule added.
+
+**2026-10-21 — the production audit went red on a new vite advisory, and a patch-level pin closed it.**
+`npm audit --omit=dev --audit-level=high` began reporting `vite@8.1.5` as **high** severity when three
+launch-editor advisories were published (GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw, GHSA-587h-7wmj-h5pm),
+so **Dependencies and secret names** failed on every branch including `main` and the deploy job was
+skipped — nothing in the tree changed; the advisory feed did. `vite` is reachable from production
+dependencies (`package-lock.json` carries no `dev` flag on it), which is why `--omit=dev` audits it. The
+exact pin moved **8.1.5 → 8.3.4** (npm's named fix), with `postcss` 8.5.31 and `nanoid` 3.3.20 re-resolved
+inside vite's own ranges and no range of ours widened. Re-read: **0 vulnerabilities**. Same shape as the
+2026-10-16 `@tanstack/*` bump above.
