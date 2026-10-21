@@ -64,6 +64,7 @@
     "audit:alerts-gate": "node --env-file=.env scripts/tsrun.mjs scripts/reader-surface-audit.ts --alerts",
     "audit:delivered-line:window": "node --env-file=.env scripts/tsrun.mjs scripts/reader-delivered-line.ts --window",
     "diagnostic:composition": "node --env-file=.env scripts/tsrun.mjs scripts/reader-composition-diagnostic.ts",
+    "timing:read-path": "node --env-file=.env scripts/tsrun.mjs scripts/reader-read-path-timing.ts",
     "audit:posture": "node --env-file=.env scripts/tsrun.mjs scripts/product-posture.ts",
     "audit:backlog": "node --env-file=.env scripts/tsrun.mjs scripts/backlog-attribution.ts",
     "audit:matching": "node --env-file=.env scripts/tsrun.mjs scripts/reader-matching-cause.ts",

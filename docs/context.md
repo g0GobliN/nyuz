@@ -1715,6 +1715,78 @@ pass narrows to the bar, or the floor becomes a report rather than a gate, is an
 pair is pinned in both directions so neither side can be "fixed" by moving the other: the floor refuses
 it (`twin-floor.test.ts`) and the pass still fuses it (`it.fails` in `duplicates.test.ts`).
 
+**The three rules did not spend the read path's budget; the gate's cost moved a day earlier (measured
+2026-10-20, re-measured and corrected 2026-10-21).** Rulings #17/#18/#19 (PR #27), the twin floor (#28)
+and the celebration wiring (#29) run on
+every card, and the question was whether they spent the ~710 ms grace the build's stages are measured
+against. A new read-only instrument answers it with numbers: `npm run timing:read-path`
+(`scripts/reader-read-path-timing.ts`) times `selectStage` / `screenStage` / `gateStage` / `writeStage`
+with `process.cpuUsage()` per phase and for every brief inside the gate, and `--freeze` writes the
+screen/gate/write inputs so two worktrees read the identical corpus (`--replay` needs no database).
+
+Measured on `640a69b6` — the 22:30Z reader that carried the CPU work: **1,000 live matches → 133
+eligible → 37 considered → 33 after twins → 25 shipped**, cap 25 — Node 22, one frozen pool, **six
+matched alternating cold processes per tree** (a tick is a cold invocation), medians:
+
+```
+phase                                    before #27 (3e6c5f6)   main 3ee81ae   delta   ±spread
+screen · suppressStoryTwins                            459.2ms        450.8ms   -1.8%    15.9%
+screen · suppressDeliveredTwins                        445.5ms        443.2ms   -0.5%    14.4%
+gate · assessReadiness                                9621.9ms       9318.7ms   -3.2%    16.1%
+  one selectReaderEvidence pass (the gate runs two)   1673.2ms       1678.2ms   +0.3%     9.4%
+write · payload                                        217.4ms        179.1ms  -17.6%    40.1%
+total, every row                                      12457.1ms      12046.2ms   -3.3%    13.1%
+per-brief gate median                                   193.1ms        192.9ms   -0.1%
+per-brief gate p95                                       795.7ms        815.9ms   +2.5%
+paired per-brief ratio, median of 6 pairs, 33 briefs each     0.998  (0.969 – 1.018)
+```
+
+Every phase sits inside its own run-to-run spread, and the paired ratio — the same brief timed on both
+trees in the same minute, which cancels machine noise — is **0.998**. The new predicates' own self
+time in a `--cpu-prof` of the same replay is single-digit milliseconds each — `unexpandedAcronymOpening`
+12.1 ms, `restoreDottedNames` 8.4, `thinStateOpening` 6.5, `bareReferenceOpening` 3.4, `markersOf` 2.0
+of a 10,219 ms profile — and the dashboard's per-request predicates are **0.27 µs**
+(`isVendorCelebrationTitle`) and **0.64 µs** (`isReaderDealTitle`) per title. **No rule from
+#17/#18/#19 spent the budget; nothing was weakened, and no production code changed.** The one
+behavioural difference on the corpus is the intended one: the widened twin vocabulary drops one more
+pair (34 → 33 briefs).
+
+**The instrument's first version was wrong, and the fix moved a row by 3×.** The first run of this
+script dropped the gate's own `opening` on the way to the payload (`gate()` returned `ready`/`cpu`/
+`perBrief` but not `openings`, so `writePayload` received `undefined`), which made every shipped brief
+re-compose its opening from scratch inside the write — work production does not do, because
+`writeStage` reads the gate's opening back from `progress.verdicts` (digest.ts:1487-1491). Both trees
+were measured with that bug, so the comparison stayed fair but the row was inflated (**647 ms → 217 ms**
+once fixed, and the payload 2,340 → 5,851 bytes, because the recovered compositions were shorter than
+the gate's own sentences). The lesson recorded for the next reader: a phase that re-does work an
+earlier phase already did is a defect in the *instrument*, and it is invisible on a relative comparison
+because both sides carry it.
+
+**What the measurement did find is an older move, and it changes the budget reading.** A cold live
+build now costs **8.2–12.4 s of CPU** across runs — select 1.26 s (`loadMatches` 164 ms,
+`alreadyBriefed` 28, `selectItems` 35, `suppressDeliveredDuplicates` 968), screen 1.29 s, gate
+5.5–9.8 s, write payload 0.18–0.22 s — with the gate's per-brief median **123–210 ms**, p95
+**487–816 ms**, worst **1,021 ms**, against the recorded 6.4 s / median 18 ms / worst 435 ms. The
+cause is not #17–#19: commit `449f979` (2026-10-19, *"Compose the gate's opening from the same
+material the page reads"*, ruling #11) attached `article_evidence` to the gate's sources. Replayed
+with the evidence stripped, the same 33 briefs gate in **2,863–4,719 ms at a 7–16 ms median** — the
+recorded shape — and with it attached, **~9.3 s at ~193 ms**. The gate also runs `selectReaderEvidence`
+**twice** per brief (readiness.ts:641 for the fact count, then the composer at editorial.ts:3031 after
+normalization); one pass is **1.67–1.68 s** of the gate, which is where a bounded optimization would
+go if the spend is to come back. Nothing was changed here: the attachment is a reader-facing quality
+fix (it took the delivered page/card match from 10 of 13 to 13 of 13), weakening it is a ruling, and
+deduping the selection needs the normalization shared before it can be proved identical. **Budget
+reading now:** one gate brief per tick (`GATE_BRIEFS_PER_INVOCATION` 1) at a 123–199 ms median fits
+the ~710 ms grace, but the p95 and the ~1 s worst do not, so the largest stories can still cost a gate
+tick. Replay:
+
+```
+nvm use 22
+npm run timing:read-path -- --user 640a69b6 --runs 3
+npm run timing:read-path -- --user 640a69b6 --freeze pool.json
+npm run timing:read-path -- --replay pool.json --runs 6 --json after.json
+```
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
@@ -2234,6 +2306,7 @@ npm run audit:reader -- --corpus tmp/corpus-after.json   # the composer's publis
 npm run audit:reader -- --find "DigiCert"                # one event's raw rows
 npm run audit:fusion                                     # re-extract sources to confirm fusions
 npm run briefing:checkpoint                              # one command, end to end
+npm run timing:read-path -- --user <id> --runs 3         # the build's CPU, per phase and per brief
 node --env-file=.env scripts/tsrun.mjs scripts/reader-corpus-freeze.ts --out tmp/corpus-after.json
 ```
 
