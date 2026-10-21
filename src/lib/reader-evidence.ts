@@ -3191,21 +3191,22 @@ const MONTH_NAMES = [
 ];
 
 /**
- * The zone the page anchor dates are written in.
- *
- * The instrument and the page are two processes that read the same anchor. When
- * either used the host's local zone, the day label they wrote depended on the
- * host's `TZ`: the page composed on the Worker's clock (UTC), the audit composed
- * on the laptop's, and the same event published on 21 October (UTC) read as
- * 20 October under `America/New_York` -- a real defect the audit could not see
- * on the Worker's machine and the Worker could not see on the auditor's. UTC
- * pins the calendar day to the absolute moment the event was published, so
- * both processes agree.
- */
-const ANCHOR_TZ = "UTC";
-
-/**
  * A clone of `at` zeroed to the start of its UTC day, for day/month/year math.
+ *
+ * UTC is the zone the page's anchor dates are written in. The instrument and the
+ * page are two processes that read the same anchor. When either used the host's
+ * local zone, the day label they wrote depended on the host's `TZ`: the page
+ * composed on the Worker's clock (UTC), the audit composed on the laptop's, and
+ * the same event published on 21 October (UTC) read as 20 October under
+ * `America/New_York` -- a real defect the audit could not see on the Worker's
+ * machine and the Worker could not see on the auditor's. Pinning to UTC ties the
+ * calendar day to the absolute moment the event was published, so both processes
+ * agree. See [docs/decisions/anchored-dates-utc.md](../../docs/decisions/anchored-dates-utc.md).
+ *
+ * The pinning is carried by the accessors themselves rather than by a zone
+ * constant: `Date` reads UTC from `getUTC*` and writes it from `setUTC*`, and
+ * neither takes a zone argument, so a `"UTC"` string here would document the rule
+ * without governing anything.
  *
  * `Date` setters obey the host zone, so writing `setMonth(getMonth() + 1)` to
  * a date near a month boundary in a negative-offset zone landed on the prior

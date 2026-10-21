@@ -67,8 +67,11 @@ already wrote UTC), the published briefing does not need to be rebuilt (`3fcbb21
 `delivered-line`, `delivered-summary`) all read from the same formatter — they all agree now.
 
 The change is the formatter plus the in-house rule that **anchor dates are written in UTC** — a
-fixed, documented zone, declared once (`ANCHOR_TZ = "UTC"` in `reader-evidence.ts`) with a comment
-that explains the rationale and points at this file.
+fixed, documented zone, carried by the `getUTC*` / `setUTC*` accessors the three formatters and
+their `atUTC` clone use, with the rationale documented on `atUTC` and a pointer here. The zone is
+not held in a string constant: `Date` takes no zone argument on those accessors, so a named
+`"UTC"` would describe the rule without governing it (an earlier revision carried an unused
+`ANCHOR_TZ` constant; it was removed on 2026-10-21 as dead weight).
 
 ## The test that locks it
 

@@ -2899,8 +2899,8 @@ The two defects were events whose `publishedAt` was 21 October 00:30Z, which is 
 in `America/New_York` (EDT, UTC-4): the page wrote `21 October 2026`, the audit wrote
 `20 October 2026`.
 
-Fix: anchored dates are written in **UTC**, declared once (`ANCHOR_TZ = "UTC"` in
-`reader-evidence.ts`). The three formatters now read `getUTCMonth` / `getUTCDate` /
+Fix: anchored dates are written in **UTC**, carried by the `getUTC*` / `setUTC*` accessors rather
+than a zone constant. The three formatters now read `getUTCMonth` / `getUTCDate` /
 `getUTCFullYear`, clone through `setUTCHours(0, 0, 0, 0)`, and run shift arithmetic in UTC.
 Reader-facing rendering is unchanged — the page already wrote UTC under Cloudflare. Lock-in: a
 vitest describe block in `reader-prose-rules.test.ts` ("anchored relative dates do not depend on
@@ -3121,3 +3121,16 @@ prose at 109 cpl; a 46×19 dismiss button; and briefing copy claiming an inbox d
 until launch — does not perform. Measured as sound and not to be changed: the three-colour palette in the
 DOM, a 5.20 contrast floor, no horizontal overflow at 320–1280, and one page-header pattern across five
 surfaces. No product code changed and no vote, save, dismiss or preference was touched.
+
+**Anchored dates: the unused `ANCHOR_TZ` constant removed (2026-10-21).** Hygiene, no behaviour
+change. `src/lib/reader-evidence.ts` declared `const ANCHOR_TZ = "UTC"` with a 13-line rationale
+comment and never read it — the three formatters and the `atUTC` clone use `getUTC*`/`setUTC*`,
+which take no zone argument, so there was no behaviour-preserving way to consume the string short
+of calling it from nowhere. The declaration was removed and its rationale moved onto `atUTC`, the
+function the UTC pinning actually lives in, with the note that the zone is carried by the accessors
+rather than by a name. Two records named the symbol as "declared once" — this log and
+`docs/decisions/anchored-dates-utc.md` — and both were corrected in the same commit so neither
+falsifies the tree. No UTC getter, no setter and no label changed; the formatter's behaviour is
+byte-identical, and the timezone-determinism describe block in `reader-prose-rules.test.ts` is the
+witness. Origin: fast-forwarding PR #37 onto `origin/main` at `058f049` (docs-only), which carried
+`afaad5c` plus the merge.
