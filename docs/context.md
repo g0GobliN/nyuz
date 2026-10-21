@@ -3012,3 +3012,17 @@ is reported: 24 after the twin fusion, minus card 24 for its headline typo. `npm
 stays **PASS 25/25** on the archive because that instrument reads stored artifacts and the rules changed no
 stored row.
 
+**Design audit of the deployed reader surfaces (2026-10-21).** The signed-in product was read at
+1280 / 768 / 360 plus a 320 px reflow probe — feed, briefing, archive, story, alerts, alert history —
+with every number measured from the live DOM and the evidence committed under
+`docs/screenshots/design-audit-2026-10-21/` (account name and avatar redacted). Record:
+[design-audit-2026-10-21.md](design-audit-2026-10-21.md). Two blockers on the briefing: it renders its
+**25 stories with zero links** (the marketing `BriefingPreview` was mounted in the product unchanged, so
+the surface is a dead end), and it sets **144 characters on a 911 px line** where the rest of the product
+runs 88–109. Should-fix: two `<h1>`s on every desktop dashboard page; the briefing's `H1 → H3` skip with
+no headings on its 25 items; archive rows that respond only on a 76×19 text link; a 13-month strip hiding
+9 months behind an invisible horizontal scroll; no authored focus ring on nav and icon controls; story
+prose at 109 cpl; a 46×19 dismiss button; and briefing copy claiming an inbox delivery that email — dark
+until launch — does not perform. Measured as sound and not to be changed: the three-colour palette in the
+DOM, a 5.20 contrast floor, no horizontal overflow at 320–1280, and one page-header pattern across five
+surfaces. No product code changed and no vote, save, dismiss or preference was touched.
