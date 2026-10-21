@@ -4,7 +4,7 @@
 **Reviewer:** pixel (design)
 **Origin read:** `https://nyuz.grgvishal-gurung17.workers.dev`
 **Branch:** `wt/design-audit`
-**Evidence:** [docs/screenshots/design-audit-2026-10-21/](screenshots/design-audit-2026-10-21/)
+**Evidence:** screenshots captured locally during the audit, not committed (available on request)
 
 No product code was changed in this slice. This document is guidance for forge and rook.
 
@@ -345,7 +345,7 @@ land and be re-photographed on their own.
 
 ## 6. Evidence index
 
-All images are in `docs/screenshots/design-audit-2026-10-21/`. Full-page captures are named
+Full-page captures are named
 `<surface>-<width>.png`; the first 900 px of each is also saved as `<surface>-<width>-fold.png`.
 Screenshots were palette-compressed (128 colours, mean channel difference ≤ 0.09 on UI surfaces)
 so the audit adds **3.6 MB** rather than the 13 MB the raw captures weighed.
