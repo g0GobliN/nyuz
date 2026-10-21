@@ -2,7 +2,7 @@
   "id": "/",
   "name": "nyuz",
   "short_name": "nyuz",
-  "description": "A personalized news briefing without the noise.",
+  "description": "A personalized information briefing without the noise.",
   "start_url": "/dashboard",
   "scope": "/dashboard",
   "display": "standalone",
@@ -11,7 +11,7 @@
   "background_color": "#0a0a0a",
   "lang": "en",
   "dir": "ltr",
-  "categories": ["news"],
+  "categories": ["news", "magazines"],
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },

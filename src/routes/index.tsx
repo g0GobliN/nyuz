@@ -10,6 +10,7 @@ import { HeroReaders } from "@/components/landing/readers";
 import { NoiseSection } from "@/components/landing/noise";
 import { HowItWorksRail, Comparison } from "@/components/landing/how-it-works";
 import { ProfileDemo, WhyDifferent, AiTrust, Infrastructure } from "@/components/landing/sections";
+import { Coverage } from "@/components/landing/coverage";
 import { SourceTransparency, FinalCta } from "@/components/landing/closing";
 import { getPublicSiteContent } from "@/lib/server/settings";
 import { siteOrigin } from "@/lib/site-origin";
@@ -77,6 +78,11 @@ const SECTION_COMPONENTS: Record<
   SectionKey,
   { node: ReactNode; reveal?: boolean; bare?: boolean }
 > = {
+  // The first section below the hero artwork: what nyuz covers. It comes
+  // before the topic demo because the demo is the proof of this claim — the
+  // visitor should know what the breadth is before they are asked to pick
+  // from it.
+  coverage: { node: <Coverage />, reveal: true },
   interestDemo: { node: <InterestDemo />, reveal: true },
   noise: { node: <NoiseSection /> },
   howItWorks: { node: <HowItWorksRail />, reveal: true },

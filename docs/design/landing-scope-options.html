@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>nyuz — landing page: scope proposal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,300;6..72,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.968 0 0);
+    --surface:   oklch(0.178 0 0);
+    --surface-2: oklch(0.205 0 0);
+    --muted:     oklch(0.238 0 0);
+    --muted-foreground: oklch(0.665 0 0);
+    --border:    oklch(1 0 0 / 12%);
+    --hairline:  oklch(1 0 0 / 9%);
+    --signal:    oklch(0.72 0.12 240);
+    --signal-foreground: oklch(0.145 0 0);
+    --radius: 0.875rem;
+    --shadow-float: 0 1px 2px oklch(0 0 0 / 0.4), 0 18px 50px -18px oklch(0 0 0 / 0.7);
+    --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+    --font-serif: "Newsreader", ui-serif, Georgia, serif;
+  }
+  *{ box-sizing:border-box; }
+  html{ scroll-behavior:smooth; -webkit-font-smoothing:antialiased; }
+  body{
+    margin:0; background:var(--background); color:var(--foreground);
+    font-family:var(--font-sans); letter-spacing:-0.011em; line-height:1.5;
+  }
+  h1,h2,h3{ letter-spacing:-0.035em; margin:0; }
+  .display{ font-weight:500; letter-spacing:-0.04em; line-height:1.03; }
+  .eyebrow{ font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.18em; color:var(--muted-foreground); }
+  .muted{ color:var(--muted-foreground); }
+
+  /* ---------- option frames ---------- */
+  .opt{ border-top:1px solid var(--border); padding:56px 0 0; }
+  .opt-head{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding:0 32px 26px; }
+  .opt-tag{
+    font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--signal); border:1px solid color-mix(in oklab, var(--signal) 40%, transparent);
+    border-radius:999px; padding:4px 11px;
+  }
+  .opt-title{ font-size:19px; font-weight:600; letter-spacing:-0.02em; }
+  .opt-note{ font-size:13px; color:var(--muted-foreground); max-width:760px; }
+
+  /* ---------- page furniture (faithful to the real site) ---------- */
+  .nav{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 32px; border-bottom:1px solid var(--hairline);
+  }
+  .brand{ display:flex; align-items:center; gap:10px; font-size:15px; font-weight:600; letter-spacing:-0.02em; }
+  .nav-links{ display:flex; gap:26px; font-size:13.5px; color:var(--muted-foreground); }
+  .nav-cta{
+    display:inline-flex; align-items:center; gap:8px; background:var(--foreground); color:var(--background);
+    border-radius:999px; padding:9px 18px; font-size:14px; font-weight:500;
+  }
+
+  .wrap{ max-width:1152px; margin:0 auto; padding:0 32px; }
+
+  /* hero */
+  .hero{ position:relative; padding:88px 0 56px; }
+  .hero-grid{ display:grid; grid-template-columns:1.05fr .95fr; gap:56px; align-items:center; }
+  .h1{ font-size:clamp(42px,5.5vw,80px); }
+  .hero-sub{ margin-top:28px; max-width:420px; font-size:16.5px; color:var(--muted-foreground); line-height:1.6; }
+  .hero-cta{ margin-top:36px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .btn-primary{
+    display:inline-flex; align-items:center; gap:9px; background:var(--foreground); color:var(--background);
+    border-radius:999px; padding:15px 30px; font-size:15px; font-weight:500;
+  }
+  .btn-ghost{ font-size:14px; color:var(--muted-foreground); }
+  .hero-foot{ margin-top:32px; font-size:12.5px; color:var(--muted-foreground); }
+
+  /* the scope strip — the new element (v3: borderless editorial extension,
+     single content axis, rule trimmed to the paragraph) */
+  .scope{
+    margin-top:30px; padding-top:22px;
+    border-top:1px solid var(--hairline);
+  }
+  .scope-head{ display:flex; gap:14px; align-items:flex-start; }
+  .scope-rule{ width:2px; align-self:stretch; background:var(--signal); border-radius:2px; flex:none; }
+  .scope-kicker{ font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.18em; color:var(--signal); }
+  /* margin-bottom is reset explicitly: without it the paragraph's default
+     bottom margin extends the flex line, and the blue rule (which stretches
+     to that line) hangs ~16px below the last line of text. */
+  .scope-line{ margin:7px 0 0; font-size:15.5px; line-height:1.5; max-width:400px; }
+  /* the chips share the label/paragraph axis, not the rule's gutter */
+  .scope-chips{ margin-top:18px; margin-left:16px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .scope-chip{
+    font-size:11.5px; color:var(--muted-foreground); border:1px solid var(--hairline);
+    border-radius:999px; padding:3.5px 10px; background:transparent;
+  }
+  .scope-more{ font-size:11.5px; color:var(--muted-foreground); margin-left:2px; }
+
+  /* readers art — full-bleed under the hero (no negative margin: the section
+     itself carries no horizontal padding, so -32px would overflow) */
+  .readers{ margin:0; }
+  .readers img{ width:100%; display:block; }
+
+  /* section */
+  .sec{ padding:72px 0; border-top:1px solid var(--hairline); }
+  .sec-grid{ display:grid; grid-template-columns:.9fr 1.1fr; gap:56px; align-items:start; }
+  .sec h2{ font-size:clamp(28px,3vw,44px); margin-top:12px; }
+  .sec p.lede{ margin-top:20px; max-width:430px; font-size:15px; color:var(--muted-foreground); line-height:1.65; }
+
+  .chips{ margin-top:28px; display:flex; flex-wrap:wrap; gap:8px; }
+  .chip{
+    display:inline-flex; align-items:center; gap:5px; font-size:13px; padding:7px 14px; border-radius:999px;
+    border:1px solid var(--border); background:var(--surface); color:var(--muted-foreground); cursor:pointer;
+    transition:all .2s ease;
+  }
+  .chip.on{ background:var(--foreground); color:var(--background); border-color:transparent; }
+  .chip:hover{ color:var(--foreground); }
+
+  /* briefing card */
+  .brief{
+    border:1px solid var(--hairline); border-radius:24px; background:var(--surface);
+    box-shadow:var(--shadow-float); overflow:hidden;
+  }
+  .brief-top{ display:flex; justify-content:space-between; align-items:center; padding:14px 20px; border-bottom:1px solid var(--hairline); font-size:12px; color:var(--muted-foreground); }
+  .brief-head{ padding:24px 20px 8px; }
+  .brief-head h3{ font-family:var(--font-serif); font-size:26px; font-weight:400; margin-top:8px; }
+  .brief-list{ list-style:none; margin:0; padding:0 20px; }
+  .brief-list li{ padding:20px 0; border-top:1px solid var(--hairline); }
+  .brief-org{ font-size:11px; font-weight:500; text-transform:uppercase; letter-spacing:.14em; color:var(--signal); }
+  .brief-title{ margin-top:6px; font-size:16px; font-weight:500; line-height:1.35; }
+  .brief-what{ margin-top:8px; font-size:13.5px; color:var(--muted-foreground); line-height:1.6; }
+  .brief-why{ margin-top:12px; font-size:13px; line-height:1.55; }
+  .brief-why b{ font-weight:500; }
+  .brief-why span{ color:var(--muted-foreground); }
+  .brief-src{ margin-top:10px; font-size:11.5px; color:var(--muted-foreground); }
+  .brief-foot{ display:flex; justify-content:space-between; padding:16px 20px; border-top:1px solid var(--hairline); font-size:12px; color:var(--muted-foreground); }
+
+  .cap{ margin-top:14px; font-size:12.5px; color:var(--muted-foreground); }
+
+  /* diff grid */
+  .diffs{ display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--hairline); border:1px solid var(--hairline); border-radius:24px; overflow:hidden; margin-top:44px; }
+  .diff{ background:var(--surface); padding:32px; }
+  .diff p.t{ font-size:19px; font-weight:500; letter-spacing:-0.02em; }
+  .diff p.b{ margin-top:12px; font-size:14.5px; color:var(--muted-foreground); line-height:1.6; }
+  .diff.span{ grid-column:1 / -1; }
+
+  @media (max-width:900px){
+    .hero-grid, .sec-grid{ grid-template-columns:1fr; gap:36px; }
+    .diffs{ grid-template-columns:1fr; }
+    .nav-links{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ================================================================= -->
+<!-- OPTION A — the scope strip lives in the hero, under the fold of the fold -->
+<!-- ================================================================= -->
+<div class="opt">
+  <div class="opt-head">
+    <span class="opt-tag">Option A</span>
+    <span class="opt-title">Scope strip inside the hero</span>
+    <span class="opt-note">The breadth claim sits under the headline, before the reader scrolls at all. The source marquee below the fold becomes the second, quieter breadth signal. Costs zero new sections; the page gets shorter, not longer.</span>
+  </div>
+
+  <div class="nav">
+    <div class="brand">
+      <svg viewBox="0 0 40 40" width="22" height="22" fill="none"><path d="M7.89 34.95V5M7.89 18.85A12.11 12.11 0 0 1 32.11 18.85V29.7" stroke="currentColor" stroke-width="3.48"/><circle cx="32.11" cy="33.21" r="1.79" fill="#55AEE8"/></svg>
+      <span>nyuz</span>
+    </div>
+    <div class="nav-links"><span>How it works</span><span>Pricing</span><span>About</span><span>Support</span><span>Blog</span></div>
+    <div class="nav-cta">Dashboard</div>
+  </div>
+
+  <section class="hero">
+    <div class="wrap">
+      <div class="hero-grid">
+        <div>
+          <h1 class="display h1">Stop searching.<br>Start knowing.</h1>
+          <p class="hero-sub">What matters to you, reports to you.</p>
+          <div class="hero-cta">
+            <span class="btn-primary">Build my nyuz <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+            <span class="btn-ghost">See how it works</span>
+          </div>
+          <p class="hero-foot">Live sources · Email, push, and Telegram on paid plans</p>
+
+          <!-- THE NEW ELEMENT -->
+          <div class="scope">
+            <div class="scope-head">
+              <span class="scope-rule"></span>
+              <div>
+                <div class="scope-kicker">Not just the news</div>
+                <p class="scope-line">World events, technology, releases, research, music and games — the developments connected to what you follow, not only what made the front page.</p>
+              </div>
+            </div>
+            <div class="scope-chips">
+              <span class="scope-chip">World</span><span class="scope-chip">Climate</span>
+              <span class="scope-chip">AI</span><span class="scope-chip">Open source</span>
+              <span class="scope-chip">Robotics</span><span class="scope-chip">Developer tools</span>
+              <span class="scope-chip">Music</span><span class="scope-chip">Gaming</span>
+              <span class="scope-chip">Health</span><span class="scope-chip">+ 25 more</span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="brief">
+            <div class="brief-top"><span>brief@nyuz.app</span><span>7:30 AM</span></div>
+            <div class="brief-head">
+              <div class="eyebrow">Your 7:30 AM brief</div>
+              <h3>4 things worth knowing.</h3>
+            </div>
+            <ol class="brief-list">
+              <li>
+                <div class="brief-org">Reuters</div>
+                <p class="brief-title">Overnight talks stall, then resume before dawn</p>
+                <p class="brief-what">Negotiators walked out after midnight, then returned to the table before morning briefings went out.</p>
+                <p class="brief-why"><b>Why it matters · </b><span>If you follow world news, this is the event the rest of the day's coverage is going to orbit.</span></p>
+                <p class="brief-src">Based on 18 sources</p>
+              </li>
+              <li>
+                <div class="brief-org">OpenAI</div>
+                <p class="brief-title">OpenAI ships a lower-latency realtime model tier</p>
+                <p class="brief-what">A faster realtime tier, generally available, with streaming audio and tool calls in the same session.</p>
+                <p class="brief-why"><b>Why it matters · </b><span>If you build voice or agent features, latency budgets change.</span></p>
+                <p class="brief-src">Based on 12 sources</p>
+              </li>
+            </ol>
+            <div class="brief-foot"><span>Delivered at 7:30 AM</span><span>Email · Telegram · Notifications</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="readers"><img src="nyuz-readers.png" alt="A crowd of readers with newspapers, phones and laptops" /></div>
+  </section>
+</div>
+
+<!-- ================================================================= -->
+<!-- OPTION B — the scope strip lives under the topic demo -->
+<!-- ================================================================= -->
+<div class="opt">
+  <div class="opt-head">
+    <span class="opt-tag">Option B</span>
+    <span class="opt-title">Scope strip under the topic demo</span>
+    <span class="opt-note">The breadth claim lands where the reader is already choosing topics, so it is read as a reason to pick one. The hero stays exactly as it ships today. Costs one caption block under an existing demo; adds no new section either.</span>
+  </div>
+
+  <section class="sec" style="border-top:1px solid var(--hairline)">
+    <div class="wrap">
+      <div class="sec-grid">
+        <div>
+          <h2 class="display">Show us what you care about.</h2>
+          <p class="lede">Tap a few topics. Watch the briefing rebuild itself.</p>
+          <div class="chips">
+            <span class="chip on">✓ Music</span><span class="chip">Sports</span><span class="chip">Politics</span>
+            <span class="chip">World</span><span class="chip">Gaming</span><span class="chip">Film</span>
+            <span class="chip">Climate</span><span class="chip">Economy</span><span class="chip">Health</span>
+            <span class="chip">AI</span><span class="chip">Anthropic</span><span class="chip">OpenAI</span>
+            <span class="chip">Cursor</span><span class="chip on">✓ Open source</span><span class="chip">Robotics</span>
+            <span class="chip">Developer tools</span><span class="chip">Linux</span><span class="chip">Startups</span>
+            <span class="chip">Chips</span><span class="chip">Cybersecurity</span>
+          </div>
+          <p class="cap">35 topics and the sources you add — news, technology, research, culture. Not just what made the front page.</p>
+        </div>
+        <div>
+          <div class="brief">
+            <div class="brief-top"><span>brief@nyuz.app</span><span>7:30 AM</span></div>
+            <div class="brief-head">
+              <div class="eyebrow">Your 7:30 AM brief</div>
+              <h3>4 things worth knowing.</h3>
+            </div>
+            <ol class="brief-list">
+              <li>
+                <div class="brief-org">Pitchfork</div>
+                <p class="brief-title">Surprise album lands at midnight with no pre-release campaign</p>
+                <p class="brief-what">A full album appeared on streaming services without a single, a trailer, or a press embargo.</p>
+                <p class="brief-why"><b>Why it matters · </b><span>If you follow this artist, the record is out — not 'coming this autumn'.</span></p>
+                <p class="brief-src">Based on 11 sources</p>
+              </li>
+              <li>
+                <div class="brief-org">Cursor</div>
+                <p class="brief-title">Cursor adds background agents that review pull requests</p>
+                <p class="brief-what">Agents that run against a repository and leave review comments before a human opens the diff.</p>
+                <p class="brief-why"><b>Why it matters · </b><span>This changes where review time is spent in a team workflow.</span></p>
+                <p class="brief-src">Based on 8 sources</p>
+              </li>
+            </ol>
+            <div class="brief-foot"><span>Delivered at 7:30 AM</span><span>Email · Telegram · Notifications</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ================================================================= -->
+<!-- OPTION C — ChatGPT's section, translated into this design system  -->
+<!-- ================================================================= -->
+<div class="opt">
+  <div class="opt-head">
+    <span class="opt-tag">Option C</span>
+    <span class="opt-title">A real section — ChatGPT's copy, this system's furniture</span>
+    <span class="opt-note">The copy ChatGPT proposed, set in nyuz's own components. Four category cells, no photography, no stock images. It works — but it adds a full section to a page that is already 10,062px tall and five times repeats its pipeline.</span>
+  </div>
+
+  <section class="sec">
+    <div class="wrap">
+      <div class="eyebrow">What nyuz covers</div>
+      <h2 class="display" style="max-width:640px">Not just what's in the news. What matters in your world.</h2>
+      <p class="lede" style="max-width:560px">The internet is full of things worth knowing that never make the front page. Nyuz keeps you on the developments, ideas and updates connected to your interests — from world events and technology to research, music, gaming, new products and the projects you follow.</p>
+      <div class="diffs">
+        <div class="diff">
+          <p class="t">News and world events</p>
+          <p class="b">The developments shaping the world around you — politics, economy, climate, health.</p>
+        </div>
+        <div class="diff">
+          <p class="t">Technology and projects</p>
+          <p class="b">Tools, releases, company updates and open-source developments. The changelogs nobody reads.</p>
+        </div>
+        <div class="diff">
+          <p class="t">Research and ideas</p>
+          <p class="b">Discoveries, research updates and ideas worth exploring — from the labs and papers themselves.</p>
+        </div>
+        <div class="diff">
+          <p class="t">Music, film and culture</p>
+          <p class="b">Releases, announcements and developments in the things you follow.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+</body>
+</html>
