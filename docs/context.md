@@ -111,7 +111,7 @@ must-be-zero lines are the acceptance test.
 | Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                                                                                                                                                                             |
 | **Deploy path (GitHub Actions)**             | Working — it was **blocked for about twenty minutes on 2026-10-16** (hosted runners stopped starting: `"recent account payments have failed or your spending limit needs to be increased"`, run `38853848933`, every job failed in ~3 s and the deploy showed *skipped*; the run before it, same day, deployed `17d1b36`). Making the repository public restored its free runner minutes, the run was re-queued, and it deployed `6e88b8d` at **05:20Z** with every job green and the origin contract 23/23; the 40 digest ticks after it all ran `healthy`, read on the live Worker. `main` is level with production again. The shape recurs while the repository is private, so it is a stage condition, not a code defect — [deployment.md](deployment.md#deploying). |
 | Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                               |
-| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick |
+| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick. **One briefing is built per reader, at `send_at` in the reader's own zone** (`digest.ts:587-601`), not once globally, and the measured consequence of one brief per tick is **25m43s late** on the 2026-10-20T22:30Z build with **8,690 ms** of CPU per build — [decisions/briefing-delivery-time.md](decisions/briefing-delivery-time.md) |
 | Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled (R1) and extended one measured class at a time (2026-10-17)                                                                                                    |
 | **Briefing email actually delivered**        | **Off on purpose until launch (owner, 2026-10-16)** — the Resend key is deliberately disabled to keep the free send quota for launch, so every email row fails `Resend 401 API key is invalid` by design and nothing has been accepted since 2026-08-26T22:59. The earlier `Missing EMAIL_UNSUBSCRIBE_SECRET` run (26 Aug → 11 Sep) is fixed. Pre-launch channels are push and the dashboard; re-enabling email is a launch-time owner action, not a defect — [AGENTS.md](../AGENTS.md) |
 | Reader article (deterministic composer)      | Built, under active quality work (see §5)                                                                                                                                                                           |
@@ -1787,6 +1787,29 @@ npm run timing:read-path -- --user 640a69b6 --freeze pool.json
 npm run timing:read-path -- --replay pool.json --runs 6 --json after.json
 ```
 
+**2026-10-21 — the delivery-time decision: there is no single 22:30Z build, and the lateness is the
+clock.** A decision task asked whether the briefing should be built once, in timezone bands, per
+reader, or at read time. Measured read-only against the live project and written up in
+[decisions/briefing-delivery-time.md](decisions/briefing-delivery-time.md): the scheduler already
+writes one digest per reader per day at `send_at` resolved in their own zone (`digest.ts:587-601`,
+`schedule.ts:39`). The live rows are 3 readers, `07:30` on every one, zones `UTC ×2` and
+`Asia/Tokyo ×1`, so **2 instants** — `07:30Z` and `22:30Z` — and every reader's slot reads 07:30 on
+their own clock; a 07:30-local briefing has **35** distinct UTC clock times per day across 418 IANA
+zones (37 offsets; measured with `Intl`, same day), so a three-band design would coarsen what already
+runs. The cited
+build `3fcbb21c` (2026-10-20T22:30Z) ran 22:20:33→22:55:38 (**35m05s**), wrote 1 digest, 25 items and
+2 deliveries (push sent; email 401 by owner ruling), and landed **1,543 s late**; the three builds
+before it read 1,722 / 702 / 1,789 s. `npm run timing:read-path` on the same pool measures
+**8,690 ms of CPU per build** — gate 5,832 ms (67%), per-brief median 131.6 ms, p95 498.7 ms, worst
+508.3 ms. **The lateness is arithmetic, not scheduling:** 33 briefs ÷ `GATE_BRIEFS_PER_INVOCATION` 1 =
+~35 ticks from T−10. `BATCH = 8` builds on one instant would cost 1,053 ms against the ~710 ms grace,
+so a shared instant carries 5 readers at the median and 1 at the p95 — the launch ceiling, and one
+bands cannot raise because the 37 instants already exist. Recommendation: keep B (already shipped), fix
+the signup `timezone` default (`0001_init.sql:38/55/263` inserts `'UTC'`; only onboarding overwrites
+it, `prefs-store.ts:76-85`), and make `lateness_seconds ≤ 600` (today 1,543) with gate p95 ≤ 140 ms
+(today 498.7) the acceptance numbers before any band is built. **No product code, migration or deploy
+was changed.**
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
@@ -2284,6 +2307,7 @@ From [AGENTS.md](../AGENTS.md), which is authoritative:
 | Rulings on the reader-delivery path, with their dates | [decisions/reader-delivery.md](decisions/reader-delivery.md) |
 | Why briefings shipped without their shared explanations (2026-10-12) | [decisions/briefing-explanations.md](decisions/briefing-explanations.md) |
 | Why the 22:30 slot failed, and what the 1,936 stuck receipts say | [decisions/briefing-slot-failures.md](decisions/briefing-slot-failures.md) |
+| Whether the briefing should be built once, per band, per reader, or at read time (2026-10-21) | [decisions/briefing-delivery-time.md](decisions/briefing-delivery-time.md) |
 | The security findings, classified before any revocation (R1 item 6) | [decisions/security-classification.md](decisions/security-classification.md) |
 | The reader-quality loop in more depth | [briefing-quality-handoff.md](briefing-quality-handoff.md) |
 | Reader quality audit method | [reader-quality-audit.md](reader-quality-audit.md) |
