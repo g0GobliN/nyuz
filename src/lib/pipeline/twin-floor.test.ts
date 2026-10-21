@@ -67,6 +67,41 @@ describe("twin-floor", () => {
     expect(verdict.clears).toBe(true);
   });
 
+  it("clears the delivered 2026-10-20 SpaceX pair by the result leg, and only by it", () => {
+    // The second widening's bar (2026-10-21): one PRIMARY actor and a frame on
+    // one side with a term on the other. The pair does *not* clear ruling #18's
+    // original leg — one content word, no shared name — so the fixture records
+    // both answers rather than letting the new leg hide the old one.
+    const verdict = twinFloor(
+      {
+        title: "SpaceX’s AI business is beating expectations",
+        whatHappened: "AI was the engine.",
+      },
+      {
+        title: "SpaceX says big AI growth fueled revenue jump",
+        whatHappened:
+          "SpaceX announced revenues of $14.6 billion in its Q3 earnings on Tuesday, which it says was a growth of 161 percent year-over-year.",
+      },
+    );
+    expect(verdict.words).toEqual(["spacex"]);
+    expect(verdict.result.primary).toEqual(["spacex"]);
+    expect(verdict.result.frames).toEqual(["beating expectations"]);
+    expect(verdict.result.terms).toEqual(["revenue"]);
+    expect(verdict.clears).toBe(true);
+  });
+
+  it("does not clear a frame and a term with no shared actor", () => {
+    const verdict = twinFloor(
+      { title: "Apple beats expectations as services grow", whatHappened: null },
+      {
+        title: "SpaceX says big AI growth fueled revenue jump",
+        whatHappened: "SpaceX announced revenues of $14.6 billion.",
+      },
+    );
+    expect(verdict.result.primary).toEqual([]);
+    expect(verdict.clears).toBe(false);
+  });
+
   it("does not count a conjunction as a content word", () => {
     // These two are different stories and the pass fuses them on exactly
     // `hacker`, `agent` and `and`. `and` is not content, so the pair is two

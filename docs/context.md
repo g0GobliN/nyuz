@@ -2972,6 +2972,27 @@ exact pin moved **8.1.5 → 8.3.4** (npm's named fix), with `postcss` 8.5.31 and
 inside vite's own ranges and no range of ours widened. Re-read: **0 vulnerabilities**. Same shape as the
 2026-10-16 `@tanstack/*` bump above.
 
+**2026-10-21 — the six defects read in the delivered deck `3fcbb21c` are closed, one rule each.** Scout read
+the post-merge briefing (25 cards, built `2026-10-20T22:55:38Z`) as a stranger and found six defects; the
+full record, the rule and the test per defect are in
+[decisions/delivered-briefing-prose-defects.md](decisions/delivered-briefing-prose-defects.md#the-six-defects-scout-found-in-the-post-merge-deck-closed-2026-10-21).
+Landed: `truncatedDateline` (a day-and-year dateline cut before the sentence, refused as `editorial_noise`);
+`brokenQuotation`, folded into `unresolvedContextOpening` so the deck walk advances past a sentence that
+starts inside somebody's quotation; the **result leg** in `suppressStoryTwins` plus its floor in
+`twin-floor.ts` (one PRIMARY actor, a frame phrase on one side and an earnings term on the other); the wrong
+article before an amount (`an $150`) and `prep + it's` in `sourceTypo`, with the title rung in
+`assessReadiness` withholding a card whose *headline* carries the source's typo; and `fillerOpening` at the
+deck walk, so a heading or a definition is skipped instead of opening the story. The closing-bracket
+possessive (`(BSC) ’s`) is joined rather than refused, because the space is the extractor's and the source's
+own excerpt has none. **Measured on the same 25 rows recomposed (scratch probe):** 7 openings change, 0 are
+withheld, 1 title typo, and the twin pass keeps **24 of 25** — dropping position 8, The Verge's second
+telling of the SpaceX release, which is the 25th card. `npm run audit:twin-corpus` over 30 days shows the
+result leg fusing **1 pair**, the delivered duplicate; the marker census still reports its pre-existing
+**184** below-floor fusions, untouched. A count of **23** for this deck after all six rules is a finding and
+is reported: 24 after the twin fusion, minus card 24 for its headline typo. `npm run audit:delivered-line`
+stays **PASS 25/25** on the archive because that instrument reads stored artifacts and the rules changed no
+stored row.
+
 **Design audit of the deployed reader surfaces (2026-10-21).** The signed-in product was read at
 1280 / 768 / 360 plus a 320 px reflow probe — feed, briefing, archive, story, alerts, alert history —
 with every number measured from the live DOM and the evidence committed under
