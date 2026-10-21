@@ -2750,3 +2750,43 @@ over 56 stories and cannot run on the free plan's CPU or in a feed render. Three
 print no line (furniture, the 2026-10-14 ruling) and their pages open on a composed deck — an
 absence, not a contradiction. No model call, no database write, archives untouched.
 Record: [decisions/reader-delivery.md](decisions/reader-delivery.md#one-sentence-at-the-feed-and-the-archive-ruling-11-extended-2026-10-20).
+
+**2026-10-21 — both instruments above were tautologies on two of three surfaces, and are now able to
+fail.** The CEO's refusal of PR #30 measured the defect: the feed passed one artifact to both sides
+of `classifyCard`, and `audit:delivered-line` built its `page` and `actual` from the same
+`item.summary` expression — identical input to one function, so the equality was guaranteed and
+`feed 53/53` and `PASS 25/25` were not evidence. `classifyCard` now takes the card's artifact and the
+page's artifact as separate arguments; the card side reads the row that surface's loader hands it
+(the newest briefing's own stored `summary`, or the reader's newest artifact on the matches path) and
+the page side reads the reader's newest delivered row. `audit:delivered-line` reads its page side from
+that newest delivery by its own query rather than rebuilding it from the audited item. The feed
+population is now the cards a reader is actually shown, modelled on both branches of `loadHomeFeed`,
+which is why the feed count moved. The doc comment no longer claims two sides read different rows on
+the matches path, where they are one row by design; it names the render tests instead.
+
+The instructive part is what the seed did *not* cover. `selfTest()` first classified two literals, and
+`--fixture` exercised `classifyCard` directly — so with the card side collapsed back onto the page's
+row at the **call site**, the real runs still printed `PASS feed 23/23` and `PASS 25 / 25`, because on
+today's data the two rows are the same row and a correct instrument is indistinguishable from a
+tautological one by output alone (measured 2026-10-21, both collapsed deliberately). The self-tests now
+call the *named* row-selection functions (`cardArtifactFor`; `cardArtifactOf`/`pageArtifactOf` and
+`pageSentence`), which the live path also calls, and each collapse is then caught with exit 1 and "the
+check cannot fail" before a row is read. A fixture that cannot fail is worse than no fixture, because
+it is evidence.
+
+Measured on the merged tree, Node 22: typecheck clean; lint 0 errors (20 pre-existing warnings); 204
+test files / 3472 tests pass; coverage floor no regression (total 45.41, +2.55pp); `audit:surfaces`
+PASS feed 23/23 · archive 25/25 · alerts 4/4; `audit:delivered-line` PASS 25/25 on briefing `4a6b2ad2`;
+both `--fixture` modes FAIL with one defect and exit 1. Counts that moved, as findings and not as
+tuning targets: **feed 53 → 23** (53 was a sample of newest matched events, not a feed); archive 25
+and delivered 25 unchanged. No model call, no database write, archives untouched, instrument-only.
+
+**2026-10-21 — the production audit went red on a new vite advisory, and a patch-level pin closed it.**
+`npm audit --omit=dev --audit-level=high` began reporting `vite@8.1.5` as **high** severity when three
+launch-editor advisories were published (GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw, GHSA-587h-7wmj-h5pm),
+so **Dependencies and secret names** failed on every branch including `main` and the deploy job was
+skipped — nothing in the tree changed; the advisory feed did. `vite` is reachable from production
+dependencies (`package-lock.json` carries no `dev` flag on it), which is why `--omit=dev` audits it. The
+exact pin moved **8.1.5 → 8.3.4** (npm's named fix), with `postcss` 8.5.31 and `nanoid` 3.3.20 re-resolved
+inside vite's own ranges and no range of ours widened. Re-read: **0 vulnerabilities**. Same shape as the
+2026-10-16 `@tanstack/*` bump above.
