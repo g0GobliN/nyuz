@@ -161,6 +161,63 @@ describe("one story per briefing", () => {
     ]);
   });
 
+  it("collapses the delivered 2026-10-20 SpaceX earnings pair by the result leg", () => {
+    // Scout read the delivered `3fcbb21c` briefing as a stranger and found the
+    // same quarterly release twice, back to back: TechCrunch's framing and The
+    // Verge's numbers. None of the pass's existing legs can see the pair — no
+    // marker group holds financial vocabulary, the two titles share one content
+    // word (`spacex`; `ai` is below the floor), and the stored lines share no
+    // figure. The frame/term leg is what fuses them, and the first telling wins
+    // because the list is in reading order.
+    const kept = suppressStoryTwins([
+      brief("SpaceX’s AI business is beating expectations", "AI was the engine."),
+      brief(
+        "SpaceX says big AI growth fueled revenue jump",
+        "SpaceX announced revenues of $14.6 billion in its Q3 earnings on Tuesday, which it says was a growth of 161 percent year-over-year.",
+      ),
+    ]);
+    expect(kept.map((b) => b.title)).toEqual(["SpaceX’s AI business is beating expectations"]);
+  });
+
+  it("keeps a result frame and a result term apart when the actor is not the same", () => {
+    // The leg's actor condition: two companies' quarterly numbers are two
+    // stories, however alike the wording.
+    const kept = suppressStoryTwins([
+      brief(
+        "Apple beats expectations as services grow",
+        "Apple reported quarterly results on Thursday.",
+      ),
+      brief(
+        "SpaceX says big AI growth fueled revenue jump",
+        "SpaceX announced revenues of $14.6 billion.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("keeps a framed result apart from a story that never names a result", () => {
+    // The leg needs a frame on one side *and* a term on the other. A launch with
+    // no financial vocabulary is not the same story as an earnings beat.
+    const kept = suppressStoryTwins([
+      brief("SpaceX’s AI business is beating expectations", "AI was the engine."),
+      brief("SpaceX launches a new Starlink tier for boats", "The tier costs $250 a month."),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("keeps two accounts that both name the result and neither frames it", () => {
+    // Two `revenue` headlines with no frame are not the leg: a summary that
+    // mentions revenue in passing is what the ruling's cost boundary protects.
+    const kept = suppressStoryTwins([
+      brief("SpaceX revenue jumps on Starlink growth", "SpaceX said revenue rose."),
+      brief(
+        "SpaceX says big AI growth fueled revenue jump",
+        "SpaceX announced revenues of $14.6 billion.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
   it("keeps a break-in word in a summary from fusing two stories about one group", () => {
     // The constraint ruling #18 put on the widening: a pair may only be
     // suppressed when the word is in the headline on both sides. This arrest and

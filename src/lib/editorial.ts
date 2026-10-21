@@ -31,6 +31,7 @@ import {
   quotationCarriesOpening,
   preferCleaner,
   thinStateOpening,
+  fillerOpening,
   selectReaderEvidence,
   sentenceKey,
   sourceNameForEvidence,
@@ -3163,6 +3164,14 @@ export function composeArticleWithDiagnostics(story: Story): {
         needsAntecedent.push({ fact: candidate.text, text });
         continue;
       }
+      // A candidate that says nothing a reader can act on does not open the
+      // story either (ruling #19's thin-card bar, read at the walk so the next
+      // candidate gets the chance the delivered 2026-10-20 card 25 was never
+      // given): "Some FairStress scenarios have a clearly stronger candidate
+      // whose profile better satisfies the stated criteria." was chosen while
+      // the finding sat in the same row. The candidate is not charged -- it is
+      // a fact, and the body path decides its fate -- and the walk continues.
+      if (fillerOpening(text)) continue;
       composedDeck.push({ fact: candidate, text });
     }
     const chosenDeck =
@@ -3371,7 +3380,10 @@ export function composeArticleWithDiagnostics(story: Story): {
      * on a copular or locative state publishes nothing, which is the same floor
      * the deck walk already applies to a story no candidate can open.
      */
-    if (gated.deck.text !== "" && thinStateOpening(gated.deck.text)) {
+    if (
+      gated.deck.text !== "" &&
+      (thinStateOpening(gated.deck.text) || fillerOpening(gated.deck.text))
+    ) {
       for (const block of [gated.deck, ...gated.paragraphs]) {
         // Charged by fact as well as by sentence: on the selected set a
         // withheld story's facts must read as "refused by a rule", never as

@@ -41,6 +41,7 @@
  * answers one question only: *does this pair clear the bar the ruling set?*
  */
 
+import { rankEntities } from "@/lib/reader-evidence";
 import { cleanText } from "./news-signals";
 import { STOPWORDS, TITLE_CASE_RATIO } from "./shortlist";
 
@@ -181,9 +182,80 @@ export type FloorVerdict = {
   entities: string[];
   /** Content words shared by title and stored summary on both sides. */
   words: string[];
-  /** Both legs met: a shared name *and* at least three shared content words. */
+  /**
+   * The result leg's own anchors: the PRIMARY actor shared, and the frame/term
+   * words the pair splits between it.
+   */
+  result: { primary: string[]; frames: string[]; terms: string[] };
+  /** One leg met: a shared name with three content words, or one financial result. */
   clears: boolean;
 };
+
+/**
+ * The result leg's vocabulary, copied from the delivery pass on purpose.
+ *
+ * Same reason as `stem`: the pass is ruling-frozen, and the floor must be able to
+ * say what the pass would fuse without asking the pass. If either the phrase or
+ * the term list moves, the SpaceX fixture in `twin-floor.test.ts` is the test
+ * that notices.
+ *
+ * The frame is a phrase ("beating expectations"), which is the narrowing the
+ * first corpus run demanded: bare `beat` / `topping` / `misses` counted `beat
+ * AT&T`, `topping $1B valuation` and `near-misses with Starlink` as earnings.
+ */
+const RESULT_FRAME =
+  /\b(?:beat|beats|beating|missed|misses|missing|topped|topping|exceeded|surpassed|above)\s+(?:expectations|estimates|forecasts|guidance|consensus)\b/iu;
+const RESULT_TERM = new Set(
+  `revenue revenues earnings income profit profits sales quarter quarters quarterly margin margins results q1 q2 q3 q4`
+    .split(/\s+/)
+    .filter((word) => word !== ""),
+);
+
+const literalWords = (text: string): Set<string> =>
+  new Set(
+    text
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((word) => word !== ""),
+  );
+
+/** PRIMARY entities, lowercased — the pass's own reading of "who this is about". */
+const primaryEntities = (subject: FloorSubject): Set<string> =>
+  new Set(
+    rankEntities(subject.title, [{ excerpt: subject.whatHappened ?? "" }])
+      .filter((entity) => entity.role === "PRIMARY")
+      .map((entity) => entity.name.toLowerCase()),
+  );
+
+/**
+ * The floor's reading of the result leg, independently of the pass.
+ *
+ * The bar it puts on a financial pair is the leg itself: one shared PRIMARY
+ * actor, and a frame word on one side with a term word on the other. A pair
+ * fused by the leg therefore clears by construction — as every leg of this floor
+ * does, since it re-derives what the pass derived from the same stored rows. The
+ * value is on the *other* pairs: a suppression that needs neither this leg nor
+ * the word-and-name bar is the one this reports.
+ */
+function floorResult(a: FloorSubject, b: FloorSubject): FloorVerdict["result"] {
+  const primaryA = primaryEntities(a);
+  const primaryB = primaryEntities(b);
+  const primary = [...primaryA].filter((name) => primaryB.has(name)).sort();
+  const textA = a.title;
+  const textB = b.title;
+  const wordsA = literalWords(textA);
+  const wordsB = literalWords(textB);
+  const framesA = (textA.match(RESULT_FRAME) ?? []).map((phrase) => phrase.toLowerCase()).sort();
+  const framesB = (textB.match(RESULT_FRAME) ?? []).map((phrase) => phrase.toLowerCase()).sort();
+  const termsA = [...wordsA].filter((word) => RESULT_TERM.has(word)).sort();
+  const termsB = [...wordsB].filter((word) => RESULT_TERM.has(word)).sort();
+  // One side frames it, the other names it. Both orders are read, because the
+  // pair arrives in ranked order and either headline may be the one with the
+  // frame.
+  if (framesA.length > 0 && termsB.length > 0) return { primary, frames: framesA, terms: termsB };
+  if (framesB.length > 0 && termsA.length > 0) return { primary, frames: framesB, terms: termsA };
+  return { primary, frames: [], terms: [] };
+}
 
 /**
  * Whether one pair clears the ruling's floor, and what it shares.
@@ -207,9 +279,14 @@ export function twinFloor(a: FloorSubject, b: FloorSubject): FloorVerdict {
     .sort();
 
   const entities = [...shared].sort();
+  const result = floorResult(a, b);
+  const clears =
+    (entities.length > 0 && words.length >= MIN_SHARED_WORDS) ||
+    (result.primary.length > 0 && result.frames.length > 0 && result.terms.length > 0);
   return {
     entities,
     words,
-    clears: entities.length > 0 && words.length >= MIN_SHARED_WORDS,
+    result,
+    clears,
   };
 }
