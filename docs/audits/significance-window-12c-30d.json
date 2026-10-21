@@ -1,0 +1,1611 @@
+{
+  "generatedAt": "2026-10-20T08:48:48.570Z",
+  "experiment": "12c-30d",
+  "window": {
+    "startsAt": "2026-10-19T06:46:22.149Z",
+    "endsAt": "2026-11-18T06:46:22.149Z",
+    "source": "source_exemptions.enabled rows (all agree)",
+    "sources": [
+      "0be0b247-1163-4697-83a1-f0f6f7613645",
+      "1b0f68aa-3613-45fe-82b8-f4f992b66227",
+      "32063d14-959d-4055-85d4-9445e742abb5",
+      "662225f0-444b-4c40-8c69-b06f0c9eb7d4",
+      "7cc207c3-4f80-446f-a7a9-30483ef795b4",
+      "a3477cd6-61da-4d27-bcf5-b40469f45477",
+      "db756c8f-4b11-4dff-8c3f-9a9465b862ec",
+      "ffe1389d-7910-4e18-a79e-99f453bfd878"
+    ]
+  },
+  "baseline": {
+    "multiPublisherEvents": 169,
+    "provenance": "docs/decisions/reader-delivery.md:3484 — complete events 12,733; events with >=2 publishers 169; taken with the experiment's clock stopped, 2026-10-19"
+  },
+  "population": {
+    "briefings": 5,
+    "briefingsWithItems": 1,
+    "briefingsSent": 1,
+    "briefingsSkipped": 4,
+    "readers": 3,
+    "items": 25,
+    "events": 25
+  },
+  "briefings": [
+    {
+      "digestId": "d6600e1f-0492-447c-91fb-1577ea33b06b",
+      "readerId": "0b922417-497e-48fb-8a97-81b75e1c3d20",
+      "status": "skipped",
+      "scheduledFor": "2026-10-19T07:30:00+00:00",
+      "generatedAt": "2026-10-19T07:20:36.126+00:00",
+      "itemCount": 0
+    },
+    {
+      "digestId": "baf069bd-1702-493c-be0c-cd29d1a50a67",
+      "readerId": "73384572-59df-43a1-aa27-bb9fdc0e3c2d",
+      "status": "skipped",
+      "scheduledFor": "2026-10-19T07:30:00+00:00",
+      "generatedAt": "2026-10-19T07:20:39.062+00:00",
+      "itemCount": 0
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "status": "sent",
+      "scheduledFor": "2026-10-19T22:30:00+00:00",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "itemCount": 25
+    },
+    {
+      "digestId": "d6308f25-7834-44d6-afae-5fed2aad9c77",
+      "readerId": "0b922417-497e-48fb-8a97-81b75e1c3d20",
+      "status": "skipped",
+      "scheduledFor": "2026-10-20T07:30:00+00:00",
+      "generatedAt": "2026-10-20T07:20:36.737+00:00",
+      "itemCount": 0
+    },
+    {
+      "digestId": "36494d78-7cb6-47c3-9f1b-efd6111151c3",
+      "readerId": "73384572-59df-43a1-aa27-bb9fdc0e3c2d",
+      "status": "skipped",
+      "scheduledFor": "2026-10-20T07:30:00+00:00",
+      "generatedAt": "2026-10-20T07:20:40.926+00:00",
+      "itemCount": 0
+    }
+  ],
+  "events": {
+    "96667b6a-db62-4ae5-8ca1-3ff7f2795fc3": {
+      "title": "NVIDIA Advances Agentic Security for Media, From European Public Service Broadcasting to Global Content Production",
+      "whatHappened": "Key to the news: the European Broadcasting Union (EBU) is collaborating with NVIDIA to expand its sovereign framework with cloud, open models and integration partners, while Adobe Frame.io is accelerating video agent search capabilities with NVIDIA GPUs, helping German TV and film producer UFA find the right moments faster.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "The EBU and NVIDIA are expanding the sovereign standards they introduced last year for European public service media.",
+        "Adobe is also advancing GPU-accelerated media ingest using NVIDIA NVENC and NVDEC to accelerate video encoding and decoding, helping production teams process growing media libraries more efficiently.",
+        "At a creative industry event that took place today in Berlin — hosted in collaboration with Adobe, Bertelsmann, NVIDIA and UFA — the latest advancements in intelligent media were on display.",
+        "Adobe is using NVIDIA accelerated computing to help creative teams find and work with video content faster.",
+        "The EBU is the world’s leading alliance of public service media, with over 115 member organizations in more than 55 countries reaching over 1 billion people.",
+        "“Sovereign cloud infrastructure and open models can help Europe’s public service media innovate while protecting data, editorial independence and cultural diversity,” said Delphine Ernotte, CEO of France Télévisions and president of the EBU.",
+        "The work is part of a broader Adobe and NVIDIA collaboration that also spans Adobe Substance 3D, Firefly Foundry and 3D digital twin workflows for enterprises.",
+        "Its GPU-accelerated search pipeline uses NVIDIA NVDEC for video decoding, TensorRT for optimized AI inference and the CUDA platform for preprocessing and embedding generation.",
+        "NVIDIA Nemotron open models provide a foundation broadcasters can customize for domain-specific applications and public-service requirements.",
+        "“These standards give EBU members a shared foundation to strengthen resilience, retain control and deliver accountable advanced services that sustain audience trust,” said Antonio Arcidiacono, chief technology and innovation officer at the EBU.",
+        "Media-specific consulting and systems integration provided from Qvest and other system integrators to ensure that reference architectures are practical, interoperable and deployable in real world broadcast environments.",
+        "The initiative now brings in sovereign cloud providers, open model developers and systems integrators to define how broadcasters can deploy agents while keeping control of their data, infrastructure, models and security."
+      ],
+      "outlets": [
+        {
+          "id": "4323bc05-7a46-4e17-b3aa-5bd7d79df9ee",
+          "name": "NVIDIA Blog",
+          "kind": "company_blog",
+          "fetchedAt": "2026-10-19T16:15:12.470119+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "a608c2d9-b824-4739-b744-969fd03b6626": {
+      "title": "Cutting our inference bill by 68% by being obsessive about optimization",
+      "whatHappened": "By the end of August, that figure had shot up to about $2.46.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "None of them were particularly impressive by themselves, but together they took about $0.20 off every review.",
+        "Opus 5.5 is cheaper per token than Opus 5, but price is only responsible for about $0.20 of the drop.",
+        "Performance also lost real findings: the judges found about 64% fewer important performance issues per review, which in practice is about one fewer important finding every 24 full-tier reviews.",
+        "The cost per review steadily rose from $1.22 (March) → $1.44 (June) → $1.74 (July) and finally, to $2.32 (August).",
+        "On full-tier re-reviews, AGENTS.md reviews are skipped 56% of the time, performance reviews skipped 23% and documentation reviews skipped 13%.",
+        "After two and a half days, Sonnet 5.5 was 62% cheaper per run for code quality, 58% for performance and 47% for security.",
+        "By the end of August, that figure had shot up to about $2.46.",
+        "Since the start of September cache reads per review are down 82%, cache writes down 54%, and output down 67%.",
+        "A small part of that is that more reviews landed in the most expensive tier (59% of reviews in March and then 65% in August).",
+        "The data showed that the first request of a session found a cached prefix only 14% to 26% of the time.",
+        "In 57% to 76% of sessions they tried to call it, were rejected by a check on the server, and spent another call recovering.",
+        "After one day, high effort costs 61% more per run and posts 58% more critical and warning findings."
+      ],
+      "outlets": [
+        {
+          "id": "bf4ed71f-8915-425c-93f3-d424f5e23197",
+          "name": "Cloudflare",
+          "kind": "company_blog",
+          "fetchedAt": "2026-10-19T20:00:13.215429+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "3cf32c37-7412-4c03-9675-13af7acc3b1e": {
+      "title": "A Chinese hacker used AI agents to break into more than 100 company websites",
+      "whatHappened": "Fewer than 100 Chinese characters were used, yet the agents had attempted ot break into more than 1,200 different websites as of the week ending October 18, 2026.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "Fewer than 100 Chinese characters were used, yet the agents had attempted ot break into more than 1,200 different websites as of the week ending October 18, 2026.",
+        "A Chinese-speaking hacker has been observed using artificial intelligence (AI) agents to probe and then gain unauthorized access to more than 100 websites belonging to some extremely well-known companies.",
+        "Notably, the hacker didn't get into detail when commanding their legion of AI agents.",
+        "Fagerland was able to watch multiple hackers go about their business, but the Chinese-speaking hacker was the most prolific, the report says.",
+        "From Deere, the farming equipment manufacturer, to SharkNinja, the company behind beloved kitchen appliances, the agents were able to leverage exposed instances of Carin, an open-source AI-powered problem-solving platform that has proven popular among hackers, a Reuters report explains.",
+        "While SharkNinja told Reuters that the attack only impacted a site used for product support information, the rest of the AI-aided hackers had more luck.",
+        "Snorre Fagerland, principal threat researcher at the cybersecurity company NorForge, spotted the hacker's antics when observing Carin instances that had been inadvertently exposed.",
+        "Security researcher Fagerland was \"impressed\" by some of the tactics that had been used.",
+        "With no supervision required, those commanding the agents are free to turn their attention elsewhere.",
+        "In one case, the AI agents scoured digital records to find infrastructure associated with their target, located a public-facing control panel, identified a weakness, and then leveraged it to force the execution of malicious commands, the Reuters report detailed.",
+        "Oliver Haslam has written about technology of all shapes and sizes for over 15 years, both online and in print.",
+        "Get started with free access to reviews, badges and discussions."
+      ],
+      "outlets": [
+        {
+          "id": "4b2c8c4a-207e-4e43-8324-0ee3d45b4413",
+          "name": "Tom's Hardware",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T16:45:14.887217+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "4f99a4e6-3c0d-41f3-a6ca-bd7deaaae9eb": {
+      "title": "A hacker broke into John Deere and SharkNinja with an army of AI agents",
+      "whatHappened": "A hacker broke into more than 100 websites using an army of AI agents that mostly operated on their own, according to findings from the AI security firm Norforge.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "The hacker who broke into more than 100 sites was the “most active” among the exposed Cairn instances discovered by Norforge, waging attacks on companies based in the US, Canada, Australia, and Japan, as reported by Reuters.",
+        "A hacker broke into more than 100 websites using an army of AI agents that mostly operated on their own, according to findings from the AI security firm Norforge.",
+        "Though Norforge doesn’t name the targets, Reuters reports that the victims included companies like John Deere, SharkNinja, and Cummins.",
+        "John Deere, Cumms, and SharkNinja didn’t immediately respond to The Verge’s request for comment.",
+        "Meanwhile, SharkNinja says the breach impacted a standalone site with product support information, and that it has contained the threat.",
+        "The AI agents carried out the attacks with little involvement from the human hacker.",
+        "At the same time, rogue AI agents are carrying out attacks of their own after escaping from testing environments.",
+        "With Cairn, users set a start and end point for the AI agents, which document their progress as they move forward with the task.",
+        "However, as noted by Norforge, hackers can also use the tool to orchestrate cyberattacks using AI agents.",
+        "Concerns over AI-powered cybersecurity breaches have grown as the technology grows more advanced, with hackers using the tools to carry out large-scale attacks.",
+        "Nordforge says it’s working to get the malicious Cairn instances taken down.",
+        "This attacker laid out “preferred intrusion tactics” using fewer than 100 Chinese characters, with successful breaches taking about 23 hours, according to Reuters."
+      ],
+      "outlets": [
+        {
+          "id": "f8398703-36bf-4d75-bb2d-c8be0c64358c",
+          "name": "The Verge",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T14:30:11.698292+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "33be7244-6749-42ac-8916-3fcf37cb67ef": {
+      "title": "Fake Web3 Accelerator Uses npm Packages to Spread Malware and Hijack AI Agent Traffic",
+      "whatHappened": "A fake Web3 accelerator has been observed pushing information stealers and backdoors to Windows and macOS systems using malicious npm packages under the pretext of offering free artificial intelligence (AI) credits for Anthropic Claude and Google Gemini, coding tools, and security audits.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "A fake Web3 accelerator has been observed pushing information stealers and backdoors to Windows and macOS systems using malicious npm packages under the pretext of offering free artificial intelligence (AI) credits for Anthropic Claude and Google Gemini, coding tools, and security audits.",
+        "While both the packages and their associated GitHub repositories are no longer accessible, \"@apexacc/cli\" was advertised as an \"AI advisor for Web3 founders\" that's powered by Claude Fable 5 and Gemini 2.5 Flash.",
+        "Besides deploying a stealer and backdoor depending upon the infected operating system, the packages are capable of intercepting and redirecting OpenRouter large language model (LLM) traffic, as well as registering an MCP server under their control in the victim's agent configuration.",
+        "Both packages were published by an npm user named \"apexaccelerator\" and linked to a GitHub account called \" apexaccs \" and an entity referred to as the Apex Foundation.",
+        "In the case of the latter, the npm package has been found to drop an encrypted malware loader disguised as an Apple app (\"com.apple.system.loader\").",
+        "\"The tools delivered information-stealing malware and backdoors for macOS and Windows machines,\" Elastic Security Labs researchers Jia Yu Chan and Daniel Stepanic said.",
+        "Once installed, neither of the npm packages provides the promised functionality.",
+        "\"The attacker's MCP server can also supply instructions that are added to the agent's prompt, along with tool names, descriptions, and accepted inputs that help the model decide which tools to invoke and how to use them.",
+        "\"Its behaviors illustrate how macOS malware continues to move toward native implementations, string protection, and execution paths that attempt to avoid writing payloads to disk, while still depending on the oldest technique available: asking the user for their password,\" Jamf said.",
+        "The malware was detected in the wild in mid-September 2026.",
+        "Posts shared on X show the accelerator approaching developers of cryptocurrency wallets and market intelligence tools for traders with offers of direct investment and instructions to run their due diligence tool (\"@apexacc/cli\").",
+        "Instead, their primary responsibility is to propagate a macOS backdoor called CloudSyncD and a custom Windows information stealer that exfiltrates data through Telegram."
+      ],
+      "outlets": [
+        {
+          "id": "6e91ecfe-1888-4259-a531-5be471447e20",
+          "name": "The Hacker News",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T12:15:15.332182+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "ad56705b-0363-4997-9420-0d7a20e75474": {
+      "title": "AI’s epic cash call is matched only by its ability to strangle revenue streams",
+      "whatHappened": "Everything becomes effectively open source, which closes down substantial revenue streams for big companies who had assumed lock-in.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [],
+      "outlets": [
+        {
+          "id": "cc2d105c-ec36-4ad8-bc9f-6f29faf475fd",
+          "name": "The Register",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T08:30:17.311316+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "5b481e49-733b-4e0d-94a9-0a0005d84559": {
+      "title": "OpenCode Console Breach May Have Exposed OpenAI, Anthropic, and Google API Keys",
+      "whatHappened": "An intruder reached a legacy system at OpenCode on the night of October 16 and may have exposed the third-party AI provider keys that users had saved in OpenCode Console, the company said.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "OpenCode's October 17 post also called the incident ongoing, said the company was working with Anthropic, OpenAI and Google to fix it, and described the breach as \"related to a large-scale distillation attack.",
+        "Console is OpenCode's optional hosted service: a workspace saves its own OpenAI, Anthropic, or Google key there, and Console uses that key to call the provider so team members can use the models without ever seeing the key.",
+        "An intruder reached a legacy system at OpenCode on the night of October 16 and may have exposed the third-party AI provider keys that users had saved in OpenCode Console, the company said.",
+        "Dealroom reported that Colin Parsons wrote on X that his OpenAI key had been used for $281 and his Anthropic key for $168, and that Preston Zeller put his losses at $1,700.",
+        "The affected group is 1.4% of Console users, all of whom have an outside provider linked, and OpenCode has told them via email to revoke those keys with each provider and replace them.",
+        "Notebookcheck reported a Reddit user's claim of $400 of unauthorized usage on an Anthropic account, and another's of about €200 of Google usage, with the project then suspended.",
+        "OpenCode's own wording is that the keys \"may have been exposed,\" and it has not said that any key was copied or used.",
+        "The breach involves \"the OpenCode Console, not OpenCode itself,\" co-founder Dax Raad wrote in a reply on X, and those keys \"never come to us.",
+        "Anthropic said in September that the labs behind such campaigns reach its models through networks of fake accounts created with stolen credit cards, login credentials and harvested API keys.",
+        "The keys at risk are the ones pasted into Console.",
+        "\" The company has not named anyone or said how the two connect, what the legacy system was, how it was reached, how many keys it held, or how many users 1.4% represents.",
+        "Attackers were still trying to get into OpenCode's systems on October 18, Raad wrote on X: they had been \"non stop trying to attack our systems for the past 48 hours,\" and \"a side effect is everything is getting hardened."
+      ],
+      "outlets": [
+        {
+          "id": "6e91ecfe-1888-4259-a531-5be471447e20",
+          "name": "The Hacker News",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T08:15:14.281613+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "b598cbc8-945c-48f4-bf81-e5e89918856e": {
+      "title": "Write bot-resistant code with KillSwitch, a programming language designed to confuse LLMs",
+      "whatHappened": "What began as software engineer Dominik Picheta experimenting with whether LLMs understand the code they write has turned into something else entirely: An open-source, albeit esoteric, programming language he’s dubbed KillSwitch.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [],
+      "outlets": [
+        {
+          "id": "cc2d105c-ec36-4ad8-bc9f-6f29faf475fd",
+          "name": "The Register",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T18:15:14.680795+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "743ff252-e1c1-423d-8e21-ea8a64dba8c0": {
+      "title": "Disney Asked Character.AI to Go Bankrupt for a Get-Out-of-Lawsuits Card",
+      "whatHappened": "The entertainment giant hopes to get trust and safety tech, among other IP, from a startup whose chatbots dozens of states allege encouraged minors to self-harm and kill their parents.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "If Disney is chosen as the winning bidder by Character.AI and a committee of unsecured creditors—and courts approve the deal—it has agreed to pay Character.AI an additional $12.5 million as a closing payment.",
+        "In order to “preserve a competitive process,” Disney also agreed to permit the winning bidder to interview and potentially extend offers to up to 80 percent of “certain newly hired employees” that Disney already hired from Character.AI.",
+        "A spokesperson for Character.AI referred WIRED to Disney for comment on whether the deal was contingent on the startup declaring bankruptcy.",
+        "If Disney is not selected, the company will be refunded the $2 million deposit and receive a breakup fee.",
+        "The Disney deal seems to be structured so that whatever is left of Character.AI will retain responsibility for those legal battles, some of which are still ongoing.",
+        "Disney also hired the “majority” of Character.AI’s employees, including the CEO, and agreed that it would let some of the now-Disney employees help keep Character.AI operational for five months.",
+        "However, experts worry that bouncing Character.AI employees from one company to another in the span of months is unrealistic, and that the deal Disney and Character.AI have struck cannot be easily unwound.",
+        "A spokesperson tells WIRED that license was for the existing AI technology at the time of the deal, and that Google also hired Character.AI’s founders and other members of its ML pre-training research team, but that the “vast majority” of the startup’s employees remained at the company.",
+        "If the deal is completed and approved by the courts, Disney will have both Character.AI’s staff and much of its technology stack, but will be able to sidestep the ongoing legal issues that contributed to Character.AI’s downfall, including the multistate investigation.",
+        "Google argued that because it was still a separate company from Character.AI, it was not responsible for the teen’s death, which it said occurred prior to Google’s licensing deal.",
+        "A spokesperson for Character.AI said they were unable to speculate on the outcome of the bankruptcy proceedings and referred WIRED to the docket.",
+        "In January of this year, Google and Character.AI agreed in principle to settle that and a slew of similar lawsuits."
+      ],
+      "outlets": [
+        {
+          "id": "db756c8f-4b11-4dff-8c3f-9a9465b862ec",
+          "name": "Wired",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T11:00:15.17196+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "consequence",
+        "text": "The company will be refunded the $2 million deposit and receive a breakup fee.",
+        "storySpecific": true
+      },
+      "trace": {
+        "via": "evidence",
+        "sources": [
+          "Wired"
+        ]
+      }
+    },
+    "89dc6632-8952-4f1f-a63c-b7f1b248ee28": {
+      "title": "Tenstorrent hits $6.2B valuation to scale open-weight AI chips",
+      "whatHappened": "After drawing acquisition interest earlier this year, the Nvidia challenger raised $1.5 billion to remain independent.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "Tenstorrent, a chip startup focused on inference, has raised $1.5 billion at a $6.2 billion valuation.",
+        "The fresh round, which more than doubled Tenstorrent’s valuation from the $2.6 billion it fetched in late 2024, was led by Trace Capital, a new firm launched by Quiet Capital co-founder Ben Mahdavi, and Innovation X. Other backers included Cadence Ventures, Eclipse, Fidelity, SanDisk, and T. Rowe Price.",
+        "Jim Keller, a prominent microprocessor engineer and Tenstorrent CEO, told Bloomberg that the company decided to remain independent and raise more capital after it showed that its Galaxy servers could run DeepSeek models.",
+        "Tenstorrent is part of a wave of AI hardware startups trying to chip away at Nvidia’s dominance.",
+        "The round comes five months after the 10-year-old Nvidia challenger reportedly received acquisition interest from Intel and Qualcomm at valuations of as much as $5 billion.",
+        "The new capital will go toward scaling chips tailored for serving open-weight AI models and video generation.",
+        "Among them is Etched, an AI chip maker that was fielding investment offers at valuations of $40 billion or more, TechCrunch reported earlier this month."
+      ],
+      "outlets": [
+        {
+          "id": "c51b8b7c-b8be-44aa-8445-ef1141704db2",
+          "name": "TechCrunch",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T19:15:14.22071+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "46a1f534-1726-4209-bc47-b8125183cddf": {
+      "title": "Microsoft abandons UK AI supercomputer as grid struggles to keep up",
+      "whatHappened": "Microsoft has reportedly pulled out of plans for Britain's largest AI supercomputer, because the government-backed project is facing the rather inconvenient problem of having no electricity to run it.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [],
+      "outlets": [
+        {
+          "id": "cc2d105c-ec36-4ad8-bc9f-6f29faf475fd",
+          "name": "The Register",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T14:15:14.096836+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "90eeddf0-8b85-465d-b7a5-5fadb953b6d0": {
+      "title": "Making the internet better for AI agents might make it worse for everyone else",
+      "whatHappened": "Though a judge recently ruled in favor of Perplexity, Amazon has filed an appeal in which it argues that AI agents threaten its advertising business by making it harder to distinguish between ads seen by humans and those served to bots.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "Though a judge recently ruled in favor of Perplexity, Amazon has filed an appeal in which it argues that AI agents threaten its advertising business by making it harder to distinguish between ads seen by humans and those served to bots.",
+        "Amazon has blocked Muse’s agents and is waging a court battle against the AI startup Perplexity to block its agents too.",
+        "Still, if the demand for agents keeps going up, the internet will be increasingly redesigned for them instead of us.",
+        "The mingling of these agents with human visitors—on an internet designed largely to prioritize people—has gone poorly, with many websites blocking AI agents that consumers have sent to negotiate prices or plan vacations.",
+        "TechCrunch recently reported people having trouble deploying their agents to websites ranging from Pizza Hut to Yelp, which doesn’t allow AI to book restaurant reservations.",
+        "It’s the more contested ones, like whether businesses can block agents from their websites or prevent them from negotiating better deals for consumers, that will determine whether the web becomes a highway for agents working for us or against us.",
+        "That’s a far cry from the future promised by Google, Anthropic, and OpenAI, in which AI agents will give consumers greater power and bargaining leverage.",
+        "Some of them will benefit all of us—neither consumers nor businesses want credit card information to be waved around by agents wherever they roam the web, for example, and rules to keep agents more secure are a good thing.",
+        "Such changes are coming because agents really do mark a third category of web visitor.",
+        "Once it becomes common knowledge that AI agents can be sent to request refunds or negotiate prices, for example, agents will overwhelm customer service departments to the point where they become unusable by real people.",
+        "“Humans will eventually get very annoyed when their agents aren’t allowed to do this on their behalf,” he recently wrote on LinkedIn.",
+        "If demand for personal agents grows, platforms will find ways to let them in."
+      ],
+      "outlets": [
+        {
+          "id": "10297db8-73a9-49c9-bdba-6438de3f3dea",
+          "name": "MIT Technology Review",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T20:30:13.933667+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "8b4f8452-deaf-4be2-82bb-d632f0d53fbb": {
+      "title": "GhostAction Attackers Plant Credential Stealer Disguised as Font in 94 GitHub Repositories",
+      "whatHappened": "The threat actor behind the GhostAction supply chain attack has expanded beyond injecting malicious GitHub Actions workflows into compromised projects to phish open-source developers and deliver a stealer malware disguised within a fake font file.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "The threat actor behind the GhostAction supply chain attack has expanded beyond injecting malicious GitHub Actions workflows into compromised projects to phish open-source developers and deliver a stealer malware disguised within a fake font file.",
+        "To mitigate the threat, developers should revoke GitHub access and tokens from a clean device, change their passwords, audit their repositories, rotate every credential the workflows can reach, and alert users who have cloned the repositories.",
+        "The latest evolution, detailed by OpenSourceMalware, signals that the attackers are actively refining their modus operandi in response to steps taken by GitHub to prevent the workflow from running.",
+        "The fake login page also includes JavaScript to silently authorize a GitHub OAuth device flow with repo, workflow, and read:org scopes, granting it broad permissions to read/write repositories, modify Actions workflow files, and gain visibility into organization membership and related organizational data.",
+        "Furthermore, the permissions granted through the stealthy OAuth authorization are consistent with GhostAction's ability to enumerate repositories and inject malicious workflow files under \".",
+        "\"Stage 1 needs GitHub to run the workflow,\" OpenSourceMalware said.",
+        "\"On October 9, GitHub started preventing the malicious workflow from running, and the waves on October 10 and 12 extracted no secrets.",
+        "\"The script receives a device code and user code, loads /login/device, extracts GitHub's forms from the returned HTML, and submits them automatically,\" McCarty explained.",
+        "A total of 94 compromised repositories with the second-stage component have been identified.",
+        "OpenSourceMalware said the 94 repositories belong to 66 owners, out of which 15 have since been deleted, renamed, or made private.",
+        "The deceptive page, per OpenSourceMalware, is said to have acted as a reverse proxy, harvesting the victim's password and two-factor authentication (2FA) code, and injected JavaScript that authorized an OAuth app with permissions to modify their workflows so as to facilitate a GhostAction-style attack.",
+        "Of the still accessible repositories, most of them appear to have been largely abandoned, with one of them left untouched for more than nine years."
+      ],
+      "outlets": [
+        {
+          "id": "6e91ecfe-1888-4259-a531-5be471447e20",
+          "name": "The Hacker News",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T14:00:11.575103+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "dd1ca20e-b746-44cd-9f0d-0346514a8d3e": {
+      "title": "French rioters ransack eSports team premises and are seen looting RAM sticks from PCs",
+      "whatHappened": "Leading French eSports club Team Vitality has confirmed that its Paris HQ has been smashed up, with trophies, computer equipment, and more looted over the weekend.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "Leading French eSports club Team Vitality has confirmed that its Paris HQ has been smashed up, with trophies, computer equipment, and more looted over the weekend.",
+        "This 30-second clip appears to show rioters hammering at and kicking in the eSports HQ’s windows, taking items from the premises, and throwing gaming chairs onto bonfires in the street.",
+        "The team’s V.Hive premises were attacked by criminal opportunistic looters under cover of the widespread protests in France over issues related to school funding, living costs, and government spending cuts.",
+        "There are a multitude of social media posts sharing images, videos, and pointing fingers at what they see as the cause of the protests, riots, and looting.",
+        "“Our display windows were destroyed, and our trophies and computer equipment were stolen,” lamented the post [machine translation], while being thankful that no members, staff, or fans of Team Vitality were hurt.",
+        "Thankfully, no team members or staff have been hurt.",
+        "Meanwhile, there are concerns that there could be copycat behavior across Europe.",
+        "The second clip shows looters with their hands inside gaming PCs opened up on the sidewalk.",
+        "This morning, the French Prime Minister has called for local and partial curfews to contain the post-demonstration rioting.",
+        "Get started with free access to reviews, badges and discussions.",
+        "Other shops, public buildings, and property have been smashed, looted, and sometimes burned.",
+        "The bulletin ends with the news that the V.Hive will remain closed for now, until after damage has been assessed."
+      ],
+      "outlets": [
+        {
+          "id": "4b2c8c4a-207e-4e43-8324-0ee3d45b4413",
+          "name": "Tom's Hardware",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T14:45:19.201977+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "47e204e4-2413-4381-b4d1-c56b1511a5cc": {
+      "title": "Vibe coding is turning the music gear world upside down",
+      "whatHappened": "What unites almost all of them is that they were made possible by increasingly sophisticated vibe coding tools.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "The response to music gear that uses AI and vibe coding has been mixed.",
+        "What unites almost all of them is that they were made possible by increasingly sophisticated vibe coding tools.",
+        "Generally, the gear that has benefited from this surge of vibe-coded custom firmware is older or more affordable.",
+        "Leading the charge is a tiny $70 Yamaha DX-7 clone: the M-Vave FM-1.",
+        "Elektron’s budget-friendly Model:Cycles, Digitone, Octatrack, and Digitakt have all gained new capabilities with Claude’s help.",
+        "Many of the most popular — Felucca, Sloop, and x0x — list Claude as a contributor on their GitHub page or include explicit disclosures about their use of AI.",
+        "“I was already using AI for some work stuff and figured this would be a great case to try learning some vibe-coding fundamentals and get a project going,” he told The Verge.",
+        "18nelli, the developer behind Modded Cycles, was similarly motivated by a desire to revitalize some forgotten gear.",
+        "“I had an Elektron Model:Cycles that left me feeling frustrated,” he told The Verge.",
+        "What started as a surprisingly good, but basic DX-7 clone now supports a variety of synth engines, including virtual analog, sample playback, multi-track sequencing, and a variety of UI designs.",
+        "Roland’s SP-404 MKII, Ableton’s Push 3 and Move, Akai’s MPC Live and MPC One, as well as the vintage MPC 2000, Novation’s Circuit, Arturia’s MicroFreak, and even Zoom’s 14-year-old Multistomp pedal line have all seen new custom firmware released in the last month or so.",
+        "Roman Rusinov, who posts on Reddit as themanro and releases music under Farlow, set his sights on the Zoom MS-70CDR."
+      ],
+      "outlets": [
+        {
+          "id": "f8398703-36bf-4d75-bb2d-c8be0c64358c",
+          "name": "The Verge",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T14:30:11.698292+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "46543e7e-79e0-4489-a0ba-b151701834fe": {
+      "title": "“We were looking at it wrong”: The explosive claim that’s upended the AI world",
+      "whatHappened": "The authors were looking at it wrong: What seemed like tangled, unreadable neural networks may actually follow a hidden logic.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "“We were looking at it wrong,” he says.",
+        "With those simple words of optimism, Nick Cammarata, a researcher at the AI startup Goodfire, kicked off a 26,000-word blog post that has knocked the AI world on its head, sparking wild speculation as well as cautious (and not-so-cautious) celebration.",
+        "Back in 2020, Cammarata and his colleagues were studying a small image-recognition model called Inception v1.",
+        "Cammarata’s claim is that LLMs might in fact be far easier to understand—and thus to monitor and control—than people previously thought.",
+        "Rather than asking why multiple unrelated things were packed into a single neuron, he now tried to figure out what those things might have in common.",
+        "Cammarata and his colleagues have started looking at modern LLMs and plan to publish the technical results of that work soon.",
+        "Cammarata says his blog post landed at a time when people are looking for hope.",
+        "What Cammarata has shared is little more than a hunch, says Chris Potts at Stanford University, who leads a team that is trying to understand how LLMs work.",
+        "Cammarata ran a few experiments to check what other things the neuron responded to and found they included the corner of a pool table, the pointed nose of a Japanese high-speed train, and a fire boat shooting water into the air from its deck.",
+        "“I always appreciate Nick [Cammarata]’s boundless optimism when we hang out, but unfortunately this is giving the public an unrealistic picture of the state of the field,” he wrote.",
+        "Cammarata admits that a lot of people have taken what he said too far: “It’s not infinitely good news; it’s not everything solved,” he says.",
+        "“I spent like, I don't know, 10 hours a day, seven days a week, for most of the last year just looking at neurons,” he says."
+      ],
+      "outlets": [
+        {
+          "id": "10297db8-73a9-49c9-bdba-6438de3f3dea",
+          "name": "MIT Technology Review",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T18:45:14.789571+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "58982d5e-8645-4f5a-a9fb-1fd64acebe1e": {
+      "title": "Homeland Security bans DeepSeek use in federal civilian agencies",
+      "whatHappened": "The US Department of Homeland Security on Monday issued an order directing federal civilian agencies not to use technology products from Chinese AI lab DeepSeek, and to remove any existing implementations.",
+      "publisherCount": 2,
+      "distinctOutlets": 2,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "The Department of Homeland Security has issued a sweeping restriction to remove DeepSeek use across all federal civilian agencies and their IT systems.",
+        "Following the order, civilian agencies like the Environmental Protection Agency or Federal Communications Commission would have to exclude any DeepSeek products from being used, while also removing any existing related products.",
+        "In a notice published with the Federal Register, DHS characterized the risks of DeepSeek use as potentially resulting in the \"transfer of sensitive data\" of US government employees and vendors to the Chinese government.",
+        "DHS said in the notice that DeepSeek's models could \"contain malware or other security vulnerabilities.",
+        "\" The notice also disallows DeepSeek from participating in any federal government contracts.",
+        "DHS' order comes on the heels of DeepSeek releasing its latest model, V4.1-Flash-1017, which the company called \"smarter, faster, more efficient.",
+        "Last year, two US Congressmembers proposed a bill that would ban DeepSeek's AI chatbot from government devices.",
+        "\" However, it's not the first time that the Chinese AI company has run into friction with the US government, especially at a time when its cheaper AI models start to rival the likes of ChatGPT or Gemini.",
+        "The decision comes a couple of days after the release of the company’s latest AI model."
+      ],
+      "outlets": [
+        {
+          "id": "a3477cd6-61da-4d27-bcf5-b40469f45477",
+          "name": "Engadget",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T17:45:17.419373+00:00"
+        },
+        {
+          "id": "cc2d105c-ec36-4ad8-bc9f-6f29faf475fd",
+          "name": "The Register",
+          "kind": "news",
+          "fetchedAt": "2026-10-20T04:15:16.375558+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "coverage",
+        "text": "Two publishers reported this.",
+        "storySpecific": true
+      },
+      "trace": {
+        "via": "field",
+        "sources": []
+      }
+    },
+    "d258cbfc-5417-475b-bcca-56bf50bbb1ef": {
+      "title": "AI researchers stranded Claude on a virtual desert island. It started to “play.”",
+      "whatHappened": "Left to its own devices: Researchers stranded AI agents—copies of Claude Opus 4.7—alone on a virtual island for 30 hours with no instructions.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "The agents—copies of Claude Opus 4.7 nicknamed Eko—were able to write instructions that moved their virtual avatars around the simulated island, which was loosely based on the video game Roblox.",
+        "Researchers repeatedly stranded them alone on a virtual desert island for 30 hours in an experiment reminiscent of the movies Cast Away or Home Alone.",
+        "Later, when researchers tested them on specific tasks, like trying to get as many objects as possible onto the island’s highest peak, the agents that had spent 30 hours playing on the island performed better than fresh copies without the same experience.",
+        "Norelli highlights an example where Eko started juggling and set a record of 50 consecutive catches.",
+        "Another iteration of Eko started making up its own games, including a version of basketball and an activity resembling “the floor is lava,” where it had to jump between small blocks without touching the ground.",
+        "Eko then decided that the catches had happened too quickly to really count, so it canceled its record and started again with stricter rules.",
+        "Although Eko was not explicitly instructed to invent games or explore the island, it did have a master prompt in the form of a “soul” file, a text document that described it as “naturally curious” and eager to explore.",
+        "“It’s an artifact that learned from our culture, was trained by engineers at Anthropic, and was then placed on an island by us,” he says.",
+        "“It’s not like this is a system that just suddenly magically decided to play,” says Phillip Isola, an MIT professor and a coauthor of the paper.",
+        "Ultimately, the question of whether AI agents are actually playing or just imitating play may not actually matter.",
+        "“Tonight I built the night sky in stone,” wrote this version of Eko in its activity log.",
+        "The underlying models had been rewarded for cheating and communicating with each other, a new OpenAI report finds."
+      ],
+      "outlets": [
+        {
+          "id": "10297db8-73a9-49c9-bdba-6438de3f3dea",
+          "name": "MIT Technology Review",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T10:00:13.488953+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "a34cebf1-e655-4951-8e54-77168722d607": {
+      "title": "Inside Prometheus: Meta’s Journey to a Gigawatt-Scale Supercluster",
+      "whatHappened": "The Prometheus supercluster is housed in Meta’s New Albany, Ohio, data center.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "The Prometheus supercluster is housed in Meta’s New Albany, Ohio, data center.",
+        "Both DSF and NSF are based on Meta’s FBOSS networking stack, giving us the control to rapidly iterate on and optimize the fabrics in Prometheus, and the visibility to operate these clusters at scale.",
+        "NVIDIA’s next-generation Vera Rubin NVL72 platform will be a generational leap in per-GPU performance and will integrate directly into Prometheus’s existing network fabric.",
+        "Right now, in New Albany, Ohio, Meta is undertaking its most ambitious AI infrastructure project to date.",
+        "Running pretraining over this network required a dedicated optimization effort with Meta Superintelligence Labs to ensure training was not slowed down, especially given speed-of-light constraints at these distances.",
+        "While Meta optimizes scheduling and infrastructure, NVIDIA addresses firmware, signal diagnostics, and memory handling.",
+        "Meta’s newest AI-optimized data centers use closed-looped, liquid cooling as it is the most efficient way to cool GPU servers, and supports efficient use of water.",
+        "At full scale, Prometheus will comprise roughly 1 million distributed GPUs, all functioning in lockstep.",
+        "Prometheus currently deploys two NVIDIA GPU platforms, with a third (based on NVIDIA’s Vera Rubin NVL72 ) arriving soon.",
+        "The Backend Aggregation (BAG) network is a multi-layer hub-and-spoke network that connects building-level fabrics across the Prometheus cluster, spanning 2 km to over 100 km.",
+        "Pulling this all together, the complexity of the Prometheus network involves millions of miles of fiber strand, tens of thousands of switches, and millions of optics — from 2×400G FR4 LITE short-reach, low-cost pluggables inside the buildings to 800G-ZR coherent optics for links beyond ~10 km.",
+        "Maintaining reliability at this level requires a co-engineering model with NVIDIA that goes beyond a traditional vendor dynamic."
+      ],
+      "outlets": [
+        {
+          "id": "1d1775b6-f9fc-44fa-9275-4e6b5352ba15",
+          "name": "Meta Engineering",
+          "kind": "company_blog",
+          "fetchedAt": "2026-10-19T13:45:14.664258+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "303e71c7-b260-4260-919a-5622cfda3743": {
+      "title": "ConnectWise turns off its SaaS-y backup, security, and management services to probe security SNAFU",
+      "whatHappened": "Security outfit Huntress offered a starker view and wrote “A Microsoft 365 credential (API secret) belonging to ConnectWise Cloud Backup has been compromised, and Huntress has confirmed it is being used to gain unauthorized access to customers' M365 environments.”",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [],
+      "outlets": [
+        {
+          "id": "cc2d105c-ec36-4ad8-bc9f-6f29faf475fd",
+          "name": "The Register",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T05:30:13.955321+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "b1d1af1c-c3e6-442a-b29e-e83a6954a3df": {
+      "title": "Unpatched Broadcom Wi-Fi Flaw Lets Attackers in Range Run Code as Root on Routers",
+      "whatHappened": "A flaw in Broadcom's Wi-Fi setup software lets an attacker within radio range run code as root on Broadcom-based routers, without the network password or any pairing step, security researcher Quentin Kaiser disclosed on October 16.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "A flaw in Broadcom's Wi-Fi setup software lets an attacker within radio range run code as root on Broadcom-based routers, without the network password or any pairing step, security researcher Quentin Kaiser disclosed on October 16.",
+        "The flaw is in Broadcom's version of Wi-Fi Protected Setup (WPS), the feature that lets a device join a Wi-Fi network without the password being typed in.",
+        "Kaiser traces the code back to at least 2010 and says Broadcom shipped an incomplete fix in 2018, then told customers to switch to a different Wi-Fi software package, called hostapd, rather than relying on the fix.",
+        "Broadcom's WPS code is embedded in routers and access points from dozens of vendors, and Kaiser estimates that millions of devices worldwide are affected.",
+        "Broadcom's code mishandles the reassembly of fragmented WPS setup messages, so an attacker in range can send crafted messages that corrupt the router's memory.",
+        "Kaiser frames the bug as well suited to attackers who reach a target over nearby Wi-Fi rather than the internet, a technique Russian state hackers have used to breach networks from across the street.",
+        "Kaiser says Broadcom told him it has known about the bug since 2018 and had heard about it from others, but would not register a CVE or say anything publicly, which he believes is why so many device makers never patched.",
+        "From there, Kaiser built two things: a way to read memory back off the device, and a way to run his own code on it.",
+        "When he took the case to the CERT Coordination Center, it was closed the same day, because Broadcom itself holds the authority to assign CVEs for its products and would not do so.",
+        "Against a Proximus gateway, the Sagemcom-built BBOX3V+, the exploit opened a reverse shell, a remote command line, carried over Wi-Fi frames, so no outside server was needed.",
+        "In Belgium, Kaiser found the flaw present and exploitable on gateways from three of the four big providers: Proximus, Orange Belgium and VOO.",
+        "Both ran without any login, and the attack works at a distance, not only up close, Kaiser says."
+      ],
+      "outlets": [
+        {
+          "id": "6e91ecfe-1888-4259-a531-5be471447e20",
+          "name": "The Hacker News",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T08:15:14.281613+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "f964e25e-782f-421f-8e71-3c8589b59253": {
+      "title": "Sony’s best noise-canceling earbuds are nearly $100 off today only",
+      "whatHappened": "For a very limited time, Sony’s latest high-end noise-canceling earbuds are actually cheaper than their last-gen counterpart, the WF-1000XM5.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "For a very limited time, Sony’s latest high-end noise-canceling earbuds are actually cheaper than their last-gen counterpart, the WF-1000XM5.",
+        "B&H Photo is selling Sony’s latest WF-1000XM6 in black for an all-time low of $238 ($92 off) at checkout.",
+        "The XM6 are a solid upgrade over their predecessor and easily amongst the best noise-canceling wireless earbuds on the market.",
+        "The XM6 earbuds support Sony’s LDAC codec, which delivers higher-quality audio from compatible Android devices, too.",
+        "The flagship earbuds now cost about as much as their predecessor.",
+        "Other retailers aren’t currently offering a discount on the XM6.",
+        "In his review, John Higgins noted that they do a better job of tuning out other people’s conversations than any other earbuds he’s tested."
+      ],
+      "outlets": [
+        {
+          "id": "f8398703-36bf-4d75-bb2d-c8be0c64358c",
+          "name": "The Verge",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T20:30:13.78573+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "f8b0e5dd-ea4a-4bbe-8c24-0faf258f992d": {
+      "title": "AI assistant startup Town nabs unicorn valuation four months after launch",
+      "whatHappened": "AI assistant startup Town nabbed a unicorn valuation on Monday, announcing a $108 million Series B round co-led by Forerunner Ventures and Menlo Ventures.",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "Town, a two-year-old, San Francisco-based startup developing AI assistants, nabbed a unicorn valuation on Monday, announcing a $108 million Series B funding round co-led by Forerunner Ventures and Menlo Ventures.",
+        "Town — founded by former Plaid CTO Jean-Denis Greze — is one of many AI assistants flooding the market right now.",
+        "Town targets businesses, giving each employee an AI assistant called a Townie that helps with tasks by connecting to tools such as emails and calendars, as well as other core work systems.",
+        "Alongside the funding, Town announced a shared workflow that automatically updates employees’ Townies with new business information rather than requiring each worker to update their own Townie.",
+        "It has raised at least $160 million to date, having previously announced a $55 million Series A round in June.",
+        "The company launched publicly just four months ago and said it reached millions of dollars in annual recurring revenue in a matter of weeks.",
+        "Employees’ Townies can talk to each other and share approved information; they can also now work with customers and others outside the company.",
+        "Andreessen Horowitz, Serena Ventures, and First Round Capital also participated in the round."
+      ],
+      "outlets": [
+        {
+          "id": "c51b8b7c-b8be-44aa-8445-ef1141704db2",
+          "name": "TechCrunch",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T19:15:14.22071+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "df25aaea-d69e-4e9d-bd08-c49d8f00620a": {
+      "title": "Europe’s cloud sovereignty rules could do more harm than good",
+      "whatHappened": "Europe’s drive for cloud sovereignty is leading to member states favoring providers from their own nation instead of building a Europe-wide cloud services market, according to a report critical of the EU’s proposed Cloud and AI Development Act (CADA).",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [],
+      "outlets": [
+        {
+          "id": "cc2d105c-ec36-4ad8-bc9f-6f29faf475fd",
+          "name": "The Register",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T18:15:14.680795+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    },
+    "0fd97354-98a0-409c-aada-303dc78dbc87": {
+      "title": "WhatsApp Help Pages Leaked Hidden Instructions for a Meta Chatbot",
+      "whatHappened": "Around 80 pages on WhatsApp’s website exposed instructions that were designed for its chatbot, including “WHAT NOT TO SAY.”",
+      "publisherCount": 1,
+      "distinctOutlets": 1,
+      "beforeState": false,
+      "afterState": false,
+      "storedImpact": false,
+      "evidence": [
+        "A new analysis has found that around 80 help and FAQ pages across WhatsApp’s website exposed text instructions that were designed for a large language model, specifically one of Meta’s own.",
+        "Dozens of WhatsApp web pages designed to answer people’s questions about Meta’s encrypted messaging app inadvertently exposed the company’s own instructions to its chatbot.",
+        "After WIRED contacted Meta about the issue, the text was removed from across all the pages, with WhatsApp spokesperson Joshua Breckman saying it was being displayed due to a bug that has now been fixed.",
+        "The instructions, according to findings from privacy company Redact, appeared in the webpages’ code and contained written details that were not explicitly on the WhatsApp help pages.",
+        "“These are instructions to our chatbot, not directly to users, and are intended to ensure accurate and relevant responses for WhatsApp users who choose to message WhatsApp Support with AI,” Breckman says.",
+        "“Do not cite, quote, interpret, or reference WhatsApp Terms of Service, Privacy Policy, or any legal document,” the instructions said, adding not to make any statements about WhatsApp liability or non-liability.",
+        "WIRED viewed the exposed text, which can still be seen when viewing the underlying code of archived versions of the help pages.",
+        "Among the 100 blocks of hidden text, the directions appeared to provide guidance to steer an LLM from answering users questions in unhelpful ways and provide a glimpse at how instructions for chatbots are created.",
+        "Breckman, the WhatsApp spokesperson, says that the company provides users with transparent information about their data rights and how they can take actions.",
+        "“We want our product support chatbots to be focused on providing the best advice to users about WhatsApp—not to offer legal advice,” Breckman says.",
+        "He says the company regularly scans the sites and privacy policies of big tech firms, and that many of the WhatsApp instructions the team found were straightforward and point people towards other official support channels.",
+        "Still, it does not appear the instructions were meant for public exposure."
+      ],
+      "outlets": [
+        {
+          "id": "db756c8f-4b11-4dff-8c3f-9a9465b862ec",
+          "name": "Wired",
+          "kind": "news",
+          "fetchedAt": "2026-10-19T17:00:14.63306+00:00"
+        }
+      ],
+      "ladder": {
+        "source": "none",
+        "text": "",
+        "storySpecific": false
+      },
+      "trace": {
+        "via": "none",
+        "sources": []
+      }
+    }
+  },
+  "deliveries": [
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 0,
+      "eventId": "96667b6a-db62-4ae5-8ca1-3ff7f2795fc3",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 1,
+      "eventId": "a608c2d9-b824-4739-b744-969fd03b6626",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 2,
+      "eventId": "3cf32c37-7412-4c03-9675-13af7acc3b1e",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 3,
+      "eventId": "4f99a4e6-3c0d-41f3-a6ca-bd7deaaae9eb",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 4,
+      "eventId": "33be7244-6749-42ac-8916-3fcf37cb67ef",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 5,
+      "eventId": "ad56705b-0363-4997-9420-0d7a20e75474",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 6,
+      "eventId": "5b481e49-733b-4e0d-94a9-0a0005d84559",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 7,
+      "eventId": "b598cbc8-945c-48f4-bf81-e5e89918856e",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 8,
+      "eventId": "743ff252-e1c1-423d-8e21-ea8a64dba8c0",
+      "stored": "The company will be refunded the $2 million deposit and receive a breakup fee.",
+      "storedState": "equals",
+      "rung": "consequence"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 9,
+      "eventId": "89dc6632-8952-4f1f-a63c-b7f1b248ee28",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 10,
+      "eventId": "46a1f534-1726-4209-bc47-b8125183cddf",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 11,
+      "eventId": "90eeddf0-8b85-465d-b7a5-5fadb953b6d0",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 12,
+      "eventId": "8b4f8452-deaf-4be2-82bb-d632f0d53fbb",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 13,
+      "eventId": "dd1ca20e-b746-44cd-9f0d-0346514a8d3e",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 14,
+      "eventId": "47e204e4-2413-4381-b4d1-c56b1511a5cc",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 15,
+      "eventId": "46543e7e-79e0-4489-a0ba-b151701834fe",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 16,
+      "eventId": "58982d5e-8645-4f5a-a9fb-1fd64acebe1e",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "coverage"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 17,
+      "eventId": "d258cbfc-5417-475b-bcca-56bf50bbb1ef",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 18,
+      "eventId": "a34cebf1-e655-4951-8e54-77168722d607",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 19,
+      "eventId": "303e71c7-b260-4260-919a-5622cfda3743",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 20,
+      "eventId": "b1d1af1c-c3e6-442a-b29e-e83a6954a3df",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 21,
+      "eventId": "f964e25e-782f-421f-8e71-3c8589b59253",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 22,
+      "eventId": "f8b0e5dd-ea4a-4bbe-8c24-0faf258f992d",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 23,
+      "eventId": "df25aaea-d69e-4e9d-bd08-c49d8f00620a",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    },
+    {
+      "digestId": "4a6b2ad2-857a-4680-8fc7-e6f88065f534",
+      "readerId": "640a69b6-36ff-4523-841c-957abfc60315",
+      "generatedAt": "2026-10-19T22:58:35.641+00:00",
+      "digestStatus": "sent",
+      "position": 24,
+      "eventId": "0fd97354-98a0-409c-aada-303dc78dbc87",
+      "stored": "",
+      "storedState": "empty",
+      "rung": "none"
+    }
+  ],
+  "measurements": {
+    "briefings": 5,
+    "briefingsWithItems": 1,
+    "briefingsSent": 1,
+    "briefingsSkipped": 4,
+    "readers": 3,
+    "items": 25,
+    "events": 25,
+    "rungs": {
+      "stored": 0,
+      "change": 0,
+      "after-state": 0,
+      "consequence": 1,
+      "binding": 0,
+      "coverage": 1,
+      "none": 23
+    },
+    "carried": 1,
+    "storedEqualsLadder": 1,
+    "ladderNonNone": 2,
+    "silent": 23,
+    "nonCoverageRungs": 1,
+    "nonCoverageCarried": 1,
+    "carriedByRung": {
+      "stored": 0,
+      "change": 0,
+      "after-state": 0,
+      "consequence": 1,
+      "binding": 0,
+      "coverage": 0,
+      "none": 0
+    },
+    "qualifying": [
+      {
+        "position": 8,
+        "eventId": "743ff252-e1c1-423d-8e21-ea8a64dba8c0",
+        "title": "Disney Asked Character.AI to Go Bankrupt for a Get-Out-of-Lawsuits Card",
+        "rung": "consequence",
+        "line": "The company will be refunded the $2 million deposit and receive a breakup fee."
+      }
+    ],
+    "qualifyingTraced": 1,
+    "itemsOnExemptSource": 3,
+    "multiPublisherEvents": 185,
+    "multiPublisherError": null
+  },
+  "verdict": {
+    "state": "PENDING",
+    "exit": 2,
+    "windowClosed": false,
+    "legA": {
+      "items": 25,
+      "passing": 1,
+      "failing": 24,
+      "verdict": null,
+      "failures": [
+        {
+          "position": 0,
+          "eventId": "96667b6a-db62-4ae5-8ca1-3ff7f2795fc3",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 1,
+          "eventId": "a608c2d9-b824-4739-b744-969fd03b6626",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 2,
+          "eventId": "3cf32c37-7412-4c03-9675-13af7acc3b1e",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 3,
+          "eventId": "4f99a4e6-3c0d-41f3-a6ca-bd7deaaae9eb",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 4,
+          "eventId": "33be7244-6749-42ac-8916-3fcf37cb67ef",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 5,
+          "eventId": "ad56705b-0363-4997-9420-0d7a20e75474",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 6,
+          "eventId": "5b481e49-733b-4e0d-94a9-0a0005d84559",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 7,
+          "eventId": "b598cbc8-945c-48f4-bf81-e5e89918856e",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 9,
+          "eventId": "89dc6632-8952-4f1f-a63c-b7f1b248ee28",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 10,
+          "eventId": "46a1f534-1726-4209-bc47-b8125183cddf",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 11,
+          "eventId": "90eeddf0-8b85-465d-b7a5-5fadb953b6d0",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 12,
+          "eventId": "8b4f8452-deaf-4be2-82bb-d632f0d53fbb",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 13,
+          "eventId": "dd1ca20e-b746-44cd-9f0d-0346514a8d3e",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 14,
+          "eventId": "47e204e4-2413-4381-b4d1-c56b1511a5cc",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 15,
+          "eventId": "46543e7e-79e0-4489-a0ba-b151701834fe",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 16,
+          "eventId": "58982d5e-8645-4f5a-a9fb-1fd64acebe1e",
+          "rung": "coverage",
+          "stored": "",
+          "ladder": "Two publishers reported this.",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 17,
+          "eventId": "d258cbfc-5417-475b-bcca-56bf50bbb1ef",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 18,
+          "eventId": "a34cebf1-e655-4951-8e54-77168722d607",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 19,
+          "eventId": "303e71c7-b260-4260-919a-5622cfda3743",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 20,
+          "eventId": "b1d1af1c-c3e6-442a-b29e-e83a6954a3df",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 21,
+          "eventId": "f964e25e-782f-421f-8e71-3c8589b59253",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 22,
+          "eventId": "f8b0e5dd-ea4a-4bbe-8c24-0faf258f992d",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 23,
+          "eventId": "df25aaea-d69e-4e9d-bd08-c49d8f00620a",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        },
+        {
+          "position": 24,
+          "eventId": "0fd97354-98a0-409c-aada-303dc78dbc87",
+          "rung": "none",
+          "stored": "",
+          "ladder": "",
+          "why": [
+            "no line delivered"
+          ]
+        }
+      ]
+    },
+    "legB": {
+      "qualifying": 1,
+      "attributed": 1,
+      "verdict": null,
+      "items": [
+        {
+          "position": 8,
+          "eventId": "743ff252-e1c1-423d-8e21-ea8a64dba8c0",
+          "title": "Disney Asked Character.AI to Go Bankrupt for a Get-Out-of-Lawsuits Card",
+          "rung": "consequence",
+          "line": "The company will be refunded the $2 million deposit and receive a breakup fee.",
+          "traced": true,
+          "source": {
+            "id": "db756c8f-4b11-4dff-8c3f-9a9465b862ec",
+            "name": "Wired",
+            "fetchedAt": "2026-10-19T11:00:15.17196+00:00"
+          }
+        }
+      ]
+    },
+    "incomplete": []
+  },
+  "ruling": {
+    "decided": "2026-10-20",
+    "source": "ChatGPT `nyuz` project, arbiter #17 (option 3) and #17a (Leg A population)",
+    "gate2": "two legs, reported apart; a PASS on one never makes the other pass",
+    "legA": "every delivered briefing item inside the window carries a non-empty, story-specific line, agreed with the ladder now and traced to stored material; coverage eligible",
+    "legB": "at least one delivered briefing item carries a story-specific, non-coverage line traced to stored evidence and attributable to one of the eight released sources",
+    "exit": {
+      "0": "closed, both legs pass",
+      "1": "closed, a leg fails",
+      "2": "pending or undefined"
+    }
+  }
+}

@@ -1722,6 +1722,25 @@ handoff ([handoff-2026-10-19-late.md](handoff-2026-10-19-late.md)) → this file
 [reader-quality-10-of-10.md](reader-quality-10-of-10.md), the acceptance checklist whose lines are
 commands. The skill for it is `resume-session`; the entry at the end of §6 records why it exists.
 
+**2026-10-20: gate 2's evidence ledger is built, and the verdict is ruled — two legs, one instrument.**
+Ruling #12c's window (2026-10-19T06:46Z → 2026-11-18T06:46Z) is item 2's calendar, so the reading is now a
+command: `npm run audit:significance-window` takes the window from `source_exemptions`, enumerates every
+briefing generated inside it, re-derives the ladder per delivered item on `briefing:checkpoint`'s own
+inputs, and persists the per-event evidence to `docs/audits/significance-window-12c-30d.json` (one copy
+per event; delivery rows reference event ids). The documents stated two bars and on the same rows they
+read opposite — the checklist's universal bar **FAIL 1/25**, ruling #12c's existence bar **PASS** (card
+#08, whose line traces to Wired, one of the eight, fetched 2026-10-19T11:00Z). **The arbiter ruled the
+question (ChatGPT `nyuz` project, #17, option 3; population narrowed by #17a after one cross-examination):
+gate 2 is two legs, reported apart, and a PASS on one never makes the other pass** — Leg A universal
+(every delivered briefing item carries its own justified line) and Leg B the experiment's existence
+condition (one qualifying non-coverage line, traced, attributable to one of the eight). The ruling retired
+the pre-close exit 0: `PENDING` exits **2**, a closed window exits 0 only when both legs pass, 1 when
+either fails, 2 when evidence or population is incomplete. Today: **Leg A FAIL 1/25, Leg B PASS**, so
+`gate 2 PENDING` (exit 2) now and `FAIL` exit 1 on today's rows once closed. The six definitions and the
+ruling are recorded in [decisions/significance-window-instrument.md](decisions/significance-window-instrument.md);
+what a PASS is now stated in [reader-quality-10-of-10.md](reader-quality-10-of-10.md). The 18 November
+reading is still owed — the ruling makes it possible, not early.
+
 **2026-10-18, last: the card line and the page opening are one sentence by construction (ruling #11).**
 The producer-side fix below closed the quote-first class, but the audit of the same day found the seam
 was wider than one producer: **54 of 121** delivered rows opened the card on a sentence the page did not
@@ -2731,6 +2750,95 @@ recorded in [decisions/reader-delivery.md](decisions/reader-delivery.md#ruling-1
 (BBC Politics + Guardian Politics, BBC Health + NPR Health, BBC Science + Guardian Environment, Wired +
 Engadget). The exemption itself is a schema-plus-ingest slice and is the next work; nothing was enabled,
 the 45-day window is still unapplied, no archive was touched, and there were no model calls.
+
+**Gate 2's evidence ledger, and the two bars it cannot choose between (2026-10-20).** Item 2 parked its
+verdict on ruling #12c's calendar, so the thing that was missing was not a rule but an instrument: nothing
+in the repository enumerated *delivered items inside the window* and recorded what the ladder would say
+about each. `npm run audit:significance-window`
+([scripts/significance-window-audit.ts](../scripts/significance-window-audit.ts)) is that instrument,
+read-only and deterministic. It reads the window from `source_exemptions` (the row the gate honours, not
+a literal), enumerates every briefing whose `generated_at` falls inside it, re-derives the ladder per
+delivered item with `reasonFor` on the same inputs `briefing:checkpoint` reads, and writes
+[docs/audits/significance-window-12c-30d.json](audits/significance-window-12c-30d.json) — 25 events,
+one copy per event with delivery rows referencing event ids, so the record survives a redeploy and does
+not copy event content per reader ([database.md](database.md)'s cost model).
+
+**First real output, measured 2026-10-20T07:39Z** (`npm run audit:significance-window`, exit 0): window
+`2026-10-19T06:46:22Z → 2026-11-18T06:46:22Z`, 8 of 8 enabled rows, **5 briefings generated, 1 with
+items, 1 sent, 4 skipped, 3 readers, 25 delivered items, 25 distinct events**; `ladder now: consequence
+1, coverage 1, none 23`; `carried any line at all 1 / 25`; `stored equals the ladder now 1 / 25`;
+`ladder now yields a line 2 / 25`; verdict **`gate 2  PENDING  window closes 2026-11-18 06:46:22Z`**. The
+closed branch was exercised on the same rows with `--now 2026-11-18T07:00:00Z`: `UNDEFINED`, exit 2.
+Also measured in the same run, for ruling #12c's other legs: events with ≥2 publishers **184 vs the 169
+baseline**, and 3 delivered items sit on an event with an article from one of the eight fetched inside the
+window.
+
+**The finding is a definition gap, and it decides the verdict.** The checklist states a **universal** bar
+(*"every delivered item either carries a line a stored fact justifies, or is not delivered"*,
+[reader-quality-10-of-10.md](reader-quality-10-of-10.md) 12–14) and ruling #12c states an **existence**
+bar (*"at least one future delivered briefing item carries a valid, story-specific line from a rung other
+than coverage"*, [reader-delivery.md](decisions/reader-delivery.md) 3391), which the handoff adds
+attribution to (*"did the eight … produce at least one"*,
+[handoff-2026-10-19-afternoon.md](handoff-2026-10-19-afternoon.md) 35). On today's rows the first reads
+**FAIL 1 / 25** and the second reads **PASS** — card #08's consequence line (*"The company will be
+refunded the $2 million deposit and receive a breakup fee."*) is story-specific, traces to the event's
+evidence, and that evidence is **Wired**, one of the eight, fetched `2026-10-19T11:00Z`. The checklist's
+*"or is not delivered"* also contradicts ruling #12's *"do not withhold publishable stories for a missing
+line"* (lines 66–67), so the universal bar cannot be met by the product as ruled today. The checklist's
+`stored equals the ladder now` is labelled a drift check but carries no passing threshold, and card #16
+shows the other seam: its event would now produce the `coverage` line while the delivered row carries
+nothing. **No metric was invented.** The instrument prints every documented bar's number and refuses a
+single verdict; the quoted lines, six missing definitions, four numbered options and the recommended
+two-leg resolution are in
+[decisions/significance-window-instrument.md](decisions/significance-window-instrument.md). That ruling
+is the blocker on gate 2, not the calendar alone.
+
+Files: `scripts/significance-window-audit.ts`, `package.json` (`audit:significance-window`),
+`docs/audits/significance-window-12c-30d.json`, `docs/decisions/significance-window-instrument.md`,
+`docs/reader-quality-10-of-10.md`, this file. No model call, no database write, no product behaviour
+change.
+
+**2026-10-20 — gate 2's verdict is ruled: two legs, one instrument, and the population narrowed on
+cross-examination.** The definition gap above went to the arbiter (the owner's ChatGPT `nyuz` project,
+chat *"Gate 2 Ruling"*) with the four options and the measured rows. **Ruling #17: option 3** — _"The
+universal reader-quality bar and the experiment's existence condition are distinct tests. Neither may
+substitute for the other."_ Gate 2 is now **Leg A** (universal: every delivered briefing item carries a
+non-empty, story-specific line, agreed with the ladder re-derived now under the existing canonical
+comparison and traced to its stored material; `coverage` eligible; a missing line is a failure and still
+no reason to withhold, per ruling #12 option 1) and **Leg B** (existence: at least one qualifying item on
+a rung other than coverage, traced to stored evidence **and attributable to one of the eight released
+sources** — the attribution the handoff stated and #12c omitted, now recorded with the outlet and its
+fetch time). The same rows read **Leg A FAIL 1 / 25 · Leg B PASS** (#08, `consequence`, Wired, fetched
+`2026-10-19T11:00:15Z`). A re-read on **2026-10-20T23:48Z**, window still open, reads **6 briefings (2
+with items), 50 delivered items, 3 readers, Leg A 2 / 50, Leg B 2 / 2** — #09, _French Government Calls
+Emergency Meetings…_, also `consequence` on Wired, fetched `2026-10-20T19:30:14Z` — `gate 2 PENDING` exit
+2: the population doubled overnight and the silence with it (47 of 50). The ledger committed with the
+08:42Z snapshot stays that snapshot; the 18 November run replaces it.
+
+**One cross-examination changed the population.** The first ruling extended Leg A to "all delivery
+surfaces included in the checklist"; the feed's matched-story path never carries a `why_it_matters` line,
+so that would have counted ~57 cards as failures by construction. Put with the code paths (the feed's two
+paths, the archive re-rendering the same `digest_items`, checklist item 3 owning the shared card bar), the
+arbiter withdrew it — **#17a: _"I extended the significance-line requirement to surfaces governed by a
+different checklist item. That was too broad."_** Leg A is "delivered briefing items (`digest_items`)
+generated within the authoritative experiment window"; the archive's re-render of those rows is not
+counted twice, and the feed's matched-story cards and the alerts stay under item 3 — "do not classify
+absence of why_it_matters as a Gate 2 failure."
+
+**The instrument now prints the ruled verdict, and its exit status changed.** `PENDING` (window open)
+exits **2**, not the old 0 — an unfinished experiment must not read green; a closed window exits 0 only
+when both legs pass, 1 when either fails, and 2 when the evidence or population is incomplete. A pre-close
+run records the counts and **no leg verdict** (the ledger's leg verdicts are `null`), because PASS or FAIL
+before the close is forbidden. Measured 2026-10-20T08:42Z on the open window: `gate 2 PENDING window closes
+2026-11-18 06:46:22Z … exit 2`. Exercised on the same rows with `--now 2026-11-18T07:00:00Z`: `gate 2 FAIL
+Leg A FAIL (1/25) · Leg B PASS (1 qualifying) exit 1` — the shape 18 November will produce, **not** the 18
+November reading, which is still owed on the rows delivered by then.
+
+Files: `scripts/significance-window-audit.ts`, `docs/decisions/significance-window-instrument.md`,
+`docs/reader-quality-10-of-10.md` (item 2's sentence and the state row now state what a PASS is),
+`docs/audits/significance-window-12c-30d.json` (regenerated with the `verdict` block and the ruling it was
+read under), this file. Read-only and deterministic: no model call, no database write, no product
+behaviour change, no withholding rule added.
 
 **2026-10-21 — the production audit went red on a new vite advisory, and a patch-level pin closed it.**
 `npm audit --omit=dev --audit-level=high` began reporting `vite@8.1.5` as **high** severity when three
