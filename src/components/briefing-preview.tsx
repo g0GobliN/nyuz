@@ -1,11 +1,38 @@
+import { Link } from "@tanstack/react-router";
 import { LogoMark } from "@/components/landing/nav";
+import { BRIEFING_READING } from "@/lib/briefing-measure";
 import type { Story } from "@/lib/story";
 import { sourceCount } from "@/lib/story";
 import { cn } from "@/lib/utils";
 
 /**
- * `name` defaults to empty, and the headline drops the address when it is.
+ * The briefing as it was delivered, on two surfaces that need different things
+ * from it.
  *
+ * `marketing` (the default) is the landing page's facsimile: fixtures rendered
+ * as a picture of the product, where a story link would jump a visitor into a
+ * dashboard they have no account for.
+ *
+ * `reader` is the reader's own briefing at `/dashboard/briefing`. It is the same
+ * card — same header, same rule between items, same 25-row rhythm — with the two
+ * things the audit found missing on the real surface
+ * (`docs/design-audit-2026-10-21.md`, B1/B2):
+ *
+ *  - **each headline is the way into its story.** Measured on the deployed
+ *    product: 25 stories, 0 anchors, 0 tabbable elements. The headline is the
+ *    target rather than the whole row, so text selection and the row rhythm are
+ *    unchanged, and it carries the feed card's hover treatment and the kit's
+ *    focus ring.
+ *  - **the card is a reading column.** The marketing card was sized for a
+ *    548 px column; mounted unchanged in the product's 969 px content area it
+ *    set 144 characters on a line. `BRIEFING_READING` holds the cap and the
+ *    measurement behind it.
+ *
+ * Both are one switch rather than a fork, because the two surfaces must not
+ * drift: what the landing page shows is the claim, and the dashboard is where
+ * the claim is kept.
+ *
+ * `name` defaults to empty, and the headline drops the address when it is.
  * The two landing-page usages pass no name at all — a marketing demo greeting
  * every visitor by one particular person's first name (which is what the old
  * default did) reads as a leaked fixture, because that is exactly what it was.
@@ -16,17 +43,22 @@ export function BriefingPreview({
   name = "",
   className,
   compact,
+  variant = "marketing",
 }: {
   stories: Story[];
   time?: string;
   name?: string;
   className?: string;
   compact?: boolean;
+  variant?: "marketing" | "reader";
 }) {
+  const reader = variant === "reader";
+
   return (
     <div
       className={cn(
         "overflow-hidden rounded-3xl border border-hairline bg-surface shadow-[var(--shadow-float)]",
+        reader && BRIEFING_READING.cardClassName,
         className,
       )}
     >
@@ -58,9 +90,24 @@ export function BriefingPreview({
                 {s.org}
               </span>
             </div>
-            <p className="mt-1.5 text-[16px] font-medium leading-snug">{s.title}</p>
+            {reader ? (
+              <Link
+                // No `from` search param: the story page only knows two reading
+                // queues today (the feed and alerts), and neither is a lie — a
+                // story opened here lands on its own page, and the page's back
+                // control returns to this briefing. The briefing's digest id is
+                // not passed either, because the story route does not read it.
+                to="/dashboard/story/$id"
+                params={{ id: s.id }}
+                className="mt-1.5 block cursor-pointer rounded-sm text-[16px] font-medium leading-snug transition-colors hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                {s.title}
+              </Link>
+            ) : (
+              <p className="mt-1.5 text-[16px] font-medium leading-snug">{s.title}</p>
+            )}
             {!compact && (
-              <p className="mt-2 text-[13.5px] leading-relaxed text-muted-foreground">{s.what}</p>
+              <p className="mt-2 text-[14.5px] leading-relaxed text-muted-foreground">{s.what}</p>
             )}
             {/*
               Significance and provenance are different claims and print under
