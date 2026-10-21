@@ -2824,6 +2824,55 @@ recorded in [decisions/reader-delivery.md](decisions/reader-delivery.md#ruling-1
 Engadget). The exemption itself is a schema-plus-ingest slice and is the next work; nothing was enabled,
 the 45-day window is still unapplied, no archive was touched, and there were no model calls.
 
+**2026-10-20 — ruling #11 is enforced at the feed and the archive, by one resolver, and the price is
+recorded.** `audit:surfaces` used to report the contract as a counterfactual (`9/57` feed, `7/14`
+archive) and the checklist said extending it was a decision. Enforced now: `src/lib/reader-opening.ts`
+holds the single rule (`storyOpening`) the card, the story page and the instrument all call — the
+delivered line through `deliveredLine`, the story's own recovered opening when there is none, nothing
+for furniture — and `story-article.tsx` opens on that same sentence, with `withoutOpening`
+(`reader-article.ts`) keeping the body from repeating it (`19 of 56` stored lines were a whole
+sentence inside a composed paragraph; `0` took part in a `glue` pair). `summariesFor` in
+`briefing.ts` puts the reader's newest `digest_items.summary` into `loadStory`, search and the
+matches feed, so the page and the card resolve one input. Measured same day, live: **feed 53/53 (3
+no line, 0 defects), archive 25/25, delivered briefing `4a6b2ad2` 25/25 exit 0**; the old rule read
+`13/54` and `15/22` on the same rows because the page recomposed from current coverage while the
+card carried the delivered sentence. The trade, recorded rather than hidden: the page opens on the
+delivered line, not a freshly composed deck, because composing per card costs 61 ms p50 / 173 ms p90
+over 56 stories and cannot run on the free plan's CPU or in a feed render. Three feed cards still
+print no line (furniture, the 2026-10-14 ruling) and their pages open on a composed deck — an
+absence, not a contradiction. No model call, no database write, archives untouched.
+Record: [decisions/reader-delivery.md](decisions/reader-delivery.md#one-sentence-at-the-feed-and-the-archive-ruling-11-extended-2026-10-20).
+
+**2026-10-21 — both instruments above were tautologies on two of three surfaces, and are now able to
+fail.** The CEO's refusal of PR #30 measured the defect: the feed passed one artifact to both sides
+of `classifyCard`, and `audit:delivered-line` built its `page` and `actual` from the same
+`item.summary` expression — identical input to one function, so the equality was guaranteed and
+`feed 53/53` and `PASS 25/25` were not evidence. `classifyCard` now takes the card's artifact and the
+page's artifact as separate arguments; the card side reads the row that surface's loader hands it
+(the newest briefing's own stored `summary`, or the reader's newest artifact on the matches path) and
+the page side reads the reader's newest delivered row. `audit:delivered-line` reads its page side from
+that newest delivery by its own query rather than rebuilding it from the audited item. The feed
+population is now the cards a reader is actually shown, modelled on both branches of `loadHomeFeed`,
+which is why the feed count moved. The doc comment no longer claims two sides read different rows on
+the matches path, where they are one row by design; it names the render tests instead.
+
+The instructive part is what the seed did *not* cover. `selfTest()` first classified two literals, and
+`--fixture` exercised `classifyCard` directly — so with the card side collapsed back onto the page's
+row at the **call site**, the real runs still printed `PASS feed 23/23` and `PASS 25 / 25`, because on
+today's data the two rows are the same row and a correct instrument is indistinguishable from a
+tautological one by output alone (measured 2026-10-21, both collapsed deliberately). The self-tests now
+call the *named* row-selection functions (`cardArtifactFor`; `cardArtifactOf`/`pageArtifactOf` and
+`pageSentence`), which the live path also calls, and each collapse is then caught with exit 1 and "the
+check cannot fail" before a row is read. A fixture that cannot fail is worse than no fixture, because
+it is evidence.
+
+Measured on the merged tree, Node 22: typecheck clean; lint 0 errors (20 pre-existing warnings); 204
+test files / 3472 tests pass; coverage floor no regression (total 45.41, +2.55pp); `audit:surfaces`
+PASS feed 23/23 · archive 25/25 · alerts 4/4; `audit:delivered-line` PASS 25/25 on briefing `4a6b2ad2`;
+both `--fixture` modes FAIL with one defect and exit 1. Counts that moved, as findings and not as
+tuning targets: **feed 53 → 23** (53 was a sample of newest matched events, not a feed); archive 25
+and delivered 25 unchanged. No model call, no database write, archives untouched, instrument-only.
+
 **Gate 2's evidence ledger, and the two bars it cannot choose between (2026-10-20).** Item 2 parked its
 verdict on ruling #12c's calendar, so the thing that was missing was not a rule but an instrument: nothing
 in the repository enumerated *delivered items inside the window* and recorded what the ladder would say

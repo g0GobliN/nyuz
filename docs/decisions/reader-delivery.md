@@ -3553,3 +3553,70 @@ rather than a literal. 8 affected suites / 150 tests pass; `tsc --noEmit` clean;
 **What this does not claim:** the delivered 2026-10-18 briefing stays as delivered (10/13, archives
 immutable). The next build is the first under this fix, and `npm run audit:delivered-line` on it is
 what settles item 1 of the acceptance checklist.
+
+## One sentence at the feed and the archive: ruling #11 extended (2026-10-20)
+
+**What was open.** `audit:surfaces` measured ruling #11 at the feed and the archive as a
+*counterfactual* — **9 of 57** feed card lines and **7 of 14** archive card lines were the sentence
+their page opened on — and the checklist recorded that it was not enforced there, because extending
+the ruling was a decision and not a repair. It is now enforced, and this is the record of what the
+enforcement cost.
+
+**What the reader had.** Two producers of one sentence on every card surface: `StoryCard` resolved
+its own line from the event's stored summary (with a composition only when the boundary refused it),
+and the story page opened on the deck its composition chose from current coverage. Measured on the
+feed's own population (2026-10-20, this tree, before any change): **13 of 54** admitted card lines were
+their page's opening — the checklist's 2026-10-18 read of `9/57` on the same instrument. The
+instrument was also feeding `events.what_happened` into the card rule while the loader hands the card
+`deliveredLine` (`reader-summary.ts`), so it over-counted admitted lines too (54 before, 53 after).
+
+**The mechanism, and why this one.** The obvious repair — the card prints the composed deck — costs
+**61 ms p50 / 173 ms p90 / 726 ms max** per story to compose (measured over the same 56 stories,
+Node 22 on the operator's laptop). Twenty-four cards would be 1.5 s of CPU, on the Worker's 10 ms
+free-plan budget it is impossible, and in the browser it is a multi-second stall on every feed — the
+regression `story-card.tsx` was written to avoid ("composing one here would pay 150-220 ms for every
+such card"). Storing a per-event opening needs a migration the owner applies by hand, so it cannot
+be measured live in this slice. So the sentence is resolved **from what every surface already has**,
+through the boundary the briefing uses:
+
+- **`storyOpening` (`src/lib/reader-opening.ts`)** — the card's own rule, extracted: the delivered
+  line (the briefing's stored artifact when there is one, the event's own line otherwise, both
+  through `deliveredLine`) when the card's boundary admits it; the story's own opening recovered
+  from its coverage (`recoverCardSummary`) when there is no line or the line is refused; nothing
+  when the line is provider furniture (the 2026-10-14 ruling keeps that at the card) or the story
+  has no coverage.
+- **The card prints it; the page prints it** (`story-article.tsx`), falling back to the composition's
+  deck only when the card had nothing to print at all. Card, page and instrument now call one
+  function, which is the "one code path, not three" the task named.
+- **The body never repeats the opening** (`withoutOpening`, `reader-article.ts`): when the opening is
+  the stored line rather than the composer's deck, the composition's body often carries the same
+  sentence. Measured: **19 of 56** stored lines are a whole sentence inside a composed paragraph,
+  **1** is a whole paragraph, and **none** takes part in a `glue` pair — so the sentence is lifted
+  exactly, and only when it is the same sentence.
+- **The page's loader carries the artifact** (`summariesFor` in `briefing.ts`, wired into
+  `loadStory`, search and the matches feed). Without that the page resolved a *different* input from
+  the card — the same defect class as the 2026-10-19 gate, one layer down.
+
+**Measured, this tree, live (`npm run audit:surfaces`, 2026-10-20):**
+
+| surface | before | after |
+| --- | --- | --- |
+| feed | 54 admitted lines, **9/57** equal to the page opening (counterfactual) | **53/53** equal, 3 cards with no line, 0 defects |
+| archive | 14 admitted, **7/14** equal (counterfactual) | **25/25** equal, 0 defects |
+| delivered briefing `4a6b2ad2` | 15/22 (the artifact had drifted from the recomposition) | **25/25**, 0 defects, exit 0 |
+
+**The drift that was hiding under the counterfactual.** The delivered card carried the sentence the
+briefing stored at build time; the page recomposed from *current* coverage. As coverage grows the
+two part: on 2026-10-20 the same delivered briefing read **15/22** by the old rule. That is not a
+card defect and no build can prevent it — it is two producers of one sentence. Now the page opens on
+the delivered sentence (`audit:delivered-line` compares against the page's opening, and keeps the
+recomposed deck as its reported, not enforced, "built now" column).
+
+**What this does not claim.** The page's opening is the delivered line for a delivered item and the
+event's line otherwise, *not* a freshly composed deck: the composition's own lead is no longer what a
+reader meets first on those surfaces. That is the price of one sentence without composing per card,
+and it is recorded here as the trade rather than as a win. The 3 feed cards that still print no line
+are furniture lines the 2026-10-14 ruling withholds; their pages open on a composed deck, which is an
+absence on the card, not a contradiction (the card claims nothing). Nothing was written to the
+database, no model was called, and the delivered archives were not touched.
+

@@ -1,7 +1,8 @@
 import { AlertCircle, Bookmark, ExternalLink, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { composeArticle } from "@/lib/editorial";
-import { articleMinutes } from "@/lib/reader-article";
+import { articleMinutes, withoutOpening } from "@/lib/reader-article";
+import { storyOpening } from "@/lib/reader-opening";
 import type { Story } from "@/lib/story";
 import { formatStoryTime } from "@/lib/story-time";
 import { cn } from "@/lib/utils";
@@ -36,7 +37,23 @@ export function StoryArticle({
   // fixtures, and this component re-renders on every vote, save and reach-end:
   // composed once per story rather than once per tap. `story` is the query's own
   // object, so its identity only changes when the payload does.
-  const article = useMemo(() => composeArticle(story), [story]);
+  //
+  // The page opens on the same sentence its card printed (`storyOpening`,
+  // `reader-opening.ts` — arbiter ruling #11, extended to these surfaces
+  // 2026-10-20), which is not always the deck this composition chose: a story
+  // delivered in a briefing opens on the sentence the briefing stored, and a
+  // matched story opens on the line its card carries. The body is then stripped
+  // of any sentence equal to that opening, so the reader cannot meet the same
+  // sentence twice (`withoutOpening`).
+  const { article, opening } = useMemo(() => {
+    const composed = composeArticle(story);
+    // The card's sentence when there is one; the composition's own deck when the
+    // delivered line is one the read boundary refuses. The card is gated off its
+    // surface in that second case (it has no sentence to print), so the page is
+    // never opened by a card the reader could not have seen.
+    const line = storyOpening(story) || composed.deck.text;
+    return { article: withoutOpening(composed, line), opening: line };
+  }, [story]);
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -87,11 +104,19 @@ export function StoryArticle({
           </p>
           {/* A story with no usable evidence has no deck. Omitting the
               paragraph is cleaner than printing the headline twice, and it is
-              the honest state: sources are listed, no summary exists. */}
-          {article.deck.text ? (
+              the honest state: sources are listed, no summary exists.
+
+              The opening is the same sentence the card carried. Evidence refs
+              print only when that sentence is this composition's own deck and
+              the refs therefore cite what it says; a delivered line carries its
+              own attribution and citing a deck it did not come from would be a
+              false credit. */}
+          {opening ? (
             <p className="mt-6 text-[14.5px] leading-[1.5] tracking-[-0.01em] sm:text-[16px] sm:leading-[1.6]">
-              {article.deck.text}
-              <EvidenceRefs refs={article.deck.evidence} story={story} />
+              {opening}
+              {opening === article.deck.text ? (
+                <EvidenceRefs refs={article.deck.evidence} story={story} />
+              ) : null}
             </p>
           ) : null}
         </header>

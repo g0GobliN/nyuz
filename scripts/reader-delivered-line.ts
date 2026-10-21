@@ -22,6 +22,10 @@
  *     `docs/decisions/reader-delivery.md` (ruling #11), and the mode that answers whether the contract
  *     holds for stories before they reach a briefing.
  *
+ *   `audit:delivered-line -- --fixture`
+ *     The seeded pair, through this file's own report and verdict: two artifacts that differ, one
+ *     deliberate defect, exit 1. It is how the assertion demonstrates that it can fail.
+ *
  * Every row lands in exactly one class, and the class is what keeps the number honest:
  *
  *   `agree`     the delivered line is the page's opening, character for character;
@@ -30,6 +34,38 @@
  *               never inflate the agreement count;
  *   `defect`    the page has a deck and the card's line is a different sentence. This is the class the
  *               ruling exists to empty.
+ *
+ * **Which page this compares against.** The page a reader opens today prints
+ * `storyOpening` over the line of their *newest* delivery for the event
+ * (`summariesFor` in `src/lib/server/briefing.ts`), not over the line of the
+ * briefing being audited. So the page side is read from that newest row here, by
+ * its own query and through the same two calls, while the card side is the item's
+ * own stored `summary`. For the newest briefing the two rows are usually the same
+ * one, and that is a fact about the data rather than a tautology in the code: a
+ * re-briefed event, or an alert that landed after the briefing with no artifact of
+ * its own, is where the two part, and a part is a defect that fails the run.
+ *
+ * This is the correction of 2026-10-20. The file had been computing both sides with
+ * one expression -- `page` and `actual` were the same `storyOpening` call over the
+ * same `item.summary` -- so `classify` could only return `agree` or `no-deck`, and
+ * `PASS 25/25` was not evidence about anything.
+ *
+ * **What makes it able to fail.** `selfTest()` runs on every invocation, before the
+ * database is read: it classifies a seeded pair whose two artifacts differ and
+ * requires `defect`, and the same artifact on both sides and requires `agree`. It
+ * also calls `cardArtifactOf()` / `pageArtifactOf()` and `pageSentence()` — the
+ * functions that *pick* the two rows and resolve them — because picking the row is
+ * the part that broke. A regression to one expression makes the run fail with "the
+ * check cannot fail" instead of printing a count. `--fixture` runs this whole
+ * report over that pair and exits non-zero, so the failure it is able to produce
+ * can be read: `npm run audit:delivered-line -- --fixture` is a FAIL with one
+ * defect, and the real run is a PASS.
+ *
+ * Measured 2026-10-21: with the page side inlined back onto `item.summary`, the
+ * real run still printed `PASS 25 / 25` — on today's single delivered briefing the
+ * two rows are the same row, so a correct instrument and a tautological one are
+ * indistinguishable from the output alone. Only the self-test caught it, which is
+ * why the two reads are named functions rather than inline expressions.
  *
  * Both modes also print the **pre-ruling** count for the same rows -- the same computation with no
  * composed opening, i.e. the rule that predates ruling #11 -- so the before-and-after pair in the record
@@ -46,11 +82,23 @@
  *   delivered briefing 7:30 AM  newest briefing digest `5294a8b9`, built 2026-10-17T22:59Z, 13 items,
  *                               every row written before the ruling: 6/13 agree, 7 defects,
  *                               0 no-deck; the same rows through the new write path: 13/13.
+ *
+ * Re-measured 2026-10-20 on the merged tree, with the page side read from the
+ * reader's newest delivery rather than from the audited item (the two were one
+ * expression before, so no row could be a defect):
+ *
+ *   delivered briefing `4a6b2ad2` (sent, 25 items)  25/25 agree, 0 defects, 0 no-deck;
+ *                               the pre-ruling rule would agree on 13 of them.
+ *   the two newest *generated* briefings were skips with no items, which is why this
+ *                               mode now reads the newest briefing that delivered
+ *                               cards instead of the newest generated one — it read
+ *                               N/A while a 25-item briefing sat two rows below.
  */
 
 import { writeFileSync } from "node:fs";
-import { loadCorpusEvents, storyForEvent } from "./lib/corpus";
+import { loadCorpusEvents, storyForEvent, type CorpusEvent } from "./lib/corpus";
 import { composeFromSources } from "../src/lib/editorial";
+import { storyOpening } from "../src/lib/reader-opening";
 import { composedSummaryArtifact, deliveredLine } from "../src/lib/reader-summary";
 import { db, main, say } from "./lib/db";
 
@@ -61,6 +109,7 @@ const flag = (name: string): string | undefined => {
 };
 
 const WINDOW = args.includes("--window");
+const FIXTURE = args.includes("--fixture");
 const LIMIT = (() => {
   const value = Number(flag("--limit") ?? 200);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 200;
@@ -77,6 +126,14 @@ type Measured = {
   stored: string;
   /** The sentence the story page opens on (the composer's own deck). */
   opening: string;
+  /**
+   * The sentence the page *prints*: `storyOpening` over the line the item was
+   * delivered with, falling back to the composition's deck. Since 2026-10-20 the
+   * page opens on the same sentence its card carried, so this is what ruling
+   * #11's contract is measured against; `opening` stays as the composer's own
+   * answer, which is the drift measurement beside it.
+   */
+  page?: string;
   /** The line a card built before ruling #11 delivered for this item. */
   before: string | null;
   /** The line a card built under the contract delivers for this item. */
@@ -88,8 +145,14 @@ type Measured = {
 type Verdict = "agree" | "no-deck" | "defect";
 
 const classify = (measured: Measured, line: string | null): Verdict => {
-  if (measured.opening.trim() === "") return "no-deck";
-  return line === measured.opening ? "agree" : "defect";
+  const page = measured.page ?? measured.opening;
+  if (page.trim() === "") return "no-deck";
+  // A card that printed no line contradicts nothing: the page opens on its own
+  // sentence and there is nothing on the card to disagree with (the same rule
+  // `audit:surfaces` applies). Counted on its own so it can neither inflate nor
+  // deflate the agreement count.
+  if ((line ?? "").trim() === "") return "no-deck";
+  return line === page ? "agree" : "defect";
 };
 
 const count = (verdicts: Verdict[], verdict: Verdict): number =>
@@ -105,6 +168,193 @@ const divergence = (line: string, opening: string): string => {
     `            page  ${JSON.stringify(opening.slice(from, index + 70))}`,
   ].join("\n");
 };
+
+/* ---------------------------------------------------------------------- */
+/* The seeded pair: the evidence that this check can fail                  */
+/* ---------------------------------------------------------------------- */
+
+/**
+ * Two artifacts for one item, and the verdict each must produce.
+ *
+ * The card side is what a briefing build stored for the item; the page side is
+ * what the reader's newest delivery says. They are two sentences on purpose, and
+ * `classify` must part them. On 2026-10-20 this file computed both sides with one
+ * expression, so `defect` was unreachable and `PASS 25/25` measured nothing; this
+ * pair is the counter-example the file checks itself against, and `--fixture`
+ * runs the full report over it.
+ */
+const SEEDED_CARD = "The regulator opened an inquiry into how the processor discloses fees.";
+const SEEDED_PAGE =
+  "Officials said the inquiry will examine fee disclosure and settlement delays across two markets.";
+/** The composer's own deck for the same story, which the page prints when no line is admitted. */
+const SEEDED_DECK =
+  "The inquiry will examine fee disclosure and settlement delays across two markets.";
+
+/**
+ * The story the seeded pair belongs to.
+ *
+ * Two plain single sentences of coverage on purpose: `deliveredLine` and
+ * `storyOpening` pass both artifacts through unchanged, so the only thing the
+ * self-test can turn on is the difference between the two rows.
+ */
+const SEEDED_EVENT: CorpusEvent = {
+  id: "00000000-0000-4000-8000-00000000f11e",
+  title: "A regulator opens an inquiry into a payments processor",
+  what: "The inquiry covers fee disclosure and settlement delays across two markets.",
+  status: "complete",
+  org: "Example News",
+  sources: 2,
+  publishedAt: "2026-10-01T00:00:00Z",
+  sourceList: [
+    {
+      name: "Example News",
+      at: "",
+      headline: "Regulator opens inquiry into payments processor",
+      excerpt:
+        "The regulator said the inquiry covers fee disclosure and settlement delays across two markets, and that it expects to publish its findings next year.",
+    },
+    {
+      name: "Example Wire",
+      at: "",
+      headline: "Payments processor faces inquiry over fees",
+      excerpt:
+        "The inquiry covers fee disclosure and settlement delays across two markets, according to a statement issued on Monday by the regulator.",
+    },
+  ],
+  sourceKinds: ["news", "news"],
+  coverage: [
+    {
+      name: "Example News",
+      kind: "news",
+      publishedAt: "2026-10-01T00:00:00Z",
+      headline: "Regulator opens inquiry into payments processor",
+      excerpt:
+        "The regulator said the inquiry covers fee disclosure and settlement delays across two markets, and that it expects to publish its findings next year.",
+      enrichment: "none",
+    },
+    {
+      name: "Example Wire",
+      kind: "news",
+      publishedAt: "2026-10-01T00:00:00Z",
+      headline: "Payments processor faces inquiry over fees",
+      excerpt:
+        "The inquiry covers fee disclosure and settlement delays across two markets, according to a statement issued on Monday by the regulator.",
+      enrichment: "none",
+    },
+  ],
+};
+
+const seededRow = (page: string, opening = SEEDED_DECK): Measured => ({
+  label: "seeded",
+  title: "A regulator opens an inquiry into a payments processor",
+  stored: SEEDED_CARD,
+  opening,
+  page,
+  before: SEEDED_CARD,
+  after: SEEDED_CARD,
+  actual: SEEDED_CARD,
+});
+
+/**
+ * The page side and the card side of the verdict, as one expression each.
+ *
+ * Both call `storyOpening` over `deliveredLine`, and they differ in one argument
+ * only — which artifact row they resolve. `artifact` is the brief build's stored
+ * `summary` on the card side and the reader's newest delivered row on the page
+ * side. Keeping the difference in the *caller* rather than in this function is
+ * what lets `selfTest()` prove the two rows are genuinely independent: on
+ * 2026-10-20 the page side was built from `item.summary`, the same expression as
+ * the card side, so `classify` could only return `agree` or `no-deck` and
+ * `PASS 25/25` measured nothing.
+ */
+function pageSentence(
+  page: ReturnType<typeof storyForEvent>,
+  artifact: string | null,
+  event: { what: string; title: string },
+  fallback: string,
+): string {
+  return (
+    storyOpening({
+      ...page,
+      what: deliveredLine({ summary: artifact }, event.what, event.title),
+    }) || fallback
+  );
+}
+
+/**
+ * The page side's artifact, and the card side's — two different rows by name.
+ *
+ * The card reads the row this brief build stored (`item.summary`); the page reads
+ * the reader's newest delivered row for the event, which is what `summariesFor`
+ * hands the story page. These are deliberately *not* one expression: on 2026-10-20
+ * both sides were built from `item.summary`, and the verdict could then only be
+ * `agree` or `no-deck`.
+ *
+ * They are separate functions for a measured reason. With the two rows simply
+ * inlined at the call site, putting the card's row back on the page side left the
+ * run at PASS 25/25 with no complaint — measured 2026-10-21 — because on today's
+ * single delivered briefing the two rows *are* the same row, so a correct run and
+ * a tautological one are indistinguishable from the output alone. `selfTest()`
+ * calls these functions with two rows that differ, so the wiring is checked
+ * against a pair that parts rather than against a coincidence in the data.
+ */
+const cardArtifactOf = (item: { summary: string | null }): string | null => item.summary ?? null;
+const pageArtifactOf = (
+  item: { event_id: string },
+  pageArtifacts: Map<string, string | null>,
+): string | null => pageArtifacts.get(item.event_id) ?? null;
+
+/**
+ * Null when `classify` still parts two different artifacts — through this same
+ * resolution and these same two reads the live rows use — or the reason it does
+ * not. A non-null answer fails the run before any row is read.
+ */
+function selfTest(): string | null {
+  const reasons: string[] = [];
+  // The verdict, on two artifacts that differ and on one that repeats.
+  const different = classify(seededRow(SEEDED_PAGE), SEEDED_CARD);
+  const same = classify(seededRow(SEEDED_CARD), SEEDED_CARD);
+  if (different !== "defect")
+    reasons.push(`two different artifacts classified "${different}", not defect`);
+  if (same !== "agree") reasons.push(`one artifact on both sides classified "${same}", not agree`);
+  // The two reads, over a map that differs from the item. This is the pair the
+  // 2026-10-20 code could not part, because there was only one read.
+  const item = { event_id: SEEDED_EVENT.id, summary: SEEDED_CARD };
+  const map = new Map([[SEEDED_EVENT.id, SEEDED_PAGE]]);
+  const cardArtifact = cardArtifactOf(item);
+  const pageArtifact = pageArtifactOf(item, map);
+  if (cardArtifact === pageArtifact)
+    reasons.push(
+      "the card's own row and the page's newest delivery are the same artifact, so the two sides are not independent",
+    );
+  // And the sentence each side resolves, through the shared resolution.
+  const story = storyForEvent(SEEDED_EVENT);
+  if (
+    pageSentence(story, cardArtifact, SEEDED_EVENT, SEEDED_DECK) ===
+    pageSentence(story, pageArtifact, SEEDED_EVENT, SEEDED_DECK)
+  )
+    reasons.push(
+      "the card's own line and the page's newest delivery resolve to the same sentence, so the two sides are not independent",
+    );
+  return reasons.length === 0 ? null : reasons.join("; ");
+}
+
+/** The same report and verdict, over the seeded pair, with one deliberate defect. */
+function fixture(): void {
+  const measured = [seededRow(SEEDED_PAGE), seededRow(SEEDED_CARD)];
+  const verdicts = measured.map((row) => classify(row, row.actual));
+  reportSurvivors(
+    measured,
+    verdicts,
+    measured.map((row) => row.actual),
+    true,
+  );
+  finish(measured.length, verdicts, [
+    "seeded pair            two artifacts, one of them different from the other",
+    `  card line === page opening          ${count(verdicts, "agree")}`,
+    `  DEFECT — the two rows differ        ${count(verdicts, "defect")}`,
+  ]);
+}
 
 /**
  * Prints the survivors with their class, which is the part a bare count cannot say.
@@ -133,7 +383,7 @@ function reportSurvivors(
     const word = entry.verdict === "no-deck" ? "no-deck " : "DEFECT  ";
     say(`  ${word} ${entry.row.label}  ${entry.row.title.slice(0, 62)}`);
     if (entry.verdict === "defect" && entry.line !== null)
-      say(`          ${divergence(entry.line, entry.row.opening)}`);
+      say(`          ${divergence(entry.line, entry.row.page ?? entry.row.opening)}`);
     if (entry.verdict === "defect" && entry.line === null)
       say("          the card printed no line at all");
   }
@@ -167,26 +417,74 @@ function finish(checked: number, verdicts: Verdict[], headline: string[]): void 
   process.exitCode = line.includes(" PASS ") ? 0 : 1;
 }
 
+/**
+ * The reader's newest delivered sentence for each event.
+ *
+ * This is the page's side of the verdict, read the way the story page's loader
+ * reads it (`summariesFor` in `src/lib/server/briefing.ts`): the row whose digest
+ * was scheduled latest wins, and a row that stored no artifact answers `null`, so
+ * the page falls back to the event's own line exactly as it does in production.
+ * The loader module imports the browser Supabase client through its auth guard
+ * and cannot be loaded under Node, so the read is transcribed here rather than
+ * called; the function it mirrors is named above so the two are kept in step.
+ */
+async function newestArtifacts(
+  reader: string | null,
+  eventIds: string[],
+): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (!reader || eventIds.length === 0) return out;
+  const { data, error } = await db()
+    .from("digest_items")
+    .select("event_id, summary, digests ( user_id, scheduled_for )")
+    .in("event_id", eventIds);
+  if (error) throw new Error(`digest_items: ${error.message}`);
+  const newest = new Map<string, string>();
+  for (const row of data ?? []) {
+    const digest = row.digests as { user_id?: string; scheduled_for?: string } | null;
+    if (digest?.user_id !== reader) continue;
+    const at = digest?.scheduled_for ?? "";
+    const best = newest.get(row.event_id);
+    if (best !== undefined && at <= best) continue;
+    newest.set(row.event_id, at);
+    out.set(row.event_id, row.summary ?? null);
+  }
+  return out;
+}
+
 async function delivered(): Promise<void> {
   const client = db();
   const { data: digests, error } = DIGEST
     ? await client
         .from("digests")
-        .select("digest_id, generated_at, scheduled_for, kind, status")
+        .select("digest_id, generated_at, scheduled_for, kind, status, user_id, item_count")
         .eq("digest_id", DIGEST)
         .limit(1)
     : await client
         .from("digests")
-        .select("digest_id, generated_at, scheduled_for, kind, status")
+        .select("digest_id, generated_at, scheduled_for, kind, status, user_id, item_count")
         .order("scheduled_for", { ascending: false })
-        .limit(12);
+        .limit(24);
   if (error) throw new Error(`digests: ${error.message}`);
   const rows = digests ?? [];
-  // A briefing that has not been generated has no items and no lines; asking it would report a
-  // vacuous pass, so the newest *generated* briefing is the one to read.
+  // The population is the newest briefing that actually *delivered* cards. A
+  // briefing that was skipped has no items and no lines, so asking it reports a
+  // vacuous pass or a vacuous N/A; on 2026-10-20 the two newest generated
+  // briefings were skips and this instrument read N/A while a 25-item briefing sat
+  // below them. `sent` first, then a `ready` build, then anything generated with
+  // items — and if there is no such row, N/A is the honest answer.
   const digest = DIGEST
     ? rows[0]
-    : (rows.find((row) => row.generated_at !== null && row.kind === "briefing") ??
+    : (rows.find(
+        (row) =>
+          row.generated_at !== null &&
+          row.kind === "briefing" &&
+          row.status === "sent" &&
+          row.item_count > 0,
+      ) ??
+      rows.find(
+        (row) => row.generated_at !== null && row.kind === "briefing" && row.item_count > 0,
+      ) ??
       rows.find((row) => row.generated_at !== null));
   // Not `fail()`: that calls `process.exit` with the database socket still open, which on Windows
   // aborts the process and prints a libuv assertion after the message. Setting the exit code and
@@ -212,6 +510,14 @@ async function delivered(): Promise<void> {
     deliveredRows.map((row) => row.event_id),
   );
   const byId = new Map(events.map((event) => [event.id, event] as const));
+  // The page's side: the reader's newest delivery for each event, read by its own
+  // query. This is not the audited item's row — that is the point. For the newest
+  // briefing the two coincide unless the event was re-delivered or alerted
+  // afterwards, and a row where they part is a defect.
+  const pageArtifacts = await newestArtifacts(
+    digest.user_id ?? null,
+    deliveredRows.map((row) => row.event_id),
+  );
 
   const measured: Measured[] = [];
   const verdicts: Verdict[] = [];
@@ -238,13 +544,20 @@ async function delivered(): Promise<void> {
       title: event.title,
       stored: event.what,
       opening,
+      // What the story page prints for this reader today, resolved exactly as
+      // `StoryArticle` does: the newest delivered sentence when the boundary
+      // admits it, the composer's deck otherwise.
+      page: pageSentence(page, pageArtifactOf(item, pageArtifacts), event, opening),
       before: deliveredLine({ summary: composedSummaryArtifact(base) }, event.what, page.title),
       after: deliveredLine(
         { summary: composedSummaryArtifact({ ...base, opening }) },
         event.what,
         page.title,
       ),
-      actual: deliveredLine({ summary: item.summary ?? null }, event.what, page.title),
+      // What this briefing card printed for the reader, resolved exactly as
+      // `StoryCard` does, from the row this build stored. The same call as the
+      // page side above, over a different row — that difference is the verdict.
+      actual: pageSentence(page, cardArtifactOf(item), event, ""),
     };
     measured.push(row);
     lines.push(row.actual);
@@ -253,7 +566,7 @@ async function delivered(): Promise<void> {
 
   if (measured.length === 0) {
     say(
-      `delivered briefing   ${digest.digest_id}  (${digest.kind ?? "-"})  built ${digest.generated_at}`,
+      `delivered briefing   ${digest.digest_id}  (${digest.kind ?? "-"} / ${digest.status ?? "-"})  built ${digest.generated_at}`,
     );
     finish(0, [], ["items delivered      0"]);
     return;
@@ -268,7 +581,7 @@ async function delivered(): Promise<void> {
   }
   reportSurvivors(measured, verdicts, lines, true);
   finish(measured.length, verdicts, [
-    `delivered briefing   ${digest.digest_id}  (${digest.kind ?? "-"})  scheduled ${digest.scheduled_for}  built ${digest.generated_at}`,
+    `delivered briefing   ${digest.digest_id}  (${digest.kind ?? "-"} / ${digest.status ?? "-"})  scheduled ${digest.scheduled_for}  built ${digest.generated_at}`,
     `items delivered      ${deliveredRows.length}${missingCoverage > 0 ? ` (${missingCoverage} unreadable)` : ""}`,
     `  page published a deck               ${withDeck}`,
     `  card line === page, as delivered    ${agreeing}`,
@@ -346,6 +659,16 @@ async function window(): Promise<void> {
 }
 
 main(async () => {
-  if (WINDOW) await window();
+  // The instrument's own test, before any row is read: two artifacts that differ
+  // must classify as a defect. A comparator that cannot say `defect` reports
+  // nothing, and printing a PASS is the one thing it must not do.
+  const broken = selfTest();
+  if (broken !== null) {
+    say(`ruling #11  FAIL  the check cannot fail: ${broken}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (FIXTURE) fixture();
+  else if (WINDOW) await window();
   else await delivered();
 });
