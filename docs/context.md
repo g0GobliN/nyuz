@@ -3092,7 +3092,7 @@ silent. An anonymous browser gets `/auth` on every reader route (HTTP 200, clien
 was taken **read-only** in a browser holding a reader session. The deck is the 07:30 JST one, so it
 was composed by 22:30Z 2026-10-20, **before** `f0b2761` merged at 01:02Z — its text is evidence about
 the composer up to that point, not about the merge. Report and screenshots: [live-read-2026-10-21.md](live-read-2026-10-21.md),
-[screenshots/live-2026-10-21/](screenshots/live-2026-10-21/). No product code, no deploy, no
+Screenshots were captured locally and are not committed. No product code, no deploy, no
 migration, no write to production.
 
 **2026-10-21 — the six defects read in the delivered deck `3fcbb21c` are closed, one rule each.** Scout read
@@ -3119,7 +3119,7 @@ stored row.
 **Design audit of the deployed reader surfaces (2026-10-21).** The signed-in product was read at
 1280 / 768 / 360 plus a 320 px reflow probe — feed, briefing, archive, story, alerts, alert history —
 with every number measured from the live DOM and the evidence committed under
-`docs/screenshots/design-audit-2026-10-21/` (account name and avatar redacted). Record:
+screenshots captured locally (account name and avatar redacted), not committed. Record:
 [design-audit-2026-10-21.md](design-audit-2026-10-21.md). Two blockers on the briefing: it renders its
 **25 stories with zero links** (the marketing `BriefingPreview` was mounted in the product unchanged, so
 the surface is a dead end), and it sets **144 characters on a 911 px line** where the rest of the product

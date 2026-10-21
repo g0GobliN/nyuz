@@ -9,7 +9,7 @@
 success, 06:41 UTC). Every number below is from the **live origin**
 `https://nyuz.grgvishal-gurung17.workers.dev`, signed in as a reader — not from a PR preview, not from
 a dev server.
-**Evidence:** [docs/screenshots/design-signoff-2026-10-21/](screenshots/design-signoff-2026-10-21/)
+**Evidence:** screenshots captured locally during the sign-off, not committed (available on request)
 **Diff under sign-off:** 5 files — `src/components/briefing-preview.tsx` (the shared card),
 `src/routes/dashboard/briefing.tsx` (passes `variant="reader"`), `src/lib/briefing-measure.ts`,
 `src/components/briefing-preview.test.ts`, `docs/context.md`. No other route was touched.

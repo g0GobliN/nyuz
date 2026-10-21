@@ -3,7 +3,7 @@
 **Date:** 2026-10-21
 **Author:** pixel (design)
 **Reads:** [design-audit-2026-10-21.md](design-audit-2026-10-21.md) and the committed captures in
-[screenshots/design-audit-2026-10-21/](screenshots/design-audit-2026-10-21/)
+screenshots captured locally during the audit (not committed)
 **Branch:** `wt/design-spec`
 **Status:** guidance only. No product code, no deploy. forge and rook implement; nothing here is
 merged until it ships behind its own PR.

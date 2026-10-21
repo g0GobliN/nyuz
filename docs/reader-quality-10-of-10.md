@@ -124,7 +124,7 @@ is immutable); the next build is the first that can read 13/13, and that build i
 ### The live read the same morning (deployed origin, dashboard, 12 cards)
 
 Read as a stranger at `https://nyuz.grgvishal-gurung17.workers.dev/dashboard` on 2026-10-19, with
-[screenshots/dashboard-2026-10-19.png](../screenshots/dashboard-2026-10-19.png) as the record:
+a local screenshot of the dashboard (not committed) as the record:
 
 - **Two delivered cards still show the pre-fix opening** (#02 Disney, #11 Asus monitor). Expected and
   stated: the archive is immutable, and the next build is the first under the input fix above.
