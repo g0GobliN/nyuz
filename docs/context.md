@@ -1810,6 +1810,38 @@ it, `prefs-store.ts:76-85`), and make `lateness_seconds ≤ 600` (today 1,543) w
 (today 498.7) the acceptance numbers before any band is built. **No product code, migration or deploy
 was changed.**
 
+**2026-10-21 — the design audit's should-fix findings are specified for the two implementers.** The
+audit's ten numbered should-fix entries (S1–S10) are now
+[design-spec-2026-10-21.md](design-spec-2026-10-21.md), each with the measured defect and its capture,
+the intended reader outcome, the smallest change (element, reused token or component, what must not
+move), an acceptance number a verifier can run, and an owner. All ten are specified although the brief
+said nine: the audit carries S1–S10 and the CEO's summary paragraph had named only S1–S8. Ten findings
+collapse to eight implementation units — S7 is the only one that splits (the WCAG-failing 46 × 19
+dismiss control must land; the 32 × 32 feedback toggles are deferred with the audit's own trigger) — and
+two units (S8, S9) are arbiter-gated with numbered options and a recommendation. **No product code, no
+deploy, no merge.** Docs only.
+
+Three corrections to the audit, made while writing it and stated here rather than silently:
+
+- **S4's "four months visible, nine hidden" is the 360 case.** The committed 1280 capture
+  (`archive-months-1280.png`) is **977 × 57 px** and shows ten full labels plus the clipped eleventh, so
+  **three** months are hidden at 1280, not nine; the 360 capture (`313 × 57`) is the ~three-label window
+  the audit's sentence describes. The defect stands; the desktop figure in the audit and in the entry
+  above overstates it.
+- **S6's ≈36 rem would land the story body at ~94 cpl** — the feed's own worst line. The spec uses
+  **34 rem / 544 px** (~89 cpl body, ~72 deck) so the article sits inside the product's 85–94 band rather
+  than at its edge; the arithmetic is in the spec, from the audit's own 109-characters-in-669-px measure.
+- **P3 is withdrawn.** Small-uppercase `h2` group labels are the product-wide convention
+  (`delivery.tsx:420`, `settings.tsx:482`, `install-section.tsx:59`, `pipeline.tsx`), so changing only the
+  alert history would create the drift the polish item was raised to prevent.
+
+Two things the spec adds that the audit did not have: the archive's day labels skip `H1 → H3` as well
+(`history.tsx:234`, one class, carried by rook's archive slice because that file is already open in it),
+and a **collision map** — `src/components/briefing-preview.tsx` is edited by B1/B2 (rook) *and* by S2
+(forge), so the blockers land first and S2 rebases. S8 (the briefing claiming an inbox delivery email
+does not perform) and S9 (two unexplained score scales) may not be implemented before the arbiter's
+ruling is recorded in `docs/decisions/`.
+
 ## 7. What is next
 
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
@@ -1817,14 +1849,21 @@ handoff ([handoff-2026-10-19-late.md](handoff-2026-10-19-late.md)) → this file
 [reader-quality-10-of-10.md](reader-quality-10-of-10.md), the acceptance checklist whose lines are
 commands. The skill for it is `resume-session`; the entry at the end of §6 records why it exists.
 
-**2026-10-21: the briefing's two design blockers are closed; the nine should-fix findings are the next
-design slice.** B1 (a dead end: 25 stories, 0 links) and B2 (144 characters on a line) are fixed and
-measured in the entry at the end of §6, on `wt/briefing-blockers`. What the same audit ranked
-should-fix — two `h1`s on every desktop dashboard page, the briefing's `H1 → H3` skip and headingless
-25 items, the archive card that responds only on a 76×19 link, the 13-month strip hiding 9 months, the
-missing authored focus ring on nav and icon controls, story prose at 109 cpl, the 46×19 dismiss
-control, and the two copy decisions (inbox framing, two score scales) that go to the arbiter first —
-is a **separate follow-up task**, listed in that PR's body. None of it is in the landed slice.
+**2026-10-21: the design audit's should-fix work is specified and waiting on its owners.**
+[design-spec-2026-10-21.md](design-spec-2026-10-21.md) turns S1–S10 into eight implementation units with
+an acceptance number, a collision map and two arbiter questions (the briefing's inbox framing, and the
+two score scales). Order: S10 → S1+S2 (forge) → S3+S4 (rook) → S5 (forge) → S6+S7 (rook); S8 and S9 only
+after a recorded ruling. Nothing in it is on `main`; the two blockers (B1, B2) are with rook and land
+first because S2 edits the same component.
+
+**2026-10-21: the briefing's two blockers are closed and measured, so the spec's units can start.**
+B1 (a dead end: 25 stories, 0 links) and B2 (144 characters on a line) are fixed in
+`wt/briefing-blockers` — PR #40, head `d3a9174`, runner green, **not merged** — and measured in the
+entry at the end of §6. Re-measured on that head in Chromium (dev server, compiled stylesheet, Manrope
+loaded): **25 anchors at 1280 / 768 / 360 / 320** in reading order with the authored focus ring, and at
+1280 a 512 px card, a 454 px summary column and **median 68 / max 73 characters per line** against the
+audit's 144. The spec's S2 is the next slice to touch `BriefingPreview` and rebases on this; S8/S9 still
+wait on the arbiter.
 
 **2026-10-20: gate 2's evidence ledger is built, and the verdict is ruled — two legs, one instrument.**
 Ruling #12c's window (2026-10-19T06:46Z → 2026-11-18T06:46Z) is item 2's calendar, so the reading is now a
