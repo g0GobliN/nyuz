@@ -1817,6 +1817,15 @@ handoff ([handoff-2026-10-19-late.md](handoff-2026-10-19-late.md)) → this file
 [reader-quality-10-of-10.md](reader-quality-10-of-10.md), the acceptance checklist whose lines are
 commands. The skill for it is `resume-session`; the entry at the end of §6 records why it exists.
 
+**2026-10-21: the briefing's two design blockers are closed; the nine should-fix findings are the next
+design slice.** B1 (a dead end: 25 stories, 0 links) and B2 (144 characters on a line) are fixed and
+measured in the entry at the end of §6, on `wt/briefing-blockers`. What the same audit ranked
+should-fix — two `h1`s on every desktop dashboard page, the briefing's `H1 → H3` skip and headingless
+25 items, the archive card that responds only on a 76×19 link, the 13-month strip hiding 9 months, the
+missing authored focus ring on nav and icon controls, story prose at 109 cpl, the 46×19 dismiss
+control, and the two copy decisions (inbox framing, two score scales) that go to the arbiter first —
+is a **separate follow-up task**, listed in that PR's body. None of it is in the landed slice.
+
 **2026-10-20: gate 2's evidence ledger is built, and the verdict is ruled — two legs, one instrument.**
 Ruling #12c's window (2026-10-19T06:46Z → 2026-11-18T06:46Z) is item 2's calendar, so the reading is now a
 command: `npm run audit:significance-window` takes the window from `source_exemptions`, enumerates every
@@ -3050,3 +3059,46 @@ prose at 109 cpl; a 46×19 dismiss button; and briefing copy claiming an inbox d
 until launch — does not perform. Measured as sound and not to be changed: the three-colour palette in the
 DOM, a 5.20 contrast floor, no horizontal overflow at 320–1280, and one page-header pattern across five
 surfaces. No product code changed and no vote, save, dismiss or preference was touched.
+
+### The briefing became a way in and a reading column — B1 and B2 landed (2026-10-21)
+
+The two blockers from that audit are fixed in `wt/briefing-blockers`. `/dashboard/briefing` now mounts
+`BriefingPreview` as `variant="reader"` instead of the marketing facsimile, so **each of the 25
+headlines is a `Link` to `/dashboard/story/$id`** — the whole row stays inert, the headline is the
+target, and text selection and the 25-row rhythm are unchanged. The summary moved from 13.5 px to
+14.5 px and the card is capped at `max-w-[32rem]` and centred, with the page header, chips and footer
+note still full width; `src/lib/briefing-measure.ts` holds the cap, the padding, the type size and the
+measured Manrope advance, so the surface and the assertion read the same numbers.
+
+**Why 32 rem and not the audit's 37 rem:** the cap was chosen from a measurement, not the
+recommendation. Rendered in the product's own content column (dev server, real component, compiled
+stylesheet and Google-font Manrope) at 1280, the summary's characters per full line were —
+cap 592 px (the audit's) **median 80 / max 85**, 528 px **70 / 76**, 520 px **69 / 74**, **512 px
+68 / 73**, 500 px **65 / 71**, 480 px **63 / 69**. Only 512 and 520 sit inside the 65–75 bar, and
+512 keeps two characters of headroom for the real corpus: over the 25 delivered lines in
+`docs/live-read-2026-10-21.md` §1 the narrowest-charactered line fits 74.4 at a 454 px column. Before
+the fix the same surface measured **144** (audit), and the delivered card's column is now
+512 − 2 (border) − 56 (`px-7`) = **454 px** at 14.5 px.
+
+**Measured after, at 1280 / 768 / 360 / 320:** card 512 / 512 / 320 / 280, summary column
+454 / 454 / 278 / 238, **25 anchors at every width**, `cursor: pointer` on all of them, no `tabindex`
+attribute, a keyboard walk that stops on the story links **in reading order** with
+`box-shadow: …2px offset + 2px --ring` and `outline: none` (the authored ring replaces the UA outline),
+and **no horizontal overflow at any width** (scrollWidth = innerWidth at all four).
+
+**Tests, not screenshots.** `src/components/briefing-preview.test.ts` renders 25 stories and asserts 25
+`href="/dashboard/story/<id>"` in document order, no `tabindex`, `cursor-pointer` and
+`focus-visible:ring-2` on each link, **zero anchors for the marketing variant** (the landing page's
+fixtures must not link), the summary at the constant's size, and the characters-per-line figure at
+65–75 — with the class and the pixel value cross-checked so one cannot move without the other.
+`npm run audit:delivered-line` is unchanged (**PASS 25/25**): no stored row, digest or prose was
+touched.
+
+**Deferred on purpose:** the audit's nine should-fix findings (S1–S10: duplicate `h1`, briefing heading
+level, archive row target, month strip, focus ring on nav, story measure 109, install-card target, the
+email framing copy, the two score scales, the stale palette comment) are a follow-up task, listed in
+this PR's body and not expanded into it. One known boundary of B1's link contract: the story page's
+reading queue has two sources (`home`, `alerts`), so a story opened from the briefing pages in feed
+order — which for today's briefing is the same list, because `loadHomeFeed` reads the latest digest
+(`briefing.ts:252-264`) — while an archived briefing (`?digest=`) is not a queue source. Adding one is
+a follow-up, not part of this slice, and the link itself opens the right story.
