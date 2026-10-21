@@ -2972,6 +2972,25 @@ exact pin moved **8.1.5 → 8.3.4** (npm's named fix), with `postcss` 8.5.31 and
 inside vite's own ranges and no range of ours widened. Re-read: **0 vulnerabilities**. Same shape as the
 2026-10-16 `@tanstack/*` bump above.
 
+**2026-10-21 — read the live product as a reader: one welded paragraph, a briefing that cannot be
+read from, and an alert channel firing on a tablet discount.** Read at 01:04–01:30Z on `f0b2761`
+(bundle `assets/index-_3YT2emD.js`, CI run 39524919444; the origin still served
+`assets/index-Dj2sHqc7.js` at 01:04Z, so the read spans that deploy). 25 cards in the feed and the
+same 25 in the delivered briefing. **24 of 25 card lines equal their story page's opening sentence**;
+the exception is `How 3 Java Champions…`, whose card line is `Meet the Java Champions.` Story 17
+(Samsung's Pyeongtaek hub) carries a sentence verbatim from MIT Technology Review's 2026-08-26
+Hugging Face piece, mid-paragraph and uncited. `/dashboard/briefing` has **zero story links** under a
+footer that says every story links to the original reporting. **6 of 25 story opens returned an error
+page** (Cloudflare 1102, 503, "Something failed on our side", blank) on a back-to-back sweep; each
+returned 200 in 7.7–11.2 s when paced, so the failures are load-shaped. Alerts had fired **5 times by
+09:16**, including a Fire HD discount and an Oblivion FPS mod, on a surface that says most days are
+silent. An anonymous browser gets `/auth` on every reader route (HTTP 200, client-side), so the read
+was taken **read-only** in a browser holding a reader session. The deck is the 07:30 JST one, so it
+was composed by 22:30Z 2026-10-20, **before** `f0b2761` merged at 01:02Z — its text is evidence about
+the composer up to that point, not about the merge. Report and screenshots: [live-read-2026-10-21.md](live-read-2026-10-21.md),
+[screenshots/live-2026-10-21/](screenshots/live-2026-10-21/). No product code, no deploy, no
+migration, no write to production.
+
 **2026-10-21 — the six defects read in the delivered deck `3fcbb21c` are closed, one rule each.** Scout read
 the post-merge briefing (25 cards, built `2026-10-20T22:55:38Z`) as a stranger and found six defects; the
 full record, the rule and the test per defect are in
