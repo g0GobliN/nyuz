@@ -284,11 +284,11 @@ overflow). Labels unchanged: 13 px, no `text-overflow` ellipsis anywhere in the 
 **Finding.** The kit's buttons and chips carry the authored ring
 (`focus-visible:ring-2 ring-ring ring-offset-2 ring-offset-background`, `src/components/kit.tsx:20`).
 The navigation does not: keyboard tabbing `/dashboard` at 1280 produced **`outline: auto 1px`** and
-**`box-shadow: none`** on **every one of the first 14 consecutive stops** — sidebar `NavItem`s
-(`shell.tsx:58`), the header's Search button and Notifications link (`shell.tsx:227`, `:234`), the theme
-toggle (`theme-toggle.tsx`), the account trigger (`account-menu.tsx`), and the dashboard's text links.
-The focus is visible, so this is not a WCAG failure; it is a second control language, and a 1 px default
-outline on a surface with hairlines and tints is easy to lose.
+**`box-shadow: none`** on **every one of the first 14 consecutive stops** — the logo link
+(`shell.tsx:183`), the nine sidebar destinations (`NavItem`, `shell.tsx:58`), the header's Search button
+and Notifications link (`shell.tsx:227`, `:234`), the theme toggle (`theme-toggle.tsx`) and the account
+trigger (`account-menu.tsx`). The focus is visible, so this is not a WCAG failure; it is a second control
+language, and a 1 px default outline on a surface with hairlines and tints is easy to lose.
 Evidence: `focus-nav-item-1280.png` plus the 14-stop tab-order measurement.
 
 **Intended outcome.** Every control a keyboard reaches lights up the way the product's buttons already
@@ -299,14 +299,16 @@ visual language everywhere, and a mouse user sees nothing different.
 
 - In `src/components/kit.tsx`, add `export const focusRing = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";`
   and make `buttonClass` use the constant (its output stays byte-identical).
-- Append `focusRing` to: `NavItem` and `MobileItem` (`shell.tsx`), the header Search button and
-  Notifications `Link` (`shell.tsx:227-243`), `ThemeToggle` (`theme-toggle.tsx`), the `AccountMenu`
-  trigger button (`account-menu.tsx`), and the dashboard's bare text links — the briefing's "Back to
-  the latest briefing", the story's "Back to your nyuz" (`BackToFeed`), the history "Open briefing"
-  span is no longer focusable after S3, and `UpgradeNote`'s link.
+- Append `focusRing` to: the logo `Link`, `NavItem` and `MobileItem` (`shell.tsx`), the header Search
+  button and Notifications `Link` (`shell.tsx:227-243`), `ThemeToggle` (`theme-toggle.tsx`), the
+  `AccountMenu` trigger button (`account-menu.tsx`), and the dashboard's bare text links — the
+  briefing's "Back to the latest briefing", the story's "Back to your nyuz" (`BackToFeed`), and
+  `UpgradeNote`'s link. (The archive's "Open briefing" becomes a `<span>` in S3, so it stops being a
+  focus stop; the card that replaces it takes the same ring.)
 
-`IconToggle` (`story-card.tsx:239`) takes the same constant — it is a 32 px control with no ring today
-and is one of the 14 stops only on pages that show cards; include it while the file is open.
+`IconToggle` (`story-card.tsx:239`) takes the same constant. It has no ring today and sits past the
+measured fourteen stops, but it is the same defect on a control a reader presses repeatedly — include it
+while that file is open. No other card control changes.
 
 No new token: `--ring` already exists and is the signal hue in both themes.
 
@@ -314,12 +316,13 @@ No new token: `--ring` already exists and is the signal hue in both themes.
 64 px header, the mobile strip's `min-h-13` and safe-area padding, and the dropdown's `align="end"`.
 Ring offset is 2 px against `--background` in both themes; do not switch it to `ring-offset-surface`.
 
-**Acceptance measure.** Keyboard-only from a fresh `/dashboard` at 1280, tab through the first 14 stops:
-each focused element has computed `outline-style: none`, `box-shadow !== "none"`, and the shadow's colour
-resolves to `--ring` (light `oklch(0.53 0.12 240)`, dark value unchanged). Mouse-clicking the same
-controls produces no ring (`:focus-visible` is false). At 360, the same check on the four `MobileItem`s in
-the bottom strip. `buttonClass` output is unchanged: the rendered box and focus ring of a kit `Button`
-are identical before and after (same string in, same CSS out).
+**Acceptance measure.** Keyboard-only from a fresh `/dashboard` at 1280, tab through the fourteen chrome
+stops the audit measured (logo, nine sidebar links, four header controls): each focused element has
+computed `outline-style: none`, `box-shadow !== "none"`, and the shadow's colour resolves to `--ring`
+(light `oklch(0.53 0.12 240)`, dark value unchanged). Mouse-clicking the same controls produces no ring
+(`:focus-visible` is false). At 360, the same check on the four `MobileItem`s in the bottom strip.
+`buttonClass` output is unchanged: the rendered box and focus ring of a kit `Button` are identical before
+and after (same string in, same CSS out).
 
 **Owner.** forge. Unit **F**, separate commit from unit H because it is a different mechanism, though
 both touch `shell.tsx` — sequence F after H on the same branch.
@@ -531,8 +534,8 @@ nothing; no code before the ruling.
 oklch(0.53 0.12 240)` — blue, hue 240 — and the measured pairs are **5.20:1** (signal on white and
 white on signal) light and **8.11:1** dark. The comment's numbers are real; they belong to the colour
 the product stopped using. Not reader-facing, and it is the first thing the next designer reads.
-Evidence: `src/styles.css:46-60`; the current values are in the same file at `:89-91` and the test at
-`src/lib/style-tokens.test.ts`.
+Evidence: `src/styles.css:46-60`; the current values are `--signal` at `:82` (light, hue 240) and `:135`
+(dark, lightness lifted to 0.72), and the palette rule is enforced by `src/lib/style-tokens.test.ts`.
 
 **Intended outcome.** A designer opening the stylesheet reads a true description of the palette they
 are looking at: blue at hue 240, why it is blue and not the red the product used before, the real
@@ -548,10 +551,12 @@ iconography and weight. **Do not touch a single token value.**
 One rule to respect while writing it: the comment must not introduce a number that is not measured.
 Quote the pairs from the audit's table (5.20 light both ways, 8.11 dark), not from memory.
 
-**Acceptance measure.** `grep -nE "red|hue 27|5\\.58" src/styles.css` returns **no** hit inside the
-palette comment (`:root` and `.dark` bodies unchanged). `git diff -- src/styles.css` contains only
-comment lines (every changed line begins with `*` or is the `/*`/`*/` pair). `npx vitest run
-src/lib/style-tokens.test.ts` passes, and `git diff` shows no change to any `--token:` value.
+**Acceptance measure.** `grep -nE "hue 27|5\.58" src/styles.css` returns **no hit**; the palette comment
+contains the strings `hue 240`, `5.20` and `8.11`. A mention of the retired red is allowed only as
+history ("the accent this replaced"), never as the current palette. `git diff -- src/styles.css` contains
+only comment lines (every changed line begins with `*` or is the `/*`/`*/` pair).
+`npx vitest run src/lib/style-tokens.test.ts` passes, and `git diff` shows no change to any `--token:`
+value.
 
 **Owner.** forge. Unit **D**, independent of everything; can land first, and is a good warm-up while
 waiting on the arbiter.
