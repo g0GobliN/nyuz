@@ -58,6 +58,10 @@ const ALLOWLIST = new Map<string, string>([
   // Ambient OS home; audit scripts default their artifact output paths under
   // ~/.nyuz-artifacts with it. Supplied by every shell, never configured.
   ["HOME", "ambient OS home, artifact-path default for scripts/audit37-investigation.ts"],
+  // POSIX ambient zone. The formatter under test pins UTC for its calendar-day
+  // math; the cross-zone determinism test sets it in a child process to confirm
+  // the pinned behaviour holds. Never configured; set by the host shell.
+  ["TZ", "POSIX ambient zone, set by the timezone-determinism test runner only"],
 ]);
 
 /** Directories that hold nothing but tests and setup. */
