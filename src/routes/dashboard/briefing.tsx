@@ -184,12 +184,25 @@ function Briefing() {
         sentence in `empty` is a claim about what was delivered, so none of them
         can be written from a request that has not answered.
       */}
+      {/*
+        The reader's variant, not the marketing facsimile. On 2026-10-21 the
+        deployed page rendered 25 stories with no way into any of them — this
+        route mounted the landing page's card unchanged, and that card's
+        headlines are fixtures rather than links by design
+        (docs/design-audit-2026-10-21.md, B1). The same mount also set 144
+        characters on a line inside the product's 969 px content area, because
+        the card was sized for a 548 px marketing column (B2). `variant="reader"`
+        makes each headline a link to its story and caps the card at
+        `BRIEFING_READING` — a reading column — while the page header, the
+        chips and the note under the card stay full width.
+      */}
       <LoadState
         query={shownQ}
         hasContent={shown.length > 0}
         content={
           <BriefingPreview
             key={tab}
+            variant="reader"
             stories={shown}
             time={pretty}
             name={who}
