@@ -470,8 +470,8 @@ briefing page's footer says "Every story links to the original reporting" (`brie
 B1 makes each story link to its _story page_, which then lists the sources. That sentence is arguable
 in both directions and belongs in the same arbiter question as option 1, not in a separate edit.
 
-**Owner.** unassigned until ruled; then forge (it is the same component as S2/B1) or rook, but not
-both. **Blocks:** nothing, and nothing may be implemented before the ruling is recorded.
+**Owner.** unassigned until ruled; then forge (it is the same component as S2/B1) or rook, but not both —
+unit **C**. **Blocks:** nothing, and nothing may be implemented before the ruling is recorded.
 
 ---
 
@@ -523,8 +523,8 @@ character and prints three values matching `^\d{1,2}\.\d / 10$`; for a story who
 threshold equals `IMPORTANT_FLOOR` (6). Cross-check: the number on Alerts equals the smallest value the
 rail would print for a story the reader was alerted on.
 
-**Owner.** unassigned until ruled; then rook (its rail file is S6's) sequenced **after** S6. **Blocks:**
-nothing; no code before the ruling.
+**Owner.** unassigned until ruled; then rook (its rail file is S6's) sequenced **after** S6 — unit **S**.
+**Blocks:** nothing; no code before the ruling.
 
 ---
 
