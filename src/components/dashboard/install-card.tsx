@@ -97,9 +97,15 @@ export function InstallCard() {
               Add to Home Screen
             </Button>
           )}
+          {/* 62 × 24 px: the label's own box was 46 × 19, under WCAG 2.5.8's
+              24 px floor — and a `<button>`, so the inline-text exception does
+              not apply. `min-h-6` makes the height; `px-2 -mx-2` widens the hit
+              area by 8 px a side and pulls the box back so the word does not
+              move. The row's height comes from the 36 px button beside it, so
+              the card does not grow either. */}
           <button
             onClick={dismiss}
-            className="text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex min-h-6 -mx-2 items-center px-2 text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
           >
             Not now
           </button>

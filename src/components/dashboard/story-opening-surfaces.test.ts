@@ -56,9 +56,18 @@ function cardLine(html: string): string {
   return (match?.[1] ?? "").replace(/<[^>]+>/gu, "").trim();
 }
 
-/** The page's opening paragraph, as text. */
+/** The page's opening paragraph, as text.
+ *
+ * Matched on the two classes that identify it — `mt-6` and the 14.5 px body
+ * size — rather than on their order, because the reading measure
+ * (`max-w-[34rem]`, design spec S6) sits in front of both and a helper that
+ * pins the order reports the opening missing the day a class string is
+ * rewritten.
+ */
 function pageOpening(html: string): string {
-  const match = html.match(/<p class="mt-6 text-\[14\.5px\][^"]*">(.*?)<\/p>/u);
+  const match = html.match(
+    /<p class="(?=[^"]*\bmt-6\b)(?=[^"]*text-\[14\.5px\])[^"]*">([\s\S]*?)<\/p>/u,
+  );
   return (match?.[1] ?? "").replace(/<[^>]+>/gu, "").trim();
 }
 

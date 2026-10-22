@@ -231,7 +231,7 @@ function Days({ days, loading }: { days: HistoryDay[]; loading: boolean }) {
             style={{ background: d.count > 0 ? "var(--signal)" : "var(--border)" }}
           />
           <div className="flex flex-wrap items-baseline gap-3">
-            <h3 className="text-[16px] font-medium tracking-tight">{d.date}</h3>
+            <h2 className="text-[16px] font-medium tracking-tight">{d.date}</h2>
             <span className="text-[12.5px] text-muted-foreground">{d.weekday}</span>
             <span className="ml-auto text-[12.5px] tabular-nums text-muted-foreground">
               {d.skipped ? "No briefing" : `${d.count} stories`}
@@ -246,19 +246,29 @@ function Days({ days, loading }: { days: HistoryDay[]; loading: boolean }) {
               </p>
             </div>
           ) : (
-            <div className="mt-3 rounded-2xl border border-hairline bg-surface px-5 py-4">
+            /*
+             * The whole card is the way in. Alerts already solved this: one
+             * anchor per row, the border warming on hover, so the reader's
+             * pointer and the keyboard both have a target the size of the thing
+             * they are looking at. The label stays as the visible affordance,
+             * demoted to a span because an anchor inside an anchor is invalid
+             * and would put a second focus stop inside a card that is already
+             * one. `rounded-3xl` and the hover border are the alert card's own
+             * vocabulary, which is also what P2 (radius drift) asked for.
+             */
+            <Link
+              to="/dashboard/briefing"
+              search={{ digest: d.digestId }}
+              className="group mt-3 block rounded-3xl border border-hairline bg-surface px-5 py-4 transition-colors hover:border-foreground/20"
+            >
               <p className="text-[14.5px] font-medium">{d.headline}</p>
               <p className="mt-1.5 text-[12.5px] text-muted-foreground">
                 and {Math.max(0, d.count - 1)} more
               </p>
-              <Link
-                to="/dashboard/briefing"
-                search={{ digest: d.digestId }}
-                className="mt-3 inline-block text-[12.5px] text-muted-foreground hover:text-foreground"
-              >
+              <span className="mt-3 inline-block text-[12.5px] text-muted-foreground group-hover:text-foreground">
                 Open briefing
-              </Link>
-            </div>
+              </span>
+            </Link>
           )}
         </div>
       ))}

@@ -1844,6 +1844,15 @@ ruling is recorded in `docs/decisions/`.
 
 ## 7. What is next
 
+**2026-10-22: rook's four design-spec units are implemented and measured, and waiting on review.**
+S3 + S4 (the archive's inert card and its hidden months) and S6 + S7 (the story's reading measure and
+the install card's one 19 px tap target) are on `wt/spec-rook`, one commit each, with every acceptance
+number read off a browser rather than inferred from a diff — the entry at the end of this file records
+them, including the one acceptance band this slice could not meet and the arithmetic that explains it.
+Nothing here is on `main`; the deploy path is untouched by it. S1 / S2 / S5 / S10 remain forge's on
+their own branch, S8 still waits on the arbiter's ruling about the inbox framing, and S9 has its ruling
+(option A, one 0–10 scale) and runs after S6 because it edits the same rail file.
+
 **Where a session starts (2026-10-19).** Sync the checkout to `main` first, then read the newest
 handoff ([handoff-2026-10-19-late.md](handoff-2026-10-19-late.md)) → this file →
 [reader-quality-10-of-10.md](reader-quality-10-of-10.md), the acceptance checklist whose lines are
@@ -3236,8 +3245,10 @@ The path is small and lives in three files:
   previous tests assert.
 - `src/routes/dashboard/briefing.tsx` — passes `fromQueue="briefing"` only on the Today chip. The Saved chip
   is not a queue (its length is "what the reader saved", not "what was delivered") and the History view is
-  not a queue (a different day, retention-gated), so neither passes it; the link stays clean and the story
-  page falls back to no pager — the honest answer when we cannot name the list.
+  not a queue (a different day, retention-gated), so neither passes it and the link stays clean. A bare
+  story URL keeps the story page's default `home` source: it prints the feed's own position when the story
+  is in the feed, and `buildQueue` returns its empty queue — no position, no pager — when it is not. Neither
+  case names the saved list, so neither can contradict the number the reader counted there.
 
 **Why adding a queue source rather than suppressing the position line.** The queue source gives the reader the
 correct list (the 25) and the correct key shortcuts (`←` / `→` walk the briefing); the suppress option loses the
@@ -3260,4 +3271,86 @@ string, `undefined`, numbers, objects).
 shape, same `respectsFeedback` semantics. The change is purely a new source that hands it a different list
 to walk; the build rules the seven existing tests pin down continue to hold, and the 25 / 24 asymmetry is
 solved in the source, not in the queue model.
+
+### The archive became one target and the story found its column — S3, S4, S6, S7 (2026-10-22)
+
+The four units `docs/design-spec-2026-10-21.md` assigns to rook, on `wt/spec-rook`, one commit each.
+Every number below was read off a browser — Playwright against the shipped components and the product's
+own stylesheet, with Manrope asserted loaded before each read, because a fallback face is 3 px wider on a
+button label and was enough to fake a layout move until the probe waited for the real one. The harness
+lives in an untracked `.harness/` and never ships.
+
+**S3 — the day card is the way in.** The card was a `<div>` whose only target was a **76 × 19**
+`Open briefing` anchor: 1 % of a 956 × 112 box, no hover state, the other 99 % doing nothing on click. It
+is now a `Link` carrying the alert card's own vocabulary (`block rounded-3xl border border-hairline
+bg-surface transition-colors hover:border-foreground/20`) with the label demoted to a `<span>` +
+`group-hover:text-foreground`, so there is no nested anchor and no second focus stop. Measured at 1280 /
+768 / 360: **one anchor per day-with-stories card, sized to the card** (956 × 111.5 at 1280), the skipped
+day still an inert dashed `<div>` with **0** anchors, `document.querySelectorAll("a a").length === 0`,
+**0** focusable descendants inside a card, `cursor: pointer` over the whole box, the border warming
+`oklch(0.925 0 0)` → `oklab(0.16 0 0 / 0.2)` on hover, and a click at the card's centre landing on
+`/dashboard/briefing?digest=<the day clicked>` — compared against the clicked id, not merely that a
+navigation happened. The two riders the spec attaches land in the same commit: **P2** (`rounded-2xl` →
+`rounded-3xl` on the day card) and the archive's **H1 → H3 skip** (`h3` → `h2`; the archive renders
+`h2` × 3 and `h3` × 0).
+
+**S4 — thirteen months, none of them behind an invisible scroll.** The strip was one 1,288 px row inside
+a 977 px container, so 3 of 13 months were unreachable at 1280 without a scroll nothing announced, and
+about ten at 360. The nav keeps `overflow-x-auto` for the phone and gains `sm:overflow-visible`; the row
+gains `sm:min-w-0 sm:flex-wrap`; below `sm` it stays one snapping row (`max-sm:snap-x
+max-sm:snap-mandatory max-sm:scroll-px-2`) with an alpha-only edge fade on the scroller itself, which is
+where it has to be — a fade element inside a scroller scrolls away with the content. Measured: **13
+buttons at every width**; at 1280 `scrollWidth === clientWidth === 984`, at 768 `712 === 712`, computed
+mask `none`, snap `none`, every button inside the nav's rect, strip 88 px tall as two wrapped rows
+(the spec's limits are 120 and 160); at 360 `scrollWidth 1,311 > clientWidth 320`, mask
+`linear-gradient(to right, rgb(0,0,0) 88%, rgba(0,0,0,0))`, `scroll-snap-type: x mandatory`, and
+scrolling to the end (991 px of travel) puts `October 2025` fully inside the nav. No page-level
+horizontal overflow at 320 / 360 / 768 / 1280, and the labels are still 13 px with `text-overflow: clip`
+and no ellipsis anywhere in the strip.
+
+**S6 — the story reads as a column.** One constant, `PROSE_MEASURE = "max-w-[34rem]"`, on the deck and on
+the body container only. The headline keeps its 46.4 px track (684 px, unchanged) and its meta line, the
+260 px rail is still the page's right edge (`right 1252 === content right 1252`), and no type size,
+line-height, paragraph gap or grid moved. Measured at 1280 with the measure lifted on the same elements,
+so both sides are one browser and one font: prose **684 → 544 px** and its longest rendered line
+**105 → 81 characters**, the deck **91 → 74**; at 768 the same columns give **640 → 544 px**, **98 → 81**
+and a deck **85 → 74**; at 360 nothing changes (320 px both ways, 48 and 47 characters), which is what
+the spec expects. **The deck lands inside the spec's 68–76 band; the body does not land in its 85–92
+band, and the spec's own arithmetic is why.** It converts the audit's "109 characters in 669 px" into
+**6.14 px per character**, but Manrope 400 at 14.5 px measures **6.48 px** per character on rendered
+prose here (the audit's figure is about 5 % tight, plausible from a single line), so 544 px tops out at
+**84** characters on a perfectly packed line — the band needs at least 551 px, and **36 rem measures 89**,
+which is the spec's own target rather than the 94 it predicted. The rendered ratio agrees with itself:
+body/deck is 81/74 = **1.095** against the 16/14.5 font ratio of **1.103**, while the spec's 89/72 =
+1.236 would need a 12 % font step. 34 rem is the spec's explicit instruction and the narrower of the two,
+so it shipped as written; widening it to 36 rem is one constant if the arbiter prefers the band to the
+number.
+
+**S7 — the one tap target under 24 px.** The install card's `Not now` control measured **46.8 × 18.8** — a
+`<button>`, so WCAG 2.5.8's inline-text exception does not apply, and the spec's "46 × 19" reproduces.
+It gains `inline-flex min-h-6 items-center px-2 -mx-2`. Measured as an A/B against the pre-change card in
+the same browser, at the same width and in the same theme: **62.8 × 24** in light and dark at 360 and
+1280, the label's own box at **464.9 / 187.3** before and after (**0 px** of movement), the card's height
+**167.6** at 1280 and **235.9** at 360 in both, and the `Install Nyuz` button unchanged at 99.9 × 36. The
+two captures are **byte-identical**, which is the promise in one artifact: the hit area grew and not one
+pixel moved. The four 32 px `IconToggle`s are untouched by design — the spec defers them to the day the
+action row is touched. Note for whoever reviews this against the task card: the card asks for "≥ 44 px",
+but the spec rules 44 px out for this slice and a 44 px-tall control would change the card's height,
+which the same spec forbids; 24 px is the floor it names and 62 × 24 its target.
+
+**Open question, recorded rather than decided.** The skipped-day card still carries `rounded-2xl` while
+the clickable day card is now `rounded-3xl`, so the archive draws two radii in one list. The spec's "must
+not move" list protects the skipped card's dashed treatment and says nothing about its radius, and
+`AGENTS.md` forbids moving a radius where no acceptance measure asks for it, so it was left alone. If the
+archive should read as one card family, it is one class on the skipped card.
+
+Gates on the final tree: `npm run typecheck` clean; `npm run lint` **0 errors** (22 pre-existing
+fast-refresh warnings on unchanged files); `npm run test:coverage` **3,516 tests across 205 files green**;
+`GITHUB_ACTIONS=true npm run coverage:ratchet` **no regression against the committed floor** (total
+statements 45.58, and no area negative). `npm run audit:delivered-line` is **unchanged**: `ruling #11 PASS 25 / 25 card
+lines equal their page opening` on briefing `4a6b2ad2`, the value this file already records, and the
+audit reads the composer and the database, neither of which this slice touched — the diff is class
+strings, one `max-w` constant and one heading element name. Captures: `docs/screenshots/` is git-ignored
+as of `861d711`, so the nine (archive and story at 360 / 768 / 1280, install at 360 and 1280 before and
+after) live in the worktree and with the task, not in the repository.
 

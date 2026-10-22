@@ -13,6 +13,24 @@ type Vote = "useful" | "not-useful";
 const CARD = "rounded-2xl border border-hairline bg-surface p-5";
 const CARD_LABEL = "text-[11px] uppercase tracking-[0.16em] text-muted-foreground";
 
+/**
+ * The article's reading measure — 34 rem (544 px), applied to the prose only.
+ *
+ * The story page carried the widest prose in the product: a 669 px column at
+ * 14.5 px sets **109 characters on a full line** (measured live 2026-10-21,
+ * `docs/design-audit-2026-10-21.md` S6), against the 85–94 the feed lives in.
+ * The audit proposed 36 rem, which lands at 94 cpl on its own arithmetic
+ * (109 characters in 669 px = 6.14 px per character); 34 rem lands at **89**,
+ * inside the band, and takes the 16 px deck from 88 to **72** — the comfort
+ * range for display type.
+ *
+ * The headline and its meta line deliberately stay full width: a 46 px headline
+ * needs the wider track, and the right rail has not moved. Written as the
+ * Tailwind candidate verbatim because the compiler scans source text — a
+ * literal here is what emits the rule.
+ */
+const PROSE_MEASURE = "max-w-[34rem]";
+
 export function StoryArticle({
   story,
   saved,
@@ -112,7 +130,12 @@ export function StoryArticle({
               own attribution and citing a deck it did not come from would be a
               false credit. */}
           {opening ? (
-            <p className="mt-6 text-[14.5px] leading-[1.5] tracking-[-0.01em] sm:text-[16px] sm:leading-[1.6]">
+            <p
+              className={cn(
+                PROSE_MEASURE,
+                "mt-6 text-[14.5px] leading-[1.5] tracking-[-0.01em] sm:text-[16px] sm:leading-[1.6]",
+              )}
+            >
               {opening}
               {opening === article.deck.text ? (
                 <EvidenceRefs refs={article.deck.evidence} story={story} />
@@ -120,7 +143,12 @@ export function StoryArticle({
             </p>
           ) : null}
         </header>
-        <div className="mt-7 space-y-5 text-[14.5px] leading-relaxed [overflow-wrap:anywhere]">
+        <div
+          className={cn(
+            PROSE_MEASURE,
+            "mt-7 space-y-5 text-[14.5px] leading-relaxed [overflow-wrap:anywhere]",
+          )}
+        >
           {article.paragraphs.map((paragraph, index) => (
             <div key={index}>
               {paragraph.heading ? (
