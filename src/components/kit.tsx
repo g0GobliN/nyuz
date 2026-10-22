@@ -2,6 +2,23 @@ import { Link } from "@tanstack/react-router";
 import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
+/**
+ * The product's focus ring, in one place.
+ *
+ * The kit's buttons have always drawn this ring; the navigation did not, so a
+ * keyboard reader tabbing through the chrome got `outline: auto 1px` from the
+ * browser on every nav link while every button lit up in the product's blue.
+ * That is two control languages for one product, and a 1px default outline is
+ * easy to lose against hairlines and tints.
+ *
+ * Exported rather than pasted into each call site so the ring cannot drift, and
+ * so a change here reaches all of them at once. `focus-visible:` throughout —
+ * a mouse click must not draw it. No new token: `--ring` is already the signal
+ * hue in both themes, and the 2px offset stays `--background`.
+ */
+export const focusRing =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+
 export function Button({
   variant = "primary",
   size = "md",
@@ -20,7 +37,7 @@ export function buttonClass(
 ) {
   return cn(
     "inline-flex items-center justify-center gap-2 rounded-full font-medium transition-all duration-300 select-none",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+    focusRing,
     "disabled:opacity-40 disabled:pointer-events-none",
     size === "sm" && "h-9 px-4 text-[13px]",
     size === "md" && "h-11 px-6 text-sm",

@@ -9,6 +9,7 @@ import {
   ThumbsUp,
   VolumeX,
 } from "lucide-react";
+import { focusRing } from "@/components/kit";
 import { storyOpening } from "@/lib/reader-opening";
 import { becauseYouFollow } from "@/lib/matching";
 import { sourceCount, type Story } from "@/lib/story";
@@ -241,6 +242,7 @@ function IconToggle({
         active
           ? "bg-signal/15 text-signal"
           : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        focusRing,
       )}
     >
       {children}
