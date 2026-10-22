@@ -35,7 +35,18 @@ include arXiv, GitHub release feeds, vendor blogs and product changelogs, so cal
 product a news briefing undersells what it actually watches. The wording that shipped is
 in `SEO_DEFAULT` (`src/lib/site-content.ts`) and the root meta
 (`src/routes/__root.tsx`), and it is the first clause of the "What nyuz covers" section
-on the landing page. The same phrase was swept across every public meta description.
+on the landing page. The same phrase was swept across the bundled defaults — the
+root meta description and `og:description` (which every route without its own
+description inherits) and the PWA manifest description. **A stored `site.seo` row
+overrides the bundled default**, and a seeded environment has one: `0003_admin.sql`
+inserts it and `0004_landing_copy.sql` rewrites its description. So the sweep also
+needs a migration, `0122_site_seo_information_briefing.sql`, which updates the
+stored description only where it still holds one of the two values this repository
+has ever written — an operator's own edit in `/admin/content` does not match
+either and is left alone. Measured on the live project on 2026-10-21: there is no
+`site.seo` row there (the table holds `site.access` and two AI budget keys), so the
+live page serves the bundled default and reaches production from the code change
+alone; the migration is for the seeded path.
 What it does **not** claim: that nyuz is a platform where readers share information with
 one another, or that it covers every category comprehensively. The loop — watch, merge,
 match, deliver — is the product; the breadth is what it watches.
@@ -1945,6 +1956,80 @@ never committed, but walked by `eslint .` because a worktree is a full checkout 
 CI checkout has no `.worktrees/`, so the runner never sees it; only a developer machine does. Added
 `.worktrees/**` to the ignores in `eslint.config.js`, which already ignored `tmp/**`, `.scratch/**`
 and the Playwright artifact directories for the same class of reason.
+
+**2026-10-21, later still: three reviewers read the landing work, and two of them found real
+defects.** The route-walk fix and the positioning change went out for review rather than straight
+to a PR, and that was the right call — here is what the review changed.
+
+**Scout (root-cause) refuted the mechanism I had written down and found the real one.** My
+explanation of the e2e timeout was wrong in three places, and the doc recorded the wrong
+explanation rather than a vague one. (1) `/manifest.webmanifest` is **never fetched during the
+walk** — zero requests across three instrumented walks; the 4,092 ms cold figure belongs to the
+installability test elsewhere in the suite. (2) There is only **one** cold start, not seven. (3) The
+"45.6 s baseline vs 40.5 s changed" comparison was **noise**: interleaved three-round runs gave
+baseline 43.5/47.6/72.9 s and this tree 49.7/65.6/67.2 s — the sign flips, and same-tree spread was
+48.5–65.8 s on a box at load average 22–43 on 4 cores. A single duration on a loaded machine is not
+a measurement. The real cause was a **duplicate load**: `blogIsAdvertised` opened `/` to read the nav
+link and the walk then opened `/` again as `PUBLIC_ROUTES[0]`. The two navigations were 33–52% of
+the walk's total in every run. The link is now read during the walk's own visit to `/`, with
+`watch()` attached before the first navigation so the landing page stays inside the same asset
+check. **Measured after the fix: 18.9 s, down from 43–73 s** — an idle-box number, and the doc says
+so. `test.setTimeout(120_000)` stays as margin, not as the mechanism, and `networkidle` is still not
+weakened.
+
+**Scout also caught that the positioning change would not have reached a seeded database.** `/`
+reads its description from the **stored** `site.seo` row, and `SEO_DEFAULT` is only the fallback for
+a database without one. `0003_admin.sql` seeds that row and `0004_landing_copy.sql` rewrites its
+description — so editing `SEO_DEFAULT` alone left every seeded environment serving a description
+that said "nyuz watches hundreds of sources" (a countable claim about a number that moves weekly) and
+none of them saying "information briefing" at all. Measured on the live project: there is **no**
+`site.seo` row (the table holds `site.access` and two AI budget keys), so the live page serves the
+bundled default and reaches production from the code change alone — but the seeded path needed its
+own change, so **`0122_site_seo_information_briefing.sql`** updates the stored description **only
+where it still holds one of the two values this repository has ever written**. An operator's own
+edit in `/admin/content` matches neither and is left alone: the stored row is an editorial decision,
+and a positioning sweep is not licence to overwrite an editor's words. The title is deliberately
+untouched — the brand line is not a positioning claim.
+
+**The coverage floor would have caught the new component too, and it was nearly right for the wrong
+reason.** `vitest.config.ts` instruments every file under `src/**` (`all: true`), so an untested
+123-line component counts against the floor. The repo has no jsdom and no `.test.tsx` anywhere, so
+the fix is the pattern its own component tests already use: `renderToStaticMarkup(createElement(…))`
+in the node environment. `src/components/landing/coverage.test.ts` pins the four areas in order,
+asserts that **no decimal digit** appears anywhere in the rendered text, and asserts the copy never
+widens the product into a place readers share with each other. Both assertions were **proven to
+bite** by injecting a defect and watching them fail — a number in the copy, and a "share with the
+community" phrase — rather than assumed.
+
+**Three smaller things, all fixed.** The walk's comment said "seven routes" when it is six plus the
+blog; the new code depended on `PUBLIC_ROUTES[0] === "/"` with only a comment enforcing it, so a
+reordering would have silently dropped `/blog` out of the walk — a gate quietly covering less, now
+one `expect` line loud; and `.worktrees/` was not gitignored, which is the *cause* of the lint
+failure that the eslint ignore was only treating as a symptom.
+
+**Two of my own mistakes, recorded.** The `docs/context.md` line claiming the new phrase "was swept
+across every public meta description" was false for a seeded database and is now qualified. And
+`npm run lint` was red for a reason that had nothing to do with this work: three Prettier errors in
+`.worktrees/t_5abaeb9d/scripts/_f18probe.ts`, another session's probe, untracked and never
+committed, but walked by `eslint .` because a worktree is a full checkout of the repository. A fresh
+CI checkout has no `.worktrees/`, so the runner never sees it; only a developer machine does. Fixed
+at the cause — `.worktrees/` is now gitignored — and at the symptom, with `.worktrees/**` in the
+eslint ignores alongside `tmp/**`, `.scratch/**` and the Playwright artifact directories.
+
+**And `hookTimeout` was never raised with `testTimeout`.** The vitest config's own comment names
+the evidence — "three PGlite `beforeAll` hooks" timed out in a coverage run — but a `beforeAll` is a
+HOOK, and `hookTimeout` was left at vitest's 30 s default, so raising `testTimeout` did not help
+those at all. Worse, the three migration test files each passed an **explicit** `30_000` to
+`beforeAll`, and an explicit value **overrides** the config. PGlite's WASM start-up measured 26 s on
+a loaded machine, so 30 s was marginal rather than generous. The config now sets `hookTimeout:
+60_000` unconditionally — the start-up costs the same whether or not v8 is instrumenting, so gating
+it on `measuringCoverage` left the plain `vitest run` with the *shorter* ceiling, which is backwards
+— and the explicit per-file overrides are gone.
+
+**Screenshots.** Upstream landed a policy on 2026-10-21 that screenshots are local evidence and are
+never committed (`docs/screenshots/` in `.gitignore`). The five PNGs this work had staged under
+`docs/design/` were removed from the tree for the same reason; the design comparison HTML stays,
+because it is a document rather than a capture. Local copies are kept outside the repository.
 
 ## 7. What is next
 
