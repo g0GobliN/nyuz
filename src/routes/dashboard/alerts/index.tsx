@@ -5,6 +5,7 @@ import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/s
 import { LoadState } from "@/components/dashboard/load-state";
 import { Chip, LinkButton } from "@/components/kit";
 import { Loading } from "@/components/loading";
+import { IMPORTANT_FLOOR } from "@/lib/pipeline/alert-floor";
 import { usePrefs } from "@/lib/prefs-store";
 import { loadRecentAlerts } from "@/lib/server/alerts";
 import { formatStoryTime } from "@/lib/story-time";
@@ -54,11 +55,14 @@ function Alerts() {
           <div className="flex-1">
             <p className="text-[15px] font-medium">{off ? "Alerts are off" : "Alerts are on"}</p>
             <p className="mt-1 text-[12.5px] text-muted-foreground">
+              {/* The floor is the alert stage's own constant, printed in the scale
+                  the story page's Scoring card uses — 6.0 out of 10, never a bare
+                  "6" written here, so the two surfaces cannot drift apart. */}
               {off
                 ? "Everything waits for your next scheduled briefing."
                 : effectiveBreaking === "everything"
                   ? `Important matched events can interrupt you, up to ${limits.alertDailyCap} a day.`
-                  : `Only events scoring 6 or higher interrupt you. Most days that is none — never more than ${limits.alertDailyCap} in a day.`}
+                  : `Only events scoring ${IMPORTANT_FLOOR.toFixed(1)} or higher out of 10 interrupt you. Most days that is none — never more than ${limits.alertDailyCap} in a day.`}
             </p>
           </div>
         </div>

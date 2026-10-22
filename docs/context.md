@@ -2030,6 +2030,28 @@ it on `measuringCoverage` left the plain `vitest run` with the *shorter* ceiling
 never committed (`docs/screenshots/` in `.gitignore`). The five PNGs this work had staged under
 `docs/design/` were removed from the tree for the same reason; the design comparison HTML stays,
 because it is a document rather than a capture. Local copies are kept outside the repository.
+**2026-10-22 — S9 lands: one reader-facing score scale, 0–10 with one decimal.** The CEO ruled
+**option A** on 2026-10-21, recorded in [decisions/score-scale.md](decisions/score-scale.md) with the
+case, the three options and the reason the two surfaces then agree by construction. The defect was one
+stored number printed two ways: the story rail read **Relevance 100% · Importance 50% · Novelty 70%**
+while `/dashboard/alerts` said **"Only events scoring 6 or higher interrupt you"**, and both are the
+same 0–10 value (`asPercent` is `clamp(round(score * 10), 0, 100)`, `story.ts:73`; `IMPORTANT_FLOOR = 6`,
+`alert-floor.ts:21`). Two edits, no new component and no data change: the rail's value span now prints
+`{(value / 10).toFixed(1)} / 10` (`story-article.tsx:191`, so `50` reads **5.0 / 10**), and the alerts
+sentence interpolates `${IMPORTANT_FLOOR.toFixed(1)}` so a literal threshold cannot drift
+(`alerts/index.tsx:65`). Bars keep `width: {value}%` — lengths unchanged — as do the 1 px height,
+`bg-muted`/`bg-signal`, the card chrome, the 12.5 px rows, `CARD_LABEL` and the chip row.
+
+`src/components/dashboard/score-scale.test.ts` (8 assertions) renders the real `StoryArticle` and reads
+the alerts route's sentence, because a defect of two disagreeing surfaces passes any single-surface
+test: it pins `6.0 / 10`, `5.0 / 10`, `7.0 / 10`, no `%` in the card's text, `10.0 / 10` at the top of
+the scale, the three bar widths, and the cross-check that the rail's Importance row for a story at the
+floor reads the same `6.0` the sentence does — with `5.9 / 10` one decimal below it. **Failing-first,
+measured:** with the two source edits reverted, 5 of the 8 fail; the 3 that still pass are the
+"must not move" pins. `asPercent`, `importanceBand` and the stored scores are untouched. One surface
+still carries the old wording and is recorded rather than changed — the support FAQ
+(`support.tsx:48`, "Only events scoring 6 or higher interrupt you") — because S9's ruling named two
+files and FAQ copy is a decision, not a tidy-up.
 
 ## 7. What is next
 
