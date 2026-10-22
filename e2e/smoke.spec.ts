@@ -259,12 +259,13 @@ test.describe("the origin keeps its promises", () => {
     // This test needs its own budget, and the reason is arithmetic rather than
     // a slow page.
     //
-    // It walks seven routes, each with `waitUntil: "networkidle"`, and the
-    // suite's 30s ceiling is shared across all of them. Measured with the
-    // timeout raised so the walk could report its own duration, the total on
-    // this tree was 43-73s across runs, on a box with a load average of 22-43
-    // on 4 cores because other agents were building concurrently. The budget
-    // was already too small before anything in this repository changed.
+    // It walks the six public routes in PUBLIC_ROUTES, plus "/blog" when the
+    // site advertises it, each with `waitUntil: "networkidle"`, and the suite's
+    // 30s ceiling is shared across all of them. Measured with the timeout
+    // raised so the walk could report its own duration, the total on this tree
+    // was 43-73s across runs, on a box with a load average of 22-43 on 4 cores
+    // because other agents were building concurrently. The budget was already
+    // too small before anything in this repository changed.
     //
     // The cost is not the server. Every page answers in well under a second
     // against the local Worker. The cost is that each navigation waits for the
@@ -292,6 +293,14 @@ test.describe("the origin keeps its promises", () => {
     // inside the same asset check as the rest of the walk. `/` is
     // `PUBLIC_ROUTES[0]`, so reading the blog link here costs nothing extra and
     // visits exactly the routes the old version did.
+    //
+    // The blog link is only on the landing page, so the first route has to BE
+    // "/". Asserted rather than assumed: if someone reorders PUBLIC_ROUTES,
+    // the probe below would read some other page, find no blog link, and
+    // silently drop "/blog" out of the walk — a gate that quietly covers less,
+    // with nothing failing. One line turns that into a loud failure.
+    expect(routes[0], "the walk reads the blog link on the landing page").toBe("/");
+
     const noise = watch(page);
     const [first, ...remaining] = routes;
     await page.goto(first!, { waitUntil: "networkidle" });

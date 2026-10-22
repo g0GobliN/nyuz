@@ -62,7 +62,13 @@ beforeAll(async () => {
     );
   `);
   await db.exec(migration("0121_landing_coverage_section.sql"));
-}, 30_000);
+  // No explicit timeout on this hook: it inherits `hookTimeout` from
+  // vitest.config.ts, which is set to 60s. PGlite's WASM start-up was measured
+  // at 26s on a loaded machine (load average 20-24 on 4 cores), so an explicit
+  // 30s here was marginal rather than generous — and an explicit value
+  // OVERRIDES the config, which is how this hook went red on a plain
+  // `vitest run` while the config's own comment claimed it was handled.
+});
 
 afterAll(async () => {
   await db.close();
