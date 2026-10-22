@@ -17,6 +17,14 @@ export default tseslint.config(
   // here for the same reason: a killed `npm run e2e` leaves minified bundles in
   // `test-results/`, and the next `npm run ci` then reports 88 Prettier errors in
   // files nobody wrote. Generated, gitignored, never reviewed -- ignored.
+  //
+  // `.worktrees/` is the same case, and it bit on 2026-10-21: a sibling agent's
+  // worktree held a probe script (`_f18probe.ts`) with three Prettier errors,
+  // and `npm run lint` walked into it and reported them. The worktree is a
+  // full checkout of the repository, so a file in one is a file in the tree as
+  // far as `eslint .` is concerned -- but it belongs to another session and is
+  // not this session's diff. A fresh CI checkout has no `.worktrees/` at all,
+  // so the runner never sees these; only a developer's machine does.
   {
     ignores: [
       "dist",
@@ -27,6 +35,7 @@ export default tseslint.config(
       "test-results/**",
       "playwright-report/**",
       "blob-report/**",
+      ".worktrees/**",
     ],
   },
   {
