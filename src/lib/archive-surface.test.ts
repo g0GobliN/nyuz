@@ -15,9 +15,10 @@ import { describe, expect, it } from "vitest";
  * in isolation here; the archive's rendered geometry is measured in the
  * acceptance capture instead.
  *
- * S3, `docs/design-spec-2026-10-21.md`.
+ * S3 and S4, `docs/design-spec-2026-10-21.md`.
  */
 const HISTORY = readFileSync("src/routes/dashboard/history.tsx", "utf8");
+const MONTHS = readFileSync("src/components/dashboard/history-month-selector.tsx", "utf8");
 
 /** The archive's day list, from the first day to the end of the component. */
 const days = () => {
@@ -59,5 +60,30 @@ describe("the archive's day card", () => {
     // an H1 -> H3 skip is the same defect S2 names on the briefing.
     expect(days()).toContain("<h2");
     expect(HISTORY).not.toContain("<h3");
+  });
+});
+
+describe("the month strip", () => {
+  it("wraps from `sm` up, so no month is behind a scroll", () => {
+    // The scroller is the nav, so `sm:overflow-visible` has to be on it and the
+    // row has to be allowed to shrink and wrap.
+    expect(MONTHS).toContain("sm:overflow-visible");
+    expect(MONTHS).toContain("sm:min-w-0");
+    expect(MONTHS).toContain("sm:flex-wrap");
+  });
+
+  it("scrolls and snaps, with a fade, only below `sm`", () => {
+    expect(MONTHS).toContain("max-sm:snap-x");
+    expect(MONTHS).toContain("max-sm:snap-mandatory");
+    expect(MONTHS).toContain("max-sm:snap-start");
+    // Alpha only: the mask introduces no colour, which the palette test would
+    // otherwise be the only guard against.
+    expect(MONTHS).toContain("max-sm:[mask-image:linear-gradient(to_right,black_88%,transparent)]");
+  });
+
+  it("keeps the label states and the 13 px type", () => {
+    expect(MONTHS).toContain('"border-b-2 px-0.5 pb-3 text-[13px] font-medium transition-colors');
+    expect(MONTHS).toContain('aria-current={active ? "page" : undefined}');
+    expect(MONTHS).toContain('aria-label="History month"');
   });
 });
