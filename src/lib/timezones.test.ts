@@ -9,6 +9,7 @@ import {
   modernName,
   sameZone,
   searchTimezones,
+  signupMetadata,
   supportedTimezones,
   timezoneOption,
   timezoneOptions,
@@ -52,6 +53,37 @@ describe("detectTimezone", () => {
         new Date("2026-03-02T00:00:00Z"),
       ),
     ).not.toBeNull();
+  });
+});
+
+/**
+ * The one value that reaches the row an account is born with.
+ *
+ * The database half -- that `handle_new_user` reads this field, gates it, and
+ * writes it to both rows -- is executed in `schema-migrations.test.ts`. What can
+ * only be tested here is that the browser actually sends it, and that it sends
+ * it *only* when the account is being created.
+ */
+describe("signupMetadata", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("carries the browser's zone when the account is being created", () => {
+    vi.spyOn(Intl, "DateTimeFormat").mockReturnValue({
+      resolvedOptions: () => ({ timeZone: "Asia/Kathmandu" }),
+    } as unknown as Intl.DateTimeFormat);
+    expect(signupMetadata(true)).toEqual({ timezone: "Asia/Kathmandu" });
+  });
+
+  it("sends nothing on a sign-in to an account that already exists", () => {
+    // `data` merges into `raw_user_meta_data`, so anything sent here would
+    // rewrite the day the reader signed up with wherever they are today.
+    expect(signupMetadata(false)).toBeUndefined();
+  });
+
+  it("still sends a zone the scheduler can use when the browser will not say", () => {
+    expect(signupMetadata(true, "UTC")).toEqual({ timezone: "UTC" });
   });
 });
 
