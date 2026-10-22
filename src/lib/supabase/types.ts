@@ -1554,6 +1554,16 @@ export type Database = {
       };
     };
     Functions: {
+      /**
+       * Added in 0123. Stores the reader's browser zone while the account still
+       * holds its signup default, and refuses once the reader has onboarded —
+       * so a choice made on the schedule step is never overwritten. Returns the
+       * zone now stored.
+       */
+      capture_signup_timezone: {
+        Args: { p_user: string; p_zone: string };
+        Returns: string | null;
+      };
       claim_article_cluster: { Args: { p_article_id: string; p_owner: string }; Returns: boolean };
       release_article_cluster: {
         Args: { p_article_id: string; p_owner: string };

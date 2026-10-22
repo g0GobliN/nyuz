@@ -197,6 +197,19 @@ export const savePreferences = createServerFn({ method: "POST" })
         .from("notification_preferences")
         .upsert({ user_id: actor.id, ...patch }, { onConflict: "user_id" });
       if (error) throw new PlanAccessError(error.message);
+
+      // `profiles.timezone` holds the same fact -- the signup trigger writes it,
+      // and the admin console reads it. Leaving this write out would make the
+      // console show every reader's signup zone instead of the one they chose,
+      // so a reader who moved from `'UTC'` to Tokyo would still read `UTC`
+      // under Timezone.
+      if (data.timezone !== undefined) {
+        const { error: profileError } = await actor.db
+          .from("profiles")
+          .update({ timezone: row.timezone })
+          .eq("id", actor.id);
+        if (profileError) throw new PlanAccessError(profileError.message);
+      }
     }
 
     let followedSomethingNew = false;

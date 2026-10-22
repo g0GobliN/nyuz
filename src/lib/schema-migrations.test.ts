@@ -1010,3 +1010,147 @@ describe("the match candidate bundle (0116)", () => {
     expect(rows.map((r) => r.id).sort()).toEqual(await legacyLaneIds(100_000));
   });
 });
+
+/**
+ * The reader's zone, from the row the signup creates (0123).
+ *
+ * `handle_new_user` runs inside GoTrue's insert, so `raw_user_meta_data` is the
+ * only thing that can reach the first row. That makes this the one place the
+ * whole path can be executed: the trigger, the gate that decides whether a
+ * offered value is schedulable, and the guarded correction for the signup paths
+ * that carry no metadata at all.
+ *
+ * The gap this leaves is the one the file header names: the live project is not
+ * an input, so a green run says these files agree with each other, not that the
+ * deployed trigger matches them.
+ */
+describe("the reader's timezone from the first row (0123)", () => {
+  /** A signup, exactly as GoTrue performs it: one insert into auth.users. */
+  async function signup(metadata: Record<string, unknown>): Promise<string> {
+    const id = crypto.randomUUID();
+    await db.query(
+      "insert into auth.users (id, email, raw_user_meta_data) values ($1, $2, $3::jsonb)",
+      [id, `${id}@example.com`, JSON.stringify(metadata)],
+    );
+    return id;
+  }
+
+  /** Both columns that carry the fact, read together so they cannot disagree. */
+  async function storedZone(id: string): Promise<{ preferences: string; profile: string }> {
+    const { rows } = await db.query<{ preferences: string; profile: string }>(
+      `select np.timezone as preferences, p.timezone as profile
+         from public.notification_preferences np
+         join public.profiles p on p.id = np.user_id
+        where np.user_id = $1`,
+      [id],
+    );
+    expect(rows).toHaveLength(1);
+    return rows[0]!;
+  }
+
+  async function capture(id: string, zone: string): Promise<string | null> {
+    const { rows } = await db.query<{ zone: string | null }>(
+      "select public.capture_signup_timezone($1, $2) as zone",
+      [id, zone],
+    );
+    return rows[0]?.zone ?? null;
+  }
+
+  it("stores the browser's zone on both rows the signup writes", async () => {
+    const id = await signup({ name: "Asha", timezone: "Asia/Kathmandu" });
+    expect(await storedZone(id)).toEqual({
+      preferences: "Asia/Kathmandu",
+      profile: "Asia/Kathmandu",
+    });
+  });
+
+  it("keeps an alias the scheduler can resolve rather than rewriting it", async () => {
+    // `Asia/Calcutta` is absent from `Intl.supportedValuesOf` but `nextSlot`
+    // resolves it, and the product's rule is that a stored zone the runtime can
+    // read is never replaced. The gate must not be stricter than the scheduler.
+    const id = await signup({ timezone: "Asia/Calcutta" });
+    expect((await storedZone(id)).preferences).toBe("Asia/Calcutta");
+  });
+
+  it("falls back to UTC for a zone it cannot schedule in, without failing the signup", async () => {
+    // The insert succeeding is half the assertion: a gate that raised here would
+    // turn a bad metadata field into a failed account creation.
+    const id = await signup({ timezone: "Mars/Olympus_Mons" });
+    expect(await storedZone(id)).toEqual({ preferences: "UTC", profile: "UTC" });
+  });
+
+  it("refuses Factory, the one catalog name Intl cannot schedule in", async () => {
+    const id = await signup({ timezone: "Factory" });
+    expect((await storedZone(id)).preferences).toBe("UTC");
+  });
+
+  it("stores UTC when the signup carries no zone at all", async () => {
+    const id = await signup({ name: "No Zone" });
+    expect(await storedZone(id)).toEqual({ preferences: "UTC", profile: "UTC" });
+  });
+
+  it("corrects a row still holding the default, on both tables", async () => {
+    // The OAuth case: no metadata, so the trigger wrote the column default.
+    const id = await signup({});
+    expect(await capture(id, "America/New_York")).toBe("America/New_York");
+    expect(await storedZone(id)).toEqual({
+      preferences: "America/New_York",
+      profile: "America/New_York",
+    });
+  });
+
+  it("leaves a zone the signup already captured alone", async () => {
+    // The email case, opened later from somewhere else. The signup carried the
+    // reader's own zone, so the correction has nothing to correct and must not
+    // replace a capture with a guess.
+    const id = await signup({ timezone: "Asia/Tokyo" });
+    expect(await capture(id, "America/New_York")).toBe("Asia/Tokyo");
+    expect(await storedZone(id)).toEqual({ preferences: "Asia/Tokyo", profile: "Asia/Tokyo" });
+  });
+
+  it("corrects an account whose preferences row was never created", async () => {
+    const id = crypto.randomUUID();
+    await db.query("insert into auth.users (id, email) values ($1, $2)", [id, `${id}@example.com`]);
+    // What an account created before the trigger wrote this row looks like.
+    await db.query("delete from public.notification_preferences where user_id = $1", [id]);
+
+    expect(await capture(id, "Asia/Tokyo")).toBe("Asia/Tokyo");
+    expect((await storedZone(id)).preferences).toBe("Asia/Tokyo");
+  });
+
+  it("refuses once the reader has onboarded, and answers with the zone they chose", async () => {
+    const id = await signup({ timezone: "Asia/Tokyo" });
+    // Exactly what onboarding's single save leaves behind: the stamp and the
+    // chosen zone, written together.
+    await db.query("update public.profiles set onboarded_at = now(), timezone = $2 where id = $1", [
+      id,
+      "Europe/Berlin",
+    ]);
+    await db.query("update public.notification_preferences set timezone = $2 where user_id = $1", [
+      id,
+      "Europe/Berlin",
+    ]);
+
+    expect(await capture(id, "America/Los_Angeles")).toBe("Europe/Berlin");
+    expect(await storedZone(id)).toEqual({
+      preferences: "Europe/Berlin",
+      profile: "Europe/Berlin",
+    });
+  });
+
+  it("is callable only by the service role", async () => {
+    // 0036's lesson: revoking from `anon, authenticated` alone leaves the PUBLIC
+    // grant standing, which looks like a lock and is not one.
+    const { rows } = await db.query<{
+      anon: boolean;
+      authenticated: boolean;
+      service: boolean;
+    }>(
+      `select
+         has_function_privilege('anon', 'public.capture_signup_timezone(uuid, text)', 'execute') as anon,
+         has_function_privilege('authenticated', 'public.capture_signup_timezone(uuid, text)', 'execute') as authenticated,
+         has_function_privilege('service_role', 'public.capture_signup_timezone(uuid, text)', 'execute') as service`,
+    );
+    expect(rows[0]).toEqual({ anon: false, authenticated: false, service: true });
+  });
+});
