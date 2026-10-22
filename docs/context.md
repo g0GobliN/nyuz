@@ -3377,3 +3377,9 @@ on a host running at **load average 15.7–20.3** (other agents' work, not this 
 `code-first-db.test.ts`'s 30 s PGlite `beforeAll` (it passes alone in 26 s, and applies a fixed migration
 list that never executes 0121) and `callsites.test.ts`'s 60 s filesystem scan. Every new test passes in
 isolation; the runner, which is not under this load, is the authority for the full-suite number.
+
+**The runner agreed.** CI run
+[39729587050](https://github.com/g0GobliN/nyuz/actions/runs/39729587050) on `b91d334` is green on every
+job: commit messages, dependencies and secret names, typecheck + lint + build, **all four test shards**,
+**Coverage floor**, and the browser smoke on the built Worker. Deploy is skipped, as it is for any branch
+that is not `main` — nothing here is deployed.
