@@ -17,12 +17,31 @@ section so the console can toggle and reorder it like every other one.
 | `src/routes/index.tsx` | `coverage` registered in `SECTION_COMPONENTS`, first in the list |
 | `supabase/migrations/0121_landing_coverage_section.sql` | moves the stored section list so `coverage` is FIRST |
 | `src/lib/landing-coverage-section.test.ts` | 6 PGlite tests proving the migration reorders correctly |
+| `src/lib/landing-coverage-migration-edge.test.ts` | 6 more PGlite tests: empty array, one element, a re-run, a legacy map, no row at all |
+| `src/components/landing/coverage.test.ts` | 6 render tests pinning the copy (see below) |
 
 **Why the migration was necessary.** The landing page's section order is not in the code — it is an
 ordered list in `site_settings.landing.sections`, because order is an editorial decision. The code's
 `normaliseSections` **appends** any key the stored row does not mention, to the end. Shipping the key
 alone would have put the new section below the closing call to action. `0121` inserts it at the front
 instead, and is written to be safe to run twice.
+
+**There are two paths to the page, and the migration only covers one of them.** A database with **no**
+`landing.sections` row renders `SECTIONS_DEFAULT`, which is built from `SECTION_KEYS` — where
+`coverage` is first — so that path needs nothing from `0121`. A database where an **operator has set
+the order** has a stored row, and the stored order wins; `0121` is what puts `coverage` at the front
+of it, so a customised order does not silently push the new section to the bottom of the operator's
+own page. Measured on the live project on 2026-10-21: `site_settings` holds three rows and
+`landing.sections` is not one of them, so the live page is on the default path.
+
+**The copy is pinned by test, not by discipline.** `coverage.test.ts` renders the section with
+`renderToStaticMarkup` in the node environment — the pattern this repository's other component
+tests already use, since there is no jsdom and no `.test.tsx` anywhere — and asserts the four areas
+**in order**, that **no decimal digit** appears anywhere in the rendered text, and that the copy never
+widens the product into a place readers share with each other. The last two were **proven to bite**
+by injecting a defect and watching them fail. The component also had to be tested rather than left
+alone: `vitest.config.ts` instruments every file under `src/**`, so an untested component counts
+against the coverage floor.
 
 **Measured after the change** (localhost, 1440px): page height **10,062 → 11,028px** (+966), sections
 10 → 11, horizontal overflow **0** at 1440 / 655 / 390px. The grid's four cells measure **identical**
@@ -34,7 +53,7 @@ which was fixed by rewriting that sentence rather than by padding it.
 `company_blog` sources. "Music, film and culture" = the seeded entertainment sources. No numeral is
 claimed anywhere in the section — a number is the one thing a stranger can check and find wanting.
 
-**Verification:** `tsc --noEmit` clean · `eslint` clean · `vitest` **3,462 passed / 203 files** ·
+**Verification:** `tsc --noEmit` clean · `eslint` clean · `vitest` **3,504 passed / 208 files** ·
 measured in-browser at 1440 / 655 / 390px with zero horizontal overflow · visually reviewed and
 approved at both widths.
 
@@ -240,13 +259,36 @@ feeds, vendor blogs and product changelogs, so "news" undersells what nyuz actua
 | root `og:description` (the share card) | `src/routes/__root.tsx` |
 | the installed-app manifest description | `public/manifest.webmanifest` |
 | "What nyuz is" in the project memory | `docs/context.md` §1 |
+| the **stored** `site.seo` description, where one exists | `supabase/migrations/0122_site_seo_information_briefing.sql` |
+
+**The last row is not optional, and it was nearly missed.** `/` reads its description from the
+**stored** `site.seo` row; `SEO_DEFAULT` is only the fallback for a database that has no such row.
+A seeded environment has one — `0003_admin.sql` inserts it and `0004_landing_copy.sql` rewrites its
+description to *"You don't read the news. It reports to you. nyuz watches hundreds of sources…"* —
+so editing `SEO_DEFAULT` alone left every seeded environment serving a description with a
+**countable claim** ("hundreds of sources") and none of them saying "information briefing" at all.
+
+The migration updates the stored description **only where it still holds one of the two values this
+repository has ever written**. An operator's own edit in `/admin/content` matches neither and is
+left alone: the stored row is an editorial decision, and a positioning sweep is not licence to
+overwrite an editor's words. The title is deliberately untouched — the brand line is not a
+positioning claim.
+
+Measured on the live project on 2026-10-21: there is **no** `site.seo` row there (the table holds
+`site.access` and two AI budget keys), so the live page serves the bundled default and reaches
+production from the code change alone. The migration covers the seeded path. Both are needed, and
+the seven tests in `src/lib/site-seo-description-sweep.test.ts` cover the guard, the idempotency
+and the "do not create the row" case.
 
 **Also swept:** the manifest's `categories` hint went from `["news"]` to `["news", "magazines"]` —
-both are W3C-registered categories (verified against the W3C `manifest-app-info` list), and the second
-one is the closest registration for a periodical-style briefing that covers research, releases and
-culture as well as news. The manifest category is a **store-discovery hint** and is invisible in the
-browser and the installed app, so it does not contradict the "news" that legitimately remains in the
-product's own voice ("Not just what's in the news", the "News and world events" cell).
+both are W3C-registered categories (verified against the W3C `manifest-app-info` list at
+https://www.w3.org/TR/manifest-app-info/, whose "List of known categories" contains both), and the
+second one is the closest registration for a periodical-style briefing that covers research, releases
+and culture as well as news. The manifest category is a **store-discovery hint** and is invisible in
+the browser and the installed app, so it does not contradict the "news" that legitimately remains in
+the product's own voice ("Not just what's in the news", the "News and world events" cell). It is a
+product claim rather than a wording sweep, so it is named here rather than folded into the
+description change.
 
 **What deliberately did not change:**
 

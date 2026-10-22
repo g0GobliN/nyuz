@@ -45,10 +45,12 @@ expect(realFailures(noise)).toEqual([]);
 `watch()` now attaches *before* the first navigation, so the landing page is inside the same asset
 check as the rest of the walk. Coverage is unchanged; one full page load is gone.
 
-**Measured after the fix: the walk's own duration is 18.9s**, down from the 43–73s range recorded
-before it. That is under the original 30s budget, so the structural fix alone would have been
-sufficient on an idle machine. `test.setTimeout(120_000)` is kept as margin for a loaded one, not as
-the mechanism.
+**Measured after the fix: the walk's own duration is 18.9s** on an idle box, down from the 43–73s
+range recorded before it. That is under the original 30s budget on an idle machine — but it is an
+idle-box number, and the same box at load average 22–43 on 4 cores recorded 34.7–60.6s of
+navigation time even with the duplicate gone. So the structural fix removes ~33–52% of the walk's
+cost, and the timeout bump covers what is left on a busy machine. The structural fix alone would
+not have been sufficient here; both are in the tree, and the comment in the test says so.
 
 ## Two things I believed that were false
 
