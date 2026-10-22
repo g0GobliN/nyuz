@@ -44,21 +44,40 @@
 }
 
 /*
- * Three colours only: black, white, and one red.
- * Every neutral is chroma 0 — no warm or cool tint — so the red is the single
+ * Three colours only: black, white, and one blue.
+ * Every neutral is chroma 0 — no warm or cool tint — so the blue is the single
  * source of colour on the page and reads as signal wherever it appears.
- * Black, white and red is the canonical minimal palette (Swiss typographic
- * tradition, and the second colour on a printed newspaper), which is why it
- * suits a briefing product better than a highlighter yellow did.
+ * Black, white and one accent is the canonical minimal palette (Swiss
+ * typographic tradition, and the second colour on a printed newspaper), which
+ * is why it suits a briefing product better than a highlighter yellow did.
  *
- * Red sits at hue 27: vermilion, not crimson and not orange. Lightness is
- * pinned at 0.54 in light mode because it must clear 4.5:1 BOTH as text on
- * white and as white text on top of it — it lands on 11px uppercase labels, so
- * that headroom is load-bearing, not decorative. Measured: 5.58:1 both ways.
+ * The accent sits at hue 240: blue, not violet and not cyan. It was a red —
+ * vermilion, and this comment still described that red — until d759061
+ * (2026-08-25) changed the token to the value above and left the prose behind.
+ * That mismatch is what this block is here to end; see the note at the end for
+ * what is and is not recorded about the choice itself.
  *
- * --destructive stays chroma 0 on purpose. Now that the accent is red, a red
- * error state would be indistinguishable from an ordinary highlight, so
- * destructive leans on iconography and weight instead of hue.
+ * Lightness is pinned at 0.53 in light mode because the accent must clear
+ * 4.5:1 BOTH as text on white and as white text on top of it — it lands on
+ * 11px uppercase labels, so that headroom is load-bearing, not decorative.
+ * Dark lifts lightness to 0.72 to carry on the near-black background. Both
+ * pairs below are accent against --background, measured 2026-10-21: 5.20:1
+ * both ways in light mode, 8.11:1 both ways in dark. Both figures are
+ * re-derivable from the values in this file; neither is decorative.
+ *
+ * --destructive stays chroma 0 on purpose. The accent has the page's entire
+ * colour budget spent on it, so a second hue in an error state would compete
+ * with the accent for the same attention instead of adding a signal of its
+ * own. Destructive leans on iconography and weight rather than on hue.
+ *
+ * On why blue rather than the red it replaced: nothing in the repository
+ * records a ruling for it. The token changed in d759061 alongside the first
+ * real briefings, and the reasoning was never written down; the design spec
+ * that flagged this comment (S10, 2026-10-21) asked for the reason and found
+ * none to quote. Guessing here would put an invented rationale in the one file
+ * every designer opens first. The rule stands on what is measured — one accent,
+ * neutral everything else — and the reason for the hue is a question for the
+ * arbiter, not a paragraph to improvise. Add it here when it is ruled.
  */
 :root {
   color-scheme: light;
