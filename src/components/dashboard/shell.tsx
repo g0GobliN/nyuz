@@ -221,7 +221,14 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
             <div className="lg:hidden">
               <Logo />
             </div>
-            {title ? <h1 className="hidden text-[15px] font-medium lg:block">{title}</h1> : null}
+            {/* A wayfinding cue for sighted readers, not the document title.
+                `PageHeader` below already renders this page's own <h1>, so
+                promoting the label made every desktop dashboard page carry two
+                of them and "what page is this?" answer twice. Kept as a <p>
+                with the class string byte-identical: the label is still read,
+                just not as a heading. The h1 stays inside PageHeader, which is
+                the one that belongs to the page. */}
+            {title ? <p className="hidden text-[15px] font-medium lg:block">{title}</p> : null}
 
             <div className="ml-auto flex items-center gap-1">
               <button
