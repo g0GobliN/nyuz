@@ -3391,11 +3391,13 @@ touched.
 **Deferred on purpose:** the audit's nine should-fix findings (S1–S10: duplicate `h1`, briefing heading
 level, archive row target, month strip, focus ring on nav, story measure 109, install-card target, the
 email framing copy, the two score scales, the stale palette comment) are a follow-up task, listed in
-this PR's body and not expanded into it. One known boundary of B1's link contract: the story page's
-reading queue has two sources (`home`, `alerts`), so a story opened from the briefing pages in feed
-order — which for today's briefing is the same list, because `loadHomeFeed` reads the latest digest
-(`briefing.ts:252-264`) — while an archived briefing (`?digest=`) is not a queue source. Adding one is
-a follow-up, not part of this slice, and the link itself opens the right story.
+this PR's body and not expanded into it. One known boundary of B1's link contract at the time: the
+story page's reading queue had two sources (`home`, `alerts`), so a story opened from the briefing
+paged in feed order, and `loadHomeFeed` happened to read the same digest for the warm case — measured
+later on the deployed origin: that assumption does not hold on the live corpus, and the feed gates
+the briefing's last entry (deals and mods are wider than the digest is), so today's briefing is 25
+stories and the feed is 24 of them. The paging shape at the time of this slice was correct; the
+follow-up that names the briefing as its own queue source lives in the next entry.
 
 ### The briefing fix passed design sign-off on the deployed origin (2026-10-21)
 
@@ -3422,6 +3424,53 @@ prints **`1 of 24 in your nyuz`** while the briefing the reader left says **25 t
 and pager cards walk the feed from a briefing entry. Either `briefing` becomes a queue source or the position line is
 suppressed when the entry context is unknown; the link itself is right and the reader can get back, so it is not a
 blocker. Recorded rather than fixed: this task is a sign-off, not a code change.
+
+### The briefing is now a queue source — the pager says "your briefing" from a 25-link briefing (2026-10-22)
+
+The should-fix the design sign-off left as recorded-not-fixed lands here. The numbering is fixed by making
+the briefing itself a queue source, not by hiding the position when the entry context is unknown.
+
+The path is small and lives in three files:
+
+- `src/lib/use-reading-queue.ts` — `briefing` joins `QUEUE_SOURCES` (the closed union the URL `from=` narrows
+  against). The source's `queryKey` is the briefing page's own for the Today tab (`["briefing", "today", "latest"]`),
+  the `queryFn` is `loadDigestStories()`, the `select` projects id / title / topics the pager asks for, the
+  `staleTime` matches the briefing page, `label: "your briefing"`, and `respectsFeedback: false` because the
+  briefing page does not filter its own list against the feedback store. Reading it after a briefing tab is a
+  cache hit on the reader's next navigation; opening the story cold from an email or push is one fetch on the
+  briefing loader, identical to the briefing page's own cost.
+- `src/components/briefing-preview.tsx` — the `Link` accepts a new `fromQueue?: QueueSource` prop. The prop is
+  passed only when the page that mounts the preview wants the story-page pager to walk the list the link came
+  from; the marketing facsimile ignores it and the reader-view without `fromQueue` keeps the clean URL the
+  previous tests assert.
+- `src/routes/dashboard/briefing.tsx` — passes `fromQueue="briefing"` only on the Today chip. The Saved chip
+  is not a queue (its length is "what the reader saved", not "what was delivered") and the History view is
+  not a queue (a different day, retention-gated), so neither passes it and the link stays clean. A bare
+  story URL keeps the story page's default `home` source: it prints the feed's own position when the story
+  is in the feed, and `buildQueue` returns its empty queue — no position, no pager — when it is not. Neither
+  case names the saved list, so neither can contradict the number the reader counted there.
+
+**Why adding a queue source rather than suppressing the position line.** The queue source gives the reader the
+correct list (the 25) and the correct key shortcuts (`←` / `→` walk the briefing); the suppress option loses the
+pager entirely for that entry path. A reader who opens a story from the briefing is already on a known path
+through a known list — the same edition the briefing page rendered — and the audited list of ten-card
+briefings makes the pager the useful thing. The Saved tab is not in this scope because its count disagrees
+with the briefing by construction: making `from=briefing` the only-when-today flag keeps the saved bookmark
+honest.
+
+**Tests, not screenshots.** `src/components/briefing-preview.test.ts` renders 25 stories as `variant="reader"`
+with and without `fromQueue` and asserts: 25 anchors, each href ends `/dashboard/story/<id>` (no `from=` when
+the prop is omitted); 25 anchors, each href ends `/dashboard/story/<id>?from=briefing` (with the prop set).
+The same file's existing assertions — `cursor-pointer`, `focus-visible:ring-2`, `focus-visible:ring-ring`,
+zero anchors for the marketing variant, the `max-w-[32rem]` cap, the 65–75 characters-per-line range — are
+unchanged and remain green. `src/lib/use-reading-queue.test.ts` is new and asserts `asQueueSource` narrows
+`"briefing"`, `"home"`, `"alerts"` and refuses a hand-edited URL value (`"saved"`, `"archive"`, the empty
+string, `undefined`, numbers, objects).
+
+**Counter on `src/lib/reading-queue.test.ts`'s contract.** `buildQueue` itself is unchanged: same return
+shape, same `respectsFeedback` semantics. The change is purely a new source that hands it a different list
+to walk; the build rules the seven existing tests pin down continue to hold, and the 25 / 24 asymmetry is
+solved in the source, not in the queue model.
 
 ### The archive became one target and the story found its column — S3, S4, S6, S7 (2026-10-22)
 
