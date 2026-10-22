@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { CreditCard, LogOut, Settings } from "lucide-react";
 import { useState } from "react";
 import { UserAvatar } from "@/components/user-avatar";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +33,26 @@ import { NAV_STAFF } from "@/lib/dashboard-nav";
  * One implementation, two headers (the website's and the app shell's). The
  * shadow of a second copy is a sign-out that works in one of them.
  */
-export function AccountMenu({ staff, name }: { staff: boolean; name: string }) {
+export function AccountMenu({
+  staff,
+  name,
+  className,
+}: {
+  staff: boolean;
+  name: string;
+  /**
+   * Extra classes for the trigger, appended after its own.
+   *
+   * It exists because the trigger is drawn on two different surfaces and the
+   * focus ring cannot be right on both by default: this header is the
+   * dashboard's (ring offset against `--background`), while the installed app
+   * wears an ink bar where a background-coloured offset would print a white
+   * halo on black in light mode. The caller that knows which surface it is on
+   * passes the ring; the other caller passes nothing and the browser's own
+   * focus style stands, exactly as it does today.
+   */
+  className?: string;
+}) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
@@ -56,7 +76,10 @@ export function AccountMenu({ staff, name }: { staff: boolean; name: string }) {
       <DropdownMenuTrigger asChild>
         <button
           aria-label="Account"
-          className="ml-1 flex items-center justify-center rounded-full transition-opacity hover:opacity-85"
+          className={cn(
+            "ml-1 flex items-center justify-center rounded-full transition-opacity hover:opacity-85",
+            className,
+          )}
         >
           <UserAvatar name={name} />
         </button>

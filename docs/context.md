@@ -3494,3 +3494,61 @@ strings, one `max-w` constant and one heading element name. Captures: `docs/scre
 as of `861d711`, so the nine (archive and story at 360 / 768 / 1280, install at 360 and 1280 before and
 after) live in the worktree and with the task, not in the repository.
 
+
+### One answer to "what page is this", and one focus ring — S10, S1, S5 (2026-10-22)
+
+**S10 — the palette comment describes the product that is here.** `src/styles.css:46-60` said "three
+colours only: black, white, and one red", that the red sat at hue 27, and that it measured 5.58:1. The
+tokens have been blue since `d759061` (2026-08-25): `--signal: oklch(0.53 0.12 240)` light,
+`oklch(0.72 0.12 240)` dark. The block now says hue 240 and quotes pairs **re-derived on 2026-10-22**
+from those two values through OKLab → linear sRGB → WCAG luminance: **5.1997:1 light, 8.1069:1 dark**,
+i.e. the 5.20 and 8.11 it states. Comment only: the diff is 31 insertions and 12 deletions, every one a
+comment line, and no `--token:` value moved. `--destructive`'s reason is corrected because the old one
+was true only of a red accent. The one thing the comment does **not** do is explain why blue replaced the
+red: nothing in the repository records that ruling, so the block says it is unrecorded and leaves it to
+the arbiter instead of putting an invented reason in the file every designer opens first.
+
+**S1 — one `<h1>` per desktop dashboard page.** The shell's location label was an `<h1>` beside
+`PageHeader`'s own, so every dashboard page at ≥1024 px answered "what page is this?" twice. It is a
+`<p>` now with a **byte-identical class string** — same 15 px medium muted copy, same `lg`-only
+visibility — so nothing looks different. Measured in Chromium against the built Worker, signed in, at
+1280 and 360: `/dashboard`, `/dashboard/briefing`, `/dashboard/history`, `/dashboard/alerts` and
+`/dashboard/alerts/history` each report **`document.querySelectorAll("h1").length === 1`** and
+**`header h1 === 0`**, the label is a `P` at 15 px / 500 (on `/dashboard/briefing` it reads "My
+briefing"), and at 360 it is still `display: none` with the count at 1. No layout shift: the `h-16` row
+measures **64 px** before and after (the `<header>` box is 65 with its border), the label's own box keeps
+`margin: 0` and its 22.5 px line. The two transient `StaffOnly` states that render the shell with no
+`PageHeader` now carry zero headings, which is the spec's own decision, not an oversight.
+
+**S5 — the chrome wears the product's ring.** `focusRing` is exported once from `kit.tsx` and
+`buttonClass` consumes it, so its output string is byte-identical. The constant reaches the fourteen
+chrome stops the audit measured — logo, nine sidebar destinations, Search, Notifications, theme toggle,
+account trigger — plus the mobile strip's items, the story card's `IconToggle`, `BackToFeed` and the two
+bare text controls the shell draws in its restored-account and "not your floor" states. Keyboard-only
+through those fourteen at 1280: **`outline-style: none`** and a shadow of
+`oklch(0.145 0 0) 0 0 0 2px, oklch(0.72 0.12 240) 0 0 0 4px` on every one — the 2 px offset on
+`--background` and the 2 px ring in **`--ring`**, the token itself, not merely "not none". A mouse click
+on the same controls draws nothing (`:focus-visible` false, `box-shadow: none`). At 360 the bottom
+strip's items carry it too. Two stops the spec names are left to the slices that own their files: the
+briefing's "Back to the latest briefing" (`src/routes/dashboard/briefing.tsx`) and `UpgradeNote`'s link
+(`history.tsx`).
+
+**The test this slice wanted, and why it is not here — an open question.** A `shell.test.ts` was written
+(20 tests: the heading outline, the ring on every focusable element in the rendered shell, and the chrome's
+staff / standalone / maintenance / paused / offline / saved-copy / update states) and it passed. It could
+not ship: importing `shell.tsx` for the first time made four files that v8 had never counted — the shell,
+the account menu, the offline notice, the app shell — enter the dashboard branch denominator with their
+real totals, and `src/components/dashboard` branches fell **89.42 → 88.13** against a committed floor.
+**Nothing lost a test; the denominator grew.** The three arms needed to clear the floor again
+(`shell.tsx:175`, `:267`, `:287`, the restored-account notice and the search overlay) only exist after an
+effect runs or a Radix dropdown opens, which `renderToStaticMarkup` cannot do, and a DOM renderer is a new
+dependency the design spec forbids. Recorded rather than forced: either those branches get recorded on the
+runner (a floor decision, not a slice decision), or the shell gets a DOM test when a dependency for it is
+allowed. Until one of those is ruled, the shell is held down by the browser measurements above and by no
+test of its own.
+
+Gates on the final tree: `npm run typecheck` clean; `npm run lint` **0 errors** (20 pre-existing
+fast-refresh warnings on unchanged files); `GITHUB_ACTIONS=true npm run test:coverage` **3,516 tests
+across 205 files green**; `GITHUB_ACTIONS=true npm run coverage:ratchet` **no regression against the
+committed floor**. `npm run audit:delivered-line` is **unchanged** — this slice touches no reader copy:
+the diff is one comment block, one heading element name, one exported class string and its call sites.
