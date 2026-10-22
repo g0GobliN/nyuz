@@ -2033,6 +2033,15 @@ because it is a document rather than a capture. Local copies are kept outside th
 
 ## 7. What is next
 
+**2026-10-22: the reader's prose is now measured, and four blockers are unowned.**
+[reader-clarity-audit-2026-10-22.md](reader-clarity-audit-2026-10-22.md) reads the deployed origin on the
+three surfaces a reader uses and records **43 findings — 4 blockers, 26 should-fix, 13 polish**, every quote
+machine-checked against the capture it came from. The blockers are all in the composed article, on the two
+PHP-security cards (an opening date fragment, a "the leak"/"Calif" reference before either exists, a
+chronology out of order, and one sentence no reader can parse). Its §8 routes each finding to the component,
+instrument or ruling that owns it; the copy ones (headline voice, "DELIVERED", "Why it matters") go to the
+arbiter with S8/S9 first. Nothing in it changes code or copy.
+
 **2026-10-22: delivery recommendation 1 is implemented — the reader's zone now exists from the first row.**
 `wt/signup-timezone` (no column added; both `timezone` columns already existed) makes `handle_new_user`
 read the browser's zone from the signup metadata, corrects the metadata-less Google/GitHub and pre-0123
@@ -3691,3 +3700,34 @@ a merge commit rather than a rewritten history, and CI run
 Deploy skipped again. That head is what **merged in [#48](https://github.com/g0GobliN/nyuz/pull/48) at
 `49ccd8f`**; the two-reader measurement re-run on it gives `Asia/Tokyo` → `2026-03-02T22:30:00.000Z` and
 `America/New_York` → `2026-03-02T12:30:00.000Z`, both clocks reading 07:30, `instants equal? false`.
+
+### The reader's prose was audited against the Wikipedia test — 43 findings, 4 blockers (2026-10-22)
+
+The four gates in `reader-quality-10-of-10.md` measure delivery, significance, surfaces and alerts. None of
+them measures whether the prose is *understandable*, so the live product was read as a reader on the three
+surfaces a reader uses: the home feed (`/dashboard`), the briefing (`/dashboard/briefing`), and four story
+pages opened from it (cards 01, 12, 06 and 09 of digest `7268ba11`, the 25-item edition scheduled 07:30 JST
+on 22 October), plus the 20 October archive (`4a6b2ad2`) opened the way History opens it. The session was a
+Supabase magic link for the one account with a delivered briefing — no password, no email sent, no product
+content edited.
+
+[reader-clarity-audit-2026-10-22.md](reader-clarity-audit-2026-10-22.md) records **43 findings — 4 blockers,
+26 should-fix, 13 polish** — every quotation sliced out of a `document.body.innerText` capture and
+machine-checked against it, at 639×906, 1440×900 and 360×780. The four blockers are all in the composed
+article: card 06 opens on a dateless fragment ("August 24, 2026: Wiz Research reports the vulnerabilities…"),
+its second paragraph refers to "the leak" and "Calif" before either exists, its third is a chronology out of
+order, and card 09 closes on "the blog where the bar around the corner posts pictures of people's dogs". The
+feed and the briefing are understandable; their defects are voice (5 of 25 headlines are Title Case press
+releases), jargon never expanded ("script kiddies", "spec", "OT", "oneDNN"), a band word that reads as praise
+but is the bottom band ("Notable", 14 of 25 cards), a reason line that names AI on all 25 cards ("You follow
+AI." on 8), an edition whose only "Why it matters" line prints "Four publishers reported this.", and two
+stories carried twice (#6/#9 PHP security release; #4/#7 GTC Berlin keynote).
+
+Measured for whoever picks the fixes up: `why_it_matters` is non-empty on **1 of 25** cards; summaries run
+**13–40 words, median 25**, so no card is a wall of text; **9 of 25** summaries carry an attribution phrase;
+story 12's rail says **"BASED ON 4 SOURCES" over nine rows across eight outlets** (`publisher_count` vs
+`articles`, `briefing.ts:1434`); the briefing has **no `h2`** between its 25 cards. Two artefacts were excluded
+rather than reported: the emoji in the browser tab is the reading browser's, not the page's (the server's
+`<title>` is `nyuz — Stop searching. Start knowing.`), and the "10 of 10 used" device panel is this account's
+cap. Nothing in the audit changes code, copy or content; §8 of the file routes each finding to the component,
+instrument or ruling that owns it.
