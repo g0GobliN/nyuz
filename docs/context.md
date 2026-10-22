@@ -3679,3 +3679,43 @@ isolation; the runner, which is not under this load, is the authority for the fu
 job: commit messages, dependencies and secret names, typecheck + lint + build, **all four test shards**,
 **Coverage floor**, and the browser smoke on the built Worker. Deploy is skipped, as it is for any branch
 that is not `main` — nothing here is deployed.
+
+### The deploy gate stopped reading a registry outage as a vulnerable tree (2026-10-22)
+
+`main` failed to deploy twice on 2026-10-22 — run 39738568520 on `49ccd8f` (07:09Z) and run 39740776619 on
+`18a7407` (07:29Z) — both at `Audit production dependencies` in `.github/workflows/ci.yml`, and both passed
+when the failed job was re-run on the same tree (`49ccd8f` attempt 2 at 07:26Z, `18a7407` attempt 2 at
+07:41Z). `Browser smoke` (`needs: [commits, audit, verify]`) and `Deploy to Cloudflare Workers` (which needs
+`audit` transitively) sit behind that job, so a green audit is what stands between a merge and a deployment.
+
+**The 400 was npm reporting that its own request failed, not a statement about the lockfile.** The runner's
+log names the environment it used: node `v22.23.3`, npm `10.9.9`. npm 10.9 posts to
+`/-/npm/v1/security/advisories/bulk` first and falls back to the retired `/-/npm/v1/security/audits/quick`
+only when that request *throws* (`@npmcli/arborist/lib/audit-report.js:323` and `:336`). Both failing logs
+show the bulk POST never answered: the step printed its first line 5m00s after it started (07:29:03 →
+07:34:03), which is npm-registry-fetch's default `fetch-timeout` of `300000` ms (`npm config get
+fetch-timeout`), and what surfaced was the fallback's `400 Invalid package tree, run npm install to rebuild
+your package-lock.json`. Measured locally on `18a7407`: **10 of 10** `npm audit --omit=dev --audit-level=high`
+runs answered clean in under a second over the bulk endpoint (`--loglevel http` → `POST 200
+.../advisories/bulk`), and **0 of 10** touched the quick endpoint — the tree was never the problem, and the
+same lockfile passed this job on PR #50's CI at 07:24Z.
+
+The step now separates the two things npm can say. The retryable class is "the registry gave no verdict" —
+`audit endpoint returned an error`, `Invalid package tree`, `endpoint is being retired`, 5xx fetch and warn
+lines, and the network codes — while a `# npm audit report` verdict is checked **before** that class and
+exits on the first answer. That order is the point: npm can return the advisory list and still fail a
+packument fetch while working out whether a fix exists, and retrying that would bury a real high-severity
+advisory behind "the registry was flaky". Attempts stay bounded at three, each terminal branch prints an
+`::error::` saying which of the two happened, and the third endpoint failure is still red. Alongside the
+loop, `npm_config_fetch_timeout: 60000` makes a stalled bulk POST cost a minute instead of the default five,
+`npm_config_fetch_retries: 0` keeps the loop the only retry policy, `npm_config_loglevel: http` puts the
+endpoint npm actually talked to in the job log, and `timeout-minutes: 6` bounds the step.
+
+**Proved by running the step, not by reading it.** A harness extracts the `run:` block from `ci.yml` and
+executes it with the step's own `env:`: the clean tree → exit 0 in 3.6 s on one attempt; a production
+`lodash@4.17.20` in a throwaway lockfile → exit 1 on **one** attempt with the real high advisories listed;
+that same advisory delivered by a stub registry *together with* a `501` on the packument fetch → exit 1 on
+one attempt; CI's exact failure replayed (bulk 503 → retired quick 400) → 3 attempts, 6 requests, exit 1;
+both endpoints 503 → 3 attempts, exit 1; a bulk request that never answers → 3 attempts in 214 s and red,
+against one 300 s attempt and red before. Runner evidence: the `Dependencies and secret names` job on
+`wt/audit-gate`'s CI.
