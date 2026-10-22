@@ -222,6 +222,14 @@ function Briefing() {
             key={tab}
             variant="reader"
             chrome="edition"
+            // The pager on the story page reads this to walk the reader through
+            // the briefing they just left, not the feed. The Saved tab is not
+            // a queue (its length is what the reader saved, not what was
+            // delivered); the History view is not a queue either (a different
+            // day, gated by retention). Neither passes `fromQueue`, so the
+            // story page falls back to no pager — the honest shape when the
+            // list cannot be named.
+            {...(tab === "today" ? { fromQueue: "briefing" as const } : {})}
             stories={shown}
             time={pretty}
             editionTime={prefs.time}

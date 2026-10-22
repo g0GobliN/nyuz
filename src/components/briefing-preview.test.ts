@@ -11,6 +11,9 @@ import { BriefingPreview } from "./briefing-preview";
  * browser would be handed. The stand-in resolves `to` and `params` exactly as
  * the router does — `/dashboard/story/$id` with an `id` becomes
  * `/dashboard/story/<id>` — so an assertion here reads the href, not a fixture.
+ * The stand-in also appends `search` as a query string, since the briefing
+ * link carries `?from=briefing` when the page that mounts it wants the story
+ * page's pager to walk the reader through the briefing.
  */
 vi.mock("@tanstack/react-router", async () => {
   const { createElement: h } = await import("react");
@@ -18,6 +21,7 @@ vi.mock("@tanstack/react-router", async () => {
     Link: (props: {
       to?: string;
       params?: Record<string, string>;
+      search?: Record<string, string>;
       className?: string;
       children?: unknown;
     }) => {
@@ -25,17 +29,31 @@ vi.mock("@tanstack/react-router", async () => {
       for (const [key, value] of Object.entries(props.params ?? {})) {
         href = href.replace(`$${key}`, value);
       }
+      const entries = Object.entries(props.search ?? {});
+      if (entries.length > 0) {
+        const qs = entries
+          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+          .join("&");
+        href = `${href}?${qs}`;
+      }
       return h("a", { href, className: props.className }, props.children as never);
     },
   };
 });
 
 /** Markup escaped by React, so the assertions read as text does. */
-function render(stories: Story[], variant: "marketing" | "reader" = "marketing"): string {
-  return renderToStaticMarkup(createElement(BriefingPreview, { stories, variant })).replace(
-    /&#x27;/gu,
-    "'",
-  );
+function render(
+  stories: Story[],
+  variant: "marketing" | "reader" = "marketing",
+  fromQueue?: "home" | "alerts" | "briefing",
+): string {
+  return renderToStaticMarkup(
+    createElement(BriefingPreview, {
+      stories,
+      variant,
+      ...(fromQueue ? { fromQueue } : {}),
+    }),
+  ).replace(/&#x27;/gu, "'");
 }
 
 /** One entry per anchor in the markup, in document order (so, reading order). */
@@ -129,6 +147,31 @@ describe("BriefingPreview — the reader's briefing is a way in", () => {
     // precisely so the two usages cannot be confused.
     expect(render(delivered)).not.toContain("<a ");
     expect(render(delivered, "reader")).toContain("<a ");
+  });
+
+  /*
+   * The pager on the story page reads `?from=` to decide which list to walk
+   * the reader through. Without `from=briefing` the pager takes the feed,
+   * which on the deployed origin is 24 of the briefing's 25 stories —
+   * measured on 2026-10-21, "1 of 24 in your nyuz" under a 25-link briefing.
+   * Today's briefing passes `fromQueue="briefing"`; the Saved tab and the
+   * marketing facsimile do not, so the link stays clean and the story page
+   * falls back to no pager rather than naming a list that does not match.
+   */
+  it("names the briefing as the queue when fromQueue is set", () => {
+    const html = render(delivered, "reader", "briefing");
+    const hrefs = anchors(html).map((a) => /href="([^"]*)"/u.exec(a)?.[1] ?? "");
+    expect(hrefs).toHaveLength(delivered.length);
+    expect(hrefs).toEqual(delivered.map((s) => `/dashboard/story/${s.id}?from=briefing`));
+  });
+
+  it("keeps the link clean when fromQueue is omitted", () => {
+    // Saved tab, history view, and any future call site that hasn't decided
+    // its queue: the search param is the lie, not the link itself, so the
+    // default is the link without it.
+    const html = render(delivered, "reader");
+    const hrefs = anchors(html).map((a) => /href="([^"]*)"/u.exec(a)?.[1] ?? "");
+    expect(hrefs.every((h) => !h.includes("?"))).toBe(true);
   });
 });
 

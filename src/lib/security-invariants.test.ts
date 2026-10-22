@@ -267,6 +267,10 @@ describe("expensive functions are not callable from a browser", () => {
     "claim_delivery",
     "create_alert_delivery",
     "record_ops_status",
+    // Writes where the reader is, and the only writer allowed to correct a
+    // signup default. A browser that could call it could move any account's
+    // schedule to any hour while that account is still un-onboarded.
+    "capture_signup_timezone",
   ];
 
   for (const fn of mustBeRevoked) {

@@ -2,6 +2,7 @@ import type { Session, User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { avatarUrlFrom } from "./avatar";
 import { getSupabaseBrowserClient } from "./supabase/client";
+import { signupMetadata } from "./timezones";
 
 type AuthState = {
   session: Session | null;
@@ -62,11 +63,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
 
       async continueWithEmail(email, options) {
+        // Where the reader is, carried into the signup row. `handle_new_user`
+        // fires inside GoTrue's insert, so this metadata is the only channel
+        // that can reach the first row -- which is why a reader who signs up
+        // and never opens the schedule step is still scheduled in their own
+        // zone rather than in UTC. Undefined unless this is a new account;
+        // see `signupMetadata`.
+        const signup = signupMetadata(options.createAccount);
         const { error } = await getSupabaseBrowserClient().auth.signInWithOtp({
           email,
           options: {
             emailRedirectTo: callbackUrl(options.next),
             shouldCreateUser: options.createAccount,
+            ...(signup ? { data: signup } : {}),
           },
         });
         if (error) throw error;

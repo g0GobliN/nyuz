@@ -2055,6 +2055,17 @@ files and FAQ copy is a decision, not a tidy-up.
 
 ## 7. What is next
 
+**2026-10-22: delivery recommendation 1 is implemented — the reader's zone now exists from the first row.**
+`wt/signup-timezone` (no column added; both `timezone` columns already existed) makes `handle_new_user`
+read the browser's zone from the signup metadata, corrects the metadata-less Google/GitHub and pre-0123
+rows on the first authenticated load, and keeps `profiles.timezone` — the admin console's copy — in step
+with the schedule row. The entry at the end of §6 records the three writers, the gates and the two-reader
+07:30 measurement. It is **on `main`** — merged in
+[#48](https://github.com/g0GobliN/nyuz/pull/48) at `49ccd8f` — and changes no build cadence. **Delivery
+recommendation 2 is the one that is still open**: the 25-minute lateness
+(`briefing_timing.lateness_seconds` 1,543 s measured 2026-10-20) is now the only delivery defect the
+decision names, and it is a ticks-per-build problem, not a timezone one.
+
 **2026-10-22: rook's four design-spec units are implemented and measured, and waiting on review.**
 S3 + S4 (the archive's inert card and its hidden months) and S6 + S7 (the story's reading measure and
 the install card's one 19 px tap target) are on `wt/spec-rook`, one commit each, with every acceptance
@@ -3402,11 +3413,13 @@ touched.
 **Deferred on purpose:** the audit's nine should-fix findings (S1–S10: duplicate `h1`, briefing heading
 level, archive row target, month strip, focus ring on nav, story measure 109, install-card target, the
 email framing copy, the two score scales, the stale palette comment) are a follow-up task, listed in
-this PR's body and not expanded into it. One known boundary of B1's link contract: the story page's
-reading queue has two sources (`home`, `alerts`), so a story opened from the briefing pages in feed
-order — which for today's briefing is the same list, because `loadHomeFeed` reads the latest digest
-(`briefing.ts:252-264`) — while an archived briefing (`?digest=`) is not a queue source. Adding one is
-a follow-up, not part of this slice, and the link itself opens the right story.
+this PR's body and not expanded into it. One known boundary of B1's link contract at the time: the
+story page's reading queue had two sources (`home`, `alerts`), so a story opened from the briefing
+paged in feed order, and `loadHomeFeed` happened to read the same digest for the warm case — measured
+later on the deployed origin: that assumption does not hold on the live corpus, and the feed gates
+the briefing's last entry (deals and mods are wider than the digest is), so today's briefing is 25
+stories and the feed is 24 of them. The paging shape at the time of this slice was correct; the
+follow-up that names the briefing as its own queue source lives in the next entry.
 
 ### The briefing fix passed design sign-off on the deployed origin (2026-10-21)
 
@@ -3433,6 +3446,53 @@ prints **`1 of 24 in your nyuz`** while the briefing the reader left says **25 t
 and pager cards walk the feed from a briefing entry. Either `briefing` becomes a queue source or the position line is
 suppressed when the entry context is unknown; the link itself is right and the reader can get back, so it is not a
 blocker. Recorded rather than fixed: this task is a sign-off, not a code change.
+
+### The briefing is now a queue source — the pager says "your briefing" from a 25-link briefing (2026-10-22)
+
+The should-fix the design sign-off left as recorded-not-fixed lands here. The numbering is fixed by making
+the briefing itself a queue source, not by hiding the position when the entry context is unknown.
+
+The path is small and lives in three files:
+
+- `src/lib/use-reading-queue.ts` — `briefing` joins `QUEUE_SOURCES` (the closed union the URL `from=` narrows
+  against). The source's `queryKey` is the briefing page's own for the Today tab (`["briefing", "today", "latest"]`),
+  the `queryFn` is `loadDigestStories()`, the `select` projects id / title / topics the pager asks for, the
+  `staleTime` matches the briefing page, `label: "your briefing"`, and `respectsFeedback: false` because the
+  briefing page does not filter its own list against the feedback store. Reading it after a briefing tab is a
+  cache hit on the reader's next navigation; opening the story cold from an email or push is one fetch on the
+  briefing loader, identical to the briefing page's own cost.
+- `src/components/briefing-preview.tsx` — the `Link` accepts a new `fromQueue?: QueueSource` prop. The prop is
+  passed only when the page that mounts the preview wants the story-page pager to walk the list the link came
+  from; the marketing facsimile ignores it and the reader-view without `fromQueue` keeps the clean URL the
+  previous tests assert.
+- `src/routes/dashboard/briefing.tsx` — passes `fromQueue="briefing"` only on the Today chip. The Saved chip
+  is not a queue (its length is "what the reader saved", not "what was delivered") and the History view is
+  not a queue (a different day, retention-gated), so neither passes it and the link stays clean. A bare
+  story URL keeps the story page's default `home` source: it prints the feed's own position when the story
+  is in the feed, and `buildQueue` returns its empty queue — no position, no pager — when it is not. Neither
+  case names the saved list, so neither can contradict the number the reader counted there.
+
+**Why adding a queue source rather than suppressing the position line.** The queue source gives the reader the
+correct list (the 25) and the correct key shortcuts (`←` / `→` walk the briefing); the suppress option loses the
+pager entirely for that entry path. A reader who opens a story from the briefing is already on a known path
+through a known list — the same edition the briefing page rendered — and the audited list of ten-card
+briefings makes the pager the useful thing. The Saved tab is not in this scope because its count disagrees
+with the briefing by construction: making `from=briefing` the only-when-today flag keeps the saved bookmark
+honest.
+
+**Tests, not screenshots.** `src/components/briefing-preview.test.ts` renders 25 stories as `variant="reader"`
+with and without `fromQueue` and asserts: 25 anchors, each href ends `/dashboard/story/<id>` (no `from=` when
+the prop is omitted); 25 anchors, each href ends `/dashboard/story/<id>?from=briefing` (with the prop set).
+The same file's existing assertions — `cursor-pointer`, `focus-visible:ring-2`, `focus-visible:ring-ring`,
+zero anchors for the marketing variant, the `max-w-[32rem]` cap, the 65–75 characters-per-line range — are
+unchanged and remain green. `src/lib/use-reading-queue.test.ts` is new and asserts `asQueueSource` narrows
+`"briefing"`, `"home"`, `"alerts"` and refuses a hand-edited URL value (`"saved"`, `"archive"`, the empty
+string, `undefined`, numbers, objects).
+
+**Counter on `src/lib/reading-queue.test.ts`'s contract.** `buildQueue` itself is unchanged: same return
+shape, same `respectsFeedback` semantics. The change is purely a new source that hands it a different list
+to walk; the build rules the seven existing tests pin down continue to hold, and the 25 / 24 asymmetry is
+solved in the source, not in the queue model.
 
 ### The archive became one target and the story found its column — S3, S4, S6, S7 (2026-10-22)
 
@@ -3574,3 +3634,82 @@ fast-refresh warnings on unchanged files); `GITHUB_ACTIONS=true npm run test:cov
 across 205 files green**; `GITHUB_ACTIONS=true npm run coverage:ratchet` **no regression against the
 committed floor**. `npm run audit:delivered-line` is **unchanged** — this slice touches no reader copy:
 the diff is one comment block, one heading element name, one exported class string and its call sites.
+
+### The reader's zone is theirs from the first row, not from UTC — delivery recommendation 1 (2026-10-22)
+
+`decisions/briefing-delivery-time.md` §6 keeps option B — one build per reader at 07:30 **in the reader's
+own zone** — and names signup as the only timezone defect the live data supports. Reproduced before
+changing anything: `handle_new_user` (0003) seeded `notification_preferences` and `profiles` from the
+`timezone text not null default 'UTC'` column (`0001_init.sql:38`, `:55`), and the browser's zone reached
+the account only when the reader finished the schedule step (`prefs-store.ts` hydration). A reader who
+signed up and stopped before that step was scheduled at 07:30 **UTC**; the decision's own live read found
+two of three rows in that state.
+
+**The columns already existed, so there is no new column, table or index.** What 0123 changes is who
+writes them, in three places that cannot disagree about the fact:
+
+- `handle_new_user` now reads `raw_user_meta_data ->> 'timezone'` and writes the same value to
+  `profiles.timezone` and `notification_preferences.timezone` in the insert it already performed. This is
+  the row's first and only chance: the trigger fires inside GoTrue's own insert, so signup metadata is the
+  one channel that reaches it.
+- `capture_signup_timezone(uuid, text)` corrects the signup paths that carry no metadata — Google, GitHub,
+  and every account written before 0123. It fires from the first authenticated `usePrefs` load that sees a
+  difference, and only while `onboarded_at is null` **and** the stored zone is still `'UTC'`: a zone the
+  signup already captured is never replaced by wherever the reader happened to open the dashboard, and a
+  reader who has been through the schedule step is never touched. Guard and write are one statement, so
+  finishing onboarding mid-flight cannot have the choice overwritten.
+- `savePreferences` now mirrors a saved zone onto `profiles.timezone`, which is the copy the admin
+  console's user page shows (`server/users.ts:190`). Before this, nothing but the column default ever
+  wrote it, so the console showed `UTC` for every reader.
+
+Both writers gate the offered value through `usable_timezone(text)`, which answers `'UTC'` for anything
+`pg_timezone_names` does not carry instead of raising: a bad value costs the reader a schedule hour, never
+their account, which is the acceptance case "an unknown zone falls back safely rather than failing
+signup". `Factory` is excluded by name because it is the one catalog entry `Intl` refuses. The gate is
+deliberately not stricter than the scheduler — legacy aliases (`Asia/Calcutta`) resolve and are stored as
+given. `capture_signup_timezone` is revoked from `public, anon, authenticated` and granted to
+`service_role` only, on 0036's lesson that revoking from the two roles alone leaves the PUBLIC grant
+standing.
+
+The browser half is `signupMetadata()` in `timezones.ts`, sent as `options.data` by `continueWithEmail`
+**only** when the account is being created: Supabase merges `data` into `raw_user_meta_data`, so sending it
+on an ordinary sign-in would rewrite where the reader was the day they signed up with where they are now.
+The correction is awaited rather than fired and forgotten, because its answer is the settings the load
+returns — a correction landing after `setPrefs` would be overwritten by the stale read.
+
+**Two readers, two instants — the decision's arithmetic, executed.** `digest-schedule.test.ts` runs the
+real `scheduleUpcoming` over a Tokyo row and a New York row, both on `uno`, where `send_at` is not read at
+all: the only thing that can move either slot is the stored zone. Both readers' own clocks read 07:30 and
+the instants are `2026-03-02T22:30:00.000Z` and `2026-03-02T12:30:00.000Z`; swapping the zones swaps the
+instants, and two readers in one zone share one instant. `scheduleUpcoming` was exported for the test and
+is otherwise unchanged — the build cadence, the composition path and rulings #17/#18/#19 are untouched.
+
+Open, recorded rather than decided: existing onboarded readers keep `profiles.timezone = 'UTC'` in the
+console until they next save a zone; a backfill from `notification_preferences` would make the console
+truthful immediately but is an operator-facing data change the task did not authorise.
+
+Gates on the final tree: `npm run typecheck` clean on both projects (`tsconfig.json`,
+`tsconfig.scripts.json`); `npm run lint` **0 errors** (20 warnings, all
+`react-refresh/only-export-components` on files this slice does not export from). `npm run test:coverage`
+on a host running at **load average 15.7–20.3** (other agents' work, not this suite): **3,523 tests passed,
+18 skipped**, and two suites failed on their own fixed timeouts rather than on an assertion —
+`code-first-db.test.ts`'s 30 s PGlite `beforeAll` (it passes alone in 26 s, and applies a fixed migration
+list that never executes 0123) and `callsites.test.ts`'s 60 s filesystem scan. Every new test passes in
+isolation; the runner, which is not under this load, is the authority for the full-suite number.
+
+**The runner agreed.** CI run
+[39729587050](https://github.com/g0GobliN/nyuz/actions/runs/39729587050) on `b91d334` is green on every
+job: commit messages, dependencies and secret names, typecheck + lint + build, **all four test shards**,
+**Coverage floor**, and the browser smoke on the built Worker. Deploy is skipped, as it is for any branch
+that is not `main` — nothing here is deployed.
+
+**It is migration 0123, not 0121.** `0121` and `0122` went to the landing-coverage and site-SEO slices
+while this branch was in review, so the pinned duplicate-number test refused the merge checkout
+(`expected [56,94], got [56,94,121]`) even though the SQL was fine. The file is renamed and one comment
+line with it; nothing executable changed. The branch was then brought onto current `main` (`e925f11`) with
+a merge commit rather than a rewritten history, and CI run
+[39736387529](https://github.com/g0GobliN/nyuz/actions/runs/39736387529) is green on that merged head
+`5396713` — all four test shards, **Coverage floor**, typecheck + lint + build, and the browser smoke;
+Deploy skipped again. That head is what **merged in [#48](https://github.com/g0GobliN/nyuz/pull/48) at
+`49ccd8f`**; the two-reader measurement re-run on it gives `Asia/Tokyo` → `2026-03-02T22:30:00.000Z` and
+`America/New_York` → `2026-03-02T12:30:00.000Z`, both clocks reading 07:30, `instants equal? false`.

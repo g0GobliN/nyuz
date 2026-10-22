@@ -20,6 +20,26 @@ export function detectTimezone(): string {
 }
 
 /**
+ * The metadata an account-creating sign-in carries into the signup row.
+ *
+ * `handle_new_user` runs inside GoTrue's own insert, so this is the only value
+ * that can reach the row an account is born with. That is why it exists at all:
+ * a reader who signs up and stops before the schedule step would otherwise hold
+ * the `'UTC'` column default and be served at 07:30 UTC.
+ *
+ * Deliberately `undefined` when the account may already exist. Supabase merges
+ * `data` into `raw_user_meta_data`, so sending it on an ordinary sign-in would
+ * rewrite where a reader was the day they signed up with wherever they are
+ * today -- and nothing reads the value again after the trigger has run.
+ */
+export function signupMetadata(
+  createAccount: boolean,
+  zone: string = detectTimezone(),
+): { timezone: string } | undefined {
+  return createAccount ? { timezone: zone } : undefined;
+}
+
+/**
  * Zones for runtimes without `Intl.supportedValuesOf`.
  *
  * Deliberately small and offset-diverse rather than exhaustive: it only has to

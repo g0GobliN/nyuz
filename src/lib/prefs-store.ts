@@ -4,7 +4,8 @@ import { useAuth } from "@/lib/auth";
 import { DEFAULT_PREFS, type Prefs } from "@/lib/prefs";
 import { startFirstBriefing } from "@/lib/server/briefing";
 import { loadPreferences, savePreferences, type PrefsInput } from "@/lib/server/preferences";
-import { detectTimezone, toTimezone } from "@/lib/timezones";
+import { captureSignupTimezone } from "@/lib/server/timezone";
+import { detectTimezone, sameZone, toTimezone } from "@/lib/timezones";
 
 export { DEFAULT_PREFS, type Prefs };
 
@@ -96,6 +97,53 @@ export function usePrefs() {
         if (!active) return;
         loaded.current = true;
 
+        // Where the reader is, stored once, on the first authenticated load.
+        //
+        // A reader who has not finished the schedule step holds the `'UTC'`
+        // column default rather than a choice: that step is the only place a
+        // zone can be picked, and `/dashboard` sends them to `/onboarding`
+        // until they have. The email path may already have carried the
+        // browser's zone in through signup metadata; Google and GitHub cannot,
+        // and neither can any row written before 0123. So this is the
+        // correction for them.
+        //
+        // `!remote.onboarded` is checked here as well as in the database
+        // because it is also the cheap answer: an onboarded reader who picked
+        // a zone other than their browser's must not send a request that is
+        // certain to be refused, on every mount of every `usePrefs`. The
+        // database refuses the same readers again -- and additionally leaves a
+        // zone the signup already captured alone -- so this is an optimisation,
+        // never the guard.
+        //
+        // `sameZone` rather than `===`, so a legacy alias for the zone already
+        // stored (`Asia/Calcutta` against `Asia/Kolkata`) is not treated as a
+        // difference worth a write.
+        //
+        // Awaited rather than fired and forgotten, because the answer is used
+        // below: the settings that come out of this load must be the ones the
+        // account now holds, and a correction that landed after `setPrefs`
+        // would be overwritten by it. It costs one request, once, and only for
+        // an account that still carries the default -- `setAccountLoaded` is
+        // already waiting on a request here, so the page does not gain a
+        // loading state it did not have.
+        const zone = detectTimezone();
+        let account = remote;
+        if (!remote.onboarded && !sameZone(remote.timezone, zone)) {
+          try {
+            const captured = await captureSignupTimezone({ data: { timezone: zone } });
+            if (!active) return;
+            // The zone the account holds now, which is the reader's own when
+            // the database wrote it and their existing one when it refused.
+            if (!sameZone(captured.timezone, remote.timezone)) {
+              account = { ...remote, timezone: captured.timezone };
+            }
+          } catch (error) {
+            // A correction that cannot be stored is not a reason to lose the
+            // reader's settings. The next load tries again.
+            console.error(error);
+          }
+        }
+
         const local = readLocal();
         // A reader who filled in onboarding before signing up has answers the
         // account has never seen. Carry them up once, then let the account win
@@ -105,11 +153,11 @@ export function usePrefs() {
 
         const next = unsynced
           ? {
-              ...remote,
+              ...account,
               ...local,
-              channels: { ...DEFAULT_PREFS.channels, ...remote.channels, ...local.channels },
+              channels: { ...DEFAULT_PREFS.channels, ...account.channels, ...local.channels },
             }
-          : remote;
+          : account;
         setPrefs(next);
         writeLocal(next);
 

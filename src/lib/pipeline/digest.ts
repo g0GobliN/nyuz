@@ -551,7 +551,16 @@ type PrefRow = {
 const PREF_COLUMNS =
   "user_id, send_at, timezone, days, channels, frequency, density, paused, instructions, language";
 
-async function scheduleUpcoming(db: Db, now: Date, options: DigestOptions): Promise<number> {
+/**
+ * Writes one `digests` row per active reader at their own next 07:30.
+ *
+ * Exported for `digest-schedule.test.ts`, which pins the one thing this stage
+ * must never regress: the instant comes from `row.timezone`, not from the
+ * column default and not from a constant. Two readers on the same send time in
+ * different zones have to land on different UTC instants, and only running
+ * this function can show that.
+ */
+export async function scheduleUpcoming(db: Db, now: Date, options: DigestOptions): Promise<number> {
   let scheduledCount = 0;
   const userBatches: (string[] | undefined)[] = options.userIds
     ? chunked(options.userIds, SCHEDULE_USER_CHUNK)
