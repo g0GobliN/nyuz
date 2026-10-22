@@ -138,8 +138,8 @@ function Briefing() {
     <DashboardShell title="My briefing">
       <PageHeader
         eyebrow={day ? `Delivered · ${day.date}` : "Delivered"}
-        title="Exactly what landed in your inbox."
-        sub="This is the briefing as your channels received it. Nothing here was reordered for the web."
+        title="Your briefing, as it was assembled."
+        sub={`Built from today's coverage at ${prefs.time}. Nothing here was reordered for the web.`}
       >
         {/* Says out loud that this is not today's briefing, and offers the way
             back. An older digest that looks identical to the current one is how
@@ -163,15 +163,25 @@ function Briefing() {
           <Bookmark className="h-3 w-3" />
           Saved · {savedTally}
         </Chip>
+        {/*
+          These were the dishonest half of S8: a chip that appeared because the
+          reader's *preference* was on, sitting on a page titled "Exactly what
+          landed in your inbox" — so the chip read as a delivery receipt for a
+          send that never happened. They stay, and they now say what they are:
+          a setting. "Email on" is true whatever Resend is doing, because it
+          claims the preference and nothing else. The wording is deliberate — a
+          chip that said only "Email" next to a page that no longer claims
+          delivery would be a bare label with no sentence in it.
+        */}
         <div className="ml-auto flex items-center gap-2 text-[12px] text-muted-foreground">
           {prefs.channels.email ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-hairline px-2.5 py-1">
-              <Mail className="h-3 w-3" /> Email
+              <Mail className="h-3 w-3" /> Email on
             </span>
           ) : null}
           {prefs.channels.telegram ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-hairline px-2.5 py-1">
-              <MessageCircle className="h-3 w-3" /> Telegram
+              <MessageCircle className="h-3 w-3" /> Telegram on
             </span>
           ) : null}
         </div>
@@ -195,6 +205,14 @@ function Briefing() {
         makes each headline a link to its story and caps the card at
         `BRIEFING_READING` — a reading column — while the page header, the
         chips and the note under the card stay full width.
+
+        `chrome="edition"` is the S8 ruling (2026-10-21): the card stops
+        claiming an inbox delivery. The two props are orthogonal and both are
+        needed — `variant` decides whose stories these are, `chrome` decides
+        what the card says happened to them. `time` stays the 12-hour form the
+        card's own "Your {time} brief" line has always used; `editionTime` is
+        the same preference in the 24-hour form the edition header reads, so
+        neither line has to be reformatted into the other's shape.
       */}
       <LoadState
         query={shownQ}
@@ -203,8 +221,10 @@ function Briefing() {
           <BriefingPreview
             key={tab}
             variant="reader"
+            chrome="edition"
             stories={shown}
             time={pretty}
+            editionTime={prefs.time}
             name={who}
             className="animate-rise"
           />
