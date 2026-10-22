@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import type { FeedbackState } from "@/lib/feedback-store";
 import { buildQueue, EMPTY_QUEUE, type QueueItem, type ReadingQueue } from "@/lib/reading-queue";
 import { loadRecentAlerts } from "@/lib/server/alerts";
-import { loadHomeFeed } from "@/lib/server/briefing";
+import { loadDigestStories, loadHomeFeed } from "@/lib/server/briefing";
 
 /**
  * The list a reader is working through, made available on the story page.
@@ -25,7 +25,7 @@ import { loadHomeFeed } from "@/lib/server/briefing";
  * shape the list route stores; this only projects out the part a pager needs.
  */
 
-export const QUEUE_SOURCES = ["home", "alerts"] as const;
+export const QUEUE_SOURCES = ["home", "alerts", "briefing"] as const;
 
 export type QueueSource = (typeof QUEUE_SOURCES)[number];
 
@@ -82,6 +82,31 @@ const SOURCES: Record<QueueSource, SourceConfig> = {
       });
     },
     label: "your alerts",
+    respectsFeedback: false,
+  }),
+  /*
+   * The briefing as the reader received it — the same delivered edition the
+   * briefing page renders — so a story opened from a briefing link walks the
+   * reader through the 25 things they actually saw, not the 24 the feed
+   * surfaced from the same corpus. Measured on the deployed origin 2026-10-21:
+   * the feed gates the briefing's last entry (deals and mods are wider than
+   * the digest is), so `loadHomeFeed()`'s list is a strict subset — paging a
+   * briefing story through `home` printed `1 of 24 in your nyuz` against the
+   * 25 the briefing card opened from. Sharing the briefing page's own key
+   * (the Today tab: `["briefing", "today", "latest"]`) keeps this one fetch
+   * for the warm case — the reader just came from that page — and one fetch
+   * for the cold case (a story link opened straight from an email or push).
+   * The briefing page does not filter its own list against feedback, so this
+   * source doesn't either: "what was delivered" is the only list whose count
+   * a reader can be told.
+   */
+  briefing: defineSource({
+    queryKey: ["briefing", "today", "latest"],
+    staleTime: 60_000,
+    queryFn: () => loadDigestStories(),
+    select: (stories) =>
+      stories.map((story) => ({ id: story.id, title: story.title, topics: story.topics })),
+    label: "your briefing",
     respectsFeedback: false,
   }),
 };

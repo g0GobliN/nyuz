@@ -3,6 +3,7 @@ import { LogoMark } from "@/components/landing/nav";
 import { BRIEFING_READING } from "@/lib/briefing-measure";
 import type { Story } from "@/lib/story";
 import { sourceCount } from "@/lib/story";
+import type { QueueSource } from "@/lib/use-reading-queue";
 import { cn } from "@/lib/utils";
 
 /**
@@ -44,6 +45,7 @@ export function BriefingPreview({
   className,
   compact,
   variant = "marketing",
+  fromQueue,
 }: {
   stories: Story[];
   time?: string;
@@ -51,6 +53,14 @@ export function BriefingPreview({
   className?: string;
   compact?: boolean;
   variant?: "marketing" | "reader";
+  /**
+   * Which reader list the link should land the reader back into. `briefing`
+   * ties the story page's pager to the briefing itself — without it the pager
+   * walks the feed, which on the deployed origin is 24 of the briefing's 25
+   * (`docs/design-signoff-2026-10-21.md`, B1/B2 follow-up). Omitting the prop
+   * keeps the link landing on the bare story page, the same shape as before.
+   */
+  fromQueue?: QueueSource;
 }) {
   const reader = variant === "reader";
 
@@ -92,13 +102,15 @@ export function BriefingPreview({
             </div>
             {reader ? (
               <Link
-                // No `from` search param: the story page only knows two reading
-                // queues today (the feed and alerts), and neither is a lie — a
-                // story opened here lands on its own page, and the page's back
-                // control returns to this briefing. The briefing's digest id is
-                // not passed either, because the story route does not read it.
+                // The pager on the story page reads `from`. Today's briefing
+                // passes `briefing` so the reader pages through the 25 they
+                // just saw; omitting it (the marketing variant, or the Saved
+                // tab where the count would lie in a different way) leaves the
+                // page with no position line — that is the honest answer when
+                // we cannot name the list the reader came from.
                 to="/dashboard/story/$id"
                 params={{ id: s.id }}
+                {...(fromQueue ? { search: { from: fromQueue } } : {})}
                 className="mt-1.5 block cursor-pointer rounded-sm text-[16px] font-medium leading-snug transition-colors hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 {s.title}
