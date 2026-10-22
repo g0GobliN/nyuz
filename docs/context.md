@@ -3724,10 +3724,13 @@ loop, `npm_config_fetch_timeout: 60000` makes a stalled bulk POST cost a minute 
 endpoint npm actually talked to in the job log, and `timeout-minutes: 6` bounds the step.
 
 **Proved by running the step, not by reading it.** A harness extracts the `run:` block from `ci.yml` and
-executes it with the step's own `env:`: the clean tree → exit 0 in 3.6 s on one attempt; a production
+executes it with the step's own `env:`: the clean tree → exit 0 on one attempt in 2.2 s; a production
 `lodash@4.17.20` in a throwaway lockfile → exit 1 on **one** attempt with the real high advisories listed;
 that same advisory delivered by a stub registry *together with* a `501` on the packument fetch → exit 1 on
 one attempt; CI's exact failure replayed (bulk 503 → retired quick 400) → 3 attempts, 6 requests, exit 1;
 both endpoints 503 → 3 attempts, exit 1; a bulk request that never answers → 3 attempts in 214 s and red,
-against one 300 s attempt and red before. Runner evidence: the `Dependencies and secret names` job on
-`wt/audit-gate`'s CI.
+against one 300 s attempt and red before. Runner evidence: PR
+[#53](https://github.com/g0GobliN/nyuz/pull/53)'s CI run
+[39752304047](https://github.com/g0GobliN/nyuz/actions/runs/39752304047) is green on `079e658`, the
+`Dependencies and secret names` job included, where the step answered over the bulk endpoint in 127 ms
+(`POST 200 .../advisories/bulk`, `found 0 vulnerabilities`) and never touched the quick one.
