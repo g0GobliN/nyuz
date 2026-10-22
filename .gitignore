@@ -66,5 +66,17 @@ blob-report/
 # and never a project file: a measurement belongs in a report, not a commit.
 tmp/
 
+# Worktrees are full checkouts of this repository, made by `git worktree add` for
+# parallel agents working on disjoint branches. A file inside one is a file in the
+# tree as far as `git status` and `eslint .` are concerned, but it belongs to
+# another session and is never this session's diff. Ignoring the directory
+# fixes the cause rather than one symptom of it: the symptom was `eslint .`
+# walking into a sibling's probe script and reporting its formatting errors as
+# this branch's lint failure — a red gate naming the wrong cause. A fresh CI
+# checkout has no worktrees at all, so the runner never sees these; only a
+# developer machine does. `git worktree add` is still the right way to make a
+# baseline checkout, and `git worktree list` still shows them.
+.worktrees/
+
 # screenshots are local evidence only — never commit them
 docs/screenshots/

@@ -104,7 +104,7 @@ export function usePrefs() {
         // zone can be picked, and `/dashboard` sends them to `/onboarding`
         // until they have. The email path may already have carried the
         // browser's zone in through signup metadata; Google and GitHub cannot,
-        // and neither can any row written before 0121. So this is the
+        // and neither can any row written before 0123. So this is the
         // correction for them.
         //
         // `!remote.onboarded` is checked here as well as in the database

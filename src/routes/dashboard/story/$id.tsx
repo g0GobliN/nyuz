@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { DashboardShell } from "@/components/dashboard/shell";
 import { StoryArticle } from "@/components/dashboard/story-article";
 import { PanelLoading } from "@/components/loading";
-import { Button } from "@/components/kit";
+import { Button, focusRing } from "@/components/kit";
 import { humanError } from "@/lib/errors";
 import { useFeedback } from "@/lib/feedback-store";
 import { loadPhase } from "@/lib/load-state";
@@ -50,6 +50,7 @@ function BackToFeed({ className }: { className?: string }) {
   );
   const style = cn(
     "inline-flex cursor-pointer items-center gap-2 text-[13px] text-muted-foreground transition-colors hover:text-foreground",
+    focusRing,
     className,
   );
 

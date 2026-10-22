@@ -129,7 +129,7 @@ $fn$;
 -- signup already carried the browser's zone, and a reader who then opens the
 -- dashboard from a trip must keep the zone they signed up in. So the stored
 -- value has to still be the `'UTC'` column default for the row to be touched,
--- which is exactly the state Google, GitHub and every pre-0121 account are in
+-- which is exactly the state Google, GitHub and every pre-0123 account are in
 -- and a captured zone never is.
 --
 -- **The guard and the write are one statement**, so a reader who finishes

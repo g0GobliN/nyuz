@@ -11,6 +11,7 @@ import { UpdateNotice } from "@/components/dashboard/update-notice";
 import { Logo } from "@/components/landing/nav";
 import { PanelLoading } from "@/components/loading";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { focusRing } from "@/components/kit";
 import { useDisplayName } from "@/lib/auth";
 import { MOBILE, NAV, NAV_FOOT, NAV_STAFF } from "@/lib/dashboard-nav";
 import { useStandalone } from "@/lib/display-mode";
@@ -60,6 +61,7 @@ function NavItem({
       className={cn(
         "flex items-center gap-3 rounded-xl px-3 py-2 text-[14px] transition-colors duration-200",
         active ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground",
+        focusRing,
       )}
     >
       <Icon className="h-4 w-4 shrink-0" />
@@ -180,7 +182,7 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
     <div className="min-h-screen bg-background">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-hairline bg-surface px-4 py-5 lg:flex">
         <div className="px-2">
-          <Logo />
+          <Logo className={focusRing} />
         </div>
 
         <nav className="mt-8 flex flex-1 flex-col gap-0.5">
@@ -219,28 +221,41 @@ export function DashboardShell({ children, title }: { children: ReactNode; title
         <header className="glass sticky top-0 z-30 border-b border-hairline">
           <div className="gutter-x sm:gutter-x-md flex h-16 items-center gap-3">
             <div className="lg:hidden">
-              <Logo />
+              <Logo className={focusRing} />
             </div>
-            {title ? <h1 className="hidden text-[15px] font-medium lg:block">{title}</h1> : null}
+            {/* A wayfinding cue for sighted readers, not the document title.
+                `PageHeader` below already renders this page's own <h1>, so
+                promoting the label made every desktop dashboard page carry two
+                of them and "what page is this?" answer twice. Kept as a <p>
+                with the class string byte-identical: the label is still read,
+                just not as a heading. The h1 stays inside PageHeader, which is
+                the one that belongs to the page. */}
+            {title ? <p className="hidden text-[15px] font-medium lg:block">{title}</p> : null}
 
             <div className="ml-auto flex items-center gap-1">
               <button
                 aria-label="Search"
                 onClick={() => setSearch(true)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className={cn(
+                  "inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                  focusRing,
+                )}
               >
                 <Search className="h-4 w-4" />
               </button>
               <Link
                 to="/dashboard/alerts"
                 aria-label="Notifications"
-                className="relative inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className={cn(
+                  "relative inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                  focusRing,
+                )}
               >
                 <Bell className="h-4 w-4" />
                 <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-signal" />
               </Link>
-              <ThemeToggle />
-              <AccountMenu staff={staff} name={who} />
+              <ThemeToggle className={focusRing} />
+              <AccountMenu staff={staff} name={who} className={focusRing} />
             </div>
           </div>
         </header>
@@ -291,7 +306,10 @@ function RestoredNotice({ onDismiss }: { onDismiss: () => void }) {
       </p>
       <button
         onClick={onDismiss}
-        className="text-[12.5px] text-muted-foreground transition-colors hover:text-foreground"
+        className={cn(
+          "text-[12.5px] text-muted-foreground transition-colors hover:text-foreground",
+          focusRing,
+        )}
       >
         Dismiss
       </button>
@@ -331,7 +349,10 @@ export function StaffOnly({ children, title }: { children: ReactNode; title: str
           action={
             <Link
               to="/dashboard"
-              className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
+              className={cn(
+                "text-[13.5px] text-muted-foreground transition-colors hover:text-foreground",
+                focusRing,
+              )}
             >
               Back to your briefing
             </Link>
@@ -373,6 +394,7 @@ function MobileItem({
       className={cn(
         "flex min-h-13 shrink-0 flex-col items-center gap-1 px-[18px] py-3 text-[11px] transition-colors",
         active ? "text-foreground" : "text-muted-foreground",
+        focusRing,
       )}
     >
       <Icon className="h-5 w-5" strokeWidth={active ? 2.2 : 1.8} />

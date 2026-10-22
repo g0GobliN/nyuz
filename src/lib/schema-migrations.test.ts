@@ -1012,7 +1012,7 @@ describe("the match candidate bundle (0116)", () => {
 });
 
 /**
- * The reader's zone, from the row the signup creates (0121).
+ * The reader's zone, from the row the signup creates (0123).
  *
  * `handle_new_user` runs inside GoTrue's insert, so `raw_user_meta_data` is the
  * only thing that can reach the first row. That makes this the one place the
@@ -1024,7 +1024,7 @@ describe("the match candidate bundle (0116)", () => {
  * an input, so a green run says these files agree with each other, not that the
  * deployed trigger matches them.
  */
-describe("the reader's timezone from the first row (0121)", () => {
+describe("the reader's timezone from the first row (0123)", () => {
   /** A signup, exactly as GoTrue performs it: one insert into auth.users. */
   async function signup(metadata: Record<string, unknown>): Promise<string> {
     const id = crypto.randomUUID();

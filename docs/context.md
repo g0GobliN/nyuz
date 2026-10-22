@@ -21,12 +21,35 @@ exist.
 
 ## 1. What nyuz is
 
-nyuz is a daily news briefing product. Each reader gets one briefing a day, built from
+nyuz is a daily information briefing product. Each reader gets one briefing a day, built from
 coverage the system has already collected and clustered, delivered by **email**, **browser
 push** and **Telegram**. Every story in it opens into a **Read** page: a headline, a deck,
 and an article assembled deterministically from the coverage itself — never from model
 prose. The product's promise is that a story is _told_ to the reader rather than handed to
 them as links.
+
+**The positioning line, ruled 2026-10-21: "a personalized information briefing", not
+"a personalized news briefing".** News is one major category, not the whole identity —
+the topic taxonomy is 35 labels wide (`src/lib/topics-pool.ts`) and the seeded sources
+include arXiv, GitHub release feeds, vendor blogs and product changelogs, so calling the
+product a news briefing undersells what it actually watches. The wording that shipped is
+in `SEO_DEFAULT` (`src/lib/site-content.ts`) and the root meta
+(`src/routes/__root.tsx`), and it is the first clause of the "What nyuz covers" section
+on the landing page. The same phrase was swept across the bundled defaults — the
+root meta description and `og:description` (which every route without its own
+description inherits) and the PWA manifest description. **A stored `site.seo` row
+overrides the bundled default**, and a seeded environment has one: `0003_admin.sql`
+inserts it and `0004_landing_copy.sql` rewrites its description. So the sweep also
+needs a migration, `0122_site_seo_information_briefing.sql`, which updates the
+stored description only where it still holds one of the two values this repository
+has ever written — an operator's own edit in `/admin/content` does not match
+either and is left alone. Measured on the live project on 2026-10-21: there is no
+`site.seo` row there (the table holds `site.access` and two AI budget keys), so the
+live page serves the bundled default and reaches production from the code change
+alone; the migration is for the seeded path.
+What it does **not** claim: that nyuz is a platform where readers share information with
+one another, or that it covers every category comprehensively. The loop — watch, merge,
+match, deliver — is the product; the breadth is what it watches.
 
 It is **in development and not accepting customers** (state as of 2026-09-26,
 [status.md](status.md)). No paying customer exists.
@@ -1842,11 +1865,177 @@ and a **collision map** — `src/components/briefing-preview.tsx` is edited by B
 does not perform) and S9 (two unexplained score scales) may not be implemented before the arbiter's
 ruling is recorded in `docs/decisions/`.
 
+**2026-10-21: the landing page says what nyuz covers, and the positioning line became
+"a personalized information briefing" (owner-ruled).** Two changes, both measured.
+
+*The new section.* "What nyuz covers" — eyebrow, the two-line headline *"Not just what's in the news.
+What matters in your world."*, an intro paragraph, and a 2×2 hairline grid of the four areas nyuz
+watches: news and world events / technology and projects / research and ideas / music, film and culture.
+It sits **between the hero artwork and the topic demo** (the owner's placement), because the demo is
+the proof of the breadth claim and the visitor should know the breadth before being asked to pick from
+it. `src/components/landing/coverage.tsx`, registered as the `coverage` key in `SECTION_KEYS` /
+`SECTION_LABELS` / `SECTION_COMPONENTS`.
+
+*The position is the fourth edit, and it is the one that fails silently.* The landing page's section
+order is not in the code — it is an ordered list in `site_settings.landing.sections`, because order is
+an editorial decision. `normaliseSections` **appends** any key the stored row does not mention, so
+shipping the key alone would have put the new section below the closing call to action, with no error
+anywhere. `supabase/migrations/0121_landing_coverage_section.sql` rewrites the stored list to insert
+`coverage` first, preserving every other section's order and its `enabled` flag, and is safe to re-run.
+`src/lib/landing-coverage-section.test.ts` proves that against real Postgres (PGlite): the new key
+first, the rest in their prior order, a hidden section still hidden, an operator's own reordering
+preserved, and a second run not duplicating the key.
+
+*Measured.* Page height 10,062 → 11,028px at 1440; sections 10 → 11; horizontal overflow **0** at
+1440 / 655 / 390px. The grid's four cells measure identical (152px, two-line bodies) — the first draft
+had a one-line bottom-right cell that left a visible hole in the equal-height grid, fixed by rewriting
+that sentence rather than by padding it. The copy carries no numeral, and every clause is checkable
+against the seeded sources: research = the five arXiv feeds + Berkeley AI Research, open source and
+releases = the eleven GitHub release feeds, company updates = the 19 `company_blog` sources, music and
+film = the seeded entertainment sources.
+
+*The positioning line.* The owner ruled **"a personalized information briefing"** over **"a
+personalized news briefing"** (the question left open in
+[homepage-and-home-feed-design-plan.md](homepage-and-home-feed-design-plan.md)). The reason it is true
+rather than aspirational: the topic taxonomy is 35 labels wide (`src/lib/topics-pool.ts`) and the
+seeded sources include arXiv, GitHub release feeds, vendor blogs and product changelogs, so "news"
+undersells what nyuz watches. The wording shipped in `SEO_DEFAULT` (`src/lib/site-content.ts`), in the
+root meta description and og:description (`src/routes/__root.tsx`), and in §1 of this file. **The live
+`site_settings` table holds only three rows (`site.access` and two AI caps) — there is no stored
+`site.seo` row**, so the bundled fallback is what the live site serves and a code change alone ships
+this; the console has no stored override to fight. What it does not claim: that nyuz is a platform
+where readers share information with one another, or that it covers every category comprehensively.
+The loop — watch, merge, match, deliver — is the product; the breadth is what it watches.
+
+**2026-10-21, later: the route-walk e2e test was over its timeout budget. The cause was a duplicate
+page load, and the fix is at the cause.** The 2026-10-21 landing work left `npm run ci` red, because
+`e2e/smoke.spec.ts` ("a route walk never serves a broken asset") timed out at 30s. **It was not
+caused by the landing work**: the same test fails at baseline on a *different* route each run, which
+is the signature of a shared budget expiring rather than one slow page.
+
+**The real cause, found by independent measurement after this entry was first written wrong.**
+`blogIsAdvertised` opened `/` with its own `page.goto(..., networkidle)` to read the nav link, and the
+walk then opened `/` **again** as `PUBLIC_ROUTES[0]`. Two full cold landing-page loads, one of them
+redundant — instrumenting 21 navigations across three walks showed those two were **33–52% of the
+walk's total in every run**. The fix is to read the link during the walk's own visit to `/`, with
+`watch()` attached *before* the first navigation so the landing page stays inside the asset check.
+`test.setTimeout(120_000)` stays as margin, not as the fix.
+
+**Two claims in this entry's first version were false and are corrected here.** (1) `/manifest.webmanifest`
+is **never fetched during the walk** — zero requests across three walks and two fresh contexts; the
+4,092 ms cold figure belongs to the *installability* test elsewhere in the suite. (2) There is only
+**one** cold start, not seven: only the first navigation pays workerd's first-request cost (~2.2 s).
+The "40.5 s here vs 45.6 s at baseline" comparison was also noise — interleaved three-round runs gave
+baseline 43.5/47.6/72.9 s and this tree 49.7/65.6/67.2 s, sign flipped, same-tree spread 48.5–65.8 s
+on a box at load average 22–43 on 4 cores. A single duration on a loaded machine is not a measurement.
+What is measurable: both builds have an identical chunk-name set, 38 preloads, 139 asset files and
+**zero new requests** — +1,866 bytes JS (+0.24%), +2,290 bytes HTML. The section cannot account for
+seconds. Full record, including the false mechanisms, in
+[decisions/e2e-route-walk-timeout.md](decisions/e2e-route-walk-timeout.md).
+
+**`networkidle` was not weakened.** `watch()` counts a `requestfailed`, which fires on an **aborted**
+request, so ending a navigation early aborts the next page's own requests and reports them as broken
+assets — turning a slow test into a false one.
+
+**And the gate was proven still to bite.** Moving `public/nyuz-readers.png` away (so the build no
+longer emits it and the request 404s) makes the test **fail** with
+`404 http://127.0.0.1:8788/nyuz-readers.png`; the file was restored byte-exact. A second control via
+a manual `wrangler dev` against a pre-built `.output` confirmed the same, with one caveat now recorded:
+when the missing asset is a **JS module** the test fails with "navigation interrupted by another
+navigation" rather than a clean 404 list, so the walk only cleanly proves missing **non-module**
+assets. The `webServer` trap stands: `npm run build && wrangler dev` **overwrites `.output/`**, so
+break a file in `public/`.
+
+**Do not `git stash` in the shared worktree.** Other agents use it; stashing mid-investigation resets
+the tree under them, which happened on this date and cost a peer their working state. Baseline with
+`git worktree add /tmp/nyuz-baseline origin/main`.
+
+**`npm run lint` was also red, on another agent's probe.** Three Prettier errors in
+`.worktrees/t_5abaeb9d/scripts/_f18probe.ts` — a file belonging to a different session, untracked and
+never committed, but walked by `eslint .` because a worktree is a full checkout of the repo. A fresh
+CI checkout has no `.worktrees/`, so the runner never sees it; only a developer machine does. Added
+`.worktrees/**` to the ignores in `eslint.config.js`, which already ignored `tmp/**`, `.scratch/**`
+and the Playwright artifact directories for the same class of reason.
+
+**2026-10-21, later still: three reviewers read the landing work, and two of them found real
+defects.** The route-walk fix and the positioning change went out for review rather than straight
+to a PR, and that was the right call — here is what the review changed.
+
+**Scout (root-cause) refuted the mechanism I had written down and found the real one.** My
+explanation of the e2e timeout was wrong in three places, and the doc recorded the wrong
+explanation rather than a vague one. (1) `/manifest.webmanifest` is **never fetched during the
+walk** — zero requests across three instrumented walks; the 4,092 ms cold figure belongs to the
+installability test elsewhere in the suite. (2) There is only **one** cold start, not seven. (3) The
+"45.6 s baseline vs 40.5 s changed" comparison was **noise**: interleaved three-round runs gave
+baseline 43.5/47.6/72.9 s and this tree 49.7/65.6/67.2 s — the sign flips, and same-tree spread was
+48.5–65.8 s on a box at load average 22–43 on 4 cores. A single duration on a loaded machine is not
+a measurement. The real cause was a **duplicate load**: `blogIsAdvertised` opened `/` to read the nav
+link and the walk then opened `/` again as `PUBLIC_ROUTES[0]`. The two navigations were 33–52% of
+the walk's total in every run. The link is now read during the walk's own visit to `/`, with
+`watch()` attached before the first navigation so the landing page stays inside the same asset
+check. **Measured after the fix: 18.9 s, down from 43–73 s** — an idle-box number, and the doc says
+so. `test.setTimeout(120_000)` stays as margin, not as the mechanism, and `networkidle` is still not
+weakened.
+
+**Scout also caught that the positioning change would not have reached a seeded database.** `/`
+reads its description from the **stored** `site.seo` row, and `SEO_DEFAULT` is only the fallback for
+a database without one. `0003_admin.sql` seeds that row and `0004_landing_copy.sql` rewrites its
+description — so editing `SEO_DEFAULT` alone left every seeded environment serving a description
+that said "nyuz watches hundreds of sources" (a countable claim about a number that moves weekly) and
+none of them saying "information briefing" at all. Measured on the live project: there is **no**
+`site.seo` row (the table holds `site.access` and two AI budget keys), so the live page serves the
+bundled default and reaches production from the code change alone — but the seeded path needed its
+own change, so **`0122_site_seo_information_briefing.sql`** updates the stored description **only
+where it still holds one of the two values this repository has ever written**. An operator's own
+edit in `/admin/content` matches neither and is left alone: the stored row is an editorial decision,
+and a positioning sweep is not licence to overwrite an editor's words. The title is deliberately
+untouched — the brand line is not a positioning claim.
+
+**The coverage floor would have caught the new component too, and it was nearly right for the wrong
+reason.** `vitest.config.ts` instruments every file under `src/**` (`all: true`), so an untested
+123-line component counts against the floor. The repo has no jsdom and no `.test.tsx` anywhere, so
+the fix is the pattern its own component tests already use: `renderToStaticMarkup(createElement(…))`
+in the node environment. `src/components/landing/coverage.test.ts` pins the four areas in order,
+asserts that **no decimal digit** appears anywhere in the rendered text, and asserts the copy never
+widens the product into a place readers share with each other. Both assertions were **proven to
+bite** by injecting a defect and watching them fail — a number in the copy, and a "share with the
+community" phrase — rather than assumed.
+
+**Three smaller things, all fixed.** The walk's comment said "seven routes" when it is six plus the
+blog; the new code depended on `PUBLIC_ROUTES[0] === "/"` with only a comment enforcing it, so a
+reordering would have silently dropped `/blog` out of the walk — a gate quietly covering less, now
+one `expect` line loud; and `.worktrees/` was not gitignored, which is the *cause* of the lint
+failure that the eslint ignore was only treating as a symptom.
+
+**Two of my own mistakes, recorded.** The `docs/context.md` line claiming the new phrase "was swept
+across every public meta description" was false for a seeded database and is now qualified. And
+`npm run lint` was red for a reason that had nothing to do with this work: three Prettier errors in
+`.worktrees/t_5abaeb9d/scripts/_f18probe.ts`, another session's probe, untracked and never
+committed, but walked by `eslint .` because a worktree is a full checkout of the repository. A fresh
+CI checkout has no `.worktrees/`, so the runner never sees it; only a developer machine does. Fixed
+at the cause — `.worktrees/` is now gitignored — and at the symptom, with `.worktrees/**` in the
+eslint ignores alongside `tmp/**`, `.scratch/**` and the Playwright artifact directories.
+
+**And `hookTimeout` was never raised with `testTimeout`.** The vitest config's own comment names
+the evidence — "three PGlite `beforeAll` hooks" timed out in a coverage run — but a `beforeAll` is a
+HOOK, and `hookTimeout` was left at vitest's 30 s default, so raising `testTimeout` did not help
+those at all. Worse, the three migration test files each passed an **explicit** `30_000` to
+`beforeAll`, and an explicit value **overrides** the config. PGlite's WASM start-up measured 26 s on
+a loaded machine, so 30 s was marginal rather than generous. The config now sets `hookTimeout:
+60_000` unconditionally — the start-up costs the same whether or not v8 is instrumenting, so gating
+it on `measuringCoverage` left the plain `vitest run` with the *shorter* ceiling, which is backwards
+— and the explicit per-file overrides are gone.
+
+**Screenshots.** Upstream landed a policy on 2026-10-21 that screenshots are local evidence and are
+never committed (`docs/screenshots/` in `.gitignore`). The five PNGs this work had staged under
+`docs/design/` were removed from the tree for the same reason; the design comparison HTML stays,
+because it is a document rather than a capture. Local copies are kept outside the repository.
+
 ## 7. What is next
 
 **2026-10-22: delivery recommendation 1 is implemented — the reader's zone now exists from the first row.**
 `wt/signup-timezone` (no column added; both `timezone` columns already existed) makes `handle_new_user`
-read the browser's zone from the signup metadata, corrects the metadata-less Google/GitHub and pre-0121
+read the browser's zone from the signup metadata, corrects the metadata-less Google/GitHub and pre-0123
 rows on the first authenticated load, and keeps `profiles.timezone` — the admin console's copy — in step
 with the schedule row. The entry at the end of §6 records the three writers, the gates and the two-reader
 07:30 measurement. It is **not on `main`** and changes no build cadence. **Delivery recommendation 2 is the
@@ -3316,6 +3505,64 @@ as of `861d711`, so the nine (archive and story at 360 / 768 / 1280, install at 
 after) live in the worktree and with the task, not in the repository.
 
 
+### One answer to "what page is this", and one focus ring — S10, S1, S5 (2026-10-22)
+
+**S10 — the palette comment describes the product that is here.** `src/styles.css:46-60` said "three
+colours only: black, white, and one red", that the red sat at hue 27, and that it measured 5.58:1. The
+tokens have been blue since `d759061` (2026-08-25): `--signal: oklch(0.53 0.12 240)` light,
+`oklch(0.72 0.12 240)` dark. The block now says hue 240 and quotes pairs **re-derived on 2026-10-22**
+from those two values through OKLab → linear sRGB → WCAG luminance: **5.1997:1 light, 8.1069:1 dark**,
+i.e. the 5.20 and 8.11 it states. Comment only: the diff is 31 insertions and 12 deletions, every one a
+comment line, and no `--token:` value moved. `--destructive`'s reason is corrected because the old one
+was true only of a red accent. The one thing the comment does **not** do is explain why blue replaced the
+red: nothing in the repository records that ruling, so the block says it is unrecorded and leaves it to
+the arbiter instead of putting an invented reason in the file every designer opens first.
+
+**S1 — one `<h1>` per desktop dashboard page.** The shell's location label was an `<h1>` beside
+`PageHeader`'s own, so every dashboard page at ≥1024 px answered "what page is this?" twice. It is a
+`<p>` now with a **byte-identical class string** — same 15 px medium muted copy, same `lg`-only
+visibility — so nothing looks different. Measured in Chromium against the built Worker, signed in, at
+1280 and 360: `/dashboard`, `/dashboard/briefing`, `/dashboard/history`, `/dashboard/alerts` and
+`/dashboard/alerts/history` each report **`document.querySelectorAll("h1").length === 1`** and
+**`header h1 === 0`**, the label is a `P` at 15 px / 500 (on `/dashboard/briefing` it reads "My
+briefing"), and at 360 it is still `display: none` with the count at 1. No layout shift: the `h-16` row
+measures **64 px** before and after (the `<header>` box is 65 with its border), the label's own box keeps
+`margin: 0` and its 22.5 px line. The two transient `StaffOnly` states that render the shell with no
+`PageHeader` now carry zero headings, which is the spec's own decision, not an oversight.
+
+**S5 — the chrome wears the product's ring.** `focusRing` is exported once from `kit.tsx` and
+`buttonClass` consumes it, so its output string is byte-identical. The constant reaches the fourteen
+chrome stops the audit measured — logo, nine sidebar destinations, Search, Notifications, theme toggle,
+account trigger — plus the mobile strip's items, the story card's `IconToggle`, `BackToFeed` and the two
+bare text controls the shell draws in its restored-account and "not your floor" states. Keyboard-only
+through those fourteen at 1280: **`outline-style: none`** and a shadow of
+`oklch(0.145 0 0) 0 0 0 2px, oklch(0.72 0.12 240) 0 0 0 4px` on every one — the 2 px offset on
+`--background` and the 2 px ring in **`--ring`**, the token itself, not merely "not none". A mouse click
+on the same controls draws nothing (`:focus-visible` false, `box-shadow: none`). At 360 the bottom
+strip's items carry it too. Two stops the spec names are left to the slices that own their files: the
+briefing's "Back to the latest briefing" (`src/routes/dashboard/briefing.tsx`) and `UpgradeNote`'s link
+(`history.tsx`).
+
+**The test this slice wanted, and why it is not here — an open question.** A `shell.test.ts` was written
+(20 tests: the heading outline, the ring on every focusable element in the rendered shell, and the chrome's
+staff / standalone / maintenance / paused / offline / saved-copy / update states) and it passed. It could
+not ship: importing `shell.tsx` for the first time made four files that v8 had never counted — the shell,
+the account menu, the offline notice, the app shell — enter the dashboard branch denominator with their
+real totals, and `src/components/dashboard` branches fell **89.42 → 88.13** against a committed floor.
+**Nothing lost a test; the denominator grew.** The three arms needed to clear the floor again
+(`shell.tsx:175`, `:267`, `:287`, the restored-account notice and the search overlay) only exist after an
+effect runs or a Radix dropdown opens, which `renderToStaticMarkup` cannot do, and a DOM renderer is a new
+dependency the design spec forbids. Recorded rather than forced: either those branches get recorded on the
+runner (a floor decision, not a slice decision), or the shell gets a DOM test when a dependency for it is
+allowed. Until one of those is ruled, the shell is held down by the browser measurements above and by no
+test of its own.
+
+Gates on the final tree: `npm run typecheck` clean; `npm run lint` **0 errors** (20 pre-existing
+fast-refresh warnings on unchanged files); `GITHUB_ACTIONS=true npm run test:coverage` **3,516 tests
+across 205 files green**; `GITHUB_ACTIONS=true npm run coverage:ratchet` **no regression against the
+committed floor**. `npm run audit:delivered-line` is **unchanged** — this slice touches no reader copy:
+the diff is one comment block, one heading element name, one exported class string and its call sites.
+
 ### The reader's zone is theirs from the first row, not from UTC — delivery recommendation 1 (2026-10-22)
 
 `decisions/briefing-delivery-time.md` §6 keeps option B — one build per reader at 07:30 **in the reader's
@@ -3326,7 +3573,7 @@ the account only when the reader finished the schedule step (`prefs-store.ts` hy
 signed up and stopped before that step was scheduled at 07:30 **UTC**; the decision's own live read found
 two of three rows in that state.
 
-**The columns already existed, so there is no new column, table or index.** What 0121 changes is who
+**The columns already existed, so there is no new column, table or index.** What 0123 changes is who
 writes them, in three places that cannot disagree about the fact:
 
 - `handle_new_user` now reads `raw_user_meta_data ->> 'timezone'` and writes the same value to
@@ -3334,7 +3581,7 @@ writes them, in three places that cannot disagree about the fact:
   the row's first and only chance: the trigger fires inside GoTrue's own insert, so signup metadata is the
   one channel that reaches it.
 - `capture_signup_timezone(uuid, text)` corrects the signup paths that carry no metadata — Google, GitHub,
-  and every account written before 0121. It fires from the first authenticated `usePrefs` load that sees a
+  and every account written before 0123. It fires from the first authenticated `usePrefs` load that sees a
   difference, and only while `onboarded_at is null` **and** the stored zone is still `'UTC'`: a zone the
   signup already captured is never replaced by wherever the reader happened to open the dashboard, and a
   reader who has been through the schedule step is never touched. Guard and write are one statement, so
@@ -3375,7 +3622,7 @@ Gates on the final tree: `npm run typecheck` clean on both projects (`tsconfig.j
 on a host running at **load average 15.7–20.3** (other agents' work, not this suite): **3,523 tests passed,
 18 skipped**, and two suites failed on their own fixed timeouts rather than on an assertion —
 `code-first-db.test.ts`'s 30 s PGlite `beforeAll` (it passes alone in 26 s, and applies a fixed migration
-list that never executes 0121) and `callsites.test.ts`'s 60 s filesystem scan. Every new test passes in
+list that never executes 0123) and `callsites.test.ts`'s 60 s filesystem scan. Every new test passes in
 isolation; the runner, which is not under this load, is the authority for the full-suite number.
 
 **The runner agreed.** CI run

@@ -53,7 +53,7 @@ however convenient it looks at the time.
 | -------------------------- | ---------------------------------------------------------------- |
 | `profiles`                 | Identity, presence, and automatic inactivity-pause state         |
 | `subscriptions`            | One row per user. `plan` is written by billing, never the client |
-| `notification_preferences` | Schedule, channels, density, pause. `timezone` is written at signup (0121) and by the schedule step, and the pipeline reads **this** column |
+| `notification_preferences` | Schedule, channels, density, pause. `timezone` is written at signup (0123) and by the schedule step, and the pipeline reads **this** column |
 | `user_roles`               | `user` / `admin` / `superadmin`. **No write policy at all**      |
 | `user_bans`                | Reason and paper trail. _Not_ the enforcement — see below        |
 

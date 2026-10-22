@@ -1555,7 +1555,7 @@ export type Database = {
     };
     Functions: {
       /**
-       * Added in 0121. Stores the reader's browser zone while the account still
+       * Added in 0123. Stores the reader's browser zone while the account still
        * holds its signup default, and refuses once the reader has onboarded —
        * so a choice made on the schedule step is never overwritten. Returns the
        * zone now stored.
