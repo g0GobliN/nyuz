@@ -2038,10 +2038,11 @@ because it is a document rather than a capture. Local copies are kept outside th
 read the browser's zone from the signup metadata, corrects the metadata-less Google/GitHub and pre-0123
 rows on the first authenticated load, and keeps `profiles.timezone` — the admin console's copy — in step
 with the schedule row. The entry at the end of §6 records the three writers, the gates and the two-reader
-07:30 measurement. It is **not on `main`** and changes no build cadence. **Delivery recommendation 2 is the
-one that is still open**: the 25-minute lateness (`briefing_timing.lateness_seconds` 1,543 s measured
-2026-10-20) is now the only delivery defect the decision names, and it is a ticks-per-build problem, not a
-timezone one.
+07:30 measurement. It is **on `main`** — merged in
+[#48](https://github.com/g0GobliN/nyuz/pull/48) at `49ccd8f` — and changes no build cadence. **Delivery
+recommendation 2 is the one that is still open**: the 25-minute lateness
+(`briefing_timing.lateness_seconds` 1,543 s measured 2026-10-20) is now the only delivery defect the
+decision names, and it is a ticks-per-build problem, not a timezone one.
 
 **2026-10-22: rook's four design-spec units are implemented and measured, and waiting on review.**
 S3 + S4 (the archive's inert card and its hidden months) and S6 + S7 (the story's reading measure and
@@ -3679,6 +3680,17 @@ isolation; the runner, which is not under this load, is the authority for the fu
 job: commit messages, dependencies and secret names, typecheck + lint + build, **all four test shards**,
 **Coverage floor**, and the browser smoke on the built Worker. Deploy is skipped, as it is for any branch
 that is not `main` — nothing here is deployed.
+
+**It is migration 0123, not 0121.** `0121` and `0122` went to the landing-coverage and site-SEO slices
+while this branch was in review, so the pinned duplicate-number test refused the merge checkout
+(`expected [56,94], got [56,94,121]`) even though the SQL was fine. The file is renamed and one comment
+line with it; nothing executable changed. The branch was then brought onto current `main` (`e925f11`) with
+a merge commit rather than a rewritten history, and CI run
+[39736387529](https://github.com/g0GobliN/nyuz/actions/runs/39736387529) is green on that merged head
+`5396713` — all four test shards, **Coverage floor**, typecheck + lint + build, and the browser smoke;
+Deploy skipped again. That head is what **merged in [#48](https://github.com/g0GobliN/nyuz/pull/48) at
+`49ccd8f`**; the two-reader measurement re-run on it gives `Asia/Tokyo` → `2026-03-02T22:30:00.000Z` and
+`America/New_York` → `2026-03-02T12:30:00.000Z`, both clocks reading 07:30, `instants equal? false`.
 
 ### The deploy gate stopped reading a registry outage as a vulnerable tree (2026-10-22)
 
