@@ -25,7 +25,13 @@ const begin = (usage: unknown, version = "v1") =>
   ]);
 beforeAll(async () => {
   db = await codeFirstDb();
-}, 30000);
+  // No explicit timeout: this hook inherits `hookTimeout` from
+  // vitest.config.ts (60s). PGlite's WASM start-up was measured at 26s on a
+  // loaded machine, so the explicit 30s this used to carry was marginal rather
+  // than generous — and an explicit value OVERRIDES the config, which is how
+  // this file went red on a coverage run while the config's own comment
+  // claimed the PGlite hooks were handled.
+});
 afterAll(async () => {
   await db?.close();
 });

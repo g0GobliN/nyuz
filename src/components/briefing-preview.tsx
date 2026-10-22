@@ -33,6 +33,30 @@ import { cn } from "@/lib/utils";
  * drift: what the landing page shows is the claim, and the dashboard is where
  * the claim is kept.
  *
+ * ## `chrome` — the card's claim about delivery
+ *
+ * The chrome around the stories is a claim about how the reader got them, and
+ * it is the only part of this card that can be false independently of the
+ * stories. `email` (the default) is the delivery framing: a sender address, a
+ * send time beside it, and a "Delivered at" stamp. `edition` is the neutral
+ * framing the reader's own page uses — an edition header carrying the time it
+ * was assembled, and no delivery stamp at all.
+ *
+ * The default is `email` so the two landing-page usages keep rendering exactly
+ * what they rendered before, byte for byte. Marketing is *selling* email, and a
+ * page whose subject is "your briefing arrives at 07:30" is entitled to name an
+ * inbox; the reader's own briefing is not, because the product does not
+ * deliver by email today — the Resend key is deliberately disabled until launch
+ * (`AGENTS.md`), and nothing has been accepted since 2026-08-26. A page that
+ * says "Delivered at" to a reader who has never received a message is the same
+ * defect as a page that says "inbox", so the two move together.
+ *
+ * The switch is named `chrome` rather than `variant` because `variant` is
+ * already the orthogonal axis above (marketing facsimile vs the reader's own
+ * briefing, which decides links and the reading cap). Two axes, two props: a
+ * reader's card can be the reader's card *and* stop claiming a delivery, which
+ * is exactly the combination this ruling asks for.
+ *
  * `name` defaults to empty, and the headline drops the address when it is.
  * The two landing-page usages pass no name at all — a marketing demo greeting
  * every visitor by one particular person's first name (which is what the old
@@ -46,6 +70,8 @@ export function BriefingPreview({
   compact,
   variant = "marketing",
   fromQueue,
+  chrome = "email",
+  editionTime,
 }: {
   stories: Story[];
   time?: string;
@@ -61,8 +87,21 @@ export function BriefingPreview({
    * keeps the link landing on the bare story page, the same shape as before.
    */
   fromQueue?: QueueSource;
+  chrome?: "email" | "edition";
+  /**
+   * The 24-hour form of `time`, for the edition header only. The card's other
+   * time line is 12-hour ("Your 7:30 AM brief") and predates this switch, so
+   * the two formats are passed rather than one being reformatted into the
+   * other. Both come from the reader's own `prefs.time`.
+   */
+  editionTime?: string;
 }) {
   const reader = variant === "reader";
+  const edition = chrome === "edition";
+  // What the edition header says the briefing is, and when. Falls back to the
+  // card's own `time` so a caller that passes only one of the two still gets a
+  // true time rather than an empty stamp.
+  const stamp = editionTime ?? time;
 
   return (
     <div
@@ -73,11 +112,31 @@ export function BriefingPreview({
       )}
     >
       <div className="flex items-center justify-between border-b border-hairline px-5 py-3.5">
-        <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-          <LogoMark className="h-3.5 w-3.5" />
-          <span>brief@nyuz.app</span>
-        </div>
-        <span className="text-[12px] tabular-nums text-muted-foreground">{time}</span>
+        {/*
+          The header is the card's delivery claim, so it has two readings. In
+          `email` chrome it is a sender address on the left and a send time on
+          the right. In `edition` chrome the whole label moves left and becomes
+          "Edition · <time>" — one string, because a label split across the row
+          is not the label the ruling names. The right slot is then empty: the
+          time is already in the label, and printing it twice in two formats
+          ("07:30" and "7:30 AM") is a second thing for the reader to reconcile.
+          The row's padding, border and type size are untouched, so the card's
+          geometry does not move.
+        */}
+        {edition ? (
+          <span className="flex items-center gap-2 text-[12px] text-muted-foreground">
+            <LogoMark className="h-3.5 w-3.5" />
+            <span>Edition · {stamp}</span>
+          </span>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+              <LogoMark className="h-3.5 w-3.5" />
+              <span>brief@nyuz.app</span>
+            </div>
+            <span className="text-[12px] tabular-nums text-muted-foreground">{time}</span>
+          </>
+        )}
       </div>
 
       <div className="px-5 pb-2 pt-6 sm:px-7">
@@ -158,8 +217,18 @@ export function BriefingPreview({
       </ol>
 
       <div className="flex items-center justify-between border-t border-hairline px-5 py-4 text-[12px] text-muted-foreground sm:px-7">
-        <span>Delivered at {time}</span>
-        <span>Email · Telegram · Notifications</span>
+        {/*
+          "Delivered at <time>" is the footer half of the delivery claim, and it
+          is the half with nothing behind it: the product has not delivered an
+          email since 2026-08-26 and the Resend key is disabled until launch
+          (`AGENTS.md`). In `edition` chrome the stamp is gone rather than
+          reworded, because any stamp here is a claim about a send that did not
+          happen. The channel list stays — it names what the briefing is, not
+          where it went. The footer keeps its border, padding and the channel
+          list, so the row is the same row.
+        */}
+        {edition ? null : <span>Delivered at {time}</span>}
+        <span className={edition ? "ml-auto" : undefined}>Email · Telegram · Notifications</span>
       </div>
     </div>
   );

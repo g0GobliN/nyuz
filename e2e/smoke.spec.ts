@@ -256,14 +256,63 @@ test.describe("the origin keeps its promises", () => {
   });
 
   test("a route walk never serves a broken asset", async ({ page }) => {
-    // The blog joins the walk only when the site is advertising it: a
-    // deliberate 404 for a gated page is not a broken asset, and walking it
-    // regardless would report the gate as a defect. See `blogIsAdvertised`.
+    // This test needs its own budget, and the reason is arithmetic rather than
+    // a slow page.
+    //
+    // It walks the six public routes in PUBLIC_ROUTES, plus "/blog" when the
+    // site advertises it, each with `waitUntil: "networkidle"`, and the suite's
+    // 30s ceiling is shared across all of them. Measured with the timeout
+    // raised so the walk could report its own duration, the total on this tree
+    // was 43-73s across runs, on a box with a load average of 22-43 on 4 cores
+    // because other agents were building concurrently. The budget was already
+    // too small before anything in this repository changed.
+    //
+    // The cost is not the server. Every page answers in well under a second
+    // against the local Worker. The cost is that each navigation waits for the
+    // network to go idle, and workerd's FIRST request pays its cold start
+    // (~2.2s); the rest are warm.
+    //
+    // What the walk was actually spending its time on was a duplicate load:
+    // `blogIsAdvertised` opened "/" to read the nav link, and then the walk
+    // opened "/" again as its first route. Those two navigations measured
+    // 33-52% of the walk's total in every run. That duplicate is gone below —
+    // the link is read during the walk's own visit to "/" — so the structural
+    // cost is fixed rather than merely tolerated.
+    //
+    // The remaining budget is margin, not a fix. `networkidle` is not the thing
+    // to weaken: the assertion is that no asset failed, and `watch()` counts a
+    // `requestfailed`, which fires when a request is ABORTED. Ending the walk
+    // early would abort the next page's own requests and report them as broken
+    // assets, turning a slow test into a false one. So the wait stays and the
+    // budget moves.
+    test.setTimeout(120_000);
+
     const routes: string[] = PUBLIC_ROUTES.map((route) => route.path);
-    if (await blogIsAdvertised(page)) routes.push("/blog");
+
+    // `watch` is attached before the first navigation, so the landing page is
+    // inside the same asset check as the rest of the walk. `/` is
+    // `PUBLIC_ROUTES[0]`, so reading the blog link here costs nothing extra and
+    // visits exactly the routes the old version did.
+    //
+    // The blog link is only on the landing page, so the first route has to BE
+    // "/". Asserted rather than assumed: if someone reorders PUBLIC_ROUTES,
+    // the probe below would read some other page, find no blog link, and
+    // silently drop "/blog" out of the walk — a gate that quietly covers less,
+    // with nothing failing. One line turns that into a loud failure.
+    expect(routes[0], "the walk reads the blog link on the landing page").toBe("/");
 
     const noise = watch(page);
-    for (const route of routes) {
+    const [first, ...remaining] = routes;
+    await page.goto(first!, { waitUntil: "networkidle" });
+
+    // The blog joins the walk only when the site is advertising it: a
+    // deliberate 404 for a gated page is not a broken asset, and walking it
+    // regardless would report the gate as a defect. Exact match: the landing
+    // page's hard-coded `/blog/why-i-built-nyuz` link is not the nav's, and
+    // must not be mistaken for it.
+    if ((await page.locator('a[href="/blog"]').count()) > 0) remaining.push("/blog");
+
+    for (const route of remaining) {
       await page.goto(route, { waitUntil: "networkidle" });
     }
     expect(realFailures(noise)).toEqual([]);

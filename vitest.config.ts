@@ -56,6 +56,38 @@ export default defineConfig({
      * answer still fails, on any machine.
      */
     testTimeout: measuringCoverage ? 60_000 : 30_000,
+    /**
+     * The hook ceiling is separate from the test ceiling, and it was never
+     * raised with it.
+     *
+     * The comment above names the evidence: "three PGlite `beforeAll` hooks"
+     * timed out in a coverage run, and every one of them passed in ~10s when
+     * re-run alone. Raising `testTimeout` did not help those, because a
+     * `beforeAll` is a HOOK and `hookTimeout` was left at vitest's 30s default.
+     * A hook that blows its ceiling reports "Hook timed out in 30000ms" and
+     * every test in the file is reported as SKIPPED, which is how a green
+     * migration test can go red for no reason at all.
+     *
+     * PGlite's WASM start-up is the expensive part and it is real work, not a
+     * hang: it compiles the Postgres binary in the browser's WASM heap. On a
+     * machine where three agents are each running `tsc` in parallel worktrees
+     * (measured load average 20-24 on 4 cores), that start-up was measured
+     * crossing 30s.
+     *
+     * So the hook ceiling follows the test ceiling, and — this is the part that
+     * matters — it is NOT conditional on the coverage run. The hook that
+     * times out is PGlite's WASM start-up, and that start-up costs the same
+     * whether or not v8 is instrumenting the process. Gating the hook ceiling on
+     * `measuringCoverage` left `npm run test` with a 30s hook ceiling and
+     * `npm run test:coverage` with 60s, so the same three PGlite files went red
+     * on the plain run while the coverage run was green — the opposite of what
+     * the conditional is for. A plain `vitest run` is the faster of the two and
+     * needs the hook room at least as much.
+     *
+     * A hook that genuinely hangs still fails, on the same schedule — the
+     * assertion is untouched, only the schedule for a slow machine moves.
+     */
+    hookTimeout: 60_000,
     maxWorkers: measuringCoverage ? 3 : undefined,
     /**
      * Coverage is measured, never targeted.
