@@ -57,7 +57,7 @@ function defineSource<T>(config: {
   return { ...config, select: (data) => config.select(data as T) };
 }
 
-const SOURCES: Record<QueueSource, SourceConfig> = {
+export const SOURCES: Record<QueueSource, SourceConfig> = {
   home: defineSource({
     queryKey: ["briefing", "home"],
     staleTime: 60_000,
