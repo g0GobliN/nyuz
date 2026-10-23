@@ -1095,7 +1095,7 @@ function supplementalEntityFacts(
         unitTextRejection(published, false, sourceContext) === null &&
         !editorialNoise(published) &&
         !headingUnit(published) &&
-        !contextDependent(published)
+        !contextDependent(published, story.title)
       ) {
         facts.push({
           text: published,
@@ -2346,12 +2346,12 @@ function clockMinute(text: string): number | null {
  * here would be publishing it without the sentence it depends on, and no
  * ordering is allowed to do that (arbiter ruling #4, 2026-10-17).
  */
-function chronologyTimeline(facts: ReaderFact[]): ReaderFact[] {
+function chronologyTimeline(facts: ReaderFact[], title?: string | null): ReaderFact[] {
   const dated: { fact: ReaderFact; at: number }[] = [];
   for (const fact of facts) {
     const at = leadingCalendarDate(fact.text);
     if (at === null) continue;
-    if (needsAntecedentContext(fact.text)) continue;
+    if (needsAntecedentContext(fact.text, title)) continue;
     dated.push({ fact, at });
   }
   if (dated.length < 2) return [];
@@ -2480,8 +2480,8 @@ function deckCandidateOrder(
  * and unreadable when it is not. `unresolvableContext` covers the class no
  * ordering can fix, so it is not this test's business.
  */
-function needsAntecedentContext(text: string): boolean {
-  return contextDependent(text) && !recoverableContext(text) && !unresolvableContext(text);
+function needsAntecedentContext(text: string, title?: string | null): boolean {
+  return contextDependent(text, title) && !recoverableContext(text) && !unresolvableContext(text);
 }
 
 /**
@@ -2518,6 +2518,7 @@ function adjacencyPredecessor(
   byPosition: Map<string, ReaderFact>,
   lead: ReaderFact | undefined,
   placed: Set<ReaderFact>,
+  title?: string | null,
 ): ReaderFact[] | null {
   const predecessor = sourcePredecessor(fact, byPosition);
   if (!predecessor) return null;
@@ -2527,7 +2528,7 @@ function adjacencyPredecessor(
   // `PC shipments fell 20.1%` does not establish a later `These price increases`.
   if (predecessor === lead) return antecedentSupplied(fact.text, predecessor.text) ? [fact] : null;
   if (placed.has(predecessor)) return null;
-  if (needsAntecedentContext(predecessor.text)) return null;
+  if (needsAntecedentContext(predecessor.text, title)) return null;
   if (!antecedentSupplied(fact.text, predecessor.text)) return null;
   return [predecessor, fact];
 }
@@ -2562,7 +2563,7 @@ function deterministicParagraphs(
    * `factSentence` gate as every other fact, so nothing reaches the reader here
    * that the sentence rules would have refused.
    */
-  const timeline = chronologyTimeline(facts);
+  const timeline = chronologyTimeline(facts, story.title);
   const timelineFacts = new Set(timeline);
   const ranked = timelineFacts.size > 0 ? facts.filter((fact) => !timelineFacts.has(fact)) : facts;
   /** The calendar a yearless date in this story is read in. */
@@ -2583,7 +2584,7 @@ function deterministicParagraphs(
      * refusing the fact only when that run cannot be built.
      */
     let chain: ReaderFact[] = [fact];
-    if (needsAntecedentContext(fact.text)) {
+    if (needsAntecedentContext(fact.text, story.title)) {
       const predecessor = sourcePredecessor(fact, byPosition);
       // The sentence it needs is already published: the repair is to sit directly
       // behind it, which is the whole contract -- a reader moving forwards never
@@ -2598,7 +2599,7 @@ function deterministicParagraphs(
           continue;
         }
       }
-      const resolved = adjacencyPredecessor(fact, byPosition, lead, placed);
+      const resolved = adjacencyPredecessor(fact, byPosition, lead, placed, story.title);
       if (resolved === null) {
         diagnostics.qualityGate.unresolvedContextWarnings += 1;
         diagnostics.facts.refusalEvents += 1;
@@ -2905,7 +2906,7 @@ function narrativeParagraphs(
     // two sentences were merged -- and the pronoun is pointing at a page that no
     // longer says what it meant.
     if (
-      contextDependent(text) &&
+      contextDependent(text, story.title) &&
       !recoverableContext(text) &&
       !unresolvableContext(text) &&
       fact.sourceOrder !== previousOrder + 1
@@ -3700,7 +3701,7 @@ export function composeArticleWithDiagnostics(story: Story): {
      * Read before the deck walk, because the walk needs it: a page may not open
      * in the middle of its own timeline (audit I-09).
      */
-    const timeline = chronologyTimeline(facts);
+    const timeline = chronologyTimeline(facts, story.title);
     diagnostics.chronology.timelineFacts = timeline.length;
     if (
       rankedLead !== undefined &&
