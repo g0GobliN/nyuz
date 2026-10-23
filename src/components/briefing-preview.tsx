@@ -95,6 +95,24 @@ export function briefGroupLabel(group: BriefGroup): string {
 }
 
 /**
+ * The half of the edition's sub-line that claims something about order, taken
+ * from the same call the page groups with.
+ *
+ * "Nothing here was reordered for the web." was written when the page printed
+ * the edition verbatim. Grouping made it false — grouping *is* a reorder, and
+ * N-07 measured the sentence printed on a page whose order ran 01, 03, 07, 08,
+ * 13, 17 — so the note is now a function of the rendered rows rather than a
+ * constant: a grouped page says what grouping did (the partition is stable, so
+ * the stories inside each group keep the edition's order), and a page that
+ * renders the edition verbatim keeps the sentence that is then true.
+ */
+export function briefOrderNote(stories: Story[]): string {
+  return briefGroups(stories).length > 0
+    ? "Grouped by topic; the stories inside each group keep the edition's order."
+    : "Nothing here was reordered for the web.";
+}
+
+/**
  * The one sentence that replaces the audit's "the entire introduction": what
  * the day's thread is, measured from the same groups the page renders. Empty
  * when no groups render — a quiet morning gets neither a lede nor a claim.

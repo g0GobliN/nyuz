@@ -5,7 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 import { BRIEFING_READING, briefingSummaryCharactersPerLine } from "@/lib/briefing-measure";
 import { STORIES } from "@/lib/sample-data";
 import type { Story } from "@/lib/story";
-import { BriefingPreview, briefGroupLabel, briefGroups, briefLede } from "./briefing-preview";
+import {
+  BriefingPreview,
+  briefGroupLabel,
+  briefGroups,
+  briefLede,
+  briefOrderNote,
+} from "./briefing-preview";
 
 /**
  * `Link` needs a running router, and this file is about the URL a reader's
@@ -351,6 +357,56 @@ describe("briefing route — the sub-line and the chips tell the truth", () => {
     expect(ROUTE).toContain("Email · on (preference)");
     expect(ROUTE).toContain("Telegram · on (preference)");
     expect(ROUTE).not.toMatch(/Email on/u);
+  });
+
+  it("derives the order claim from the rows the page renders, not a constant (N-07)", () => {
+    // The audit: the page said "Nothing here was reordered for the web." while
+    // printing 01, 03, 07, 08, 13, 17 — grouping is a reorder, and the sentence
+    // sits directly above a page whose order differs from arrival order. The
+    // sub-line now takes that half from the same function the page groups with,
+    // so a grouped page cannot print the flat sentence and a flat one cannot
+    // print the grouped one.
+    expect(SUB).toContain("${briefOrderNote(shown)}");
+    expect(SUB).not.toContain("Nothing here was reordered");
+  });
+});
+
+/**
+ * N-07 — the order claim is a function of the rendered rows. Grouping is a
+ * stable partition: no story overtakes the ones published around it inside its
+ * own group, and the groups sort by size — so a grouped page's order is not the
+ * edition's order, and the sentence it prints must say that instead of denying
+ * it. An ungrouped page prints the edition verbatim, and keeps the sentence
+ * that is then true.
+ */
+describe("briefOrderNote — the order claim matches what the page does (N-07)", () => {
+  const mk = (topics: string[], id: string): Story => ({ ...STORIES[0]!, id, topics });
+
+  /** Arrival order: the smaller group first, so the page order differs. */
+  const arrival = [
+    ...Array.from({ length: 4 }, (_, i) => mk(["Security"], `sec${i}`)),
+    ...Array.from({ length: 6 }, (_, i) => mk(["AI"], `ai${i}`)),
+  ];
+
+  it("says what grouping did on a page whose order differs from arrival", () => {
+    // The precondition, measured on the fixture: the page prints the bigger
+    // group first, so a reader comparing the page to the edition sees a reorder.
+    const groups = briefGroups(arrival);
+    expect(groups.map((g) => g.topic)).toEqual(["AI", "Security"]);
+    const note = briefOrderNote(arrival);
+    expect(note).not.toContain("Nothing here was reordered");
+    expect(note).toBe("Grouped by topic; the stories inside each group keep the edition's order.");
+    // The claim it prints is true of the rendering: each group's stories keep
+    // the edition's order inside the group.
+    for (const group of groups) {
+      const positions = group.stories.map((s) => arrival.findIndex((a) => a.id === s.id));
+      expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    }
+  });
+
+  it("keeps the flat sentence when the page prints the edition verbatim", () => {
+    expect(briefOrderNote(arrival.slice(0, 7))).toBe("Nothing here was reordered for the web.");
+    expect(briefGroups(arrival)).not.toEqual([]); // the precondition still holds for the fixture
   });
 });
 
