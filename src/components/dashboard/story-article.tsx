@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { composeArticle } from "@/lib/editorial";
 import { articleMinutes, withoutOpening } from "@/lib/reader-article";
 import { storyOpening } from "@/lib/reader-opening";
+import { sourceRailLabel } from "@/lib/story";
 import type { Story } from "@/lib/story";
 import { formatStoryTime } from "@/lib/story-time";
 import { cn } from "@/lib/utils";
@@ -89,7 +90,11 @@ export function StoryArticle({
     return () => observer.disconnect();
   }, [story.id, onReachEnd]);
 
-  const sourceLabel = `Based on ${story.sources} ${story.sources === 1 ? "source" : "sources"}`;
+  // One measure, one label: the count the reader can verify is the list under
+  // the label, so the caption is derived from `sourceList` itself (audit I-06)
+  // rather than from the cluster-time `story.sources`, which could disagree
+  // with the rows it claimed to count.
+  const sourceLabel = sourceRailLabel(story.sourceList);
 
   return (
     <article
