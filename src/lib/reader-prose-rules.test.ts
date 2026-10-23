@@ -1539,6 +1539,33 @@ describe("a first-person sentence is classified, not deleted", () => {
     ).toBeNull();
   });
 
+  it("declines a first person the source quotes in single quotes, not speaks (N-01)", () => {
+    // The live page (audit v2, N-01, `st-8766cb0f`) published
+    // `Chainguard CEO: ', the author reported making the call'.` mid-paragraph:
+    // the rule read the quoted "We" of The Register's own subhead
+    // `Chainguard CEO: 'We made the call'.` as the publication's narrator, kept
+    // the furniture around the quote, and handed the reader a verbless fragment
+    // attributed to an author the sentence never had. The narrator rule speaks
+    // for the publication; inside quotation marks the first person is whoever
+    // the source is quoting, so the branch declines and the sentence takes the
+    // same counted drop it would take if nobody could be established.
+    expect(resolveNarrator("Chainguard CEO: 'We made the call'.", "author")).toEqual({
+      kind: "ambiguous",
+      text: "",
+    });
+    // The same seam with double quotes: the leftmost match is quoted speech, so
+    // rewriting it would still put the author inside someone else's marks.
+    expect(
+      resolveNarrator('He said "we made the call", and last week we tested the patch.', "author")
+        ?.kind,
+    ).toBe("ambiguous");
+    // Narrator speech outside the quotes still resolves, quoted names and all.
+    expect(
+      resolveNarrator('Last week I ran some benchmarks on the patch for "Strix Halo".', "author")
+        ?.text,
+    ).toBe('Last week, the author reported running some benchmarks on the patch for "Strix Halo".');
+  });
+
   it("publishes the fact the Greek prime minister story lost", () => {
     const text = composedText(
       "Most leaders on a trade mission stick to the pitch, but when I interviewed Greek Prime Minister Kyriakos Mitsotakis this week, he also admitted that no government is ready for what AI is about to do.",

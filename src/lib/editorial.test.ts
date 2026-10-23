@@ -65,6 +65,10 @@ const bodyOf = (story: Story) =>
     .paragraphs.map((paragraph) => paragraph.text)
     .join("\n\n");
 
+/** The deck and the body as one string, the way a reader reads the page. */
+const publishedTextOf = (story: Story) =>
+  [composeArticle(story).deck.text, ...bodyOf(story).split("\n\n")].join("\n\n");
+
 describe("composeArticle", () => {
   it("ignores stored authored prose and composes from current source evidence", () => {
     const article = {
@@ -1533,5 +1537,52 @@ describe("a story that carries its own timeline", () => {
     expect(body[0]).toContain("September 21, 2026");
     expect(body[0]).not.toContain("October 20th");
     expect(diagnostics.chronology.timelineFacts).toBeGreaterThanOrEqual(4);
+  });
+});
+
+/**
+ * N-01 — the template artefact the live page published (audit v2,
+ * `st-8766cb0f`). The composer read The Register's own quoted subhead
+ * `Chainguard CEO: 'We made the call'.` and rewrote the quote's first person as
+ * the source's narrator, keeping the furniture around the quote:
+ * `Chainguard CEO: ', the author reported making the call'.` — a dangling
+ * apostrophe-comma, no verb, published as prose the sentence
+ * `CEO Dan Lorenc spoke with The Register on Wednesday…` then says properly.
+ */
+describe("N-01 — a quotation's first person is never rewritten as the narrator's", () => {
+  const excerpt = `“Mitigation advice we started providing to a few critical infrastructure providers around Oct 20th 23:00 UTC, may have leaked as well,” the PHP blog says, but it does not name these providers. Chainguard CEO: 'We made the call'. CEO Dan Lorenc spoke with The Register on Wednesday, and while he doesn’t dispute the timeline, said his company "didn't leak." “These things are messy,” Lorenc said.`;
+
+  const story = makeStory({
+    org: "The Register",
+    title:
+      "PHP blames supply chain security biz Chainguard for putting huge chunks of the web at risk",
+    sourceList: [
+      {
+        name: "The Register",
+        at: "10:00",
+        headline: "PHP blames supply chain security biz Chainguard",
+        excerpt,
+      },
+    ],
+  });
+
+  it("publishes none of the artefact the rewrite produced on the live page", () => {
+    // Exactly the string the audit captured, quoted as its fixture.
+    expect(publishedTextOf(story)).not.toContain(
+      "Chainguard CEO: ', the author reported making the call'.",
+    );
+    expect(publishedTextOf(story)).not.toContain("', the author reported making the call'");
+  });
+
+  it("keeps the sentence that actually says it", () => {
+    expect(publishedTextOf(story)).toContain("CEO Dan Lorenc spoke with The Register on Wednesday");
+  });
+
+  it("spends no fragment on the quoted subhead's furniture either", () => {
+    // The subhead is dropped whole: a reader never meets `Chainguard CEO: '` as
+    // the head of a sentence, with or without a rewrite behind it.
+    for (const paragraph of publishedTextOf(story).split("\n\n")) {
+      expect(paragraph.trim().startsWith("Chainguard CEO:")).toBe(false);
+    }
   });
 });
