@@ -5,6 +5,7 @@ import { articleMinutes, withoutOpening } from "@/lib/reader-article";
 import { storyOpening } from "@/lib/reader-opening";
 import { sourceRailLabel } from "@/lib/story";
 import type { Story } from "@/lib/story";
+import { formatScore } from "@/lib/score-format";
 import { formatStoryTime } from "@/lib/story-time";
 import { cn } from "@/lib/utils";
 
@@ -193,7 +194,7 @@ export function StoryArticle({
               <div key={label}>
                 <div className="flex justify-between text-[12.5px]">
                   <span className="text-muted-foreground">{label}</span>
-                  <span className="tabular-nums">{(value / 10).toFixed(1)} / 10</span>
+                  <span className="tabular-nums">{formatScore(value / 10)} / 10</span>
                 </div>
                 <div className="mt-1.5 h-1 rounded-full bg-muted">
                   <div
