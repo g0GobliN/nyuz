@@ -125,7 +125,18 @@ export function briefLede(stories: Story[], groups: BriefGroup[]): string {
   if (!second) {
     return `The day's through-line is ${first.topic}: ${n0} of ${stories.length} stories.`;
   }
-  return `The day's through-line is ${first.topic} — ${n0} of ${stories.length} stories — with ${second.topic} (${second.stories.length}) behind it.`;
+  /*
+   * N-05 — one counting rule, the groups the page renders. The parenthetical
+   * is a group's card count, and the sentence says so: on the audited edition
+   * the lede's `NVIDIA (5)` sat on the same screen as 7 cards carrying the org
+   * `NVIDIA BLOG` and 16 AI follow lines, three countable answers with nothing
+   * telling a reader which one the lede used. "The next group down the page"
+   * names the rule — the number counts the cards under the heading the reader
+   * meets next — so the printed 5 is checkable against exactly those five
+   * cards, and the chips' and the follow lines' counts stay what they print:
+   * the cards' own provenance, which this sentence never claimed.
+   */
+  return `The day's through-line is ${first.topic} — ${n0} of ${stories.length} stories — with ${second.topic} (${second.stories.length}) the next group down the page.`;
 }
 
 /**

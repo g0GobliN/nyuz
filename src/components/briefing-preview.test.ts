@@ -544,7 +544,7 @@ describe("briefGroups — the edition's own topics structure it (B-03)", () => {
     ];
     const groups = briefGroups(stories);
     expect(briefLede(stories, groups)).toBe(
-      "The day's through-line is AI — 6 of 9 stories — with Security (3) behind it.",
+      "The day's through-line is AI — 6 of 9 stories — with Security (3) the next group down the page.",
     );
   });
 
@@ -552,6 +552,89 @@ describe("briefGroups — the edition's own topics structure it (B-03)", () => {
     const stories = [mk(["AI"], "a"), mk(["AI"], "b_SECOND")];
     expect(briefGroups(stories)).toEqual([]);
     expect(briefLede(stories, [])).toBe("");
+  });
+});
+
+/**
+ * N-05 — one counting rule, the groups the page renders. The audited edition's
+ * lede said `NVIDIA (5)` while 7 of its 17 cards carry the org `NVIDIA BLOG`
+ * and 16 carried an AI follow line — three countable answers on one screen,
+ * because the lede never said its number counts a group. It now says so: the
+ * parenthetical is a group's card count, printed the way the heading prints
+ * it, and the fixture reproduces the audited collision to hold the rule.
+ */
+describe("briefLede — the lede counts the groups it names (N-05)", () => {
+  const mk = (topics: string[], id: string, org: string): Story => ({
+    ...STORIES[0]!,
+    id,
+    topics,
+    org,
+  });
+
+  /**
+   * The audited edition's shape, 17 cards: a topic `NVIDIA` that holds 5 cards
+   * while 7 of the 17 cards are published by `NVIDIA BLOG` — the same countable
+   * word on the page in two roles, topic and publisher.
+   */
+  const stories: Story[] = [
+    mk(["AI"], "a0", "NVIDIA BLOG"),
+    mk(["AI"], "a1", "NVIDIA BLOG"),
+    mk(["AI"], "a2", "NVIDIA BLOG"),
+    mk(["AI"], "a3", "THE REGISTER"),
+    mk(["AI"], "a4", "THE REGISTER"),
+    mk(["AI"], "a5", "THE REGISTER"),
+    mk(["NVIDIA"], "n0", "NVIDIA BLOG"),
+    mk(["NVIDIA"], "n1", "NVIDIA BLOG"),
+    mk(["NVIDIA"], "n2", "AL JAZEERA"),
+    mk(["NVIDIA"], "n3", "AL JAZEERA"),
+    mk(["NVIDIA"], "n4", "AL JAZEERA"),
+    mk(["Cybersecurity"], "c0", "THE HACKER NEWS"),
+    mk(["Cybersecurity"], "c1", "THE HACKER NEWS"),
+    mk(["Markets"], "m0", "NVIDIA BLOG"),
+    mk(["Markets"], "m1", "NVIDIA BLOG"),
+    mk(["Sports"], "s0", "PHYS.ORG"),
+    mk(["Film"], "f0", "THE VERGE"),
+  ];
+
+  /** The cards each rendered group holds, counted between its heading and the next. */
+  function cardsUnder(html: string, labels: string[]): number[] {
+    const starts = labels.map((label) => html.indexOf(`${label}<`));
+    return starts.map((start, i) => {
+      if (start === -1) return -1;
+      const end = i + 1 < starts.length ? starts[i + 1]! : html.length;
+      return (html.slice(start, end).match(/<li\b/g) ?? []).length;
+    });
+  }
+
+  it("states its counting rule and counts the group it names", () => {
+    expect(briefLede(stories, briefGroups(stories))).toBe(
+      "The day's through-line is AI — 6 of 17 stories — with NVIDIA (5) the next group down the page.",
+    );
+  });
+
+  it("prints a number equal to the cards under the heading it names", () => {
+    const html = render(stories, "reader");
+    // The headings' own counts, each against the cards rendered under it.
+    const counts = cardsUnder(html, [
+      "AI · 6 stories",
+      "NVIDIA · 5 stories",
+      "Cybersecurity · 2 stories",
+      "Elsewhere · 4 stories",
+    ]);
+    expect(counts).toEqual([6, 5, 2, 4]);
+    // The lede's parenthetical is the second heading's count — the same rows.
+    expect(html).toContain("with NVIDIA (5) the next group down the page");
+    expect(html).toContain("NVIDIA · 5 stories");
+  });
+
+  it("never prints the publisher count the org chips carry", () => {
+    const html = render(stories, "reader");
+    // The reader CAN count 7 NVIDIA BLOG chips, and the lede must not present
+    // a 7 the way it presents its group counts — the 7 is the cards' own
+    // provenance, printed per card, and the lede's counting rule never touches it.
+    expect((html.match(/NVIDIA BLOG/g) ?? []).length).toBe(7);
+    expect(html).not.toContain("NVIDIA (7)");
+    expect(html).not.toContain("7 of 17 stories");
   });
 });
 
@@ -575,7 +658,7 @@ describe("BriefingPreview — the groups render as structure (B-03)", () => {
   it("renders the lede and one labelled group per topic, numbers still counting the whole edition", () => {
     const html = render(stories, "reader");
     expect(html).toContain(
-      "The day's through-line is AI — 6 of 9 stories — with Security (3) behind it.",
+      "The day's through-line is AI — 6 of 9 stories — with Security (3) the next group down the page.",
     );
     expect(html).toContain("AI · 6 stories");
     expect(html).toContain("Security · 3 stories");
