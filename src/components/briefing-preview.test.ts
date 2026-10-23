@@ -197,11 +197,11 @@ describe("BriefingPreview — the briefing sets a reading measure", () => {
     // The card now fills the page, so the measure is kept by the columns, not
     // by a narrow card. One column at 1024 px would set ~134 characters.
     const reader = render(STORIES, "reader");
-    expect(reader).toContain("lg:columns-2");
+    expect(reader).toContain("md:columns-2");
     expect(reader).toContain("break-inside-avoid");
     // The marketing facsimile stays a single list with `divide-y`.
     expect(render(STORIES)).toContain("divide-y");
-    expect(render(STORIES)).not.toContain("lg:columns-2");
+    expect(render(STORIES)).not.toContain("md:columns-2");
   });
 
   it("prints the summary at the size the measure was computed for", () => {

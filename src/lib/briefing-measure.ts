@@ -13,7 +13,7 @@
  * area. The owner's ruling of 2026-10-23 is that the briefing fills the desktop:
  * a reader on a PC should see the product's full width, not a narrow strip. So
  * the card is the content column's own width now (`max-w-5xl` on the dashboard)
- * and the *text* keeps its measure by setting in **two columns** from `lg` up —
+ * and the *text* keeps its measure by setting in **two columns** from `md` up —
  * the shape a delivered briefing has on paper. The cap moved; the reading
  * measure did not.
  *
@@ -60,9 +60,12 @@ export const BRIEFING_READING = {
   /** The card's own horizontal padding above `sm` (`px-7` = 28 px a side). */
   gutterPx: 56,
   /**
-   * The gutter between the two desktop columns (`lg:gap-x-10`). At `lg` and up
+   * The gutter between the two desktop columns (`md:gap-x-10`). At `md` and up
    * the story list is set in two columns so the wider card keeps its measure;
-   * below `lg` it stays one column, phone and tablet unchanged.
+   * below `md` it stays one column, phones unchanged. The breakpoint is `md`
+   * rather than `lg` because 768-1023 is the band where the shell has no
+   * sidebar: the card is at its widest relative to the viewport there, so a
+   * single column would set ~125 characters, the worst measure of any width.
    */
   columnGapPx: 40,
   /**

@@ -28,8 +28,8 @@ import { cn } from "@/lib/utils";
  *    548 px column; mounted unchanged in the product's 969 px content area it
  *    set 144 characters on a line. `BRIEFING_READING` holds the cap and the
  *    measurement behind it. The cap is the dashboard's own content column, and
- *    from `lg` the story list sets in two columns, so the briefing fills a
- *    desktop while its prose keeps a ~70-character line.
+ *    from `md` the story list sets in two columns, so the briefing fills a
+ *    desktop while its prose keeps a 45-70-character line.
  *
  * Both are one switch rather than a fork, because the two surfaces must not
  * drift: what the landing page shows is the claim, and the dashboard is where
@@ -154,10 +154,13 @@ export function BriefingPreview({
         className={cn(
           "px-5 sm:px-7",
           // The reader's card fills the desktop, so one column here would set
-          // ~134 characters on a line (1024 px card, 966 px of text). From `lg`
-          // the list sets in two columns and keeps the measure at ~70; phones
-          // and tablets keep the single column and the same dividers.
-          reader ? "lg:columns-2 lg:gap-x-10" : "divide-y divide-[var(--hairline)]",
+          // ~134 characters on a line (1024 px card, 966 px of text). From `md`
+          // up the list sets in two columns and keeps the measure at 45-70
+          // characters across 768-1440; phones keep one column and the same
+          // dividers. `md`, not `lg`: between 768 and 1023 the shell has no
+          // sidebar, so the card is at its widest relative to the viewport and
+          // a single column there is the worst measure of any width.
+          reader ? "md:columns-2 md:gap-x-10" : "divide-y divide-[var(--hairline)]",
         )}
       >
         {stories.map((s, i) => (
