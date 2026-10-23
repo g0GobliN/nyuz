@@ -247,4 +247,51 @@ describe("StoryCard — complete without a significance block", () => {
     expect(alone).toContain("You follow OpenAI.");
     expect(alone).not.toContain("Why it matters");
   });
+
+  /**
+   * The carried headline is framed as the outlet's own wording (H-01 family).
+   *
+   * Reader clarity audit 2026-10-22, H-04: a source headline printed with no
+   * frame reads as if nyuz wrote the sentence — the card's header said
+   * "THE REGISTER" while the headline read in nyuz's own voice, and on a
+   * clustered card the wrong outlet named the vendor's words again. The
+   * ruling: where the original wording is carried, it is framed "as published
+   * by <outlet>" — the outlet that actually stores the headline, not whichever
+   * article happens to sort first.
+   */
+  describe("StoryCard — the headline's own frame", () => {
+    const CARRIED =
+      "Google Cloud and NVIDIA Announce General Availability of NVIDIA Vera Rubin Infrastructure";
+    const withCarried = (outlet: string, headline = CARRIED): Story => ({
+      ...base,
+      title: headline,
+      org: "The Verge",
+      sourceList: [
+        { name: "The Verge", at: "21:30", headline: "A different headline entirely" },
+        { name: outlet, at: "20:00", headline },
+        { name: "Ars Technica", at: "19:00", headline: "Also not the carried headline" },
+      ],
+    });
+
+    it("frames the carried headline with the outlet that stores it", () => {
+      const html = render(withCarried("NVIDIA Blog"));
+      expect(html.toLowerCase()).toContain("as published by nvidia blog");
+      // The header cannot name whichever article sorts first, either: when the
+      // frame is printed, its outlet is the headline's own outlet.
+      expect(html.toLowerCase()).not.toContain("as published by the verge");
+    });
+
+    it("keeps the frame off when nothing carries the headline", () => {
+      const html = render({ ...base, sourceList: [{ name: "GitHub", at: "18:26" }] });
+      expect(html.toLowerCase()).not.toContain("as published by");
+      const none = render({ ...withCarried("NVIDIA Blog"), title: "A headline no source stores" });
+      expect(none.toLowerCase()).not.toContain("as published by");
+    });
+
+    it("names the true carrier when the first article is not the headline's", () => {
+      const html = render(withCarried("Al Jazeera"));
+      expect(html.toLowerCase()).toContain("as published by al jazeera");
+      expect(html.toLowerCase()).not.toContain("as published by the verge");
+    });
+  });
 });

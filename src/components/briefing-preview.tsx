@@ -16,11 +16,17 @@ import { cn } from "@/lib/utils";
  * "as it was assembled" was the one that hid the fact the reader opens the feed
  * for. One card, one set of facts — the same three bands, in the same tones,
  * here as well as in `story-card.tsx`.
+ *
+ * `Low` replaces the bottom band's word after H-05 (reader clarity audit
+ * 2026-10-22): `importanceBand` now prints Low / Medium / High over the shared
+ * 0–10 score, so the briefing's band is the compliment-free bottom word the
+ * feed prints. `Notable` stays only for stored fixtures and older rows.
  */
 export const IMPORTANCE_TONE: Record<Story["importance"], string> = {
   High: "text-signal border-signal/40",
   Medium: "text-foreground border-border",
   Notable: "text-muted-foreground border-hairline",
+  Low: "text-muted-foreground border-hairline",
 };
 
 /**
