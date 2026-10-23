@@ -4014,3 +4014,50 @@ press (test-pinned).
 --run` **3,614 tests passed** across 214 files; `npm run audit:surfaces` PASS and unchanged
 (feed 13/13 · archive 14/14 · alerts 5/5, 0 defects); `npm run audit:delivered-line` PASS and
 unchanged (14/14 card lines equal their page opening, 0 defects).
+
+### The first post-fix build was read as a stranger — 8 of 25 closed, 5 blockers, and two defects nobody had filed (2026-10-23)
+
+Audit v2 (`docs/reader-clarity-audit-v2.md`, task `t_377015f1`) re-scored all 25 `I`/`B`/`X`
+findings from `reader-clarity-audit-2026-10-22.md` against the deployed origin, plus two story pages
+from the reader's current edition, at 1440×900 and 360×780.
+
+**Verdict: `blockers 5 · should-fix 12 · polish 11 · fixed 8 of 25`.** Closed: `I-03` (the source's
+own "operational technology (OT)" gloss restored), `I-06` (`BASED ON 8 PUBLISHERS · 9 REPORTS`,
+derived from the rows instead of `publisher_count`), `I-12` (the clause that named nothing is cut
+and the list rejoined), `B-01` (`TODAY'S EDITION`), `B-02` (`Built from coverage published before
+07:30 on October 20.` on the archive), `B-03` (lede + four groups: 6 · 5 · 2 · 4), `B-06`
+(`Email · on (preference)`), `X-01` (band and `Read →`/`Save` on every briefing card).
+Still present: `I-02`, `I-04`, `I-05`, `I-07`, `I-08`, `I-09`, `I-10`, `I-11` (reduced), `I-14`,
+`I-15`, `I-16`, `I-17`, `B-05` (the PHP disclosure is two cards again, 09 and 10), `X-02`.
+
+**The gate that shaped the numbers.** The reader's newest edition (`fab11fdf`) was built
+`2026-10-22T22:55:38Z`; the wave (`72f85b7`, PR #57 + #59) merged `04:49:21Z` and deployed
+`04:57:15Z` the next morning. `digest_items.summary` is stored at build and ruling #11 pins a story
+page's opening to it, so `I-01`, `I-13`, `B-04` and the `H`-class headline/summary findings are **not
+measurable** on that build — listed with their live strings in §G, scored neither fixed nor present.
+
+**New findings, all measured on the live page.** `N-01` (blocker) card 09 of the current edition
+prints `Chainguard CEO: ', the author reported making the call'.` mid-paragraph. `N-02` (blocker) the
+Sudan story (`4001e8a2`) carries an unrelated Cameroon railway paragraph as its second block. `N-03`
+(blocker) card 12's story page returned Cloudflare `Error 1102 — Worker exceeded resource limits` on
+2 of 5 loads in three minutes. `N-04` the four group labels are `<p role="heading" aria-level="3">`,
+the same level as the 17 item headings. `N-05` the lede says `NVIDIA (5)` while 7 of 17 cards are
+NVIDIA's own blog. `N-06` 7 of 17 cards (41%) are `NVIDIA BLOG`; `N-10` card 14 is a discount deal
+for a bird feeder, reason line `You follow AI.`. `N-07` "Nothing here was reordered for the web." is
+now false on the page that groups the edition. `N-08`/`N-09`/`N-11` are polish.
+
+**Measured again after the next deploy, inside the same run.** PR #61 merged `06:00:45Z` and deployed
+`06:05:38Z`; re-captured at `06:07–06:12Z`. `H-06` is **closed** — reason lines now name the narrowest
+interest (`You follow NVIDIA.` ×8, `You follow OpenAI.`, `You follow AI — this card is about
+Funding.`). `I-09`/`I-10` are **unchanged**: the page still opens `August 24, 2026: Wiz Research
+reports the vulnerabilities to the PHP security team.` **That is the ruling-#11 seam seen from the
+reader's side**: the chronology fix is deployed and the reader's page did not move, because the
+opening is the stored delivered sentence. A composer fix to an opening can only reach stories first
+briefed after it — closing `I-09`/`I-13` for already-delivered pages needs either a ruling that the
+opening may be recomposed at read time or a re-brief. Recorded, not patched.
+
+**What this changes about "the work".** The briefing surface's structural slice is confirmed on the
+live product (four `B` findings closed). The reader's story pages are where the blockers now live:
+two of the three new blockers (`N-01`, `N-02`) are composition leaks into prose, and `N-03` is the
+free-tier CPU ceiling arriving on a reader route. Next: the composer slices for those three, then the
+edition's composition (7 vendor-blog cards, one duplicated story, a discount card).
