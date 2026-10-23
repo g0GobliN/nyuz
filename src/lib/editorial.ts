@@ -38,6 +38,7 @@ import {
   sourceMarkupOrUrl,
   sourceSeam,
   noMainClause,
+  prevalenceStatistic,
   readerSentences,
   validDeterministicParagraph,
   validDeterministicSentence,
@@ -386,6 +387,21 @@ export type CompositionDiagnostics = {
      * before/after evidence the release report has to carry.
      */
     openingReferences: { repaired: number; unresolved: string[]; samples: string[] };
+    /**
+     * A list item that named nothing, removed from a published sentence (audit
+     * I-12): the sentence's other items carried its facts, and the clause named
+     * only a description. `count` is what this commit removed from the page, and
+     * `samples` is the before/after pair, because a deletion needs witnesses.
+     */
+    unresolvableListItems: { count: number; samples: string[] };
+    /**
+     * An acronym expanded at its first use with the source's own words (audit
+     * I-03). Nothing is invented: the expansion was found verbatim in the
+     * evidence, in the pattern `… words (ACRO)`, and only the first bare use
+     * on the page is rewritten so the reader meets the expansion before the
+     * abbreviation does.
+     */
+    acronymExpansions: { count: number; samples: string[] };
   };
   /**
    * The invariant this exists for: a selected fact is either published, merged
@@ -624,6 +640,8 @@ function createDiagnostics(): CompositionDiagnostics {
       relativeTimeRefusals: 0,
       stalePreviewRefusals: 0,
       openingReferences: { repaired: 0, unresolved: [], samples: [] },
+      unresolvableListItems: { count: 0, samples: [] },
+      acronymExpansions: { count: 0, samples: [] },
     },
     facts: {
       selected: 0,
@@ -1223,6 +1241,191 @@ function establishDocumentIdentity(
   // audit's job is to make the class visible, not to make the number zero.
   diagnostics.qualityGate.openingReferences.unresolved.push(text.trim().slice(0, 220));
   return text;
+}
+
+/**
+ * A list item that identifies its referent by description alone is dropped.
+ *
+ * The closing sentence a reader got from the 2026-10-22 audit (I-12, the fourth
+ * blocker) read: "Two bugs found with AI are behind major issues on 21 October
+ * 2026 for 4chan, DeviantArt, Wikipedia, and the blog where the bar around the
+ * corner posts pictures of people's dogs." The source wrote that last item as a
+ * joke about an unnamed hobby site; lifted into a nyuz-composed page the reader
+ * has no way to resolve it -- is it a real site, a metaphor, a template
+ * artefact? The card's own remedy, and the only one that invents nothing: the
+ * item is not the sentence's claim (the claim is that these sites were
+ * disrupted), so the example is dropped and the list is rejoined with the
+ * conjunction the dropped item carried: "…for 4chan, DeviantArt and Wikipedia."
+ *
+ * The class is deliberately smaller than the defect's poetics. Only a
+ * `where`-clause is touched: it is an adjunct describing a place, never the
+ * argument of the main clause, so removing it cannot change what the sentence
+ * asserts -- while a `that`-clause often *is* the content ("the fact that he
+ * left surprised nobody") and no regex may delete that. The item must carry no
+ * capital letter (a named entity is resolvable and stays), must follow at least
+ * two other list items, and must not sit inside quoted speech: ruling #6 says a
+ * quotation belongs to its speaker, and the joke in somebody's quote is
+ * somebody's joke.
+ */
+const UNRESOLVABLE_LIST_ITEM =
+  /,\s*(?:and|or)\s+(?:the|a|an)\s+([a-z][\p{L}'’-]*(?:\s+[a-z][\p{L}'’-]*){0,6})\s+where\s+([a-z][^\p{Lu}.!?]*)(?=\s*[.!?””]\s*$)/u;
+
+/** One sentence at a time: a drop that spans sentences is not this class. */
+function dropUnresolvableListItem(sentence: string): string | null {
+  const m = UNRESOLVABLE_LIST_ITEM.exec(sentence);
+  if (m === null) return null;
+  const at = m.index;
+  const head = sentence.slice(0, at);
+  // Quoted speech is the speaker's. The test is asked at the item itself: more
+  // opening marks than closing marks *before* the item means it lives inside a
+  // quotation the page has not left yet, and ruling #6 forbids touching it. The
+  // span matters — the delivered shape is `"…4chan, DeviantArt, Wikipedia, and
+  // the blog where…"` spoken whole, whose closing mark sits *after* the item;
+  // measured 2026-10-23 against that fixture, comparing the head's openers to
+  // the tail's closers balanced to zero and let the rule rewrite a quote.
+  if ((head.match(/["“]/gu) ?? []).length > (head.match(/["”]/gu) ?? []).length) return null;
+  // A third example is the measured shape ("4chan, DeviantArt, Wikipedia, and
+  // …"). A two-item list where the drop would leave a single item is a different
+  // sentence from this one, and this rule does not get to write it.
+  if ((head.match(/,/gu) ?? []).length < 2) return null;
+  const repaired = `${head}${sentence.slice(at + m[0].length)}`
+    // "A, B, C." reads as truncated: the conjunction the dropped item carried
+    // moves onto the last pair the list still has.
+    .replace(/,\s+([^,.]+?)\s*([.!?])\s*$/u, " and $1$2")
+    .replace(/\s{2,}/gu, " ")
+    .trim();
+  return repaired === sentence ? null : repaired;
+}
+
+function dropUnresolvableListItems(
+  blocks: { text: string }[],
+  diagnostics: CompositionDiagnostics,
+): void {
+  for (const block of blocks) {
+    if (block.text === "") continue;
+    const sentences = readerSentences(block.text);
+    let changed: { before: string; after: string } | null = null;
+    const repairedSentences = sentences.map((sentence) => {
+      const repaired = dropUnresolvableListItem(sentence);
+      if (repaired === null) return sentence;
+      if (changed === null) changed = { before: sentence, after: repaired };
+      return repaired;
+    });
+    if (changed === null) continue;
+    const repaired = repairedSentences.join(" ");
+    // The same validator the prose already passes, for the same reason as every
+    // other repair here: a repair that introduces a defect is worse than the one
+    // it removes.
+    if (!validDeterministicParagraph(repaired)) continue;
+    const before = block.text;
+    block.text = repaired;
+    diagnostics.qualityGate.unresolvableListItems.count += 1;
+    keepSample(diagnostics.qualityGate.unresolvableListItems.samples, before, repaired);
+  }
+}
+
+/**
+ * The first bare acronym on a page is expanded with the source's own words.
+ *
+ * Finding I-03: the Register's article says "operational technology (OT)
+ * security experts", and the story page the composer built from that article
+ * printed "perform OT system reconnaissance" without the words the source had
+ * supplied three sentences earlier -- the composer's sentence-picker moved the
+ * expansion out of the page and left the abbreviation behind. The rule puts it
+ * back: when the evidence carries an adjacency expansion (`words (ACRO)` or
+ * `ACRO (words)`) whose initials match, the first bare use on the page is
+ * rewritten as `words (ACRO)`. Nothing is invented: every word of the expansion
+ * is the source's, and the acronym's own glossary ("OT -- the computers that
+ * run power plants") is exactly the kind of sentence this product must not
+ * write.
+ *
+ * Initials match through the expansion's fixed `and|or` only (CVE = Common
+ * Vulnerabilities and Exposures); `of` stays load-bearing (PoC = proof of
+ * concept), because it is a letter in the abbreviation. One expansion per
+ * acronym per page, at its first use, and only when the page does not already
+ * carry the expansion or the parenthesised form anywhere.
+ */
+const ACRONYM_TOKEN = /\b[A-Z]{2,4}\b/gu;
+
+/**
+ * Abbreviations that arrive as words the reader already owns.
+ *
+ * The audit's jargon findings name OT, RCE, PyTorch, oneDNN, "General
+ * Availability" -- none of them names AI, US or EU. Expanding the common ones
+ * costs the reader a parenthesis and explains nobody anything; the Wikipedia
+ * test the audit applied passes these before the page is opened. They are on a
+ * stop-list precisely so the rule is not widened later by convenience: the
+ * eligible class is the jargon a smart 15-year-old cannot expand.
+ */
+const ACRONYM_STOP_LIST = new Set(["AI", "US", "UK", "EU", "TV", "ID", "PPT"]);
+
+/** Whether `words`, minus connectives, spell the acronym. */
+function acronymInitialsMatch(acronym: string, words: string[]): boolean {
+  const letters = acronym.toLowerCase().split("");
+  const kept = words.filter((word) => !/^(?:and|or)$/i.test(word));
+  if (kept.length !== letters.length) return false;
+  return kept.every((word, index) => word.toLowerCase().charAt(0) === (letters[index] ?? ""));
+}
+
+/** The run of words a source printed as the expansion, or null if it printed none. */
+function findAcronymExpansion(acronym: string, sourceText: string): string | null {
+  const letters = acronym.toLowerCase().split("");
+  const escaped = acronym.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  // `operational technology (OT)` -- the phrase stands against the bracket.
+  // Up to two extra words are allowed to carry a connective the acronym skips.
+  for (let run = letters.length; run <= letters.length + 2; run++) {
+    const before = new RegExp(
+      `((?:[\\p{L}][\\p{L}'’-]*\\s+){${run}})\\(\\s*${escaped}\\s*[,.;:]?\\s*\\)`,
+      "giu",
+    );
+    for (const match of sourceText.matchAll(before)) {
+      const words = (match[1] ?? "").trim().split(/\s+/);
+      if (words.length === run && acronymInitialsMatch(acronym, words)) return words.join(" ");
+    }
+  }
+  // `OT (operational technology)` -- the bracket spells it out after.
+  const after = new RegExp(`\\b${escaped}\\s*\\(([^()]{3,80})\\)`, "giu");
+  const match = after.exec(sourceText);
+  if (match !== null) {
+    const words = (match[1] ?? "").trim().split(/\s+/);
+    for (let run = letters.length; run <= letters.length + 2 && run <= words.length; run++) {
+      const candidate = words.slice(0, run);
+      if (acronymInitialsMatch(acronym, candidate)) return candidate.join(" ");
+    }
+  }
+  return null;
+}
+
+function expandAcronymsFromEvidence(
+  blocks: { text: string }[],
+  sourceText: string,
+  diagnostics: CompositionDiagnostics,
+): void {
+  if (sourceText === "") return;
+  const expanded = new Set<string>();
+  for (const block of blocks) {
+    for (const acronym of block.text.match(ACRONYM_TOKEN) ?? []) {
+      if (expanded.has(acronym) || ACRONYM_STOP_LIST.has(acronym)) continue;
+      expanded.add(acronym);
+      const escaped = acronym.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+      const pageText = blocks.map((item) => item.text).join(" ");
+      // Already expanded at or above this use: the reader has met the words.
+      if (new RegExp(`\\(\\s*${acronym}\\s*[,.;:]?\\s*\\)`, "u").test(pageText)) continue;
+      const expansion = findAcronymExpansion(acronym, sourceText);
+      if (expansion === null) continue;
+      if (pageText.toLowerCase().includes(expansion.toLowerCase())) continue;
+      const at = block.text.search(new RegExp(`\\b${escaped}\\b`, "u"));
+      if (at < 0) continue;
+      const repaired = `${block.text.slice(0, at)}${expansion} (${acronym})${block.text.slice(
+        at + acronym.length,
+      )}`;
+      if (!validDeterministicParagraph(repaired)) continue;
+      const before = block.text;
+      block.text = repaired;
+      diagnostics.qualityGate.acronymExpansions.count += 1;
+      keepSample(diagnostics.qualityGate.acronymExpansions.samples, before, repaired);
+    }
+  }
 }
 
 function safeLead(
@@ -3174,8 +3377,29 @@ export function composeArticleWithDiagnostics(story: Story): {
       if (fillerOpening(text)) continue;
       composedDeck.push({ fact: candidate, text });
     }
+    /**
+     * What opens the story is the event, not a statistic about its scale.
+     *
+     * Ruling #10a (2026-10-18) put quotations in a fallback tier because a quote
+     * is somebody's reaction, not what happened. The reader-clarity audit found
+     * the same defect wearing a different coat (I-13, 2026-10-22): the PHP story
+     * opened on "W3Techs, a survey service, says that the PHP programming
+     * language is used by 69.3 percent of all the websites whose server-side
+     * programming language we know," and the reader learned what had happened
+     * only in the third paragraph. A prevalence measure is supporting evidence
+     * in the wrong slot -- it answers "how big is this" before the page has said
+     * "what is this". Like the quote tier, this demotes and never deletes: the
+     * statistic stays a fact for the body, and it still opens the story when it
+     * is the only candidate that composes.
+     */
+    const eventDeck = composedDeck.find(
+      (entry) => !quotationCarriesOpening(entry.text) && !prevalenceStatistic(entry.text),
+    );
     const chosenDeck =
-      composedDeck.find((entry) => !quotationCarriesOpening(entry.text)) ?? composedDeck[0];
+      eventDeck ??
+      composedDeck.find((entry) => !quotationCarriesOpening(entry.text)) ??
+      composedDeck.find((entry) => !prevalenceStatistic(entry.text)) ??
+      composedDeck[0];
     if (chosenDeck !== undefined) {
       lead = chosenDeck.fact;
       leadText = chosenDeck.text;
@@ -3424,6 +3648,15 @@ export function composeArticleWithDiagnostics(story: Story): {
         `${story.title}\n${gated.deck.text}`,
         diagnostics,
       );
+    // The last two presentation repairs, under the same contract as the two
+    // above: after the counters (a repair is presentation, and `facts.rendered`
+    // matches fact text against published blocks), guarded by the paragraph
+    // validator (a repair that introduces a defect is worse than the defect),
+    // and recorded with its before/after sample (a deletion and a rewrite both
+    // need witnesses). I-12 drops a list item that named nothing; I-03 puts a
+    // source's own expansion back in front of the abbreviation it left behind.
+    dropUnresolvableListItems([gated.deck, ...gated.paragraphs], diagnostics);
+    expandAcronymsFromEvidence([gated.deck, ...gated.paragraphs], sourceText, diagnostics);
 
     return { article: gated, diagnostics };
   }

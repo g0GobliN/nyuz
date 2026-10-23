@@ -91,4 +91,33 @@ export function clockOf(iso: string): string {
 export function sourceCount(n: number): string {
   return `${n} ${n === 1 ? "source" : "sources"}`;
 }
+
+/**
+ * The sources card's label on a story rail: one measure, one label (audit I-06).
+ *
+ * The rail printed "BASED ON 4 SOURCES" above nine rows from eight outlets on
+ * the delivered 2026-10-22 story page. The four came from `events.publisher_count`
+ * -- a count taken by the cluster when the event was written -- and the rows came
+ * from the event's current coverage, so one label sat on two different measures
+ * and the reader could count a number the page denied. The rail's rows are the
+ * only measure a reader can check, so both numbers are read off them: a story
+ * whose coverage lists nine reports from eight distinct publishers says exactly
+ * that, and says nothing the reader cannot verify under the label.
+ *
+ * The plural shape is unchanged for a single-source story and for one where the
+ * two counts agree -- "Based on 3 sources" is true by either measure -- so the
+ * only new sentence on the page is the one where the old label would have lied.
+ */
+export function sourceRailLabel(sourceList: { name: string }[]): string {
+  const reports = sourceList.length;
+  const publishers = new Set(
+    sourceList.map((source) => source.name.trim().toLowerCase()).filter((name) => name !== ""),
+  ).size;
+  if (reports > 1 && publishers > 1 && publishers < reports) {
+    return `Based on ${publishers} ${publishers === 1 ? "publisher" : "publishers"} · ${reports} ${
+      reports === 1 ? "report" : "reports"
+    }`;
+  }
+  return `Based on ${sourceCount(reports)}`;
+}
 import type { EventIntelligence, EvidenceUnit } from "@/lib/understand";
