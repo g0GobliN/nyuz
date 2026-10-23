@@ -95,6 +95,24 @@ export function briefGroupLabel(group: BriefGroup): string {
 }
 
 /**
+ * The half of the edition's sub-line that claims something about order, taken
+ * from the same call the page groups with.
+ *
+ * "Nothing here was reordered for the web." was written when the page printed
+ * the edition verbatim. Grouping made it false — grouping *is* a reorder, and
+ * N-07 measured the sentence printed on a page whose order ran 01, 03, 07, 08,
+ * 13, 17 — so the note is now a function of the rendered rows rather than a
+ * constant: a grouped page says what grouping did (the partition is stable, so
+ * the stories inside each group keep the edition's order), and a page that
+ * renders the edition verbatim keeps the sentence that is then true.
+ */
+export function briefOrderNote(stories: Story[]): string {
+  return briefGroups(stories).length > 0
+    ? "Grouped by topic; the stories inside each group keep the edition's order."
+    : "Nothing here was reordered for the web.";
+}
+
+/**
  * The one sentence that replaces the audit's "the entire introduction": what
  * the day's thread is, measured from the same groups the page renders. Empty
  * when no groups render — a quiet morning gets neither a lede nor a claim.
@@ -107,7 +125,18 @@ export function briefLede(stories: Story[], groups: BriefGroup[]): string {
   if (!second) {
     return `The day's through-line is ${first.topic}: ${n0} of ${stories.length} stories.`;
   }
-  return `The day's through-line is ${first.topic} — ${n0} of ${stories.length} stories — with ${second.topic} (${second.stories.length}) behind it.`;
+  /*
+   * N-05 — one counting rule, the groups the page renders. The parenthetical
+   * is a group's card count, and the sentence says so: on the audited edition
+   * the lede's `NVIDIA (5)` sat on the same screen as 7 cards carrying the org
+   * `NVIDIA BLOG` and 16 AI follow lines, three countable answers with nothing
+   * telling a reader which one the lede used. "The next group down the page"
+   * names the rule — the number counts the cards under the heading the reader
+   * meets next — so the printed 5 is checkable against exactly those five
+   * cards, and the chips' and the follow lines' counts stay what they print:
+   * the cards' own provenance, which this sentence never claimed.
+   */
+  return `The day's through-line is ${first.topic} — ${n0} of ${stories.length} stories — with ${second.topic} (${second.stories.length}) the next group down the page.`;
 }
 
 /**

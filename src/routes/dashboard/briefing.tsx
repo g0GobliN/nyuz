@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Bookmark, Mail, MessageCircle } from "lucide-react";
 import { useMemo } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
-import { BriefingPreview } from "@/components/briefing-preview";
+import { BriefingPreview, briefOrderNote } from "@/components/briefing-preview";
 import { LoadState } from "@/components/dashboard/load-state";
 import { PanelLoading } from "@/components/loading";
 import { Chip, LinkButton } from "@/components/kit";
@@ -159,10 +159,12 @@ function Briefing() {
           // "today" with no anchor — the eyebrow names October 20 and the
           // next line contradicted it. The archive names the day it covers;
           // the latest briefing still speaks of today, because for it that
-          // is the truth.
+          // is the truth. The order claim is N-07's: taken from the same
+          // grouping call the card below makes, because the page that groups
+          // stories by topic did reorder them and cannot say otherwise.
           day
-            ? `Built from coverage published before ${prefs.time} on ${day.date}. Nothing here was reordered for the web.`
-            : `Built from today's coverage at ${prefs.time}. Nothing here was reordered for the web.`
+            ? `Built from coverage published before ${prefs.time} on ${day.date}. ${briefOrderNote(shown)}`
+            : `Built from today's coverage at ${prefs.time}. ${briefOrderNote(shown)}`
         }
       >
         {/* Says out loud that this is not today's briefing, and offers the way
