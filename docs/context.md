@@ -2085,6 +2085,26 @@ was in review-mode at the runner, the branch rebased onto it (`git merge origin/
 missing key — `Low: same tones.` — was added in `src/components/briefing-preview.tsx` so the merged
 tree compiles; the runner then red-checked the pre-merge head and the fix forward followed.
 
+**2026-10-23 — Composer prose: jargon expands at first use, and the reason line names the narrow
+interest (audit H-06, H-11, H-14, I-03).** Recorded in
+[decisions/composer-prose-expansions.md](decisions/composer-prose-expansions.md). Two rules, both pure
+code. (1) The body-admission guard `contextDependent` now receives the story title from every
+body-admission call in `src/lib/editorial.ts` — measured cause on the live rows: the ranked body pass
+called it without the title, so ruling #17's "the title establishes" never consulted the page, and the
+sentences that place a page's key nouns were refused as `unresolved_context`: Terafab card d50c1236's
+"ASML, the world's sole commercial supplier of the $400 million EUV lithography systems…" and the
+H-11 card b8b0110f's three facts (ZenDNN, the x86 Ecosystem Advisory Group (EAG), the steering
+member). A caller without the title still gets the stricter answer. The story-wide first-use acronym
+expansion (`expandAcronymsFromEvidence`, already on main) then repairs the first bare use from the
+story's own evidence. (2) `reasonExplanation` in `src/lib/server/briefing.ts` names the narrowest
+matched interest measured at brief time: an interest outside BROAD_TOPIC_LABELS is a specific one and
+is named; otherwise, when at least two pools matched, the pool whose cards over the delivered briefing
+are least common is named; when the match spans the briefing's whole feed, the line reads
+"You follow AI — this card is about <the card's other labels>"; when nothing narrows and the card
+carries nothing else, the line is left off (it printed "You follow AI." for the eighth time). Measured
+on the audit's delivered briefing fab11fdf (17 cards, real stored labels): 17 of 17 reason lines change,
+no line is left saying only "You follow AI." (probe over `digest_items` + `event_topics` +
+`user_topics`, 2026-10-23).
 
 ## 7. What is next
 
