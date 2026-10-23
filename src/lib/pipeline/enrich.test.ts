@@ -13,6 +13,17 @@ const ARTICLE_HTML = `<html><body><article>
 
 const THIN_HTML = `<html><body><p>Please log in to continue reading this article.</p></body></html>`;
 
+// The zero-yield family, as the 30-day enrichment census measured it: pages
+// that fetch at the usable-words floor but carry no sentence the extractor can
+// admit — measured concentrated in non-English feeds whose word count is fine
+// and whose yield is nothing (Leg A, task t_27cc9ccb).
+const RUSSIAN_HTML = `<html><body><article>
+<p>Международное информационное агентство сообщило, что серия встреч на высшем уровне продолжится завтра, после чего будет подготовлен итоговый документ участников саммита.</p>
+<p>По данным источника, стороны обсуждали экономические вопросы и меры поддержки национальной промышленности в условиях изменившихся внешних условий торговли, сообщают корреспонденты.</p>
+<p>Эксперты отмечают, что принятые решения могут повлиять на рынок энергоресурсов в ближайшие месяцы, а также на инвестиционный климат региона и смежные отрасли.</p>
+<p>Аналитики полагают, что окончательные оценки последствий для мировых товарных потоков станут известны после публикации квартальной отчетности компаний сектора.</p>
+</article></body></html>`;
+
 function source(
   id: string,
   allowed: boolean | null = true,
@@ -1531,6 +1542,75 @@ describe("enrich", () => {
     expect(report.unavailable).toBe(1);
     const updated = db.rows("sources").find((r) => r["id"] === "sThin");
     expect(updated?.["enrichment_last_failure_reason"]).toBe("thin_content");
+  });
+
+  it("names a fetched page that yields no admissible sentence extraction_empty, not success", async () => {
+    // The enrichment census attributes the extraction_empty family by the row
+    // shape (`enriched`, zero units, a real word count); this test pins the
+    // same shape on the tick outcome, so a source whose extractor yields
+    // nothing shows up in the run row's reason_counts instead of vanishing
+    // behind a success. The article_evidence row keeps the status/word-count
+    // shape the census documents — that shape IS the family's evidence.
+    const db = fixture();
+    db.rows("sources").push(source("sEmpty", true, 0, null, null, null));
+    db.rows("articles").push({
+      ...article("aEmpty", "https://lenta.example.com/story", source("sEmpty")),
+      event_id: "eEmpty",
+    });
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eEmpty",
+      matched_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(RUSSIAN_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    expect(report.evidenceUnits).toBe(0);
+    expect(report.reasons["extraction_empty"]).toBe(1);
+    const updated = db.rows("sources").find((r) => r["id"] === "sEmpty");
+    expect(updated?.["enrichment_last_failure_reason"]).toBe("extraction_empty");
+    expect(updated?.["enrichment_failure_count"]).toBe(1);
+    const row = db.rows("article_evidence").find((r) => r["article_id"] === "aEmpty");
+    expect(row?.["status"]).toBe("enriched");
+    expect(row?.["source_word_count"]).toBeGreaterThan(0);
+  });
+
+  it("counts a zero-yield extraction toward the source's failure latch", async () => {
+    // Four failures already sit on the source. A page that fetched fine and
+    // yielded nothing pushes the counter over the threshold: the stage then
+    // skips the source without fetching — the same guard a broken origin
+    // gets, because an extractor that admits nothing from everything it
+    // fetches is exactly the cost (and zero reader benefit) the latch exists
+    // to stop paying.
+    const db = fixture();
+    db.rows("sources").push(source("sLatch", true, 4, null, RECENT_ATTEMPT));
+    db.rows("articles").push(
+      article(
+        "aLatch",
+        "https://latch.example.com/story",
+        source("sLatch", true, 4, null, RECENT_ATTEMPT),
+      ),
+    );
+    db.rows("user_events").push({
+      user_id: "u1",
+      event_id: "eLatch",
+      matched_at: new Date().toISOString(),
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => html(RUSSIAN_HTML)),
+    );
+
+    const report = await enrich(asDb(db), { limit: 1 });
+
+    expect(report.enriched).toBe(1);
+    const updated = db.rows("sources").find((r) => r["id"] === "sLatch");
+    expect(updated?.["enrichment_failure_count"]).toBe(5);
   });
 
   it("records the fetch kind when the page cannot be read (Audit 40)", async () => {
