@@ -3723,6 +3723,76 @@ Deploy skipped again. That head is what **merged in [#48](https://github.com/g0G
 `49ccd8f`**; the two-reader measurement re-run on it gives `Asia/Tokyo` → `2026-03-02T22:30:00.000Z` and
 `America/New_York` → `2026-03-02T12:30:00.000Z`, both clocks reading 07:30, `instants equal? false`.
 
+### The story page's unparseable clause is gone — blocker 4 and the story-page should-fixes (2026-10-23, audit 4, card `t_5a6bc152`)
+
+The reader-clarity audit (PR #54, `docs/reader-clarity-audit-2026-10-22.md`) closed its story page on a
+sentence no reader can parse — card 09 ends *"…for 4chan, DeviantArt, Wikipedia, and the blog where the bar
+around the corner posts pictures of people's dogs."* (I-12, the fourth blocker). The blog has no name in
+any stored row, so naming it would invent a fact; the card's own second remedy is the one that landed:
+**the clause is cut and the list rejoined with the conjunction the dropped item carried**. Measured on the
+delivered story (`f937622f`) through the exact `StoryArticle` memo path (`composeArticle` →
+`storyOpening || deck` → `withoutOpening`) on this branch: the closing paragraph now reads *"…Two bugs
+found with AI are behind major issues on 21 October 2026 for 4chan, DeviantArt and Wikipedia."*
+
+Three rules, all deterministic, all in the composer or the rail, none inventing a fact:
+
+- **`dropUnresolvableListItem` (I-12, editorial.ts).** Only a trailing `where`-clause whose item carries
+  no capital letter, in a list of at least three items, outside quoted speech. A `where`-clause is an
+  adjunct describing a place — removing it cannot change what the sentence asserts — while a `that`-clause
+  often *is* the content, and no regex may delete that. The quotation guard was re-cut during this
+  slice's test pass: the first version compared openers before the item with closers after it, and a
+  sentence quoted whole (whose closer sits after the item) balanced to zero and got rewritten anyway —
+  ruling #6 says a quotation belongs to its speaker. The guard now asks the span that matters: more
+  opening marks than closing marks **before** the item means the item lives inside a quotation. The
+  failing-first test is `story-clarity.test.ts` "leaves the example inside a quotation whole".
+- **Prevalence demotion at the deck tier (I-13, editorial.ts + `prevalenceStatistic` in
+  reader-evidence.ts).** A sentence whose payload is a share of an installed base (`percent` +
+  `used by|websites|servers|…`, money excluded) loses the deck to any event candidate, exactly as ruling
+  #10a demotes quotations — demotes, never deletes: card 09's W3Techs statistic now opens para 0 under an
+  opening that says what happened, and a statistic-only page still publishes it as the deck. Measured on
+  `f937622f`: the deck is *"The "critical vulnerabilities" were discovered in the PHP programming language,
+  which underpins much of the internet…"*.
+- **`expandAcronymsFromEvidence` (I-03, editorial.ts).** When the composer's sentence-picker drops the
+  source's own gloss off the page, the expansion is put back at the first bare use — only in the source's
+  own `words (ACRO)` adjacency, only when the initials match, stop-listed for AI/US/UK/EU/TV/ID/PPT.
+  Nothing is invented: every word of the gloss is the source's. On live card 01 the first paragraph now
+  reads *"…perform operational technology (OT) system reconnaissance."* (measured — the audit found "OT"
+  unexpanded three times on that page).
+- **One measure, one label on the sources rail (I-06, story.ts + story-article.tsx).** The rail printed
+  *"Based on 4 sources"* above nine rows from eight outlets, because the four came from the cluster-time
+  `events.publisher_count` and the rows from current coverage. `sourceRailLabel` derives the caption from
+  the rows themselves: *"Based on 8 publishers · 9 reports"* for the audited card-12 rail, plain *"Based on
+  N sources"* where the two counts agree, so the reader can always count what the label claims. The
+  `publisher_count` staleness itself (4 recorded against 8 distinct names) is left as an operator-facing
+  data finding — this rule makes the page stop quoting it.
+
+**Ownership, the reason the card-06 blockers are not in this slice.** The audit's four blockers split
+across two cards: I-09/I-10/I-11 (card 06's chronology) belong to `t_4675d592` (forge, audit 1-3), which
+declares `src/lib/editorial.ts` its owner and runs now. Last night's WIP on this branch
+(`1146177`, never pushed) over-scoped into them — timeline-entry deck refusal, causal-frame refusal,
+`groupTimelineFacts`. Measured against the live card-06 story this morning, the grouping made the page
+open with a sentence that then reappeared near-verbatim inside the first paragraph's lead-in ("This post
+from the PHP Foundation explain what went so wrong: …"), because `withoutOpening` strips only an exact
+match. That is a reader-visible duplication on another card's surface, so the whole I-09/I-10/I-11 set was
+**reverted from this branch** rather than fixed here; the measured duplication is handed to
+`t_4675d592` so its implementation starts from what was seen, and `1146177` stays reachable as a
+reference for the rejected approach. Deferred with the audit's routing, unchanged from last night: I-08
+is owned by S9 (PR #51); I-01/I-02/I-04 are The Register's own quoted sentences — ruling #6 forbids
+rewriting a quotation, and section 8 routes them to the composer copy-pass at the arbiter; I-05/I-07/
+I-14–I-17 are polish (I-17's caveat copy is an arbiter decision).
+
+**Cost on the frozen corpus.** `reader-composer-snapshot` on the base checkout and on this branch over the
+same frozen 200 (`corpus.json`, the 2026-10-22 freeze): 200 → 200 stories, average words 181.9 → 181.9,
+paragraphs 2.79 → 2.79, every ruler line unchanged; **3 stories rewritten, all three by 2–3 words, each a
+one-for-one acronym gloss** (DDF, FT in the Spanish story, BO) — no sentence lost, no story emptied, no
+deletion outside the audited list clause. `reader-composer-diff base.json after-scoped.json`, 2026-10-23.
+
+**Gates on the final tree (quiet — no other agent writing into this worktree).** `npx tsc --noEmit`
+clean; the focused composer suites — `story-clarity`, `story`, `card-summary`, `editorial`,
+`reader-prose-rules`, `understand`, `reader-quality`, `reader-fixture-regression`, `reader-deck-clause`,
+`reader-article` — **577 passed**; the new rules' tests were shown failing on the pre-fix tree (`457b61d`)
+before they passed here, for the two findings the audit scored. The full `GITHUB_ACTIONS=true npm run ci`
+run and the runner result are recorded in this slice's PR body.
 **S8's regression guard is committed, and the page eyebrow stopped claiming a send.** The S8 ruling
 (2026-10-21) pinned its diff to the card and the route, so the harness that verified the change ran and
 was deleted — nothing failed if `brief@nyuz.app`, `inbox` or `Delivered at` came back to the reader's

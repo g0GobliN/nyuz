@@ -1759,6 +1759,28 @@ const NOT_A_PAST_PARTICIPLE = new Set(
 );
 
 /**
+ * A sentence whose payload is a prevalence measure rather than the event.
+ *
+ * Finding I-13: the PHP story opened "W3Techs, a survey service, says that the
+ * PHP programming language is used by 69.3 percent of all the websites…" -- good
+ * supporting evidence in the wrong slot, because the reader learns what happened
+ * only after the market share. The test is the measure and its domain together:
+ * a number stated as a share of installed usage (percentages, hedged millions),
+ * and the vocabulary of installed bases. Money is not an installed base, so
+ * dollar figures do not count here, and an event sentence that happens to carry
+ * a statistic is demoted at the deck only -- the body still publishes it.
+ */
+const SHARE_MEASURE =
+  /\b\d[\d.,]*\s*(?:percent|per cent|%)\b|\b(?:about|roughly|approximately|nearly|more than|over)\s+[\d.,]+\s*(?:million|billion)\b/iu;
+const SHARE_DOMAIN =
+  /\b(?:used by|use of|share|market|surveys?|install(?:ed|s|ation)?|adoption|sites?|websites?|servers?|users?|devices?)\b/iu;
+
+export function prevalenceStatistic(text: string): boolean {
+  const trimmed = text.trim();
+  return SHARE_MEASURE.test(trimmed) && SHARE_DOMAIN.test(trimmed);
+}
+
+/**
  * A sentence that would publish an unresolvable pronoun.
  *
  * Exported because the audit script counts it on the *published* prose: a gate
