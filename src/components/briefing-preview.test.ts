@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -211,5 +212,88 @@ describe("BriefingPreview — the briefing sets a reading measure", () => {
     // story deck at 88); the briefing was the outlier at 144.
     expect(briefingSummaryCharactersPerLine()).toBeGreaterThanOrEqual(65);
     expect(briefingSummaryCharactersPerLine()).toBeLessThanOrEqual(75);
+  });
+});
+
+/**
+ * S8 follow-up — the regression guard the S8 diff pin did not allow.
+ *
+ * S8 (`docs/decisions/briefing-channel-neutral-framing.md`) removed the
+ * delivery claim from the reader's card: no sender address, no "Delivered at"
+ * stamp, and the header reads `Edition · 07:30`. It shipped with no test,
+ * because the ruling pinned the diff to the component and the route. That is a
+ * real weakness and this block closes it: nothing below fails if the framing
+ * comes back, and the default chrome is asserted too, so the scan is proven
+ * able to fire.
+ *
+ * The claim is read case-insensitively from the rendered markup, not from the
+ * source, because that is where a reader meets it — and because a phrase that
+ * moves from a heading to a footer, or gains different casing, is the same
+ * false claim in a new place.
+ */
+describe("BriefingPreview — what the chrome claims", () => {
+  /** The phrases the reader's own page must never print. */
+  const BANNED = ["brief@nyuz.app", "inbox", "Delivered at"] as const;
+
+  /** Occurrences of `phrase` in `html`, ignoring case. */
+  function count(html: string, phrase: string): number {
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    return [...html.matchAll(new RegExp(escaped, "giu"))].length;
+  }
+
+  function chrome(props: { chrome?: "email" | "edition"; editionTime?: string }): string {
+    return renderToStaticMarkup(
+      createElement(BriefingPreview, { stories: STORIES.slice(0, 2), variant: "reader", ...props }),
+    );
+  }
+
+  it("prints none of the banned strings under edition chrome", () => {
+    const html = chrome({ chrome: "edition", editionTime: "07:30" });
+    for (const phrase of BANNED) expect(count(html, phrase)).toBe(0);
+    // The positive half: the header still says what this is and when it was
+    // assembled, so the assertion above cannot pass by rendering nothing.
+    expect(html).toContain("Edition · 07:30");
+  });
+
+  it("trips the same scan under the default chrome, so the scan can fail", () => {
+    // A scan that passes in both chromes proves the test is broken, not that
+    // the card is honest. `email` is the default and it is the half that keeps
+    // this falsifiable: both phrases below are ones the reader's page dropped,
+    // printed by the chrome that deliberately keeps them.
+    const defaulted = chrome({});
+    expect(defaulted).toBe(chrome({ chrome: "email" }));
+    expect(count(defaulted, "brief@nyuz.app")).toBe(1);
+    expect(count(defaulted, "Delivered at")).toBe(1);
+  });
+
+  it("falls back to the card's own time when editionTime is missing", () => {
+    // A caller that passes only `chrome` still gets a true time rather than an
+    // empty stamp — `time` defaults to "7:30 AM", the card's 12-hour form.
+    const html = chrome({ chrome: "edition" });
+    expect(html).toContain("Edition · 7:30 AM");
+    expect(count(html, "Delivered at")).toBe(0);
+  });
+});
+
+/**
+ * The eyebrow is the page's claim, not the card's, so it cannot be asserted by
+ * rendering `BriefingPreview`. It is read from the route source instead — the
+ * same shape `src/lib/style-tokens.test.ts` uses for `src/styles.css` — because
+ * the ruling that moved it (CEO, 2026-10-22) is otherwise unguarded: it is one
+ * string on one line, which is exactly what a later copy pass rewrites.
+ */
+describe("briefing route — the eyebrow does not claim a delivery", () => {
+  const ROUTE = readFileSync("src/routes/dashboard/briefing.tsx", "utf8");
+  const EYEBROW = /eyebrow=\{([\s\S]*?)\}\s*\n/u.exec(ROUTE)?.[1] ?? "";
+
+  it("finds the expression it asserts about", () => {
+    // A regex that stopped matching would leave the assertions below checking
+    // an empty string — which passes, for the wrong reason.
+    expect(EYEBROW).toContain("day");
+  });
+
+  it("says Edition, with the day when one is open, and never Delivered", () => {
+    expect(EYEBROW).toContain("Edition · ${day.date}");
+    expect(EYEBROW).not.toContain("Delivered");
   });
 });

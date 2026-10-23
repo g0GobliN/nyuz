@@ -136,8 +136,15 @@ function Briefing() {
 
   return (
     <DashboardShell title="My briefing">
+      {/* The eyebrow is the page's own claim about what it is showing, so it
+          says "Edition", not "Delivered". The bare word asserted a send that
+          has not happened — the same defect class as the "Delivered at" stamp
+          the S8 ruling removed from the card, and the arbiter ruled on
+          2026-10-22 that it moves for the same reason. With an older digest
+          open it names the day the edition was assembled, which is the shape
+          the card's own "Edition · 07:30" header already uses. */}
       <PageHeader
-        eyebrow={day ? `Delivered · ${day.date}` : "Delivered"}
+        eyebrow={day ? `Edition · ${day.date}` : "Edition"}
         title="Your briefing, as it was assembled."
         sub={`Built from today's coverage at ${prefs.time}. Nothing here was reordered for the web.`}
       >

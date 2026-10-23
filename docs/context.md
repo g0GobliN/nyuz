@@ -2055,6 +2055,15 @@ files and FAQ copy is a decision, not a tidy-up.
 
 ## 7. What is next
 
+**2026-10-22: the reader's prose is now measured, and four blockers are unowned.**
+[reader-clarity-audit-2026-10-22.md](reader-clarity-audit-2026-10-22.md) reads the deployed origin on the
+three surfaces a reader uses and records **43 findings — 4 blockers, 26 should-fix, 13 polish**, every quote
+machine-checked against the capture it came from. The blockers are all in the composed article, on the two
+PHP-security cards (an opening date fragment, a "the leak"/"Calif" reference before either exists, a
+chronology out of order, and one sentence no reader can parse). Its §8 routes each finding to the component,
+instrument or ruling that owns it; the copy ones (headline voice, "DELIVERED", "Why it matters") go to the
+arbiter with S8/S9 first. Nothing in it changes code or copy.
+
 **2026-10-22: delivery recommendation 1 is implemented — the reader's zone now exists from the first row.**
 `wt/signup-timezone` (no column added; both `timezone` columns already existed) makes `handle_new_user`
 read the browser's zone from the signup metadata, corrects the metadata-less Google/GitHub and pre-0123
@@ -3784,6 +3793,102 @@ clean; the focused composer suites — `story-clarity`, `story`, `card-summary`,
 `reader-article` — **577 passed**; the new rules' tests were shown failing on the pre-fix tree (`457b61d`)
 before they passed here, for the two findings the audit scored. The full `GITHUB_ACTIONS=true npm run ci`
 run and the runner result are recorded in this slice's PR body.
+**S8's regression guard is committed, and the page eyebrow stopped claiming a send.** The S8 ruling
+(2026-10-21) pinned its diff to the card and the route, so the harness that verified the change ran and
+was deleted — nothing failed if `brief@nyuz.app`, `inbox` or `Delivered at` came back to the reader's
+briefing. `src/components/briefing-preview.test.ts` now carries the cases the ruling owed: edition
+chrome renders **none** of the three (case-insensitive), the **default** chrome renders `brief@nyuz.app`
+and `Delivered at` so the scan is proven able to fire, and a caller passing `chrome="edition"` with no
+`editionTime` gets `Edition · 7:30 AM` rather than an empty stamp. Falsifiability measured, not
+asserted: reverting the footer and the eyebrow turned **3 of the 5** new cases red, and the two that
+stayed green are the ones asserting the unchanged default and the presence of the expression itself.
+
+**The eyebrow moved on the arbiter's 2026-10-22 ruling.** `briefing.tsx:140` read `Delivered` (or
+`Delivered · <date>` when an older digest was open) — the same defect class as the `Delivered at` stamp
+the card dropped, because the reader's own page must not assert a send that did not happen. It now
+reads `Edition` / `Edition · <date>`, matching the card's own `Edition · 07:30` header, and a
+source-level case in the same test file (the shape `style-tokens.test.ts` uses) stops a later copy pass
+putting the word back. `docs/decisions/briefing-channel-neutral-framing.md` records the move and closes
+its own "recorded gap" note.
+
+**Read at 1280 on the local build**, in a browser holding the owner's own reader session
+(`npm run dev`, Node 22, `document.body.innerText`, case-insensitive): today's briefing — `Delivered`
+**0**, `Edition · ` **1** (card header), eyebrow `textContent` `"Edition"`; with the **2026-10-20**
+digest open — `Delivered` **0**, `Edition · ` **2** (eyebrow + card header), eyebrow
+`"Edition · 20 October"`. The same page on the deployed origin, before the change, read `DELIVERED`
+over the identical briefing.
+### The reader's prose was audited against the Wikipedia test — 43 findings, 4 blockers (2026-10-22)
+
+The four gates in `reader-quality-10-of-10.md` measure delivery, significance, surfaces and alerts. None of
+them measures whether the prose is *understandable*, so the live product was read as a reader on the three
+surfaces a reader uses: the home feed (`/dashboard`), the briefing (`/dashboard/briefing`), and four story
+pages opened from it (cards 01, 12, 06 and 09 of digest `7268ba11`, the 25-item edition scheduled 07:30 JST
+on 22 October), plus the 20 October archive (`4a6b2ad2`) opened the way History opens it. The session was a
+Supabase magic link for the one account with a delivered briefing — no password, no email sent, no product
+content edited.
+
+[reader-clarity-audit-2026-10-22.md](reader-clarity-audit-2026-10-22.md) records **43 findings — 4 blockers,
+26 should-fix, 13 polish** — every quotation sliced out of a `document.body.innerText` capture and
+machine-checked against it, at 639×906, 1440×900 and 360×780. The four blockers are all in the composed
+article: card 06 opens on a dateless fragment ("August 24, 2026: Wiz Research reports the vulnerabilities…"),
+its second paragraph refers to "the leak" and "Calif" before either exists, its third is a chronology out of
+order, and card 09 closes on "the blog where the bar around the corner posts pictures of people's dogs". The
+feed and the briefing are understandable; their defects are voice (5 of 25 headlines are Title Case press
+releases), jargon never expanded ("script kiddies", "spec", "OT", "oneDNN"), a band word that reads as praise
+but is the bottom band ("Notable", 14 of 25 cards), a reason line that names AI on all 25 cards ("You follow
+AI." on 8), an edition whose only "Why it matters" line prints "Four publishers reported this.", and two
+stories carried twice (#6/#9 PHP security release; #4/#7 GTC Berlin keynote).
+
+Measured for whoever picks the fixes up: `why_it_matters` is non-empty on **1 of 25** cards; summaries run
+**13–40 words, median 25**, so no card is a wall of text; **9 of 25** summaries carry an attribution phrase;
+story 12's rail says **"BASED ON 4 SOURCES" over nine rows across eight outlets** (`publisher_count` vs
+`articles`, `briefing.ts:1434`); the briefing has **no `h2`** between its 25 cards. Two artefacts were excluded
+rather than reported: the emoji in the browser tab is the reading browser's, not the page's (the server's
+`<title>` is `nyuz — Stop searching. Start knowing.`), and the "10 of 10 used" device panel is this account's
+cap. Nothing in the audit changes code, copy or content; §8 of the file routes each finding to the component,
+instrument or ruling that owns it.
+### The deploy gate stopped reading a registry outage as a vulnerable tree (2026-10-22)
+
+`main` failed to deploy twice on 2026-10-22 — run 39738568520 on `49ccd8f` (07:09Z) and run 39740776619 on
+`18a7407` (07:29Z) — both at `Audit production dependencies` in `.github/workflows/ci.yml`, and both passed
+when the failed job was re-run on the same tree (`49ccd8f` attempt 2 at 07:26Z, `18a7407` attempt 2 at
+07:41Z). `Browser smoke` (`needs: [commits, audit, verify]`) and `Deploy to Cloudflare Workers` (which needs
+`audit` transitively) sit behind that job, so a green audit is what stands between a merge and a deployment.
+
+**The 400 was npm reporting that its own request failed, not a statement about the lockfile.** The runner's
+log names the environment it used: node `v22.23.3`, npm `10.9.9`. npm 10.9 posts to
+`/-/npm/v1/security/advisories/bulk` first and falls back to the retired `/-/npm/v1/security/audits/quick`
+only when that request *throws* (`@npmcli/arborist/lib/audit-report.js:323` and `:336`). Both failing logs
+show the bulk POST never answered: the step printed its first line 5m00s after it started (07:29:03 →
+07:34:03), which is npm-registry-fetch's default `fetch-timeout` of `300000` ms (`npm config get
+fetch-timeout`), and what surfaced was the fallback's `400 Invalid package tree, run npm install to rebuild
+your package-lock.json`. Measured locally on `18a7407`: **10 of 10** `npm audit --omit=dev --audit-level=high`
+runs answered clean in under a second over the bulk endpoint (`--loglevel http` → `POST 200
+.../advisories/bulk`), and **0 of 10** touched the quick endpoint — the tree was never the problem, and the
+same lockfile passed this job on PR #50's CI at 07:24Z.
+
+The step now separates the two things npm can say. The retryable class is "the registry gave no verdict" —
+`audit endpoint returned an error`, `Invalid package tree`, `endpoint is being retired`, 5xx fetch and warn
+lines, and the network codes — while a `# npm audit report` verdict is checked **before** that class and
+exits on the first answer. That order is the point: npm can return the advisory list and still fail a
+packument fetch while working out whether a fix exists, and retrying that would bury a real high-severity
+advisory behind "the registry was flaky". Attempts stay bounded at three, each terminal branch prints an
+`::error::` saying which of the two happened, and the third endpoint failure is still red. Alongside the
+loop, `npm_config_fetch_timeout: 60000` makes a stalled bulk POST cost a minute instead of the default five,
+`npm_config_fetch_retries: 0` keeps the loop the only retry policy, `npm_config_loglevel: http` puts the
+endpoint npm actually talked to in the job log, and `timeout-minutes: 6` bounds the step.
+
+**Proved by running the step, not by reading it.** A harness extracts the `run:` block from `ci.yml` and
+executes it with the step's own `env:`: the clean tree → exit 0 on one attempt in 2.2 s; a production
+`lodash@4.17.20` in a throwaway lockfile → exit 1 on **one** attempt with the real high advisories listed;
+that same advisory delivered by a stub registry *together with* a `501` on the packument fetch → exit 1 on
+one attempt; CI's exact failure replayed (bulk 503 → retired quick 400) → 3 attempts, 6 requests, exit 1;
+both endpoints 503 → 3 attempts, exit 1; a bulk request that never answers → 3 attempts in 214 s and red,
+against one 300 s attempt and red before. Runner evidence: PR
+[#53](https://github.com/g0GobliN/nyuz/pull/53)'s CI run
+[39752304047](https://github.com/g0GobliN/nyuz/actions/runs/39752304047) is green on `079e658`, the
+`Dependencies and secret names` job included, where the step answered over the bulk endpoint in 127 ms
+(`POST 200 .../advisories/bulk`, `found 0 vulnerabilities`) and never touched the quick one.
 
 ### The composer reads a story's timeline forwards — the audit's three chronology blockers (2026-10-23)
 

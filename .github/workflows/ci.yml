@@ -128,33 +128,78 @@ jobs:
       # Scoped to what actually ships. A high-severity advisory in a build tool
       # that never runs in production should not be able to block a deploy, and
       # treating those two cases the same is how an audit gate gets switched off.
-      # npm audit endpoint can return transient 5xx; retry a few times.
+      #
+      # npm 10.9 (npm 10.9.9 on node 22.23.3, the version this job's setup-node
+      # installs) posts to the bulk advisory endpoint and only falls back to the
+      # retired /-/npm/v1/security/audits/quick when that request does not answer
+      # at all. The fallback answers `400 Invalid package tree, run npm install to
+      # rebuild your package-lock.json`, which reads like a broken lockfile and is
+      # not one: it is npm reporting that the bulk request never completed. That
+      # took main's deploy down twice on 2026-10-22 (runs 39738568520 and
+      # 39740776619), five minutes each, both green on a re-run of the same tree.
+      #
+      # So this step separates the two things npm can say: a verdict about the
+      # dependencies, and a failure to reach the endpoint. A verdict is final and
+      # is never retried; an endpoint failure is retried a bounded number of times
+      # and then exits red, because a gate that gives up quietly is worse than one
+      # that blocks.
       - name: Audit production dependencies
+        timeout-minutes: 6
+        env:
+          # The five-minute gap in both failing runs is npm-registry-fetch's
+          # default 300 s response timeout on the bulk POST (`npm config get
+          # fetch-timeout` -> 300000). A working registry measured 0.7 s here with
+          # only the lockfile to send, and 5.9 s with node_modules installed, so
+          # 60 s is slack rather than a squeeze, and it keeps three whole attempts
+          # inside this job instead of one attempt inside fifteen minutes.
+          npm_config_fetch_timeout: 60000
+          # The loop below is the retry policy; npm's own retries would multiply it.
+          npm_config_fetch_retries: 0
+          # Names the endpoint npm actually talked to, so a failure reads
+          # "bulk 503, then quick 400" instead of only the 400.
+          npm_config_loglevel: http
         run: |
           set -euo pipefail
+
+          # What npm prints when it never got an answer: the audit request itself
+          # failed (any non-2xx, including the retired quick endpoint's 400), the
+          # registry answered 5xx, or the socket died. None of these is a statement
+          # about the dependency tree.
+          no_verdict='audit endpoint returned an error|[Ii]nvalid package tree|endpoint is being retired|npm http fetch.* 5[0-9][0-9]( |$)|npm warn audit 5[0-9][0-9]( |$)|statusCode: 5[0-9][0-9]|EAI_AGAIN|ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ECONNABORTED|socket hang up'
+
           for attempt in 1 2 3; do
             if output=$(npm audit --omit=dev --audit-level=high 2>&1); then
               echo "$output"
               exit 0
             else
+              # A failed `if` compound without an `else` has status zero in bash.
+              # Capture npm's status in the `else` so a vulnerability cannot turn
+              # into a green audit after the retry loop.
               code=$?
             fi
             echo "$output"
 
-            # A failed `if` compound without an `else` has status zero in bash.
-            # Capture npm's status in the `else` so a vulnerability cannot turn
-            # into a green audit after the retry loop. Only retry errors that
-            # look transient; every other audit failure is authoritative.
-            if ! printf '%s\n' "$output" | grep -qiE \
-              '(^|[^0-9])(500|502|503|504)([^0-9]|$)|EAI_AGAIN|ECONNRESET|ETIMEDOUT|ECONNREFUSED|ENOTFOUND|ECONNABORTED|socket hang up'; then
+            # A report is a verdict, and a verdict outranks any endpoint noise that
+            # came with it: npm can fetch the advisory list and still fail to fetch
+            # a packument while working out whether a fix exists, and retrying that
+            # would bury a real high-severity advisory behind "the registry was
+            # flaky". Checked before the retryable class on purpose.
+            if printf '%s\n' "$output" | grep -q '# npm audit report'; then
+              echo "::error::npm audit found vulnerable production dependencies. This is an advisory verdict, not a registry error, and it is not retried."
               exit "$code"
             fi
 
-            if [ $attempt -eq 3 ]; then
-              exit $code
+            if ! printf '%s\n' "$output" | grep -qiE "$no_verdict"; then
+              echo "::error::npm audit failed without reporting an advisory or a recognisable endpoint error; see the output above. Not retried."
+              exit "$code"
             fi
-            echo "npm audit failed (attempt $attempt), retrying in 10s..."
-            sleep 10
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::npm audit got no answer from the registry in $attempt attempts. That is the audit endpoint failing, not a vulnerable dependency: re-run the job, and if it keeps failing the endpoint itself is down."
+              exit "$code"
+            fi
+            echo "npm audit got no verdict from the registry (attempt $attempt/3); retrying in $((attempt * 10))s..."
+            sleep "$((attempt * 10))"
           done
 
       # Vite compiles every VITE_-prefixed variable into the bundle every
