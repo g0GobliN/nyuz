@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BRIEFING_READING, briefingSummaryCharactersPerLine } from "@/lib/briefing-measure";
 import { STORIES } from "@/lib/sample-data";
 import type { Story } from "@/lib/story";
-import { BriefingPreview } from "./briefing-preview";
+import { BriefingPreview, briefGroupLabel, briefGroups, briefLede } from "./briefing-preview";
 
 /**
  * `Link` needs a running router, and this file is about the URL a reader's
@@ -47,12 +47,14 @@ function render(
   stories: Story[],
   variant: "marketing" | "reader" = "marketing",
   fromQueue?: "home" | "alerts" | "briefing",
+  extra?: Record<string, unknown>,
 ): string {
   return renderToStaticMarkup(
     createElement(BriefingPreview, {
       stories,
       variant,
       ...(fromQueue ? { fromQueue } : {}),
+      ...extra,
     }),
   ).replace(/&#x27;/gu, "'");
 }
@@ -60,6 +62,13 @@ function render(
 /** One entry per anchor in the markup, in document order (so, reading order). */
 function anchors(html: string): string[] {
   return [...html.matchAll(/<a [^>]*/gu)].map((m) => m[0]);
+}
+
+/** One entry per heading element of `tag`, in document order. */
+function headings(html: string, tag: "h1" | "h2" | "h3" | "h4"): string[] {
+  return [...html.matchAll(new RegExp(`<${tag}(?:\\s[^>]*)?>[\\s\\S]*?<\\/${tag}>`, "gu"))].map(
+    (m) => m[0],
+  );
 }
 
 /**
@@ -121,11 +130,27 @@ describe("BriefingPreview — the reader's briefing is a way in", () => {
     id: `6f1c9a52-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
   }));
 
+  /** The hrefs in the order the card renders its stories — groups included. */
+  function readingOrder(
+    delivered: Story[],
+    variant: "marketing" | "reader",
+    fromQueue?: "briefing",
+  ): string[] {
+    const suffix = fromQueue ? "?from=briefing" : "";
+    // B-03: the reader moves through groups now, so the "order they are read"
+    // is the groups' sequence — the same partition the component computes,
+    // flattened — and a flat day below the grouping floor stays edition order.
+    const grouped = variant === "reader" ? briefGroups(delivered) : [];
+    const order = grouped.flatMap((g) => g.stories);
+    const listed = order.length > 0 ? order : delivered;
+    return listed.map((s) => `/dashboard/story/${s.id}${suffix}`);
+  }
+
   it("gives all 25 stories a link, in the order they are read", () => {
     const html = render(delivered, "reader");
     const hrefs = anchors(html).map((a) => /href="([^"]*)"/u.exec(a)?.[1] ?? "");
     expect(hrefs).toHaveLength(delivered.length);
-    expect(hrefs).toEqual(delivered.map((s) => `/dashboard/story/${s.id}`));
+    expect(hrefs).toEqual(readingOrder(delivered, "reader"));
   });
 
   it("keeps every link in the tab order, with a pointer and a visible focus ring", () => {
@@ -163,7 +188,7 @@ describe("BriefingPreview — the reader's briefing is a way in", () => {
     const html = render(delivered, "reader", "briefing");
     const hrefs = anchors(html).map((a) => /href="([^"]*)"/u.exec(a)?.[1] ?? "");
     expect(hrefs).toHaveLength(delivered.length);
-    expect(hrefs).toEqual(delivered.map((s) => `/dashboard/story/${s.id}?from=briefing`));
+    expect(hrefs).toEqual(readingOrder(delivered, "reader", "briefing"));
   });
 
   it("keeps the link clean when fromQueue is omitted", () => {
@@ -295,5 +320,261 @@ describe("briefing route — the eyebrow does not claim a delivery", () => {
   it("says Edition, with the day when one is open, and never Delivered", () => {
     expect(EYEBROW).toContain("Edition · ${day.date}");
     expect(EYEBROW).not.toContain("Delivered");
+    // B-01 — state, not delivery: today's briefing is an edition under
+    // assembly, not an inbox receipt.
+    expect(EYEBROW).toContain("Today's edition");
+  });
+});
+
+/**
+ * B-01/B-02/B-06 — the chrome's sentences, read from the route source the way
+ * the eyebrow test above reads it: the sub-line is a claim the reader should be
+ * able to check against the page it sits on, and the chips are preferences.
+ */
+describe("briefing route — the sub-line and the chips tell the truth", () => {
+  const ROUTE = readFileSync("src/routes/dashboard/briefing.tsx", "utf8");
+  const SUB = /sub=\{([\s\S]*?)\}\s*\n/u.exec(ROUTE)?.[1] ?? "";
+
+  it("finds the sub expression it asserts about", () => {
+    expect(SUB).toContain("day");
+  });
+
+  it('names the actual day on an archive, not "today\'s" (B-02)', () => {
+    expect(SUB).toContain("coverage published before ${prefs.time} on ${day.date}");
+  });
+
+  it("keeps the latest briefing's sentence about today (B-01)", () => {
+    expect(SUB).toContain("today's coverage at ${prefs.time}");
+  });
+
+  it("labels the channel chips as preferences, not a status or a receipt (B-06)", () => {
+    expect(ROUTE).toContain("Email · on (preference)");
+    expect(ROUTE).toContain("Telegram · on (preference)");
+    expect(ROUTE).not.toMatch(/Email on/u);
+  });
+});
+
+/**
+ * S2 — the heading tree the audit measured (`docs/reader-clarity-audit-2026-10-
+ * 22.md` §4, Appendix A): the reader's briefing opened on 1 h1, 1 h3, 0 h2, and
+ * 25 stories that were not headings at all — a list that skipped a level and
+ * gave a screen reader nothing to step through. The target after this change:
+ * one h2 section head on the page, every story an `h3` whose first child is the
+ * link into it, and no heading invented beyond that.
+ */
+describe("BriefingPreview — the heading tree (S2)", () => {
+  /** The live shape: one story per line, 25 of them, unique ids. */
+  const delivered: Story[] = Array.from({ length: 25 }, (_, i) => ({
+    ...STORIES[i % STORIES.length]!,
+    id: `6f1c9a52-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+  }));
+
+  it("renders one h2 section head and every story as an h3 containing its link", () => {
+    const html = render(delivered, "reader");
+    expect(headings(html, "h2")).toHaveLength(1);
+    const h3s = headings(html, "h3");
+    expect(h3s).toHaveLength(delivered.length);
+    for (const h3 of h3s) expect(h3).toContain("<a ");
+  });
+
+  it("adds no h1 and no second h2 — the page header owns the h1", () => {
+    const html = render(delivered, "reader");
+    expect(html).not.toContain("<h1");
+    expect(headings(html, "h2")).toHaveLength(1);
+  });
+
+  it("leaves the marketing card's heading shape untouched", () => {
+    const html = render(delivered);
+    expect(headings(html, "h2")).toHaveLength(0);
+    expect(headings(html, "h3")).toHaveLength(1);
+  });
+});
+
+/**
+ * B-03 — the structure. The audit: "no sentence saying what today's briefing is
+ * about, no grouping and no heading between items — 25 cards in one list." The
+ * groups are the events' own primary topics (`topics[0]`), nothing invented;
+ * the order inside a group is the order the edition already chose; the tail
+ * collapses into "Elsewhere" so the page holds two to four groups, not ten.
+ */
+describe("briefGroups — the edition's own topics structure it (B-03)", () => {
+  const mk = (topics: string[], id: string): Story => ({
+    ...STORIES[0]!,
+    id,
+    topics,
+  });
+
+  it("keeps a quiet day flat", () => {
+    expect(briefGroups(STORIES.slice(0, 7).map(() => mk(["AI"], "a")))).toEqual([]);
+  });
+
+  it("keeps a one-topic edition flat — one heading saying 'AI' twenty times is not a group", () => {
+    expect(briefGroups(Array.from({ length: 12 }, (_, i) => mk(["AI"], `s${i}`)))).toEqual([]);
+  });
+
+  it("groups by each story's own topic, order kept inside the group", () => {
+    // Interleaved on purpose: grouping must not let a story overtake the ones
+    // the edition published next to it. 6 AI, 3 Security, interleaved.
+    const stories = [
+      mk(["AI"], "s0"),
+      mk(["Security"], "s1"),
+      mk(["AI"], "s2"),
+      mk(["AI"], "s3"),
+      mk(["Security"], "s4"),
+      mk(["AI"], "s5"),
+      mk(["AI"], "s6"),
+      mk(["AI"], "s7"),
+      mk(["Security"], "s8"),
+    ];
+    const groups = briefGroups(stories);
+    expect(groups.map((g) => [g.topic, g.stories.length])).toEqual([
+      ["AI", 6],
+      ["Security", 3],
+    ]);
+    expect(groups[0]!.stories.map((s) => s.id)).toEqual(["s0", "s2", "s3", "s5", "s6", "s7"]);
+  });
+
+  it("keeps at most four groups, collapsing the long tail into Elsewhere", () => {
+    const stories = [
+      ...Array.from({ length: 6 }, (_, i) => mk(["AI"], `a${i}`)),
+      ...Array.from({ length: 5 }, (_, i) => mk(["Security"], `b${i}`)),
+      ...Array.from({ length: 4 }, (_, i) => mk(["Chips"], `c${i}`)),
+      ...Array.from({ length: 3 }, (_, i) => mk(["Markets"], `d${i}`)),
+      ...Array.from({ length: 2 }, (_, i) => mk(["Sports"], `e${i}`)),
+      ...Array.from({ length: 2 }, (_, i) => mk(["Film"], `f${i}`)),
+    ];
+    const groups = briefGroups(stories);
+    expect(groups.map((g) => g.topic)).toEqual(["AI", "Security", "Chips", "Elsewhere"]);
+    // The tail keeps its own internal order: Markets before Sports before Film.
+    expect(groups[3]!.stories.map((s) => s.topics[0] ?? "none")).toEqual([
+      "Markets",
+      "Markets",
+      "Markets",
+      "Sports",
+      "Sports",
+      "Film",
+      "Film",
+    ]);
+  });
+
+  it("gives four groups without Elsewhere when there are exactly four topics", () => {
+    const stories = [
+      ...Array.from({ length: 3 }, (_, i) => mk(["AI"], `a${i}`)),
+      ...Array.from({ length: 2 }, (_, i) => mk(["Security"], `b${i}`)),
+      ...Array.from({ length: 2 }, (_, i) => mk(["Chips"], `c${i}`)),
+      ...Array.from({ length: 2 }, (_, i) => mk(["Markets"], `d${i}`)),
+    ];
+    expect(briefGroups(stories).map((g) => g.topic)).toEqual([
+      "AI",
+      "Security",
+      "Chips",
+      "Markets",
+    ]);
+  });
+
+  it("labels a group with its topic and its count", () => {
+    expect(
+      briefGroupLabel({ topic: "AI", stories: Array.from({ length: 6 }, () => STORIES[0]!) }),
+    ).toBe("AI · 6 stories");
+    expect(briefGroupLabel({ topic: "Security", stories: [STORIES[0]!] })).toBe(
+      "Security · 1 story",
+    );
+  });
+
+  it("writes the lede from the same two facts — the top group and the next", () => {
+    const stories = [
+      ...Array.from({ length: 6 }, (_, i) => mk(["AI"], `a${i}`)),
+      ...Array.from({ length: 3 }, (_, i) => mk(["Security"], `b${i}`)),
+    ];
+    const groups = briefGroups(stories);
+    expect(briefLede(stories, groups)).toBe(
+      "The day's through-line is AI — 6 of 9 stories — with Security (3) behind it.",
+    );
+  });
+
+  it("still says something true when one topic is the whole edition", () => {
+    const stories = [mk(["AI"], "a"), mk(["AI"], "b_SECOND")];
+    expect(briefGroups(stories)).toEqual([]);
+    expect(briefLede(stories, [])).toBe("");
+  });
+});
+
+describe("BriefingPreview — the groups render as structure (B-03)", () => {
+  /** 9 stories, 6 AI then interleaved Security, like the fixture above. */
+  const stories: Story[] = [
+    mk(["AI"], "s0"),
+    mk(["Security"], "s1"),
+    mk(["AI"], "s2"),
+    mk(["AI"], "s3"),
+    mk(["Security"], "s4"),
+    mk(["AI"], "s5"),
+    mk(["AI"], "s6"),
+    mk(["AI"], "s7"),
+    mk(["Security"], "s8"),
+  ];
+  function mk(topics: string[], id: string): Story {
+    return { ...STORIES[0]!, id, topics };
+  }
+
+  it("renders the lede and one labelled group per topic, numbers still counting the whole edition", () => {
+    const html = render(stories, "reader");
+    expect(html).toContain(
+      "The day's through-line is AI — 6 of 9 stories — with Security (3) behind it.",
+    );
+    expect(html).toContain("AI · 6 stories");
+    expect(html).toContain("Security · 3 stories");
+    // Item 07 is the last AI story read, wherever it sits in the page's list.
+    expect(html).toContain(">07</span>");
+  });
+
+  it("renders neither a lede nor group labels on the flat, low end", () => {
+    const html = render(stories.slice(0, 3), "reader");
+    expect(html).not.toContain("through-line");
+    expect(html).not.toContain('role="heading"');
+  });
+});
+
+/**
+ * X-01 — parity with the feed. Measured in the audit: the feed gives every card
+ * an importance band and Read/Save; the briefing gave a headline link and
+ * nothing. One card, one set of facts: the band prints on both, and the
+ * briefing gets the same two actions.
+ */
+describe("BriefingPreview — one card, one set of facts (X-01)", () => {
+  const base: Story = {
+    ...STORIES[0]!,
+    title: "A headline that does not contain the band word",
+    importance: "High",
+  };
+
+  it("shows the importance band on the reader's card", () => {
+    expect(render([base], "reader")).toContain(">High</span>");
+  });
+
+  it("gives the reader's card the feed's two actions, and knows which one is pressed", () => {
+    const html = render([base], "reader", undefined, {
+      savedIds: [base.id],
+      onToggleSave: vi.fn(),
+    });
+    // Read joins the headline link, so the anchors double; the button exists
+    // exactly once and says what was pressed.
+    expect(anchors(html)).toHaveLength(2);
+    expect(anchors(html).every((a) => a.includes(base.id))).toBe(true);
+    expect(html).toContain("<button");
+    expect(html).toContain("Saved");
+    expect(html).toMatch(/aria-pressed="true"/u);
+  });
+
+  it("keeps the actions off surfaces that never asked for them", () => {
+    // No toggle passed: the reader's card has no buttons at all.
+    expect(render([base], "reader")).not.toContain("<button");
+    // The marketing facsimile stays inert even if a caller passes both props —
+    // a link there would send a visitor into a dashboard they have no account for.
+    const marketing = render([base], "marketing", undefined, {
+      savedIds: [base.id],
+      onToggleSave: vi.fn(),
+    });
+    expect(marketing).not.toContain("<a ");
+    expect(marketing).not.toContain("<button");
   });
 });

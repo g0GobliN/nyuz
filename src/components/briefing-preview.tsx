@@ -1,10 +1,114 @@
 import { Link } from "@tanstack/react-router";
+import { Bookmark } from "lucide-react";
+import { useMemo, type ReactNode } from "react";
 import { LogoMark } from "@/components/landing/nav";
 import { BRIEFING_READING } from "@/lib/briefing-measure";
 import type { Story } from "@/lib/story";
 import { sourceCount } from "@/lib/story";
 import type { QueueSource } from "@/lib/use-reading-queue";
 import { cn } from "@/lib/utils";
+
+/**
+ * The tone the importance band prints in, shared with the feed's card.
+ *
+ * X-01 measured the split this closes: the feed gave every one of the 25 cards
+ * an importance band, the briefing gave none, so the surface that calls itself
+ * "as it was assembled" was the one that hid the fact the reader opens the feed
+ * for. One card, one set of facts — the same three bands, in the same tones,
+ * here as well as in `story-card.tsx`.
+ */
+export const IMPORTANCE_TONE: Record<Story["importance"], string> = {
+  High: "text-signal border-signal/40",
+  Medium: "text-foreground border-border",
+  Notable: "text-muted-foreground border-hairline",
+};
+
+/**
+ * B-03 — a briefing of the day's stories, grouped by the stories' own topics.
+ *
+ * A group's name is never written here: it is always `topics[0]` of the stories
+ * inside it, the same string every card already prints. What this module adds
+ * is only the decision about which groups a page shows.
+ */
+
+/** Below this many stories an edition stays one list; a page of three items needs no sections. */
+const MIN_GROUPED = 8;
+/** The page holds two to four groups; anything past that is the reader's scroll, not structure. */
+const MAX_GROUPS = 4;
+/** The bucket that collated stories nobody's topic reached. Named so, because it means exactly that. */
+const ELSEWHERE = "Elsewhere";
+
+export type BriefGroup = {
+  /** The stories' own primary topic — never an invented name, except for Elsewhere. */
+  topic: string;
+  /**
+   * The group's stories, in the order the edition already chose. Grouping is a
+   * stable partition: a story never overtakes the ones published around it.
+   */
+  stories: Story[];
+};
+
+/**
+ * The groups one edition renders as, or `[]` when it should stay one list.
+ *
+ * Groups sort by size, so a reader with two minutes meets the dominant thread
+ * first; ties break by first appearance, the edition's own order. When the
+ * stories carry more topics than fit, the groups that didn't make the cut —
+ * and the lone story with no topic at all — share one trailing group, in the
+ * order they appeared, so an archive page can never say anything the day's
+ * events did not themselves say.
+ */
+export function briefGroups(stories: Story[]): BriefGroup[] {
+  if (stories.length < MIN_GROUPED) return [];
+
+  const counts = new Map<string, number>();
+  const firstSeen = new Map<string, number>();
+  for (const [i, story] of stories.entries()) {
+    const topic = story.topics[0];
+    if (!topic) continue; // A story with no topic belongs to Elsewhere.
+    counts.set(topic, (counts.get(topic) ?? 0) + 1);
+    if (!firstSeen.has(topic)) firstSeen.set(topic, i);
+  }
+  // One topic the whole day down is typography, not structure: the groups would
+  // rename the list a heading per row without telling the reader anything new.
+  if (counts.size < 2) return [];
+
+  const named = [...counts.entries()].sort(
+    ([a, na], [b, nb]) => nb - na || (firstSeen.get(a) ?? 0) - (firstSeen.get(b) ?? 0),
+  );
+  const kept = counts.size <= MAX_GROUPS ? named : named.slice(0, MAX_GROUPS - 1);
+  const out: BriefGroup[] = kept.map(([topic]) => ({ topic, stories: [] }));
+  const byTopic = new Map(out.map((g) => [g.topic, g]));
+  const elsewhere: Story[] = [];
+  for (const story of stories) {
+    const group = story.topics[0] ? byTopic.get(story.topics[0] as string) : undefined;
+    (group ? group.stories : elsewhere).push(story);
+  }
+  if (elsewhere.length > 0) out.push({ topic: ELSEWHERE, stories: elsewhere });
+  return out;
+}
+
+/** A group's on-page heading: what fits inside it, in words. */
+export function briefGroupLabel(group: BriefGroup): string {
+  const n = group.stories.length;
+  return `${group.topic} · ${n} ${n === 1 ? "story" : "stories"}`;
+}
+
+/**
+ * The one sentence that replaces the audit's "the entire introduction": what
+ * the day's thread is, measured from the same groups the page renders. Empty
+ * when no groups render — a quiet morning gets neither a lede nor a claim.
+ */
+export function briefLede(stories: Story[], groups: BriefGroup[]): string {
+  const first = groups[0];
+  if (!first) return "";
+  const n0 = first.stories.length;
+  const second = groups[1];
+  if (!second) {
+    return `The day's through-line is ${first.topic}: ${n0} of ${stories.length} stories.`;
+  }
+  return `The day's through-line is ${first.topic} — ${n0} of ${stories.length} stories — with ${second.topic} (${second.stories.length}) behind it.`;
+}
 
 /**
  * The briefing as it was delivered, on two surfaces that need different things
@@ -15,19 +119,19 @@ import { cn } from "@/lib/utils";
  * dashboard they have no account for.
  *
  * `reader` is the reader's own briefing at `/dashboard/briefing`. It is the same
- * card — same header, same rule between items, same 25-row rhythm — with the two
- * things the audit found missing on the real surface
- * (`docs/design-audit-2026-10-21.md`, B1/B2):
+ * card — same header, same rule between items, same 25-row rhythm — with the
+ * things the audits found missing on the real surface
+ * (`docs/design-audit-2026-10-21.md` B1/B2, `docs/reader-clarity-2026-10-22` S2/B-03):
  *
- *  - **each headline is the way into its story.** Measured on the deployed
- *    product: 25 stories, 0 anchors, 0 tabbable elements. The headline is the
- *    target rather than the whole row, so text selection and the row rhythm are
- *    unchanged, and it carries the feed card's hover treatment and the kit's
- *    focus ring.
- *  - **the card is a reading column.** The marketing card was sized for a
- *    548 px column; mounted unchanged in the product's 969 px content area it
- *    set 144 characters on a line. `BRIEFING_READING` holds the cap and the
- *    measurement behind it.
+ *  - **each headline is a heading, and the way into its story.** Measured on the
+ *    deployed product: 25 stories, 0 anchors, then 0 anchors as headings. The
+ *    headline is an `h3` whose link is its first child, so the page steps
+ *    `h1 → h2 → h3 × 25` with no skipped level, and it carries the feed card's
+ *    hover treatment and the kit's focus ring.
+ *  - **the card is a reading column.** The marketing card was sized for a 548 px
+ *    column; mounted unchanged in the product's 969 px content area it set 144
+ *    characters on a line. `BRIEFING_READING` holds the cap and the measurement
+ *    behind it.
  *
  * Both are one switch rather than a fork, because the two surfaces must not
  * drift: what the landing page shows is the claim, and the dashboard is where
@@ -72,6 +176,8 @@ export function BriefingPreview({
   fromQueue,
   chrome = "email",
   editionTime,
+  savedIds,
+  onToggleSave,
 }: {
   stories: Story[];
   time?: string;
@@ -95,6 +201,20 @@ export function BriefingPreview({
    * other. Both come from the reader's own `prefs.time`.
    */
   editionTime?: string;
+  /**
+   * X-01 parity — the reader's *own* save state, the ids the reader has saved.
+   * Only read; the write goes through `onToggleSave`.
+   */
+  savedIds?: string[];
+  /**
+   * X-01 parity — the feed card's two actions on the briefing card: Read (the
+   * explicit affordance, where the headline is also a link) and Save. Both the
+   * actions row and every Save button are gated on this prop being passed, so
+   * the marketing facsimile can never grow a form by accident and the Saved
+   * shelf can share the same card, where tapping Save removes the story it is
+   * saving.
+   */
+  onToggleSave?: (story: Story) => void;
 }) {
   const reader = variant === "reader";
   const edition = chrome === "edition";
@@ -102,6 +222,27 @@ export function BriefingPreview({
   // card's own `time` so a caller that passes only one of the two still gets a
   // true time rather than an empty stamp.
   const stamp = editionTime ?? time;
+  // Grouping is a reader-surface feature only: the landing page shows the
+  // briefing "as it was assembled" in one art-directed list, and a group label
+  // there would be a structure the marketing page never promised.
+  const groups = useMemo(() => (reader ? briefGroups(stories) : []), [reader, stories]);
+  // One numbering across the whole edition, groups included — the numbers are
+  // the "1 of 25" the reader already knows, so a section break must not reset
+  // them.
+  const orderOf = useMemo(() => new Map(stories.map((s, i) => [s.id, i])), [stories]);
+
+  const row = (story: Story): ReactNode => (
+    <BriefingRow
+      key={story.id}
+      story={story}
+      n={orderOf.get(story.id) ?? 0}
+      reader={reader}
+      compact={compact}
+      fromQueue={fromQueue}
+      saved={savedIds?.includes(story.id) ?? false}
+      onToggleSave={onToggleSave}
+    />
+  );
 
   return (
     <div
@@ -143,78 +284,60 @@ export function BriefingPreview({
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           Your {time} brief
         </p>
-        <h3 className="mt-2 font-serif text-2xl leading-tight sm:text-[28px]">
-          {stories.length} things worth knowing{name ? `, ${name}` : ""}.
-        </h3>
+        {/*
+          S2 — on the reader's surface this is the page's one section heading, so
+          it is an h2 (the page header holds the h1; the marketing card keeps its
+          h3, which its larger page structure owns). What it says is unchanged.
+        */}
+        {reader ? (
+          <h2 className="mt-2 font-serif text-2xl leading-tight sm:text-[28px]">
+            {stories.length} things worth knowing{name ? `, ${name}` : ""}.
+          </h2>
+        ) : (
+          <h3 className="mt-2 font-serif text-2xl leading-tight sm:text-[28px]">
+            {stories.length} things worth knowing{name ? `, ${name}` : ""}.
+          </h3>
+        )}
+        {/*
+          B-03 — the introduction the audit found missing, written from the same
+          grouping the page renders below. One sentence, derived from stored
+          events; it can say the day's thread only when one exists.
+        */}
+        {groups.length > 0 ? (
+          <p className="mt-3 max-w-[52ch] text-[14px] leading-relaxed text-muted-foreground">
+            {briefLede(stories, groups)}
+          </p>
+        ) : null}
       </div>
 
-      <ol className="divide-y divide-[var(--hairline)] px-5 sm:px-7">
-        {stories.map((s, i) => (
-          <li key={s.id} className="py-5">
-            <div className="flex items-baseline gap-3">
-              <span className="text-[11px] tabular-nums text-muted-foreground">
-                {String(i + 1).padStart(2, "0")}
-              </span>
-              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-signal">
-                {s.org}
-              </span>
-            </div>
-            {reader ? (
-              <Link
-                // The pager on the story page reads `from`. Today's briefing
-                // passes `briefing` so the reader pages through the 25 they
-                // just saw; omitting it (the marketing variant, or the Saved
-                // tab where the count would lie in a different way) leaves the
-                // page with no position line — that is the honest answer when
-                // we cannot name the list the reader came from.
-                to="/dashboard/story/$id"
-                params={{ id: s.id }}
-                {...(fromQueue ? { search: { from: fromQueue } } : {})}
-                className="mt-1.5 block cursor-pointer rounded-sm text-[16px] font-medium leading-snug transition-colors hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      {groups.length > 0 ? (
+        <div className="pb-3">
+          {groups.map((group) => (
+            <section key={group.topic}>
+              {/*
+                A group's heading. It is a `p` with a heading role rather than a
+                third `h3` because the S2 contract fixes the tree at
+                `h2 × 1, h3 × 25` — one section head, one heading per story —
+                and a group heading would return the very skip the audit
+                measured if stories were pushed to h4. The role keeps the
+                structure legible to a screen reader without inventing a level.
+              */}
+              <p
+                role="heading"
+                aria-level={3}
+                className="px-5 pb-1 pt-5 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:px-7"
               >
-                {s.title}
-              </Link>
-            ) : (
-              <p className="mt-1.5 text-[16px] font-medium leading-snug">{s.title}</p>
-            )}
-            {!compact && (
-              <p className="mt-2 text-[14.5px] leading-relaxed text-muted-foreground">{s.what}</p>
-            )}
-            {/*
-              Significance and provenance are different claims and print under
-              different headings (arbiter, 2026-10-09): `why` is the briefing's
-              fact about the story, `personalization` is the reader's own
-              follow graph. Either renders alone or both together, and neither
-              prints an empty heading — the heading is the container, the
-              sentence is the content.
-            */}
-            {(s.why ?? "").trim().length > 0 ? (
-              <p className="mt-3 text-[13px] leading-relaxed">
-                <span className="font-medium">Why it matters · </span>
-                <span className="text-muted-foreground">{s.why}</span>
+                {briefGroupLabel(group)}
               </p>
-            ) : null}
-            {s.personalization ? (
-              <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-                <span className="font-medium">{s.personalization.heading} · </span>
-                {s.personalization.explanation}
-              </p>
-            ) : null}
-            {/*
-              "Based on N sources" is a corroboration claim, and one outlet is
-              the absence of one. A single-source story states its outlet in the
-              card header already; printing "Based on 1 source" under every card
-              turned a fact into filler. It returns the moment a second outlet
-              picks the story up.
-            */}
-            {s.sources > 1 ? (
-              <p className="mt-2.5 text-[11.5px] text-muted-foreground">
-                Based on {sourceCount(s.sources)}
-              </p>
-            ) : null}
-          </li>
-        ))}
-      </ol>
+              <ol className="divide-y divide-[var(--hairline)] px-5 sm:px-7">
+                {group.stories.map(row)}
+              </ol>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <ol className="divide-y divide-[var(--hairline)] px-5 sm:px-7">{stories.map(row)}</ol>
+      )}
 
       <div className="flex items-center justify-between border-t border-hairline px-5 py-4 text-[12px] text-muted-foreground sm:px-7">
         {/*
@@ -231,5 +354,140 @@ export function BriefingPreview({
         <span className={edition ? "ml-auto" : undefined}>Email · Telegram · Notifications</span>
       </div>
     </div>
+  );
+}
+
+/**
+ * One story as the briefing card prints it. Local to this file on purpose: it
+ * is the same row on both surfaces, and the decisions that differ (`reader`
+ * headline-as-heading, band and actions) live in the props, not in a fork.
+ */
+function BriefingRow({
+  story: s,
+  n,
+  reader,
+  compact,
+  fromQueue,
+  saved,
+  onToggleSave,
+}: {
+  story: Story;
+  /** The story's position in the whole edition — numbering never resets at a group. */
+  n: number;
+  reader: boolean;
+  compact?: boolean | undefined;
+  fromQueue?: QueueSource | undefined;
+  saved: boolean;
+  onToggleSave?: ((story: Story) => void) | undefined;
+}) {
+  return (
+    <li className="py-5">
+      <div className="flex items-baseline gap-3">
+        <span className="text-[11px] tabular-nums text-muted-foreground">
+          {String(n + 1).padStart(2, "0")}
+        </span>
+        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-signal">
+          {s.org}
+        </span>
+        {/*
+          X-01 — the band the feed prints on every card, in the same three
+          tones. Reader surface only: the marketing card shows the briefing as
+          assembled, where the band's absence is not a discrepancy the reader
+          can catch.
+        */}
+        <span
+          className={cn(
+            "ml-auto rounded-full border px-2.5 py-0.5 text-[11px]",
+            IMPORTANCE_TONE[s.importance],
+          )}
+        >
+          {s.importance}
+        </span>
+      </div>
+      {reader ? (
+        <h3 className="mt-1.5 text-[16px] font-medium leading-snug">
+          <Link
+            // The pager on the story page reads `from`. Today's briefing
+            // passes `briefing` so the reader pages through the 25 they
+            // just saw; omitting it (the marketing variant, or the Saved
+            // tab where the count would lie in a different way) leaves the
+            // page with no position line — that is the honest shape when the
+            // list cannot be named.
+            to="/dashboard/story/$id"
+            params={{ id: s.id }}
+            {...(fromQueue ? { search: { from: fromQueue } } : {})}
+            className="block cursor-pointer rounded-sm transition-colors hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          >
+            {s.title}
+          </Link>
+        </h3>
+      ) : (
+        <p className="mt-1.5 text-[16px] font-medium leading-snug">{s.title}</p>
+      )}
+      {!compact && (
+        <p className="mt-2 text-[14.5px] leading-relaxed text-muted-foreground">{s.what}</p>
+      )}
+      {/*
+        Significance and provenance are different claims and print under
+        different headings (arbiter, 2026-10-09): `why` is the briefing's
+        fact about the story, `personalization` is the reader's own
+        follow graph. Either renders alone or both together, and neither
+        prints an empty heading — the heading is the container, the
+        sentence is the content.
+      */}
+      {(s.why ?? "").trim().length > 0 ? (
+        <p className="mt-3 text-[13px] leading-relaxed">
+          <span className="font-medium">Why it matters · </span>
+          <span className="text-muted-foreground">{s.why}</span>
+        </p>
+      ) : null}
+      {s.personalization ? (
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+          <span className="font-medium">{s.personalization.heading} · </span>
+          {s.personalization.explanation}
+        </p>
+      ) : null}
+      {/*
+        "Based on N sources" is a corroboration claim, and one outlet is
+        the absence of one. A single-source story states its outlet in the
+        card header already; printing "Based on 1 source" under every card
+        turned a fact into filler. It returns the moment a second outlet
+        picks the story up.
+      */}
+      {s.sources > 1 ? (
+        <p className="mt-2.5 text-[11.5px] text-muted-foreground">
+          Based on {sourceCount(s.sources)}
+        </p>
+      ) : null}
+      {/*
+        X-01 — the feed card's two actions, on the briefing card. The Save
+        button carries the same optimistic state the shelf and the feed both
+        use, and on the Saved tab it is how the story gets removed again.
+      */}
+      {reader && onToggleSave ? (
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-hairline pt-4">
+          <Link
+            to="/dashboard/story/$id"
+            params={{ id: s.id }}
+            {...(fromQueue ? { search: { from: fromQueue } } : {})}
+            className="rounded-full border border-border px-3.5 py-1.5 text-[12.5px] transition-colors hover:bg-muted"
+          >
+            Read <span aria-hidden>→</span>
+          </Link>
+          <button
+            type="button"
+            onClick={() => onToggleSave(s)}
+            aria-pressed={saved}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12.5px] transition-colors",
+              saved ? "border-signal/50 text-signal" : "border-border hover:bg-muted",
+            )}
+          >
+            <Bookmark className={cn("h-3.5 w-3.5", saved && "fill-current")} />
+            {saved ? "Saved" : "Save"}
+          </button>
+        </div>
+      ) : null}
+    </li>
   );
 }
