@@ -4061,3 +4061,15 @@ live product (four `B` findings closed). The reader's story pages are where the 
 two of the three new blockers (`N-01`, `N-02`) are composition leaks into prose, and `N-03` is the
 free-tier CPU ceiling arriving on a reader route. Next: the composer slices for those three, then the
 edition's composition (7 vendor-blog cards, one duplicated story, a discount card).
+
+### 2026-10-23 · CEO: the briefing tab returns to its pre-#59 UI, by owner ruling
+
+The owner read the deployed briefing tab and asked for the page as it was before PR #59. Reverted
+wholesale in `wt/revert-briefing-ui`: heading structure (`S2`), topic grouping with the `Elsewhere`
+bucket (`B-03`), the importance band and the card's `Read`/`Save` parity (`X-01`), the
+`Today's edition` eyebrow and the archive sub-line (`B-01`/`B-02`/`B-06`). `briefing-preview.test.ts`
+is restored with the code, 17/17 green on the reverted tree.
+
+Recorded, not hidden: this reopens six audit findings the quality sprint had closed on that page. The
+reader-facing bar still decides — the owner's read of the live page outranks an audit score, so the
+findings come back as findings and the next briefing slice starts from this surface, not from #59's.
