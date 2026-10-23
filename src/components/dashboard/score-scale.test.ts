@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { IMPORTANT_FLOOR } from "@/lib/pipeline/alert-floor";
+import { formatScore } from "@/lib/score-format";
 import { asPercent, type Story } from "@/lib/story";
 import { StoryArticle } from "./story-article";
 
@@ -17,10 +18,13 @@ import { StoryArticle } from "./story-article";
  * `src/lib/story.ts`), so a reader had to divide by ten to see that the 6 that
  * interrupts them is the 5.0 (or 6.0) on the page they were reading.
  *
- * The ruling is option A: one scale, 0–10 with one decimal. This test is the one
- * that can prove the two surfaces agree, because it renders the real component
- * and reads the alert sentence from the route that prints it — a test over
- * either surface alone would have passed while the defect stood.
+ * The ruling is option A: one scale, 0–10. One decimal follows only when the
+ * score has one — a stored 6 printed `6.0 / 10`, which claims a tenth the
+ * number does not carry, so whole scores now print bare (`formatScore`,
+ * `src/lib/score-format.ts`). This test is the one that can prove the two
+ * surfaces agree, because it renders the real component and reads the alert
+ * sentence from the route that prints it — a test over either surface alone
+ * would have passed while the defect stood.
  *
  * The router stands in as an anchor for `EvidenceRefs`, as in
  * `story-opening-surfaces.test.ts`.
@@ -91,28 +95,35 @@ const textOf = (card: string): string =>
 describe("the story page's Scoring card prints one 0–10 scale", () => {
   const card = scoringCard(renderArticle(story({ relevance: 60, importance: 50, novelty: 70 })));
 
-  it("prints all three scores as N.N / 10, and no percent sign at all", () => {
+  it("prints all three scores as N / 10 or N.N / 10, and no percent sign at all", () => {
     const values = valuesIn(card);
     expect(values).toHaveLength(3);
-    for (const value of values) expect(value).toMatch(/^\d{1,2}\.\d \/ 10$/u);
-    expect(values).toEqual(["6.0 / 10", "5.0 / 10", "7.0 / 10"]);
+    for (const value of values) expect(value).toMatch(/^\d{1,2}(\.\d)? \/ 10$/u);
+    expect(values).toEqual(["6 / 10", "5 / 10", "7 / 10"]);
     // The defect: this string used to read "Importance50%". A percent sign in the
     // card's text is the second scale coming back.
     expect(textOf(card)).not.toContain("%");
   });
 
-  it("reads a stored importance of 5.0 as 5.0 / 10, not 50%", () => {
+  it("reads a stored importance of 5.0 as 5 / 10, not 50%", () => {
     // The live capture in the audit (`story-sidebar-1280.png`) showed 50% here.
     expect(card).toContain(
-      '<span class="text-muted-foreground">Importance</span><span class="tabular-nums">5.0 / 10</span>',
+      '<span class="text-muted-foreground">Importance</span><span class="tabular-nums">5 / 10</span>',
     );
   });
 
-  it("prints the value with one decimal, including at the top of the scale", () => {
+  it("drops the trailing zero at the top of the scale too", () => {
     // Relevance is `asPercent(user_events.relevance)` and clamps at 100, so 100
-    // is the widest a row can get: it must read 10.0 / 10, not 10 / 10.
+    // is the widest a row can get: it reads 10 / 10, not 10.0 / 10.
     const top = scoringCard(renderArticle(story({ relevance: 100, importance: 100, novelty: 0 })));
-    expect(valuesIn(top)).toEqual(["10.0 / 10", "10.0 / 10", "0.0 / 10"]);
+    expect(valuesIn(top)).toEqual(["10 / 10", "10 / 10", "0 / 10"]);
+  });
+
+  it("keeps the decimal where the score actually has one", () => {
+    const fractional = scoringCard(
+      renderArticle(story({ relevance: 59, importance: 96, novelty: 34 })),
+    );
+    expect(valuesIn(fractional)).toEqual(["5.9 / 10", "9.6 / 10", "3.4 / 10"]);
   });
 
   it("keeps the bars, their 1 px height and their widths", () => {
@@ -145,7 +156,7 @@ describe("the alert rule names the same number as the rail", () => {
   it("reads its threshold from the alert stage's own constant", () => {
     expect(source).toContain('import { IMPORTANT_FLOOR } from "@/lib/pipeline/alert-floor";');
     expect(source).toContain(
-      "Only events scoring ${IMPORTANT_FLOOR.toFixed(1)} or higher out of 10 interrupt you",
+      "Only events scoring ${formatScore(IMPORTANT_FLOOR)} or higher out of 10 interrupt you",
     );
     // A literal floor is how the two scales drifted apart the first time.
     expect(source).not.toContain("scoring 6 or higher");
@@ -165,7 +176,7 @@ describe("the alert rule names the same number as the rail", () => {
       renderArticle(story({ relevance: 60, importance: asPercent(IMPORTANT_FLOOR), novelty: 70 })),
     );
     const importance = valuesIn(floorStory)[1];
-    expect(importance).toBe(`${IMPORTANT_FLOOR.toFixed(1)} / 10`);
+    expect(importance).toBe(`${formatScore(IMPORTANT_FLOOR)} / 10`);
     // One decimal of resolution below the floor is a different number, so the
     // sentence's threshold is the first value that qualifies, not a rounded one.
     const belowFloor = valuesIn(

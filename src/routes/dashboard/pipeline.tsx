@@ -13,6 +13,7 @@ import {
 } from "@/lib/server/analytics";
 import type { EventStatus } from "@/lib/supabase/types";
 import { sourceCount } from "@/lib/story";
+import { formatScore } from "@/lib/score-format";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/dashboard/pipeline")({
@@ -402,7 +403,7 @@ function EventsTab({
                   {statusLabel(e.status)}
                 </span>
                 <span className="ml-auto text-[12.5px] tabular-nums">
-                  Importance {e.importance.toFixed(1)}
+                  Importance {formatScore(e.importance)}
                 </span>
               </div>
 
