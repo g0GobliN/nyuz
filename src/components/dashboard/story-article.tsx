@@ -177,6 +177,11 @@ export function StoryArticle({
       >
         <div className={CARD}>
           <p className={CARD_LABEL}>Scoring</p>
+          {/* One scale, printed as the score a reader can compare with the alert
+              rule: `value` is already `asPercent(score)`, so a tenth of it is the
+              stored 0–10 value — the same number `IMPORTANT_FLOOR` names on
+              /dashboard/alerts. The bar keeps `width: {value}%`, so the length a
+              reader glances at does not move. */}
           <div className="mt-4 space-y-3">
             {(
               [
@@ -188,7 +193,7 @@ export function StoryArticle({
               <div key={label}>
                 <div className="flex justify-between text-[12.5px]">
                   <span className="text-muted-foreground">{label}</span>
-                  <span className="tabular-nums">{value}%</span>
+                  <span className="tabular-nums">{(value / 10).toFixed(1)} / 10</span>
                 </div>
                 <div className="mt-1.5 h-1 rounded-full bg-muted">
                   <div

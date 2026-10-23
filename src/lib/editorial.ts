@@ -561,6 +561,19 @@ export type CompositionDiagnostics = {
    */
   ordering: "narrative" | "relevance";
   /**
+   * The chronology pass, reported separately from `ordering` because it decides
+   * one block and the deck rather than the whole list: a story can stay ranked
+   * and still publish its timeline forwards.
+   */
+  chronology: {
+    /** Facts that open on a calendar date, when the story carries a timeline. */
+    timelineFacts: number;
+    /** Blocks re-read in forward date order. */
+    reorderedBlocks: number;
+    /** Times the deck moved off a mid-timeline step to the timeline's start. */
+    deckMovedToTimelineStart: number;
+  };
+  /**
    * How each published block acquired its attribution, by count.
    *
    * `reports_that` is the wrapper, `according_to` the deck's opening clause,
@@ -662,6 +675,7 @@ function createDiagnostics(): CompositionDiagnostics {
     paragraphs: { assembled: 0, split: 0, rendered: 0, rejected: 0, reasons: {} },
     sentences: { considered: 0, rendered: 0, merged: 0, refused: 0, reasons: {} },
     ordering: "relevance",
+    chronology: { timelineFacts: 0, reorderedBlocks: 0, deckMovedToTimelineStart: 0 },
     attribution: {},
     fallback: {
       attempted: 0,
@@ -1910,7 +1924,7 @@ function qualityGate(
    */
   ledger: FactLedger,
 ): ReaderArticle {
-  const sentencesWithEvidence: { text: string; evidence: number[] }[] = [];
+  const sentencesWithEvidence: { text: string; evidence: number[]; standalone?: boolean }[] = [];
   const index = new Map<string, number>();
   /**
    * sentence -> the sentence it has to sit directly behind.
@@ -2075,7 +2089,11 @@ function qualityGate(
         // was carrying `[1]` twice per block, which read as machinery rather than
         // as provenance. The renderer dedupes too; this keeps the stored article
         // honest for anything else that reads it.
-        sentencesWithEvidence.push({ text: part, evidence: [...new Set(paragraph.evidence)] });
+        sentencesWithEvidence.push({
+          text: part,
+          evidence: [...new Set(paragraph.evidence)],
+          ...(paragraph.standalone ? { standalone: true } : {}),
+        });
         published += 1;
         continue;
       }
@@ -2093,9 +2111,22 @@ function qualityGate(
   // validator be the merge condition: a merge that would produce a block its own
   // validator refuses simply does not happen, so no fact is lost to reach a
   // paragraph shape, and every published block passes the paragraph check.
-  const assembled: { text: string; evidence: number[]; sentences: number }[] = [];
+  const assembled: {
+    text: string;
+    evidence: number[];
+    sentences: number;
+    standalone?: boolean;
+  }[] = [];
   for (const part of sentencesWithEvidence) {
-    const prior = assembled.at(-1);
+    /**
+     * A block the composer marked as its own paragraph is fenced at both ends: it
+     * merges with a neighbour only when the neighbour is marked the same way, so
+     * the timeline keeps its dates together instead of being absorbed into the
+     * paragraph above it or swallowing the one below.
+     */
+    const last = assembled.at(-1);
+    const prior =
+      last && (last.standalone === true) === (part.standalone === true) ? last : undefined;
     const merged = prior ? `${prior.text} ${part.text}` : part.text;
     const shares = prior && prior.evidence.some((ref) => part.evidence.includes(ref));
     // A repaired pair is never split by the word budget: the dependent sentence
@@ -2117,7 +2148,12 @@ function qualityGate(
       if (countWords(remaining) >= MIN_PARAGRAPH_WORDS && validDeterministicParagraph(pair)) {
         prior.text = remaining;
         prior.sentences -= 1;
-        assembled.push({ text: pair, evidence: [...part.evidence], sentences: 2 });
+        assembled.push({
+          text: pair,
+          evidence: [...part.evidence],
+          sentences: 2,
+          ...(part.standalone ? { standalone: true } : {}),
+        });
         continue;
       }
     }
@@ -2131,7 +2167,12 @@ function qualityGate(
       prior.evidence = [...new Set([...prior.evidence, ...part.evidence])];
       prior.sentences += 1;
     } else {
-      assembled.push({ text: part.text, evidence: [...part.evidence], sentences: 1 });
+      assembled.push({
+        text: part.text,
+        evidence: [...part.evidence],
+        sentences: 1,
+        ...(part.standalone ? { standalone: true } : {}),
+      });
     }
   }
 
@@ -2179,6 +2220,256 @@ function qualityGate(
  */
 function groupRank(group: ReaderFact[]): number {
   return Math.min(...group.map((fact) => storyPositionRank(fact.text)));
+}
+
+/* ------------------------------------------------------------------------- */
+/* Chronology: the story's own timeline, read forwards                       */
+/* ------------------------------------------------------------------------- */
+
+const MONTH_INDEX: Record<string, number> = {
+  january: 0,
+  february: 1,
+  march: 2,
+  april: 3,
+  may: 4,
+  june: 5,
+  july: 6,
+  august: 7,
+  september: 8,
+  october: 9,
+  november: 10,
+  december: 11,
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  sept: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11,
+};
+
+/** `August 24, 2026:` -- a sentence that opens on its own place in a timeline. */
+const LEADING_CALENDAR_DATE = /^\s*([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\s*:/i;
+
+/** A calendar day stated anywhere in the sentence. */
+const CALENDAR_DATE = /\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/;
+
+/** A clock time the source anchored itself, in minutes since midnight. */
+const CLOCK_TIME = /\b(\d{1,2}):(\d{2})\s*(?:UTC|GMT)\b/i;
+
+/** The year a sentence that gives only a month and a day is compared inside. */
+const UNDATED_YEAR = 2000;
+
+function calendarMilliseconds(
+  month: string | undefined,
+  day: string | undefined,
+  year: string | undefined,
+  /** The year a story's sentences are compared inside when they state none. */
+  referenceYear: number,
+): number | null {
+  const index = MONTH_INDEX[(month ?? "").toLowerCase()];
+  const date = Number(day);
+  const at = year === undefined ? referenceYear : Number(year);
+  if (index === undefined || !Number.isInteger(date) || date < 1 || date > 31) return null;
+  return Date.UTC(at, index, date);
+}
+
+/**
+ * The year this story's dates are compared inside.
+ *
+ * A sentence that says `October 20th` and one that says `August 24, 2026` have to
+ * be compared in one calendar or the yearless one silently sorts first -- the
+ * measured failure that put the timeline block after the paragraph it precedes.
+ * The story's own publication date is the calendar a reader is in, and a stated
+ * year always wins over it, so a story that spans a new year still reads forwards.
+ */
+function chronologyReferenceYear(facts: ReaderFact[], story: Story): number {
+  const published = story.publishedAt ? new Date(story.publishedAt) : null;
+  if (published && !Number.isNaN(published.getTime())) return published.getUTCFullYear();
+  for (const fact of facts) {
+    const stated = LEADING_CALENDAR_DATE.exec(fact.text) ?? CALENDAR_DATE.exec(fact.text);
+    const year = stated?.[3];
+    if (year && Number.isInteger(Number(year))) return Number(year);
+  }
+  return UNDATED_YEAR;
+}
+
+/**
+ * The calendar day a sentence *opens* on, when it opens on one.
+ *
+ * `sourceOrder` is not a position for every story. For a source the enrichment
+ * pass wrote evidence for, it is the index of the *evidence unit*, and that pass
+ * writes its units in the order it judged them, not in the order the publisher
+ * wrote the sentences -- measured on the PHP-security story in the delivered
+ * 2026-10-21 briefing, whose post runs `On Tuesday, October 20th, at around
+ * 15:00 UTC` first and whose evidence array runs `In response, ...` first. So
+ * the one ordering fact the composer can read without guessing is the date the
+ * sentence carries itself.
+ */
+function leadingCalendarDate(text: string): number | null {
+  const match = LEADING_CALENDAR_DATE.exec(text);
+  if (!match) return null;
+  return calendarMilliseconds(match[1], match[2], match[3], UNDATED_YEAR);
+}
+
+function mentionedDay(text: string, referenceYear: number): number | null {
+  const match = CALENDAR_DATE.exec(text);
+  if (!match) return null;
+  return calendarMilliseconds(match[1], match[2], match[3], referenceYear);
+}
+
+function clockMinute(text: string): number | null {
+  const match = CLOCK_TIME.exec(text);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || hour > 23 || minute > 59) return null;
+  return hour * 60 + minute;
+}
+
+/**
+ * The story's timeline: the facts that open on a calendar date, read forwards.
+ *
+ * Empty unless there are at least two of them, because one dated sentence is not
+ * a timeline -- it is a sentence with a date in it, and it needs no pass of its
+ * own. Measured on a full day of the pipeline (450 events, `2026-10-21T00:00Z ->
+ * 2026-10-22T02:30Z`): **exactly one story** carries two or more sentences that
+ * open on a calendar date, and it is the one the reader-clarity audit read as a
+ * blocker (findings I-09/I-11).
+ *
+ * A fact that needs an antecedent is left to the adjacency path: publishing it
+ * here would be publishing it without the sentence it depends on, and no
+ * ordering is allowed to do that (arbiter ruling #4, 2026-10-17).
+ */
+function chronologyTimeline(facts: ReaderFact[]): ReaderFact[] {
+  const dated: { fact: ReaderFact; at: number }[] = [];
+  for (const fact of facts) {
+    const at = leadingCalendarDate(fact.text);
+    if (at === null) continue;
+    if (needsAntecedentContext(fact.text)) continue;
+    dated.push({ fact, at });
+  }
+  if (dated.length < 2) return [];
+  return [...dated].sort((a, b) => a.at - b.at).map((entry) => entry.fact);
+}
+
+/**
+ * A paragraph's sentences, re-read in the order the events happened.
+ *
+ * The reader-clarity audit's I-10 and I-11: one paragraph printed `The video
+ * contributed ... October 21st` and then `August 20, 2026: ...`, and another
+ * opened on the consequence (`As a result of the leak ...`) before the sentence
+ * that establishes the leak. Both come from the same cause -- a paragraph is
+ * assembled in *rank* order, and rank is not a clock -- so both are repaired the
+ * same way, by sorting the dated sentences and leaving everything else alone.
+ *
+ * Two deliberate limits. A paragraph built around an adjacency repair is not
+ * re-sorted: that repair exists to put a dependent sentence directly behind its
+ * predecessor, and sorting would undo it. And a sentence that states no date of
+ * its own is read as belonging to the day the paragraph is about -- which is what
+ * puts `Copies of the deleted video started circulating on social media soon
+ * after` behind the sentence that creates the video rather than in front of it.
+ */
+function chronologyOrderedGroup(
+  group: ReaderFact[],
+  pinned: ReadonlySet<string>,
+  referenceYear: number,
+  diagnostics: CompositionDiagnostics,
+): ReaderFact[] {
+  if (group.length < 2) return group;
+  if (group.some((fact) => pinned.has(sentenceKey(fact.text)))) return group;
+  // A sentence that states only a clock time, or no time at all, belongs to the
+  // day the paragraph is about: `at 19:30 UTC` and `Copies ... soon after` both
+  // sit in a paragraph whose other sentences say 20 October, and reading them as
+  // "no date" would leave them out of the sort entirely.
+  const referenceDay = group
+    .map((fact) => mentionedDay(fact.text, referenceYear))
+    .find((day) => day !== null);
+  const keyOf = (fact: ReaderFact): number => {
+    const day = mentionedDay(fact.text, referenceYear) ?? referenceDay ?? Number.MAX_SAFE_INTEGER;
+    return day * 86_400 + (clockMinute(fact.text) ?? 86_400);
+  };
+  const sorted = [...group].sort((a, b) => keyOf(a) - keyOf(b));
+  if (sorted.every((fact, index) => fact === group[index])) return group;
+  diagnostics.chronology.reorderedBlocks += 1;
+  return sorted;
+}
+
+/**
+ * A story with a timeline is published as the timeline and the account around it,
+ * woven so that every date in the page runs forwards.
+ *
+ * The gate re-blocks whatever the composer hands it -- it merges neighbouring
+ * sentences that share a citation until the word budget is spent -- so a
+ * paragraph boundary is advice, not a decision, and what the composer really
+ * controls is the *sequence*. Measured on card 06: the timeline was its own block
+ * but the sentence after it (`Copies of the deleted video started circulating`)
+ * still landed in front of the paragraph it belongs to, because the boundary
+ * between them was not something the gate had to respect. So the narrative is
+ * handed over as one block in date order, and the gate splits it for length
+ * without changing the order of anything.
+ *
+ * The split is what keeps the page monotonic. Held whole, the timeline would end
+ * on `October 21, 2026: Patched PHP releases become available` and the narrative
+ * would then step back to `On Tuesday, October 20th`. A timeline step that falls
+ * on or after the day the narrative starts therefore travels *after* it, so the
+ * page reads 20 August, 21 September, 20 October, 21 October -- which is the
+ * order the reader-clarity audit asked for (I-11).
+ */
+function chronologyBody(
+  groups: ReaderFact[][],
+  timeline: ReaderFact[],
+  referenceYear: number,
+): { group: ReaderFact[]; standalone: boolean }[] {
+  const narrative = groups.flat();
+  if (narrative.length === 0) return [{ group: timeline, standalone: true }];
+  const day = (fact: ReaderFact) =>
+    mentionedDay(fact.text, referenceYear) ?? Number.MAX_SAFE_INTEGER;
+  const narrativeStart = narrative.map(day).find((value) => value !== Number.MAX_SAFE_INTEGER);
+  const early =
+    narrativeStart === undefined ? timeline : timeline.filter((fact) => day(fact) < narrativeStart);
+  const late = timeline.filter((fact) => !early.includes(fact));
+  const blocks: { group: ReaderFact[]; standalone: boolean }[] = [];
+  if (early.length > 0) blocks.push({ group: early, standalone: true });
+  blocks.push({ group: narrative, standalone: false });
+  if (late.length > 0) blocks.push({ group: late, standalone: true });
+  return blocks;
+}
+
+/**
+ * Which facts may open the page, in the order the deck walk should try them.
+ *
+ * The audit's I-09: the story opened on `August 24, 2026: Wiz Research reports
+ * the vulnerabilities ...` and then the body read `August 20, 2026: ...`, so the
+ * page began in the middle of its own timeline and went backwards. A deck may
+ * therefore be the timeline's *first* step or a fact outside the timeline; a
+ * later step may not stand in for the story, because a reader who opens on 24
+ * August and then reads 20 August has been told the order is not the point.
+ *
+ * Nothing else about the walk changes: the ranking still decides, and a displaced
+ * candidate is still a fact the body path judges on its own terms.
+ */
+function deckCandidateOrder(
+  rankedLead: ReaderFact | undefined,
+  facts: ReaderFact[],
+  timeline: ReaderFact[],
+): ReaderFact[] {
+  const base = [rankedLead, ...facts.filter((fact) => fact !== rankedLead)].filter(
+    (fact): fact is ReaderFact => fact !== undefined,
+  );
+  if (timeline.length < 2) return base;
+  const start = timeline[0];
+  if (!start) return base;
+  const outsideOrStart = base.filter((fact) => fact === start || !timeline.includes(fact));
+  if (rankedLead !== undefined && rankedLead !== start && timeline.includes(rankedLead)) {
+    return [start, ...outsideOrStart.filter((fact) => fact !== start)];
+  }
+  return outsideOrStart;
 }
 
 /**
@@ -2261,7 +2552,22 @@ function deterministicParagraphs(
   const placed = new Set<ReaderFact>();
   /** Dependent sentence key -> the sentence that has to sit directly before it. */
   const repaired = new Map<string, ReaderFact>();
-  for (const fact of facts) {
+  /**
+   * The story's timeline, held out of the ranked pass.
+   *
+   * A timeline is one idea -- and it is in the order the events happened -- so it
+   * is published as one block at the head of the body instead of being spread
+   * across whichever paragraphs rank would assemble (audit I-11: `August 20` was
+   * printed after `October 21st`). Its facts are rendered by the same
+   * `factSentence` gate as every other fact, so nothing reaches the reader here
+   * that the sentence rules would have refused.
+   */
+  const timeline = chronologyTimeline(facts);
+  const timelineFacts = new Set(timeline);
+  const ranked = timelineFacts.size > 0 ? facts.filter((fact) => !timelineFacts.has(fact)) : facts;
+  /** The calendar a yearless date in this story is read in. */
+  const referenceYear = chronologyReferenceYear(facts, story);
+  for (const fact of ranked) {
     if (placed.has(fact)) continue;
     /**
      * A `they` or a `this` in a ranked list has nothing to point at -- unless the
@@ -2347,14 +2653,54 @@ function deterministicParagraphs(
       if (previous) repaired.set(sentenceKey(item.text), previous);
     }
   }
-  return groups
-    .filter((group): group is ReaderFact[] => !!group?.length)
-    .sort((a, b) => groupRank(a) - groupRank(b))
-    .map((group) => {
+  /**
+   * Sentences the adjacency repair has already spoken for.
+   *
+   * A repaired dependent has to sit directly behind its predecessor, and a
+   * chronology sort would move it away from the one sentence it can be read
+   * after. The block is left in the order the repair produced rather than
+   * re-deriving the repair from a new order.
+   */
+  const pinned = new Set<string>();
+  for (const [dependent, predecessor] of repaired) {
+    pinned.add(dependent);
+    pinned.add(sentenceKey(predecessor.text));
+  }
+  const ordered = groups.filter((group): group is ReaderFact[] => !!group?.length);
+  ordered.sort((a, b) => groupRank(a) - groupRank(b));
+  /**
+   * The timeline and the narrative, in the order a reader can follow them.
+   *
+   * Only a story carrying a timeline is read this way: every other story's blocks
+   * are ranked, which is what ranking is for. A story with a timeline has two
+   * dates to compare -- its spine, and the account around it -- and they have to
+   * agree: card 06's timeline ended `October 21, 2026: Patched PHP releases become
+   * available` and the paragraph after it opened `On Tuesday, October 20th`, so
+   * the page went backwards one block after it had gone forwards.
+   */
+  const blocks =
+    timeline.length > 0
+      ? chronologyBody(ordered, timeline, referenceYear)
+      : ordered.map((group) => ({ group, standalone: false }));
+  return blocks
+    .map(({ group, standalone }) => {
+      /**
+       * The chronology pass runs only for a story that carries a timeline.
+       *
+       * Measured on the frozen 200-event corpus: with the paragraph sort applied
+       * to every story, one unrelated story ("Tigray resumes daily life amid
+       * fears of wider war") had its sentences reordered too -- a real change, but
+       * one nothing in this task asked for and nothing had read. A story with no
+       * timeline is ranked, and ranking is what its reader wants.
+       */
+      const block =
+        timeline.length > 0
+          ? chronologyOrderedGroup(group, pinned, referenceYear, diagnostics)
+          : group;
       const parts: string[] = [];
       const rendered = new Set<ReaderFact>();
       const glue: { dependent: string; predecessor: string }[] = [];
-      for (const fact of group) {
+      for (const fact of block) {
         const predecessor = repaired.get(sentenceKey(fact.text));
         // A dependent sentence is published only when the sentence it needs is
         // directly in front of it. A predecessor that fails its own gate takes
@@ -2384,7 +2730,13 @@ function deterministicParagraphs(
             glue.push({ dependent: text, predecessor: predecessorText });
         }
       }
-      return { text: parts.join(" "), evidence: citationRefs(group), facts: group, glue };
+      return {
+        text: parts.join(" "),
+        evidence: citationRefs(block),
+        facts: block,
+        glue,
+        ...(standalone ? { standalone: true } : {}),
+      };
     })
     .filter((paragraph) => {
       if (countWords(paragraph.text) >= MIN_PARAGRAPH_WORDS) return true;
@@ -2395,7 +2747,12 @@ function deterministicParagraphs(
       refuseBlock(paragraph.text, "short_block", diagnostics);
       return false;
     })
-    .map(({ text, evidence, glue }) => ({ text, evidence, glue }));
+    .map(({ text, evidence, glue, standalone }) => ({
+      text,
+      evidence,
+      glue,
+      ...(standalone ? { standalone } : {}),
+    }));
 }
 
 /**
@@ -3337,11 +3694,25 @@ export function composeArticleWithDiagnostics(story: Story): {
      * qualifies -- the story that is withheld -- is the missing deck accounted for
      * by the rule that refused it, so the fact ledger stays a partition.
      */
+    /**
+     * The story's own timeline, if it carries one -- see `chronologyTimeline`.
+     *
+     * Read before the deck walk, because the walk needs it: a page may not open
+     * in the middle of its own timeline (audit I-09).
+     */
+    const timeline = chronologyTimeline(facts);
+    diagnostics.chronology.timelineFacts = timeline.length;
+    if (
+      rankedLead !== undefined &&
+      timeline.length > 1 &&
+      rankedLead !== timeline[0] &&
+      timeline.includes(rankedLead)
+    ) {
+      diagnostics.chronology.deckMovedToTimelineStart += 1;
+    }
     const deckCandidates = researchNarrative
       ? facts
-      : [rankedLead, ...facts.filter((fact) => fact !== rankedLead)].filter(
-          (fact): fact is ReaderFact => fact !== undefined,
-        );
+      : deckCandidateOrder(rankedLead, facts, timeline);
     let lead: ReaderFact | undefined;
     let leadText = "";
     const needsAntecedent: { fact: string; text: string }[] = [];

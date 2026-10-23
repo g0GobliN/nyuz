@@ -9,6 +9,7 @@ import {
   antecedentSupplied,
   contextDependent,
   deterministicFactType,
+  readerSentences,
   validDeterministicParagraph,
   validDeterministicSentence,
 } from "./reader-evidence";
@@ -1378,5 +1379,159 @@ describe("source adjacency in the ranked path", () => {
     expect(contextDependent("But it also said the deal would hold.")).toBe(true);
     // The connector alone is not the defect: a named subject after it still reads.
     expect(contextDependent("However, Taiwan's ministry said the deal would hold.")).toBe(false);
+  });
+});
+
+/**
+ * The reader-clarity audit's three chronology blockers, on the story it read.
+ *
+ * Card 06 of the delivered 2026-10-21 briefing (findings I-09, I-10, I-11): the
+ * page opened on a date six weeks into its own timeline, the paragraph below it
+ * referred to "the leak" and to "Calif" before either had been introduced, and a
+ * third paragraph printed `August 20, 2026` after `October 21st`.
+ *
+ * The fixture is the stored story rebuilt as a `Story`: the same post, the same
+ * six enriched units (in the order the evidence store held them), and the PHP
+ * Foundation's own disclosure timeline as a second source. The composer reads it
+ * through the same relevance path the live card took -- two sources, one of them
+ * enriched, so `oneDocument` is false and the body is ranked rather than read.
+ */
+const phpSecurityStory = (): Story => ({
+  id: "php-security-release",
+  org: "Simon Willison",
+  title: "Today's PHP Security Release, and How We're Strengthening PHP Security",
+  what: "August 24, 2026: Wiz Research reports the vulnerabilities to the PHP security team.",
+  why: "",
+  importance: "High",
+  score: { relevance: 80, importance: 80, novelty: 60 },
+  sources: 2,
+  topics: ["Security"],
+  time: "",
+  publishedAt: "2026-10-21T18:41:53Z",
+  sourceList: [
+    {
+      name: "Simon Willison",
+      at: "2026-10-21",
+      url: "https://simonwillison.net/2026/Oct/21/php-security-release",
+      excerpt:
+        "Today's PHP Security Release, and How We're Strengthening PHP Security. If you're running anything on PHP it's vital you upgrade - today's updates (across the entire PHP 8.x line) address two remote code execution holes, and there have been exploits circulating since last night, thanks to a leak in the coordinated disclosure process. This post from the PHP Foundation explain what went so wrong: On Tuesday, October 20th, at around 15:00 UTC, the two CVE IDs began circulating on online forums and social media. They came with a wrong release time and a wrong CVSS score of 10.0 (the actual score is 9.2). No technical details leaked. In response, the PHP project brought its pre-announcement forward and published it at 19:30 UTC. It also moved the release from October 22nd, 14:00 UTC, to October 21st, 14:00 UTC. As a result of the leak and pre-announcement around 20:00 UTC, Calif, one of the security firms that had reported the issues mistakenly published a video. It showed their proof of concept working against a number of targets and revealed a few additional, though limited, details about the vulnerabilities. Copies of the deleted video started circulating on social media soon after. The video contributed to accelerated development of various PoCs (exploitation proof of concepts), which then increased circulation on October 21st.",
+      enrichedEvidence: [
+        {
+          kind: "fact",
+          text: "In response, the PHP project brought its pre-announcement forward and published it at 19:30 UTC.",
+        },
+        {
+          kind: "fact",
+          text: "As a result of the leak and pre-announcement around 20:00 UTC, Calif, one of the security firms that had reported the issues mistakenly published a video.",
+        },
+        {
+          kind: "fact",
+          text: "They came with a wrong release time and a wrong CVSS score of 10.0 (the actual score is 9.2).",
+        },
+        {
+          kind: "fact",
+          text: "Copies of the deleted video started circulating on social media soon after.",
+        },
+        {
+          kind: "fact",
+          text: "On Tuesday, October 20th, at around 15:00 UTC, the two CVE IDs began circulating on online forums and social media.",
+        },
+        {
+          kind: "fact",
+          text: "The video contributed to accelerated development of various PoCs (exploitation proof of concepts), which then increased circulation on October 21st.",
+        },
+      ],
+    },
+    {
+      name: "The PHP Foundation",
+      at: "2026-10-21",
+      url: "https://thephp.foundation/blog/2026/10/21/php-security-release",
+      excerpt:
+        "This article from the team that discovered the original vulnerability includes a more detailed timeline of the original intended responsible disclosure: August 19, 2026: Wiz Research discovers the first PHP vulnerability using Wiz Atlas, Gemini 4 Argon, and GPT-5.6 Sol. August 20, 2026: Unauthenticated RCE is confirmed against Drupal. August 21, 2026: Unauthenticated RCE is confirmed against WordPress. August 24, 2026: Wiz Research reports the vulnerabilities to the PHP security team. September 21, 2026: PHP acknowledges the reports and begins developing a coordinated fix. October 21, 2026: Patched PHP releases become available.",
+    },
+  ],
+  before: "",
+  after: "",
+  timeline: [],
+});
+
+const MONTHS = [
+  "january",
+  "february",
+  "march",
+  "april",
+  "may",
+  "june",
+  "july",
+  "august",
+  "september",
+  "october",
+  "november",
+  "december",
+];
+
+/** Every calendar day the page states, in the order the reader meets them. */
+const pageDates = (deck: string, paragraphs: string[]): number[] => {
+  const text = [deck, ...paragraphs].join(" ");
+  const found: number[] = [];
+  for (const match of text.matchAll(
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?/gi,
+  )) {
+    const month = MONTHS.indexOf((match[1] ?? "").toLowerCase());
+    const day = Number(match[2]);
+    if (month >= 0 && Number.isInteger(day)) found.push(month * 31 + day);
+  }
+  return found;
+};
+
+describe("a story that carries its own timeline", () => {
+  const { article, diagnostics } = composeArticleWithDiagnostics(phpSecurityStory());
+  const body = article.paragraphs.map((paragraph) => paragraph.text);
+  const sentences = [article.deck.text, ...body.flatMap((text) => readerSentences(text))];
+
+  it("opens on the first step of the timeline, not in the middle of it", () => {
+    // I-09. The ranked lead was the 24 August report, so the page named a date six
+    // weeks into the story and then went back to 20 August below it.
+    expect(article.deck.text).toBe(
+      "August 20, 2026: Unauthenticated RCE is confirmed against Drupal.",
+    );
+    expect(diagnostics.chronology.deckMovedToTimelineStart).toBe(1);
+  });
+
+  it("runs every date on the page forwards", () => {
+    const dates = pageDates(article.deck.text, body);
+    expect(dates.length).toBeGreaterThanOrEqual(5);
+    expect(dates).toEqual([...dates].sort((a, b) => a - b));
+  });
+
+  it("introduces the leak before the sentence that is a consequence of it", () => {
+    // I-10. `As a result of the leak` used to open the second paragraph, with the
+    // sentence that makes the leak readable three sentences below it.
+    const leakage = sentences.findIndex((line) =>
+      line.includes("the two CVE IDs began circulating"),
+    );
+    const consequence = sentences.findIndex((line) => line.startsWith("As a result of the leak"));
+    const response = sentences.findIndex((line) => line.startsWith("In response, the PHP project"));
+    expect(leakage).toBeGreaterThanOrEqual(0);
+    expect(consequence).toBeGreaterThan(leakage);
+    expect(response).toBeGreaterThan(leakage);
+  });
+
+  it("quotes its opening three sentences in the order the audit asked for", () => {
+    // The acceptance for the card: the three sentences a stranger reads first.
+    expect(sentences.slice(0, 3)).toEqual([
+      "August 20, 2026: Unauthenticated RCE is confirmed against Drupal.",
+      "August 24, 2026: Wiz Research reports the vulnerabilities to the PHP security team.",
+      "September 21, 2026: PHP acknowledges the reports and begins developing a coordinated fix.",
+    ]);
+  });
+
+  it("keeps the timeline in one block instead of scattering it through the body", () => {
+    // I-11. The dates are a document; a paragraph that holds `August 20` and
+    // `October 21st` together is the defect the audit read.
+    expect(body[0]).toContain("August 24, 2026");
+    expect(body[0]).toContain("September 21, 2026");
+    expect(body[0]).not.toContain("October 20th");
+    expect(diagnostics.chronology.timelineFacts).toBeGreaterThanOrEqual(4);
   });
 });

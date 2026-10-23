@@ -2030,6 +2030,28 @@ it on `measuringCoverage` left the plain `vitest run` with the *shorter* ceiling
 never committed (`docs/screenshots/` in `.gitignore`). The five PNGs this work had staged under
 `docs/design/` were removed from the tree for the same reason; the design comparison HTML stays,
 because it is a document rather than a capture. Local copies are kept outside the repository.
+**2026-10-22 — S9 lands: one reader-facing score scale, 0–10 with one decimal.** The CEO ruled
+**option A** on 2026-10-21, recorded in [decisions/score-scale.md](decisions/score-scale.md) with the
+case, the three options and the reason the two surfaces then agree by construction. The defect was one
+stored number printed two ways: the story rail read **Relevance 100% · Importance 50% · Novelty 70%**
+while `/dashboard/alerts` said **"Only events scoring 6 or higher interrupt you"**, and both are the
+same 0–10 value (`asPercent` is `clamp(round(score * 10), 0, 100)`, `story.ts:73`; `IMPORTANT_FLOOR = 6`,
+`alert-floor.ts:21`). Two edits, no new component and no data change: the rail's value span now prints
+`{(value / 10).toFixed(1)} / 10` (`story-article.tsx:191`, so `50` reads **5.0 / 10**), and the alerts
+sentence interpolates `${IMPORTANT_FLOOR.toFixed(1)}` so a literal threshold cannot drift
+(`alerts/index.tsx:65`). Bars keep `width: {value}%` — lengths unchanged — as do the 1 px height,
+`bg-muted`/`bg-signal`, the card chrome, the 12.5 px rows, `CARD_LABEL` and the chip row.
+
+`src/components/dashboard/score-scale.test.ts` (8 assertions) renders the real `StoryArticle` and reads
+the alerts route's sentence, because a defect of two disagreeing surfaces passes any single-surface
+test: it pins `6.0 / 10`, `5.0 / 10`, `7.0 / 10`, no `%` in the card's text, `10.0 / 10` at the top of
+the scale, the three bar widths, and the cross-check that the rail's Importance row for a story at the
+floor reads the same `6.0` the sentence does — with `5.9 / 10` one decimal below it. **Failing-first,
+measured:** with the two source edits reverted, 5 of the 8 fail; the 3 that still pass are the
+"must not move" pins. `asPercent`, `importanceBand` and the stored scores are untouched. One surface
+still carries the old wording and is recorded rather than changed — the support FAQ
+(`support.tsx:48`, "Only events scoring 6 or higher interrupt you") — because S9's ruling named two
+files and FAQ copy is a decision, not a tidy-up.
 
 ## 7. What is next
 
@@ -3762,3 +3784,58 @@ clean; the focused composer suites — `story-clarity`, `story`, `card-summary`,
 `reader-article` — **577 passed**; the new rules' tests were shown failing on the pre-fix tree (`457b61d`)
 before they passed here, for the two findings the audit scored. The full `GITHUB_ACTIONS=true npm run ci`
 run and the runner result are recorded in this slice's PR body.
+
+### The composer reads a story's timeline forwards — the audit's three chronology blockers (2026-10-23)
+
+The reader-clarity audit (PR #54, `docs/reader-clarity-audit-2026-10-22.md` on that branch) filed four
+blockers on the delivered 2026-10-21 briefing; three of them (I-09, I-10, I-11) are one defect: the
+composer printed a story's sentences in an order no reader can follow. Card 06, *"Today's PHP Security
+Release…"*, opened on `August 24, 2026: Wiz Research reports the vulnerabilities …` — six weeks into its
+own timeline — then referred to "the leak" and to "Calif" before either existed on the page, then
+printed `August 20, 2026` after `October 21st`. **The file that chose the order is
+`src/lib/editorial.ts`** (`deterministicParagraphs` and the deck walk); `reader-article.ts` only
+validates stored articles and ordered nothing.
+
+**It now reads forwards.** Deck: `August 20, 2026: Unauthenticated RCE is confirmed against Drupal.` then
+`August 24 …`, `September 21 …`, the 20 October leak and its consequences, and `October 21, 2026:
+Patched PHP releases become available.` as the resolution. Every date on the page is non-decreasing;
+`As a result of the leak` now sits behind the sentence that establishes the leak. The full page before
+and after is quoted in [decisions/composer-chronology.md](decisions/composer-chronology.md).
+
+Four parts, all in `editorial.ts`, all keyed on one condition — **the story opens two or more facts on a
+calendar date**: the timeline is gathered and sorted (`chronologyTimeline`); the deck may not be a
+timeline step other than the first (`deckCandidateOrder`); the body is the timeline and the narrative
+woven by date (`chronologyBody`); and a paragraph's sentences are read in the order they happened
+(`chronologyOrderedGroup`), with a sentence that states only a clock time reading as belonging to the
+day its paragraph is about. A block built around an adjacency repair is never re-sorted (ruling #4).
+
+**Why the ordering is done in sequence and not in paragraph boundaries.** The quality gate re-blocks
+whatever the composer hands it — it splits every block into sentences and merges neighbours that share
+a citation until the 75-word budget is spent — so a paragraph boundary is advice. Measured while
+building this: the timeline was made its own block and the sentence after it still landed in front of
+the paragraph it belongs to. `ArticleParagraph` gained `standalone`, and two adjacent sentences now
+merge only when they agree about it, which fences a block at both ends.
+
+**Blast radius, measured on frozen corpora, not inferred.** The window `2026-10-21T00:00Z →
+2026-10-22T02:30Z` (450 events, a full day of the pipeline): the pass fires on **1** story, card 06. The
+200 newest events, composed before and after the change: **0 pages changed**, deck and every paragraph
+identical. That diff also caught a scope error in the first draft — with the paragraph sort applied to
+every story, one unrelated card ("Tigray resumes daily life amid fears of wider war") had its sentences
+reordered — so the pass is now gated on the story carrying a timeline.
+
+**What it does not fix, recorded rather than padded.** The page still opens on a timeline fragment: the
+audit's ideal opening is a summary sentence, and no stored fact says it — the timeline's own first step
+(`August 19 …`) exists only inside a meta sentence the composer refuses, and the post's explanatory
+standfirst (which *would* open the story) is refused by the sentence gate as `invalid_sentence`. The
+stored `what_happened` is the same mid-timeline fragment, so the fallback deck cannot stand in for it.
+A strict cross-source merge is not derivable either: for an enriched source `sourceOrder` is the index
+of the evidence unit, and that pass writes its units in the order it judged them, so the rule reads
+dates out of the sentences themselves. Each is listed with its evidence in
+[decisions/composer-chronology.md](decisions/composer-chronology.md).
+
+**Gates on the final tree:** `npm run typecheck` clean; `npm run lint` **0 errors** (20 warnings, all
+`react-refresh/only-export-components` on files this slice does not export from); `npm test -- --run`
+**3,581 tests passed** across 213 files. A unit test pins the acceptance — the opening three sentences,
+a non-decreasing date sequence across the whole page, and the leak before its consequence — and the
+same date-order check run against the pre-change page (quoted verbatim) fails on it, which is what
+proves the test tests the defect.

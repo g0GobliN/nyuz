@@ -27,6 +27,18 @@ export type ArticleParagraph = {
    * and the splitter will not break it (arbiter ruling #4, 2026-10-17).
    */
   glue?: { dependent: string; predecessor: string }[];
+  /**
+   * The composer's instruction that this block is its own paragraph.
+   *
+   * The gate rebuilds blocks from the sentences that passed, merging neighbours
+   * that share a citation until the word budget runs out -- so where the composer
+   * put a paragraph boundary is advice, not a decision. A story's timeline is the
+   * one block that has to stay a paragraph of its own (audit I-11: read forwards,
+   * in one piece), so the composer marks it and the gate will not merge it with
+   * the sentences on either side. Two adjacent sentences are joined only when they
+   * agree about this, which fences the block at both ends.
+   */
+  standalone?: boolean;
 };
 
 export type ReaderArticle = {
