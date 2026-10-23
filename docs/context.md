@@ -3965,3 +3965,52 @@ dates out of the sentences themselves. Each is listed with its evidence in
 a non-decreasing date sequence across the whole page, and the leak before its consequence — and the
 same date-order check run against the pre-change page (quoted verbatim) fails on it, which is what
 proves the test tests the defect.
+
+### The briefing grew structure, honest chrome and the feed's facts — S2, B-03, B-01/B-02/B-06, X-01 (2026-10-23)
+
+The audit's §4 verdict on `/dashboard/briefing` was structure and honesty, and this slice delivers
+both on the reader surface. Branch `wt/briefing-surface`, PR to `main` (task `t_06717f72`); forge
+holds `editorial.ts` / `reader-evidence.ts` / `server/briefing.ts` for the composer slices, so
+everything here lives in `briefing-preview.tsx`, `briefing.tsx` and their tests.
+
+**S2 — the heading tree.** Before (live, audit Appendix A): **1 h1, 1 h3, 0 h2** and 25 stories that
+were not headings at all. After: the page keeps its single `h1` (`PageHeader`); the card's deck head
+("25 things worth knowing…") becomes the one real `h2` on the page — reader variant only, the
+marketing card keeps its `h3` so the landing page's structure does not move; and every story is an
+`h3` whose first child is the link into it (`h3 > a`). Measured **after: `h1 = 1`, `h2 = 1`,
+`h3 = 25`**, each story heading carrying its link — pinned as a test over a 25-item fixture. The
+group labels print as paragraphs with `role="heading" aria-level="3"` (not third headings) precisely
+so the tree stays one-`h2`/twenty-five-`h3`: a group heading as an element would either skip a level
+or break the measured count the contract fixes.
+
+**B-03 — structure, derived, not invented.** `briefGroups`, `briefGroupLabel` and `briefLede` live in
+`briefing-preview.tsx` and read only `topics[0]` of the stories themselves. Groups sort by size
+(ties by first appearance), cap at four, and everything else — plus a story with no topic — shares
+one trailing **"Elsewhere"** heading, which is a bucket, not a taxonomy. Below 8 stories, or when
+one topic is the whole edition, the page stays one flat list and prints no lede rather than a
+structure of one. Inside a group the order is the edition's own (stable partition); numbering runs
+**01…25 across the groups** without resetting, because the item number is the "1 of 25" the reader
+already trusts. The lede is one sentence measured from the same groups: "The day's through-line is
+⟨topic⟩ — ⟨n⟩ of ⟨total⟩ stories — with ⟨topic⟩ (⟨n⟩) behind it."
+
+**B-01 / B-06 — chrome claims state, not delivery.** The eyebrow is now "Today's edition" (latest)
+or `Edition · October 20` (archive, unchanged). The channel chips read **"Email · on (preference)"**
+and **"Telegram · on (preference)"** — a preference labelled, no longer a status word that sat under
+a page which once said DELIVERED.
+
+**B-02 — the archive names its day.** With a digest open the sub-line reads "Built from coverage
+published before 07:30 on October 20. Nothing here was reordered for the web." — the date the
+history row already resolved (`day.date`); the latest briefing still speaks of today, its truth.
+
+**X-01 — one card, one set of facts.** The briefing card now prints the feed's importance band in
+the feed's own three tones (`IMPORTANCE_TONE`, reader-only — the marketing card is not a card the
+reader can check against the feed), and the route passes the **same `useFeedback` save state** the
+feed and the shelf use: every card gains **Read →** and a **Save** button, with the optimistic
+label the shelf already has, and on the Saved tab the same toggle removes the story. Actions and
+buttons are gated on the new props, so the marketing facsimile renders nothing a visitor could
+press (test-pinned).
+
+**Gates on the final tree:** `npm run typecheck` clean; `npm run lint` **0 errors**; `npm test --
+--run` **3,614 tests passed** across 214 files; `npm run audit:surfaces` PASS and unchanged
+(feed 13/13 · archive 14/14 · alerts 5/5, 0 defects); `npm run audit:delivered-line` PASS and
+unchanged (14/14 card lines equal their page opening, 0 defects).
