@@ -1335,17 +1335,117 @@ async function personalizationFor(
   );
   if (followedLabels.size === 0) return out;
 
+  // Narrowness is measured on the delivered briefing itself: how many of its
+  // cards carry each label (audit H-06 — "AI" named 25 of 25 lines told the
+  // reader nothing, because it sat on 25 of 25 cards).
+  const frequency = new Map<string, number>();
+  for (const labels2 of eventLabels.values()) {
+    for (const label of labels2) {
+      const key = label.trim().toLowerCase();
+      frequency.set(key, (frequency.get(key) ?? 0) + 1);
+    }
+  }
   for (const eventId of matchedIds) {
     const labels = eventLabels.get(eventId) ?? [];
     const overlap = labels.filter((label) => followedLabels.has(label.toLowerCase()));
     if (overlap.length === 0) continue;
+    const explanation = reasonExplanation(overlap, labels, frequency, eventIds.length);
+    // The preview renders nothing for an absent personalization block, so a
+    // rule that has nothing to say delivers absence, never an empty heading.
+    if (explanation === "") continue;
     out.set(eventId, {
       heading: "Why you're seeing this",
-      explanation: `You follow ${joinLabels(overlap)}.`,
+      explanation,
     });
   }
   return out;
 }
+
+/**
+ * "Why you're seeing this", from what the reader follows and what the card
+ * carries (audit H-06: 25 of 25 lines reasoned "You follow AI.").
+ *
+ * What a line can honestly name is measured from the briefing it renders in —
+ * the narrowest matched interest is the matched label the delivered cards mark
+ * as least common, so naming it answers the reader's real question: why *this*
+ * card. Rules in order:
+ *
+ * 1. A matched interest outside BROAD_TOPIC_LABELS is a specific one — a
+ *    company, a product, a standard — and names it (`You follow NVIDIA.`).
+ * 2. Otherwise, when at least two pools matched, the narrowest matched pool by
+ *    measured frequency, when it is not on every card (`You follow Cybersecurity.`).
+ *    A single matched pool does not qualify: naming it tells the reader exactly
+ *    the one broad thing they already knew they followed (the audited "You
+ *    follow AI." eight times).
+ * 3. When every matched label spans the whole briefing (the reader's whole
+ *    feed matched), the naming says nothing, so the line says what the card is
+ *    about instead, from its own remaining labels: `You follow AI — this card
+ *    is about Cybersecurity and NVIDIA.`
+ * 4. When nothing narrows the match and the card carries nothing else, the
+ *    line is left off: a sentence that would print "You follow AI." for the
+ *    eighth time is worse than no line.
+ */
+export function reasonExplanation(
+  overlap: string[],
+  eventLabels: string[],
+  frequency: Map<string, number>,
+  totalEvents: number,
+): string {
+  const specific = (labels: string[]) =>
+    labels.filter((label) => !BROAD_TOPIC_LABELS.has(label.trim().toLowerCase()));
+  const matched = specific(overlap);
+  if (matched.length > 0) return `You follow ${joinLabels(matched)}.`;
+  // The narrowest matched pool: the one the briefing's own cards carry least.
+  // Shared labels are counted case-insensitively, but the line prints the
+  // event's own spelling.
+  const key = (label: string) => label.trim().toLowerCase();
+  const minFreq = Math.min(...overlap.map((label) => frequency.get(key(label)) ?? totalEvents));
+  if (overlap.length > 1 && minFreq < totalEvents) {
+    return `You follow ${joinLabels(overlap.filter((label) => (frequency.get(key(label)) ?? totalEvents) === minFreq))}.`;
+  }
+  // The match spans the whole briefing: name the interest, then say what the
+  // card is, from the labels it carries beyond the match.
+  const rest = eventLabels.filter((label) => !overlap.includes(label));
+  if (rest.length > 0)
+    return `You follow ${joinLabels(overlap)} — this card is about ${joinLabels(rest)}.`;
+  return "";
+}
+
+/**
+ * Labels a general reader follows as whole fields. A reason line that names
+ * only one of these told the reader nothing (audit H-06); a label outside it
+ * is a specific interest and naming it says why *this* card is theirs.
+ */
+const BROAD_TOPIC_LABELS = new Set(
+  [
+    "AI",
+    "Automotive",
+    "Chips",
+    "Climate",
+    "Consumer tech",
+    "Crime",
+    "Cybersecurity",
+    "Developer tools",
+    "Economy",
+    "Education",
+    "Energy",
+    "Film",
+    "Funding",
+    "Gaming",
+    "Hardware",
+    "Health",
+    "Military",
+    "Music",
+    "Open source",
+    "Politics",
+    "Robotics",
+    "Sports",
+    "Startups",
+    "Transport",
+    "Travel",
+    "World",
+  ].map((label) => label.trim().toLowerCase()),
+);
 
 function joinLabels(labels: string[]): string {
   if (labels.length === 1) return labels[0]!;
