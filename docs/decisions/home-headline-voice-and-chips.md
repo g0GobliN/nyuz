@@ -68,6 +68,16 @@ elsewhere — a trade no reader would ask for. The audited fixture's remaining w
 fires on incidental context that only the event's own line can distinguish from reportage —
 the same anchoring the analysis stage owns.
 
+## Merge collision (recorded as predicted)
+
+First runner run (39905646456, pre-merge head) went red on the exact hotspot predicted in the PR body:
+PR #59 had merged to `main` (72f85b7) meanwhile, and its `IMPORTANCE_TONE` in `briefing-preview.tsx`
+lacked the new `Low` union member — a type error only the merged tree has (local green ran on the
+branch alone). The branch integrated `origin/main` and added the missing key with the same muted
+tones as `Notable`, so the briefing's band word is the feed's, too. `briefing-preview.tsx` is the
+wave-1 card's file (its card and PR are both complete); the edit is the one companion line the union
+change requires and is called out in the card comments.
+
 ## Verification
 
 - `nvm use 22`; tests red-then-green measured: with the two source files stashed, 4 assertions

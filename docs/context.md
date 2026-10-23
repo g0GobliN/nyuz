@@ -2080,7 +2080,10 @@ changed but an export used to measure.
 
 Merge-collision note (hotspot): the wave-1 PR #59 adds `IMPORTANCE_TONE: Record<Story["importance"], string>`
 in `briefing-preview.tsx`; either merge order needs a `Low` key there — one line, named on both cards,
-not edited by this slice.
+not edited by this slice. **Resolved on this branch**: #59 merged to `main` (72f85b7) while this slice
+was in review-mode at the runner, the branch rebased onto it (`git merge origin/main`), and the one
+missing key — `Low: same tones.` — was added in `src/components/briefing-preview.tsx` so the merged
+tree compiles; the runner then red-checked the pre-merge head and the fix forward followed.
 
 
 ## 7. What is next
