@@ -188,9 +188,20 @@ describe("BriefingPreview — the reader's briefing is a way in", () => {
  * docs/live-read-2026-10-21.md §1). See `src/lib/briefing-measure.ts`.
  */
 describe("BriefingPreview — the briefing sets a reading measure", () => {
-  it("caps the reader's card, and only the reader's card", () => {
-    expect(render(STORIES, "reader")).toContain("max-w-[32rem]");
-    expect(render(STORIES)).not.toContain("max-w-[32rem]");
+  it("caps the reader's card at the dashboard's content column, and only the reader's card", () => {
+    expect(render(STORIES, "reader")).toContain("max-w-[64rem]");
+    expect(render(STORIES)).not.toContain("max-w-[64rem]");
+  });
+
+  it("sets the reader's list in two columns on a desktop, with a rule per item", () => {
+    // The card now fills the page, so the measure is kept by the columns, not
+    // by a narrow card. One column at 1024 px would set ~134 characters.
+    const reader = render(STORIES, "reader");
+    expect(reader).toContain("lg:columns-2");
+    expect(reader).toContain("break-inside-avoid");
+    // The marketing facsimile stays a single list with `divide-y`.
+    expect(render(STORIES)).toContain("divide-y");
+    expect(render(STORIES)).not.toContain("lg:columns-2");
   });
 
   it("prints the summary at the size the measure was computed for", () => {
