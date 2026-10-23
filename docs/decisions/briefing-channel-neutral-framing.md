@@ -36,6 +36,7 @@ Nine strings and one prop. The page now says three true things instead of four f
 | `brief@nyuz.app` (sender) · `7:30 AM` (send time) | **"Edition · 07:30"** |
 | "Delivered at 7:30 AM" | *(removed — not reworded)* |
 | Email · Telegram | **Email on · Telegram on** |
+| "Delivered" / `Delivered · <date>` (page eyebrow) | **"Edition" / `Edition · <date>`** — ruled 2026-10-22, after this page was read |
 
 The second half of each string is preserved on purpose. "Nothing here was reordered for the web" was
 already true and still is; only the claim about *how it arrived* was false. **The artifact framing is
@@ -89,12 +90,15 @@ banned-string checks and both chrome-identity checks. The two that stayed green 
 genuinely do not concern chrome (reading cap and story links). A green harness against the old code
 would have proved nothing; this one does not.
 
-> **Recorded gap.** The ruling's acceptance pins `git diff --stat` to `briefing-preview.tsx` and
-> `routes/dashboard/briefing.tsx` only, so **no test file is committed** — the harness above ran and
-> was deleted rather than shipped. That is a real weakness: nothing in the suite now fails if a later
-> change re-introduces `Delivered at`. The next slice that touches this card should add the case to
-> `src/components/briefing-preview.test.ts`, and the spec's own diff restriction is the only reason it
-> is not already there.
+> **Recorded gap, now closed.** The ruling's acceptance pinned `git diff --stat` to
+> `briefing-preview.tsx` and `routes/dashboard/briefing.tsx` only, so **no test file was committed** —
+> the harness above ran and was deleted rather than shipped. The follow-up slice
+> (`t_7417c996`) committed the cases to `src/components/briefing-preview.test.ts`: edition chrome
+> carries none of `brief@nyuz.app` / `inbox` / `Delivered at` (case-insensitive), the **default**
+> chrome carries `brief@nyuz.app` and `Delivered at` so the scan is proven able to fire, and a caller
+> that passes `chrome="edition"` with no `editionTime` gets `Edition · 7:30 AM` rather than an empty
+> stamp. The same file reads the route source and asserts the eyebrow says `Edition` and never
+> `Delivered`, because the page-level string has no other guard.
 
 ## Deferred, on purpose
 
@@ -103,11 +107,11 @@ The briefing page's footer says **"Every story links to the original reporting"*
 sentence is arguable in both directions. §S8 puts it in the same arbiter question as option 1 rather
 than a separate edit; it is **not** changed here, and it belongs to whoever rules next.
 
-### A second adjacent claim, found by reading the rendered page
+### A second adjacent claim, found by reading the rendered page — ruled on and moved
 
 Reading `/dashboard/briefing` as a stranger after the change turned up a word the spec did not name:
-the `PageHeader` **eyebrow still reads "Delivered"** (`briefing.tsx:140`, or `Delivered · <date>`
-when an older digest is open). It is **not** changed here, for three reasons:
+the `PageHeader` **eyebrow still read "Delivered"** (`briefing.tsx:140`, or `Delivered · <date>`
+when an older digest is open). It was **not** changed inside S8 itself, for three reasons:
 
 1. The ruling named three page-level strings — title, sub, preview chrome — and this is a fourth.
    Copy the arbiter did not rule on is copy the arbiter owns.
@@ -115,9 +119,14 @@ when an older digest is open). It is **not** changed here, for three reasons:
 3. It is a weaker claim than the ones that moved: it says an edition exists on a date, not that a
    message reached an inbox at a time.
 
-It is nonetheless **in the same defect class** and is recorded here so the next arbiter question has
-it. If the ruling is that the eyebrow should also be channel-neutral, it is one string on line 140
-and needs no structural change.
+**Ruling (CEO, 2026-10-22): the bare `Delivered` is the same defect class, so it moves.** Reason 3
+read as a defence and is not one — weaker is not true. A reader who has never received a message
+still reads `Delivered` over their own briefing and takes it as a receipt, and this eyebrow is the
+product's claim about itself: the card's chrome was corrected for exactly this reason, and leaving
+the page above it saying the opposite would have split one page into two accounts of what happened.
+It is now **`Edition`**, and **`Edition · <date>`** when an older digest is open (`briefing.tsx:140`),
+matching the card's own `Edition · 07:30` header. No structural change: one expression, plus a
+source-level case in `briefing-preview.test.ts` so a later copy pass cannot put the word back.
 
 ## What this makes true at launch
 

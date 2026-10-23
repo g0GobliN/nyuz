@@ -3714,6 +3714,31 @@ Deploy skipped again. That head is what **merged in [#48](https://github.com/g0G
 `49ccd8f`**; the two-reader measurement re-run on it gives `Asia/Tokyo` → `2026-03-02T22:30:00.000Z` and
 `America/New_York` → `2026-03-02T12:30:00.000Z`, both clocks reading 07:30, `instants equal? false`.
 
+**S8's regression guard is committed, and the page eyebrow stopped claiming a send.** The S8 ruling
+(2026-10-21) pinned its diff to the card and the route, so the harness that verified the change ran and
+was deleted — nothing failed if `brief@nyuz.app`, `inbox` or `Delivered at` came back to the reader's
+briefing. `src/components/briefing-preview.test.ts` now carries the cases the ruling owed: edition
+chrome renders **none** of the three (case-insensitive), the **default** chrome renders `brief@nyuz.app`
+and `Delivered at` so the scan is proven able to fire, and a caller passing `chrome="edition"` with no
+`editionTime` gets `Edition · 7:30 AM` rather than an empty stamp. Falsifiability measured, not
+asserted: reverting the footer and the eyebrow turned **3 of the 5** new cases red, and the two that
+stayed green are the ones asserting the unchanged default and the presence of the expression itself.
+
+**The eyebrow moved on the arbiter's 2026-10-22 ruling.** `briefing.tsx:140` read `Delivered` (or
+`Delivered · <date>` when an older digest was open) — the same defect class as the `Delivered at` stamp
+the card dropped, because the reader's own page must not assert a send that did not happen. It now
+reads `Edition` / `Edition · <date>`, matching the card's own `Edition · 07:30` header, and a
+source-level case in the same test file (the shape `style-tokens.test.ts` uses) stops a later copy pass
+putting the word back. `docs/decisions/briefing-channel-neutral-framing.md` records the move and closes
+its own "recorded gap" note.
+
+**Read at 1280 on the local build**, in a browser holding the owner's own reader session
+(`npm run dev`, Node 22, `document.body.innerText`, case-insensitive): today's briefing — `Delivered`
+**0**, `Edition · ` **1** (card header), eyebrow `textContent` `"Edition"`; with the **2026-10-20**
+digest open — `Delivered` **0**, `Edition · ` **2** (eyebrow + card header), eyebrow
+`"Edition · 20 October"`. The same page on the deployed origin, before the change, read `DELIVERED`
+over the identical briefing.
+
 ### The composer reads a story's timeline forwards — the audit's three chronology blockers (2026-10-23)
 
 The reader-clarity audit (PR #54, `docs/reader-clarity-audit-2026-10-22.md` on that branch) filed four
