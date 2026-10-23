@@ -2053,6 +2053,36 @@ still carries the old wording and is recorded rather than changed — the suppor
 (`support.tsx:48`, "Only events scoring 6 or higher interrupt you") — because S9's ruling named two
 files and FAQ copy is a decision, not a tidy-up.
 
+### 2026-10-23 — rook — home feed: band Low/Medium/High, headline's outlet frame (H-05, H-01/H-04/H-18's frame half), H-16 measured to its roots
+
+Branch `wt/home-clarity` (card `t_1e5032eb`), on the audited digest `7268ba11` (25 items). Two slices
+landed, both failing-test-first: **the bottom band is "Low", not "Notable"** — `importanceBand`
+(`src/lib/story.ts`) now puts High / Medium / Low in one register over the shared 0–10 score (the
+audit's H-05: a compliment ("Notable") carried 14 of 25 cards and mixed registers the reader could
+not order); measured before/after: High 2 · Medium 9 · Notable 14 → High 2 · Medium 9 · Low 14 —
+and **the carried headline is framed as the outlet's** — `headlineOutlet` finds the source row whose
+stored `headline` equals the card's title verbatim, and the card header prints the ruling's frame
+("As published by \<outlet>"), naming the headline's actual outlet (on the clustered audit card 12
+that is Al Jazeera, not the outlet that sorted first). No frame for a headline nothing carries.
+
+Measured findings recorded in
+[decisions/home-headline-voice-and-chips.md](decisions/home-headline-voice-and-chips.md) rather than
+tuned into code: the headline *rewrite* half of the ruling needs composed facts (composer/forge);
+forge's jargon-expansion helper has not landed, so no second expansion list was forked (H-11/H-14);
+H-16's audited fixture is root-caused to **stale ingested `event_topics`** (stored card-04 chips:
+Politics · Music · Economy · AI · NVIDIA · Robotics vs today's recomputed NVIDIA · AI · Politics ·
+Robotics — Music and Economy already refuse under the current vocabulary) plus a rank order that
+alphabetically promotes labels the event's own line never names; the fix's owner is the analysis
+stack's write path (child card `t_2010e2f1` → forge). Three precision rules were tried against the
+whole 26,076-event corpus and rejected by measurement — each dropped true chips elsewhere (11
+arXiv-heavy, ~20 AI-labels under event-line anchoring, 102 true sports). Nothing in `topic-assign.ts`
+changed but an export used to measure.
+
+Merge-collision note (hotspot): the wave-1 PR #59 adds `IMPORTANCE_TONE: Record<Story["importance"], string>`
+in `briefing-preview.tsx`; either merge order needs a `Low` key there — one line, named on both cards,
+not edited by this slice.
+
+
 ## 7. What is next
 
 **2026-10-22: the reader's prose is now measured, and four blockers are unowned.**

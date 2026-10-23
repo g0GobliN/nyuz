@@ -11,7 +11,7 @@ export type Story = {
   title: string;
   what: string;
   why: string;
-  importance: "High" | "Medium" | "Notable";
+  importance: "High" | "Medium" | "Notable" | "Low";
   score: { relevance: number; importance: number; novelty: number };
   sources: number;
   topics: string[];
@@ -62,11 +62,59 @@ export type Story = {
   personalization?: { heading: string; explanation: string };
 };
 
-/** Shared 0–10 score → the three bands the cards already print. */
+/**
+ * Shared 0–10 score → the three bands the cards print.
+ *
+ * **"Low", not "Notable"** — reader clarity audit 2026-10-22 (H-05): the bottom
+ * band was "Notable", a compliment printed on the 14 of 25 cards that scored
+ * below 3, in a scale that mixed registers ("Notable" / "Medium" / "High") so
+ * the three could not be put in order by reading them. The ruling behind this
+ * slice is the same one S9 took for the score itself: one scale, one register.
+ * Over the shared 0–10 score the bands read Low / Medium / High.
+ *
+ * "Notable" stays in the `Story["importance"]` union only so existing fixtures,
+ * the evaluation corpus and older call sites keep compiling — nothing a reader
+ * is handed can print it, because this function is the only producer of a band
+ * from a score (`operations-diagnostics.ts` carries its own internal copy for
+ * diagnostics tables, not reader chrome).
+ */
 export function importanceBand(score: number): Story["importance"] {
   if (score >= 6) return "High";
   if (score >= 3) return "Medium";
-  return "Notable";
+  return "Low";
+}
+
+/**
+ * The outlet whose stored headline the card reads, when one carries it verbatim.
+ *
+ * Part of the ruling behind the H-01 family (reader clarity audit 2026-10-22):
+ * **nyuz writes its own sentence-case headline from the event, and where the
+ * original wording is carried it is framed as the outlet's ("as published by
+ * …").** The rewrite half belongs to the composer's headline policy — measured
+ * separately, no pure code today derives a headline without inventing facts a
+ * source headline does not state. What the card surfaces can do honestly today
+ * is the frame: the headline the card prints is `events.title`, which the
+ * digest's loader copies verbatim from one outlet's article, so the outlet that
+ * actually stores those words is knowable — it is the source row whose stored
+ * `headline` equals the card's title. On a clustered event the first article's
+ * outlet can differ from the title's own outlet (measured on digest
+ * `7268ba11` card 12: title "Musk confirms SpaceX and Tesla exploring merger"
+ * is Al Jazeera's headline while the four-publisher row sorted The Verge
+ * first), so the match is per-source-row, never "the first outlet".
+ *
+ * Returns null when no stored headline carries the title — a composed or
+ * rewritten title, nyuz's voice, which the card prints without the frame.
+ */
+export function headlineOutlet(story: Story): string | null {
+  const title = story.title.trim();
+  if (title === "") return null;
+  for (const source of story.sourceList) {
+    const headline = source.headline?.trim();
+    if (headline !== undefined && headline !== "" && source.name.trim() !== "") {
+      if (headline === title) return source.name;
+    }
+  }
+  return null;
 }
 
 /** 0–10 (or unbounded relevance) as the 0–100 the bars were drawn for. */

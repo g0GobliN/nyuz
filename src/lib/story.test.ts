@@ -35,8 +35,23 @@ describe("importanceBand", () => {
     expect(importanceBand(6)).toBe("High");
     expect(importanceBand(5.9)).toBe("Medium");
     expect(importanceBand(3)).toBe("Medium");
-    expect(importanceBand(2.9)).toBe("Notable");
-    expect(importanceBand(0)).toBe("Notable");
+    expect(importanceBand(2.9)).toBe("Low");
+    expect(importanceBand(0)).toBe("Low");
+  });
+
+  it("never returns the mixed-register band the audit rejected — the three bands can be ordered by reading them", () => {
+    // H-05 (reader clarity audit 2026-10-22): the bottom band was "Notable" —
+    // a compliment at the bottom — so 14 of 25 cards carried a word that
+    // could not be put in order with High and Medium. The ruling is one
+    // band scale in one register: Low / Medium / High over the same 0-10
+    // score S9 fixed. The legacy "Notable" member stays in the Story type
+    // only so stored fixtures and older call sites keep compiling; no band
+    // a reader is handed can be "Notable" now.
+    for (const score of [0, 1, 2, 2.9, 3.5, 9]) {
+      expect(["High", "Medium", "Low"]).toContain(importanceBand(score));
+    }
+    expect(importanceBand(2.99)).toBe("Low");
+    expect(importanceBand(2.01)).toBe("Low");
   });
 });
 

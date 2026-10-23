@@ -12,15 +12,26 @@ import {
 import { focusRing } from "@/components/kit";
 import { storyOpening } from "@/lib/reader-opening";
 import { becauseYouFollow } from "@/lib/matching";
-import { sourceCount, type Story } from "@/lib/story";
+import { sourceCount, headlineOutlet, type Story } from "@/lib/story";
 import type { FeedbackState, Vote } from "@/lib/feedback-store";
 import { formatStoryTime } from "@/lib/story-time";
 import { cn } from "@/lib/utils";
 
+/**
+ * The tone each band prints in, and the wording each band prints in —
+ *
+ * one register over the shared 0–10 score (H-05, reader clarity audit
+ * 2026-10-22): Low / Medium / High, so the three can be put in order by
+ * reading them and the bottom band is no longer the compliment it printed
+ * under the old word. "Notable" is kept as a key for fixtures and older rows
+ * that still carry the legacy word; nothing the reader is handed produces it
+ * (see `importanceBand` in `src/lib/story.ts`).
+ */
 const TONE: Record<Story["importance"], string> = {
   High: "text-signal border-signal/40",
   Medium: "text-foreground border-border",
   Notable: "text-muted-foreground border-hairline",
+  Low: "text-muted-foreground border-hairline",
 };
 
 export function StoryCard({
@@ -48,6 +59,18 @@ export function StoryCard({
   const vote = feedback.votes[story.id];
   const saved = feedback.saved.includes(story.id);
   const primaryTopic = story.topics[0];
+  /**
+   * The headline's frame (H-01 family, reader clarity audit 2026-10-22).
+   *
+   * When the headline is an outlet's wording carried verbatim, the header
+   * prints the ruled frame — "as published by <outlet>" — in place of the
+   * bare wordmark, so the sentence below reads as attribution rather than as
+   * nyuz's voice and the outlet named is the headline's own outlet, not
+   * whichever article of a clustered event happens to sort first. When
+   * nothing carries the headline (a composed title), the plain wordmark
+   * stands and the card prints no "published" claim at all.
+   */
+  const headlineOutletName = headlineOutlet(story);
   // The server's own answer wins: `personalizationFor` computes it from the
   // reader's real follow graph and only when the event reached them through
   // their own subscriptions. `because` is the client fallback for the same
@@ -77,9 +100,15 @@ export function StoryCard({
         <span className="text-[12px] tabular-nums text-muted-foreground">
           {String(index + 1).padStart(2, "0")}
         </span>
-        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-signal">
-          {story.org}
-        </span>
+        {headlineOutletName ? (
+          <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-signal">
+            As published by {headlineOutletName}
+          </span>
+        ) : (
+          <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-signal">
+            {story.org}
+          </span>
+        )}
         <span
           className={cn(
             "ml-auto rounded-full border px-2.5 py-0.5 text-[11px]",
