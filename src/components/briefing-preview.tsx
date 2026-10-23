@@ -27,9 +27,9 @@ import { cn } from "@/lib/utils";
  *  - **the card is a reading column.** The marketing card was sized for a
  *    548 px column; mounted unchanged in the product's 969 px content area it
  *    set 144 characters on a line. `BRIEFING_READING` holds the cap and the
- *    measurement behind it. The cap is the dashboard's own content column, and
- *    from `lg` the story list sets in two columns, so the briefing fills a
- *    desktop while its prose keeps a ~70-character line.
+ *    measurement behind it. The cap is the dashboard's own content column and
+ *    the list is a single column at every width — the shape the owner asked
+ *    for after seeing both a narrow card and two columns.
  *
  * Both are one switch rather than a fork, because the two surfaces must not
  * drift: what the landing page shows is the claim, and the dashboard is where
@@ -150,28 +150,9 @@ export function BriefingPreview({
         </h3>
       </div>
 
-      <ol
-        className={cn(
-          "px-5 sm:px-7",
-          // The reader's card fills the desktop, so one column here would set
-          // ~134 characters on a line (1024 px card, 966 px of text). From `lg`
-          // the list sets in two columns and keeps the measure at ~70; phones
-          // and tablets keep the single column and the same dividers.
-          reader ? "lg:columns-2 lg:gap-x-10" : "divide-y divide-[var(--hairline)]",
-        )}
-      >
+      <ol className="divide-y divide-[var(--hairline)] px-5 sm:px-7">
         {stories.map((s, i) => (
-          <li
-            key={s.id}
-            className={cn(
-              "py-5",
-              // A multi-column list cannot use `divide-y` (it would draw the
-              // rule once, at the top of the next item in the *flow*, not the
-              // next cell), so each item carries its own rule. `break-inside`
-              // keeps a story from splitting across the fold.
-              reader && "break-inside-avoid border-b border-[var(--hairline)]",
-            )}
-          >
+          <li key={s.id} className="py-5">
             <div className="flex items-baseline gap-3">
               <span className="text-[11px] tabular-nums text-muted-foreground">
                 {String(i + 1).padStart(2, "0")}
@@ -237,16 +218,7 @@ export function BriefingPreview({
         ))}
       </ol>
 
-      <div
-        className={cn(
-          "flex items-center justify-between px-5 py-4 text-[12px] text-muted-foreground sm:px-7",
-          // In the reader's variant every item already draws its own bottom
-          // rule, so the footer's top border would print a second line under
-          // the last row. The footer is still the same row: same padding, same
-          // type, same channel list.
-          reader ? null : "border-t border-hairline",
-        )}
-      >
+      <div className="flex items-center justify-between border-t border-hairline px-5 py-4 text-[12px] text-muted-foreground sm:px-7">
         {/*
           "Delivered at <time>" is the footer half of the delivery claim, and it
           is the half with nothing behind it: the product has not delivered an
