@@ -4014,3 +4014,53 @@ press (test-pinned).
 --run` **3,614 tests passed** across 214 files; `npm run audit:surfaces` PASS and unchanged
 (feed 13/13 · archive 14/14 · alerts 5/5, 0 defects); `npm run audit:delivered-line` PASS and
 unchanged (14/14 card lines equal their page opening, 0 defects).
+
+### Leg A funnel measured: the delivered pool's missing input is shapes, not coverage (2026-10-23)
+
+#### Task t_27cc9ccb — evidence in [decisions/significance-leg-a.md](decisions/significance-leg-a.md), ledger [audits/significance-leg-a.json](audits/significance-leg-a.json), command `npm run audit:significance-leg-a`
+
+The three newest delivered editions (50 item rows in three sent digests — one per scheduled slot,
+25 items 2026-10-19 22:30Z, 9 items 2026-10-09 22:30Z, 16 items 2026-10-08 22:30Z, each on its own
+event; the significance-window audit reads the same pool from its other end — its query counts every
+digest generated in the window dates regardless of delivery status, Leg A **2/50** when the slice
+opened, **3/92** on the 2026-10-23 tree with the extra rows being post-delivery digests, not newer
+delivered editions): composed **2**, rung-refused **2** (`consequence:fragment 2`), no-shape **33**,
+no-evidence **13**. Side splits: **6/50 rows carry a why-line** — 1 composed and carried, 1 coverage
+line, and 4 figure-puff lines ("The story carries a $X figure.") the pre-ruling-#10 builds of the
+10-08/10-09 editions printed, standing in the archive; 44/50 delivered silent; **2/50
+coverage-eligible** (≥2 publishers), the ladder answers both with the coverage line. The dominant
+event refusal `consequence:figure-only` 12 — the shape ruling #10 removed. **37/50 items sit on
+evidence-bearing events (74%)** (the 13 no-evidence items are all `robots-blocked` — boundary, not
+defect), so the delivered cohort's bottleneck is the shapes the stored evidence does not hold, not
+enrich coverage.
+
+**The classifier is code beside the ladder, not a re-derivation:** `consequenceStep`, `bindingStep`
+and `storyNames` were refactored out of `inclusion.ts` as exported instrument steps with the
+ladder's path unchanged in behaviour, and
+[src/lib/pipeline/significance-leg-a.ts](../src/lib/pipeline/significance-leg-a.ts) classifies each
+delivered item into the four mutually exclusive buckets from those same predicates — the measured
+correspondence the 2026-10-17 three-instruments-disagreed rule wants. TDD: 10 tests in
+`significance-leg-a.test.ts` fail-first on the instrument shape, one of which caught a real
+regression in `consequenceLine` mid-refactor before it shipped.
+
+**Enrichment's zero-yield pages stopped reporting success.** Attributing the no-evidence family meas-
+ured the `extraction_empty` census family live on delivered shapes and found its cause in
+`enrich.ts`: a page that fetched at the usable-words floor and yielded **zero** admissible units was
+recorded `ok: true` on the source, so no failure counter, backoff or recovery path could ever see
+it. Measured population: 92 zero-yield rows over the 30-day window, concentrated in non-English
+feeds whose every page yields nothing (Lenta.ru 5/96 rows zero covered, El Financiero 2/29, Milan
+News 2/14). Landed: zero-yield now counts toward `enrichment_failure_count` and reports
+`extraction_empty` in the run row (new `OutcomeReason`), so the source reaches the failure latch a
+broken origin reaches; the `article_evidence` row keeps the census's documented family shape
+(`enriched`, zero units, real word count) so `enrichment-census.ts` attribution is unchanged. Two
+fail-first tests in `enrich.test.ts` pin the report shape and the latch.
+
+**Measured on the window audit after the change:** Leg A **3 / 92** (the window population grew
+since the 2/50 read of 2026-10-20), `gate 2 PENDING` exit 2 as designed; `npm run
+audit:delivered-line` PASS and unchanged 14/14; `npm run typecheck` clean; `npm run lint` 0
+errors; full suite **3,655 tests passed** across 218 files. Note: the 2 refused fragments are not
+repairable (a conditional cannot print without its "if"; one "they" does not resolve inside the
+clause); widening `CONSEQUENCE` verbs was measured destructive on the cohort (8–10 of 12 figure-only
+candidates die at the why-vs-what gate or are truncated mid-number) and stays with the arbiter, with
+this measurement attached. A card-vs-instrument conflict on coverage eligibility for Leg A is
+recorded in the decision note for the next arbiter question.
