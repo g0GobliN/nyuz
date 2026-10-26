@@ -6,6 +6,7 @@ import { LoadState } from "@/components/dashboard/load-state";
 import { Chip, LinkButton } from "@/components/kit";
 import { Loading } from "@/components/loading";
 import { IMPORTANT_FLOOR } from "@/lib/pipeline/alert-floor";
+import { formatScore } from "@/lib/score-format";
 import { usePrefs } from "@/lib/prefs-store";
 import { loadRecentAlerts } from "@/lib/server/alerts";
 import { formatStoryTime } from "@/lib/story-time";
@@ -62,7 +63,7 @@ function Alerts() {
                 ? "Everything waits for your next scheduled briefing."
                 : effectiveBreaking === "everything"
                   ? `Important matched events can interrupt you, up to ${limits.alertDailyCap} a day.`
-                  : `Only events scoring ${IMPORTANT_FLOOR.toFixed(1)} or higher out of 10 interrupt you. Most days that is none — never more than ${limits.alertDailyCap} in a day.`}
+                  : `Only events scoring ${formatScore(IMPORTANT_FLOOR)} or higher out of 10 interrupt you. Most days that is none — never more than ${limits.alertDailyCap} in a day.`}
             </p>
           </div>
         </div>

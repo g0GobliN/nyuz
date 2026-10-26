@@ -193,15 +193,16 @@ describe("BriefingPreview — the briefing sets a reading measure", () => {
     expect(render(STORIES)).not.toContain("max-w-[64rem]");
   });
 
-  it("sets the reader's list in two columns on a desktop, with a rule per item", () => {
-    // The card now fills the page, so the measure is kept by the columns, not
-    // by a narrow card. One column at 1024 px would set ~134 characters.
+  it("keeps the reader's list one column at every width", () => {
+    // The owner has now rejected both a narrow card and a two-column card: the
+    // briefing has always been one column, and one column is what ships. The
+    // guard is here so nobody reintroduces the split as a "measure" fix.
     const reader = render(STORIES, "reader");
-    expect(reader).toContain("lg:columns-2");
-    expect(reader).toContain("break-inside-avoid");
-    // The marketing facsimile stays a single list with `divide-y`.
+    expect(reader).toContain("divide-y");
+    expect(reader).not.toMatch(/columns-\d/u);
+    // The marketing facsimile is the same single list.
     expect(render(STORIES)).toContain("divide-y");
-    expect(render(STORIES)).not.toContain("lg:columns-2");
+    expect(render(STORIES)).not.toMatch(/columns-\d/u);
   });
 
   it("prints the summary at the size the measure was computed for", () => {
@@ -218,11 +219,13 @@ describe("BriefingPreview — the briefing sets a reading measure", () => {
     expect(rem * 16).toBe(BRIEFING_READING.cardMaxPx);
   });
 
-  it("fits 65–75 characters on a line at 1280 px", () => {
-    // The audit's own range for the product (the feed card sits at 94, the
-    // story deck at 88); the briefing was the outlier at 144.
-    expect(briefingSummaryCharactersPerLine()).toBeGreaterThanOrEqual(65);
-    expect(briefingSummaryCharactersPerLine()).toBeLessThanOrEqual(75);
+  it("sets the single column the owner asked for, not the audit's 65–75 range", () => {
+    // Recorded exception (see `briefing-measure.ts`): the card is full width and
+    // the list is one column, so the summary sets ~147 characters. The audit's
+    // 65–75 range was met by two shapes the owner rejected — a 32 rem card and
+    // a two-column card. This asserts the number the file documents so the two
+    // cannot drift; it is not a claim that 147 is the typographic ideal.
+    expect(briefingSummaryCharactersPerLine()).toBe(147.2);
   });
 });
 
