@@ -1407,6 +1407,23 @@ function findAcronymExpansion(acronym: string, sourceText: string): string | nul
       if (acronymInitialsMatch(acronym, candidate)) return candidate.join(" ");
     }
   }
+  // Elsewhere in the source's own words (audit I-11, re-measured 2026-10-23):
+  // a source that writes `unauthenticated remote code execution` in one
+  // sentence and `RCE` in another never carries the bracket, and the two
+  // bracketed readers above return null -- so the acronym shipped unexplained.
+  // Read the source as prose: a run of exactly the acronym's own count of
+  // words, initials matching, no word written all-caps (that is a name or
+  // another initialism, not a gloss). The same `acronymInitialsMatch` the
+  // bracket path trusts decides; only the anchor changes, from a bracket to
+  // the source's prose. The scan slides one word at a time rather than
+  // chunking, because a regex match consumes its own three words and the
+  // phrase that straddles two chunks is then never seen.
+  const sourceWords = sourceText.split(/\s+/).map((word) => word.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ""));
+  for (let at = 0; at + letters.length <= sourceWords.length; at++) {
+    const window = sourceWords.slice(at, at + letters.length);
+    if (window.some((word) => !/^[A-Z]?[a-z'’-]+$/.test(word))) continue;
+    if (acronymInitialsMatch(acronym, window)) return window.join(" ");
+  }
   return null;
 }
 
@@ -1417,20 +1434,35 @@ function expandAcronymsFromEvidence(
 ): void {
   if (sourceText === "") return;
   const expanded = new Set<string>();
-  for (const block of blocks) {
+  for (const [blockIndex, block] of blocks.entries()) {
     for (const acronym of block.text.match(ACRONYM_TOKEN) ?? []) {
       if (expanded.has(acronym) || ACRONYM_STOP_LIST.has(acronym)) continue;
       expanded.add(acronym);
       const escaped = acronym.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-      const pageText = blocks.map((item) => item.text).join(" ");
-      // Already expanded at or above this use: the reader has met the words.
-      if (new RegExp(`\\(\\s*${acronym}\\s*[,.;:]?\\s*\\)`, "u").test(pageText)) continue;
+      const at = block.text.search(new RegExp(`\\b${escaped}\\b`, "u"));
+      // Nothing to explain where the reader first meets the term: before
+      // re-measuring (I-11, 2026-10-23) this guard read the *whole* page since
+      // it joined every block, so a spell that arrived LATER on the page left
+      // the first use unexplained while the counter reported the reader served.
+      if (at < 0) continue;
+      const read = blocks
+        .slice(0, blockIndex)
+        .map((item) => item.text)
+        .join(" ");
+      const previouslyRead = `${read} ${block.text.slice(0, at)}`;
       const expansion = findAcronymExpansion(acronym, sourceText);
       if (expansion === null) continue;
-      if (pageText.toLowerCase().includes(expansion.toLowerCase())) continue;
-      const at = block.text.search(new RegExp(`\\b${escaped}\\b`, "u"));
-      if (at < 0) continue;
-      const repaired = `${block.text.slice(0, at)}${expansion} (${acronym})${block.text.slice(
+      // Already expanded at or above this use: the reader has met the words.
+      if (previouslyRead.toLowerCase().includes(expansion.toLowerCase())) continue;
+      // Mid-sentence, a gloss the source wrote at the head of its own sentence
+      // arrives with a capital the insertion site cannot carry: "found Remote
+      // code execution (RCE)" is not English. The word still has to be
+      // initial-cap-only for the change, so a name ("Reuters") is untouched.
+      const gloss =
+        at > 0 && /^[A-Z][a-z'’-]+$/.test(expansion.split(" ")[0] ?? "")
+          ? expansion.charAt(0).toLowerCase() + expansion.slice(1)
+          : expansion;
+      const repaired = `${block.text.slice(0, at)}${gloss} (${acronym})${block.text.slice(
         at + acronym.length,
       )}`;
       if (!validDeterministicParagraph(repaired)) continue;
@@ -2330,6 +2362,96 @@ function clockMinute(text: string): number | null {
   const minute = Number(match[2]);
   if (!Number.isInteger(hour) || hour > 23 || minute > 59) return null;
   return hour * 60 + minute;
+}
+
+/**
+ * Whether a fact is the timeline-step shape itself: a calendar date, a colon,
+ * and then the sentence (audit I-09, re-measured 2026-10-23).
+ *
+ * A step in this shape is a fragment the way the audit used the word: `August
+ * 20, 2026:` is a header, not a sentence, and a page must not open on it. The
+ * shape is matched from the fact's own text, because the composed form the walk
+ * judges may carry an attribution wrapper the shape does not survive.
+ */
+function leadingDateFragment(text: string): boolean {
+  return LEADING_CALENDAR_DATE.test(text.trim());
+}
+
+/**
+ * The timeline step with its date spoken into the sentence.
+ *
+ * `August 20, 2026: Unauthenticated RCE is confirmed against Drupal.` becomes
+ * `On August 20, 2026, Unauthenticated RCE is confirmed against Drupal.` -- the
+ * date is no longer a header, and everything after the colon is the source's
+ * own words, untouched (ruling #4). The fallback is exactly the job: a page
+ * whose timeline is the only event account still opens on a sentence, and the
+ * reader stands at the timeline's start, not in the middle of it.
+ */
+function speakDateIntoSentence(text: string): string {
+  const match = LEADING_CALENDAR_DATE.exec(text.trim());
+  if (!match) return text;
+  const whole = text.trim();
+  const rest = whole.slice(match[0]?.length ?? 0).trim();
+  const spoken = `On ${match[1]} ${match[2]}, ${match[3]}, ${rest}`;
+  return validDeterministicSentence(spoken) || validDeterministicParagraph(spoken) ? spoken : text;
+}
+
+/**
+ * Whether the sentence and the story's own event summary say the same thing.
+ *
+ * Two central tokens in common is the bar: the summary is the pipeline's own
+ * statement of what happened, and an opening that shares fewer than two of its
+ * words is usually writing about a different part of the story. It is a
+ * preference, not a refusal: a sentence that does not state the event still
+ * opens the page when nothing else composes, exactly as the ranked walk's
+ * existing fallback tiers let it.
+ */
+function statesTheEvent(text: string, what: string): boolean {
+  const summary = new Set(eventSummaryTokens(what));
+  if (summary.size === 0) return false;
+  let shared = 0;
+  for (const token of centralTokens(text)) {
+    if (summary.has(token)) shared += 1;
+  }
+  return shared >= 2;
+}
+
+/**
+ * The event summary's own words, with its date header removed.
+ *
+ * The stored summary may itself be a timeline fragment (`August 24, 2026: Wiz
+ * Research reports ...`); the date is where the step sits on the clock, not
+ * part of what the event is, and counting it as a shared token would let a
+ * sentence that merely mentions the same month claim to state the event.
+ */
+function eventSummaryTokens(what: string): string[] {
+  const whole = what.trim();
+  const match = LEADING_CALENDAR_DATE.exec(whole);
+  const rest = match ? whole.slice(match[0]?.length ?? 0).trim() : whole;
+  return centralTokens(rest);
+}
+
+/**
+ * Whether a sentence has a timeline step glued into it, past its first words.
+ *
+ * The reader-clarity audit's own fixture wrote it: `This article ... includes a
+ * more detailed timeline of the original intended responsible disclosure:
+ * August 19, 2026: Wiz Research discovers ...` -- the excerpt assembly joined a
+ * list's introduction to the list's first line, and the sentence that results
+ * shares any date-and-name tokens it then carries with a story's own summary,
+ * so a token test alone would call it the event. It is not: a colon-date past
+ * the point of opening is a list boundary the sentence swallowed, the same
+ * defect class the audit's I-11 measured as "bare date fragments". Such a
+ * sentence may not open the page any more than the bare step may; it stays a
+ * fact for the body's own rules to judge.
+ */
+function gluedTimelineStep(text: string): boolean {
+  /** The step header shape, searched anywhere (no anchoring). */
+  const stepHeader = /([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\s*:/gi;
+  for (const match of text.matchAll(stepHeader)) {
+    if ((match.index ?? 0) > 0) return true;
+  }
+  return false;
 }
 
 /**
@@ -3763,18 +3885,36 @@ export function composeArticleWithDiagnostics(story: Story): {
      * "what is this". Like the quote tier, this demotes and never deletes: the
      * statistic stays a fact for the body, and it still opens the story when it
      * is the only candidate that composes.
+     *
+     * The same re-measure (2026-10-23, card t_accf9193) found the audit's I-09
+     * still live one rule above: the opening was the timeline's own first step
+     * in its bare `date: sentence` shape, and neither a quotation nor a
+     * prevalence statistic -- so no existing demotion reached it. The event tier
+     * now skips that shape, and the sentence must also state the event: two
+     * central tokens in common with the story's own summary. When no composable
+     * candidate states the event, the walk falls back to the timeline's first
+     * step (ordered, so the page may not open in the middle of its own
+     * timeline), and speak the step's date into the sentence when it is the
+     * shape that carries one.
      */
     const eventDeck = composedDeck.find(
-      (entry) => !quotationCarriesOpening(entry.text) && !prevalenceStatistic(entry.text),
+      (entry) =>
+        !quotationCarriesOpening(entry.text) &&
+        !prevalenceStatistic(entry.text) &&
+        !leadingDateFragment(entry.fact.text) &&
+        !gluedTimelineStep(entry.fact.text) &&
+        statesTheEvent(entry.fact.text, story.what),
     );
     const chosenDeck =
       eventDeck ??
+      composedDeck.find((entry) => timeline.includes(entry.fact)) ??
       composedDeck.find((entry) => !quotationCarriesOpening(entry.text)) ??
       composedDeck.find((entry) => !prevalenceStatistic(entry.text)) ??
       composedDeck[0];
     if (chosenDeck !== undefined) {
       lead = chosenDeck.fact;
       leadText = chosenDeck.text;
+      if (leadingDateFragment(leadText)) leadText = speakDateIntoSentence(leadText);
     }
     const deck = { text: leadText, evidence: lead ? [...lead.evidence] : [] };
     // No fact survived selection, so the deck has to come from somewhere else --

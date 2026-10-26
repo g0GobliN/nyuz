@@ -1489,11 +1489,15 @@ describe("a story that carries its own timeline", () => {
   const body = article.paragraphs.map((paragraph) => paragraph.text);
   const sentences = [article.deck.text, ...body.flatMap((text) => readerSentences(text))];
 
-  it("opens on the first step of the timeline, not in the middle of it", () => {
+  it("opens on the first step of the timeline, spoken into a sentence", () => {
     // I-09. The ranked lead was the 24 August report, so the page named a date six
-    // weeks into the story and then went back to 20 August below it.
+    // weeks into the story and then went back to 20 August below it. The decay
+    // the audit measured was the shape: a bare `date: sentence` fragment is not
+    // a sentence with a subject and a verb. The fallback speaks the date into
+    // the sentence, and the page's first use of the acronym carries the
+    // expansion the source's own words spell (rule B, audit I-11).
     expect(article.deck.text).toBe(
-      "August 20, 2026: Unauthenticated RCE is confirmed against Drupal.",
+      "On August 20, 2026, Unauthenticated remote code execution (RCE) is confirmed against Drupal.",
     );
     expect(diagnostics.chronology.deckMovedToTimelineStart).toBe(1);
   });
@@ -1520,7 +1524,7 @@ describe("a story that carries its own timeline", () => {
   it("quotes its opening three sentences in the order the audit asked for", () => {
     // The acceptance for the card: the three sentences a stranger reads first.
     expect(sentences.slice(0, 3)).toEqual([
-      "August 20, 2026: Unauthenticated RCE is confirmed against Drupal.",
+      "On August 20, 2026, Unauthenticated remote code execution (RCE) is confirmed against Drupal.",
       "August 24, 2026: Wiz Research reports the vulnerabilities to the PHP security team.",
       "September 21, 2026: PHP acknowledges the reports and begins developing a coordinated fix.",
     ]);
@@ -1533,5 +1537,165 @@ describe("a story that carries its own timeline", () => {
     expect(body[0]).toContain("September 21, 2026");
     expect(body[0]).not.toContain("October 20th");
     expect(diagnostics.chronology.timelineFacts).toBeGreaterThanOrEqual(4);
+  });
+});
+
+/**
+ * The opening states the event, or falls back to the timeline's first step
+ * spoken as a sentence (audit I-09's rule, settled 2026-10-23).
+ *
+ * The rule is written against shapes, not the audit's own words: a different
+ * publisher, different dates and a different subject must produce the same
+ * composition. Nothing in these tests quotes the PHP fixture's strings beyond
+ * the rule's output.
+ */
+describe("the opening speaks the event, or the timeline's first step spoken into a sentence", () => {
+  /**
+   * A story whose only other sentences are the two shapes the composer already
+   * refuses as an opening (second-person advice, an unanchored `They`), so the
+   * walk reaches the timeline's first step through the fallback.
+   */
+  const outageWithoutEventFact = (): Story => ({
+    id: "acme-pipeline-outage",
+    org: "ACME Status Page",
+    title: "ACME's pipeline outage, and the fix that shipped same-day",
+    what: "March 3, 2026: The ACME platform team confirms the outage in a status post.",
+    why: "",
+    importance: "Medium",
+    score: { relevance: 60, importance: 60, novelty: 40 },
+    sources: 1,
+    topics: ["Outages"],
+    time: "",
+    publishedAt: "2026-03-03T20:00:00Z",
+    sourceList: [
+      {
+        name: "ACME Status Page",
+        at: "2026-03-03",
+        url: "https://status.acme.example/mar-3",
+        excerpt:
+          "You should always follow the ACME status page for live updates. They announced the fix in the same window. March 3, 2026: The ACME platform team confirms the outage in a status post. March 4, 2026: The pipeline restores service after the fix deploys.",
+        enrichedEvidence: [],
+      },
+    ],
+    before: "",
+    after: "",
+    timeline: [],
+  });
+
+  /** The same story, plus one sentence that states the event in its own words. */
+  const outageWithEventFact = (): Story => {
+    const story = outageWithoutEventFact();
+    return {
+      ...story,
+      sourceList: [
+        {
+          ...story.sourceList[0]!,
+          excerpt:
+            "You should always follow the ACME status page for live updates. They announced the fix in the same window. The ACME pipeline team restored service at 18:04 UTC after a three-hour outage. March 3, 2026: The ACME platform team confirms the outage in a status post. March 4, 2026: The pipeline restores service after the fix deploys.",
+        },
+      ],
+    };
+  };
+
+  it("prefers a sentence that states the event over the timeline's first step", () => {
+    const { article } = composeArticleWithDiagnostics(outageWithEventFact());
+    expect(article.deck.text).toBe(
+      "The ACME pipeline team restored service at 18:04 UTC after a three-hour outage.",
+    );
+  });
+
+  it("falls back to the timeline's first step with its date spoken into the sentence", () => {
+    // I-09. Before the rule the opening was the raw fragment below -- a date,
+    // a colon, and a sentence no reader can parse as one thought.
+    const { article } = composeArticleWithDiagnostics(outageWithoutEventFact());
+    expect(article.deck.text).not.toBe(
+      "August 20, 2026: Unauthenticated RCE is confirmed against Drupal.",
+    );
+    expect(article.deck.text).toBe(
+      "On March 3, 2026, The ACME platform team confirms the outage in a status post.",
+    );
+  });
+
+  it("keeps an opening that is not a fragment and not about the event when no timeline exists", () => {
+    // The walk's own ranked choice survives the new rules where no timeline
+    // competes: the demote and the fallback both need the timeline.
+    const story = outageWithEventFact();
+    const withoutTimeline = {
+      ...story,
+      sourceList: [
+        {
+          ...story.sourceList[0]!,
+          excerpt: story.sourceList[0]!.excerpt.replace(/March [34], 2026: /g, ""),
+        },
+      ],
+    };
+    const { article } = composeArticleWithDiagnostics(withoutTimeline);
+    expect(article.deck.text).toBe(
+      "The ACME pipeline team restored service at 18:04 UTC after a three-hour outage.",
+    );
+  });
+});
+
+/**
+ * Rule B: the page's first use of an acronym carries the expansion the source's
+ * own words spell, whether or not the source printed it in brackets.
+ *
+ * Measured on the audit's I-11: the PHP-security story opens on RCE while its
+ * source spells `remote code execution` in prose, and the old helper only read
+ * bracketed expansions (`operational technology (OT)`), so the acronym shipped
+ * unexplained.
+ */
+describe("a source that spells its acronym out in prose gets it expanded at first use", () => {
+  const studyStory = (): Story => ({
+    id: "driver-defect-study",
+    org: "Driver Safety Reviewer",
+    title: "What a defect study found in the driver",
+    what: "A defect study finds an unauthenticated defect in the driver during the test run.",
+    why: "",
+    importance: "Medium",
+    score: { relevance: 40, importance: 40, novelty: 30 },
+    sources: 1,
+    topics: ["Software"],
+    time: "",
+    publishedAt: "2026-09-02T10:00:00Z",
+    sourceList: [
+      {
+        name: "Driver Safety Reviewer",
+        at: "2026-09-02",
+        url: "https://example.com/driver-study",
+        excerpt: "",
+        enrichedEvidence: [
+          { kind: "fact", text: "The study found RCE in the driver during the test run." },
+          {
+            kind: "fact",
+            text: "Remote code execution in the kernel module was a separate finding.",
+          },
+        ],
+      },
+    ],
+    before: "",
+    after: "",
+    timeline: [],
+  });
+
+  it("expands the first use from the source's own words", () => {
+    const { article } = composeArticleWithDiagnostics(studyStory());
+    expect(article.deck.text).toContain("remote code execution (RCE)");
+  });
+
+  it("expands nothing when the source never spells the term", () => {
+    const story = studyStory();
+    const question = story.sourceList[0]!;
+    const unexplained = {
+      ...story,
+      sourceList: [
+        {
+          ...question,
+          enrichedEvidence: [(question.enrichedEvidence ?? [])[0]!],
+        },
+      ],
+    };
+    const { article } = composeArticleWithDiagnostics(unexplained);
+    expect(article.deck.text).not.toContain("remote code execution");
   });
 });
