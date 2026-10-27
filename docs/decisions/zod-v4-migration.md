@@ -12,12 +12,16 @@ be a pre-existing hole and was left alone.
 every `zod < 4.6.6` high. `package.json` declared `^3.24.2`, so no 3.x release clears it: this was a
 major migration, not a lockfile refresh. `npm audit fix --force` names `zod@4.6.7` as the install.
 
-| measure                                   | before             | after                |
-| ----------------------------------------- | ------------------ | -------------------- |
-| `npm audit --omit=dev --audit-level=high` | 1 high, exit 1     | found 0, exit 0      |
-| `package.json` zod spec / installed       | `^3.24.2` / 3.24.2 | `^4.6.7` / 4.6.7     |
-| `npx tsc --noEmit`                        | exit 0             | exit 0               |
-| `npx vitest run`                          | 219 files, 3644    | 220 files, 3658 pass |
+| measure                                   | before              | after                |
+| ----------------------------------------- | ------------------- | -------------------- |
+| `npm audit --omit=dev --audit-level=high` | 1 high, exit 1      | found 0, exit 0      |
+| `package.json` zod spec / installed       | `^3.24.2` / 3.25.76 | `^4.6.7` / 4.6.7     |
+| `npx tsc --noEmit`                        | exit 0              | exit 0               |
+| `npx vitest run`                          | 219 files, 3641     | 220 files, 3655 pass |
+
+Both test counts were measured the same way on the same machine (node v22.23.2, npm 10.9.8, the
+repo's `.env` present): `origin/main` (`a4c8bfe`, zod 3.25.76) in its own worktree with its own
+`npm ci`, and the branch's committed tree. The delta is the 14 cases this migration adds.
 
 The 14 new tests are this migration's own: 6 in `src/lib/server/validate.test.ts` and 8 cases added
 to `src/lib/errors.test.ts`. Nothing else needed editing.
@@ -103,7 +107,7 @@ the fix is to use it at those two sites.
 ## Evidence
 
 - `npm audit --omit=dev --audit-level=high` → `found 0 vulnerabilities` (exit 0), on the committed tree.
-- `npx tsc --noEmit` → exit 0; `npx vitest run` → 220 files, 3658 tests passing.
+- `npx tsc --noEmit` → exit 0; `npx vitest run` → 220 files, 3655 tests passing.
 - `GITHUB_ACTIONS=true npm run ci` → see the PR; the runner's "Dependencies and secret names" job is
   the check this migration exists to turn green.
 - Version probes: zod 3.24.2 and 4.6.7 installed side by side in scratch dirs, same script, output
