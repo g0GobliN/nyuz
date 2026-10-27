@@ -524,19 +524,23 @@ export type CompositionDiagnostics = {
      */
     lost: number;
     /**
-     * The facts behind `lost`, in full, so the number can be read.
-     *
-     * `lost` is the one counter that means "nobody can explain this missing",
-     * and a number nobody can read is not a bug report. Each entry was selected
-     * and did not reach the prose, and no rule refused *it* by name -- which is
-     * what a block-level refusal looks like from here: `short_block`,
-     * `thin_evidence_cap` and `article_limit` charge the sentence, so the fact
-     * behind it is only explicable when a reviewer can read it. Written in full
-     * rather than sampled, because the class is rare and the list is already
-     * bounded by the facts the story itself supplied.
-     */
-    lostFacts: string[];
-  };
+     /** The facts behind `lost`, in full, so the number can be read.
+          *
+          * `lost` is the one counter that means "nobody can explain this missing",
+          * and a number nobody can read is not a bug report. Each entry was selected
+          * and did not reach the prose, and no rule refused *it* by name -- which is
+          * what a block-level refusal looks like from here: `short_block`,
+          * `thin_evidence_cap` and `article_limit` charge the sentence, so the fact
+          * behind it is only explicable when a reviewer can read it. Written in full
+          * rather than sampled, because the class is rare and the list is already
+          * bounded by the facts the story itself supplied.
+          */
+         lostFacts: string[];
+         /** Facts dropped because their evidence belongs to a different article than
+          * the story's primary source. Not a string filter -- the story's articleId
+          * is compared against each fact's evidence source articleId. */
+         storyBoundaryDrops: number;
+       };
   paragraphs: {
     /** Blocks handed to the gate. */
     assembled: number;
@@ -671,6 +675,7 @@ function createDiagnostics(): CompositionDiagnostics {
       evidenceRefusals: {},
       lost: 0,
       lostFacts: [],
+      storyBoundaryDrops: 0,
     },
     paragraphs: { assembled: 0, split: 0, rendered: 0, rejected: 0, reasons: {} },
     sentences: { considered: 0, rendered: 0, merged: 0, refused: 0, reasons: {} },
@@ -3631,6 +3636,31 @@ export function composeArticleWithDiagnostics(story: Story): {
       diagnostics,
     );
     const facts = mergeFacts(dated, diagnostics);
+    // Story boundary enforcement: a story page must only carry paragraphs from
+    // its primary source article. Facts whose evidence belongs to a different
+    // articleId are dropped before they can compose into the page.
+    const primaryArticleId = story.sourceList[0]?.articleId;
+    const droppedForStoryBoundary: string[] = [];
+    if (primaryArticleId) {
+      const beforeBoundary = facts.length;
+      const allowedSources = new Set(
+        sources
+          .map((source, index) => (source.articleId === primaryArticleId ? index : -1))
+          .filter((index) => index !== -1)
+          .map((index) => index + 1), // evidence uses 1-based source indices
+      );
+      for (let i = facts.length - 1; i >= 0; i--) {
+        const fact = facts[i];
+        if (!fact) continue;
+        const factSources = new Set(fact.evidence);
+        const hasAllowedSource = [...factSources].some((ref) => allowedSources.has(ref));
+        if (!hasAllowedSource) {
+          droppedForStoryBoundary.push(fact.text);
+          facts.splice(i, 1);
+        }
+      }
+      diagnostics.facts.storyBoundaryDrops = beforeBoundary - facts.length;
+    }
     diagnostics.facts.selected = facts.length;
     // Which survey each source names, for the statistics that do not name one
     // themselves -- see `surveyLabels`.
@@ -3826,6 +3856,10 @@ export function composeArticleWithDiagnostics(story: Story): {
      * number it is meant to be: facts nobody can explain.
      */
     const ledger: FactLedger = { sentences: new Map(), unrendered: new Map() };
+    // Charge facts dropped by story boundary enforcement to the ledger so the
+    // refusal accounting stays truthful: every fact that did not reach the page
+    // has a rule that explains why.
+    for (const text of droppedForStoryBoundary) markFact(ledger, text, "story_boundary");
     // The lead fact, indexed under both forms of its sentence: the gate rewrites
     // the deck before judging it (`stripFrontedConnector`), and a refused deck has
     // to be chargeable to the fact that produced it whichever form was refused.
