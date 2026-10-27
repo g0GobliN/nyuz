@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { isDeveloperWording } from "@/lib/errors";
+
 /**
  * Runs a schema and throws something a person can read.
  *
@@ -18,13 +20,16 @@ import { z } from "zod";
  * validator somebody writes later, and that one cannot help a message that was
  * never customer-facing to begin with.
  */
-export function parseInput<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, input: unknown): T {
+export function parseInput<T>(schema: z.ZodType<T, unknown>, input: unknown): T {
   const result = schema.safeParse(input);
   if (result.success) return result.data;
 
-  const issue = result.error.issues.find((i) => i.message.trim() !== "");
-  // Falls back to a generic line rather than to zod's own wording: "Required"
-  // and "Expected string, received number" are written for whoever wrote the
-  // schema, not for whoever filled in the form.
+  const issue = result.error.issues.find(
+    (i) => i.message.trim() !== "" && !isDeveloperWording(i.message),
+  );
+  // Falls back to a generic line rather than to zod's own wording: v3's
+  // "Required" and v4's "Invalid input: expected string, received undefined"
+  // are both written for whoever wrote the schema, not for whoever filled in
+  // the form.
   throw new Error(issue ? issue.message : "Those details are not valid.");
 }
