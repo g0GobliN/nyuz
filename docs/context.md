@@ -4156,3 +4156,59 @@ parses, unknown keys still rejected), pinned by the restored test
 `npm ls zod --omit=dev` shows one root zod@4.6.7 everywhere — every run on the proposal worktree at
 base a4c8bfe = origin/main. `@hookform/resolvers@5.9.1` already peers `zod ^3.25.0 || ^4.0.0`
 and does not move.
+### One story, one card — B-05 closed inside a single edition (2026-10-26)
+
+The reader-clarity audit's **B-05** is the pair of duplicates the 2026-10-21 briefing showed as four
+cards: #04 + #07 (the GTC Berlin keynote) and #06 + #09 (the PHP security release). Each pair is two
+distinct `events` rows with one stored article each, so clustering never joined them and selection had
+no rule that would refuse the second. `suppressDeliveredDuplicates` could not help: it answers "was this
+reader already sent this?" over 48 hours, not "are these two cards the same story?".
+
+**Measured first, on delivered data** (push `sent`, digest `item_count > 0`, pairs judged from stored
+`events.title` + `what_happened` and the stored `articles` rows): three most recent editions, **67 cards,
+0 same-event-id pairs, 4 reader-visible duplicate pairs / 8 cards** — `fab11fdf` #09+#10, `7268ba11`
+#04+#07 and #06+#09, `3fcbb21c` #08+#09.
+
+**The fix is in the selection pass**, `suppressStoryTwins` in `src/lib/pipeline/duplicates.ts`, gated on
+`options.b05Rules` (absent = on, `false` = the pass as it stood). Two legs: an event-noun leg (both
+headlines name an event — `keynote`, `conference`, `summit`, `unveils`, `launches`, `debuts`,
+`introduces` — **and** share a name; the noun alone fused a GTC liveblog with an unrelated summit
+liveblog, both "Live Updates"), and a disclosure leg (both headlines disclosure-shaped —
+`vulnerability`, `flaw(s)`, `bug(s)`, `security release`, `cve-YYYY` — **and** sharing a capitalised
+proper name, because PRIMARY ranking also promotes concept words like `security` and `flaw`). The
+disclosure leg refuses a pair whose headline announces the next turn of a saga (`PROGRESSION`: `another`,
+`again`, `second`, `third`, `follow-up`, `surges`, `resumes`, `after`, `later`, `next`, `imminent`), read
+off the headline only because summaries restate the original event — that is what keeps the PHP2Shell
+day-two card ("…Warns of **Another** Unpatched RCE **Two Days After**…") a second card while the
+retellings fuse.
+
+**Replayed on the same four pairs, legs off → on: three go 2 cards → 1 card, and the fourth (SpaceX,
+2026-10-20) is already 1 card on the base legs** — so it is not evidence for this change and its
+appearance in that edition is not explained by the pass as it stands. Recorded rather than glossed.
+**Blast radius on the 30-day corpus:** 18,517 events, 491 disclosure-shaped, 1,326 candidate pairs
+sharing a PRIMARY; the new legs fuse **307**, of which **44** clear ruling #18's acceptance floor and
+**263** sit below it. The below-floor population is not new in kind
+([decisions/twin-floor-below-floor.md](decisions/twin-floor-below-floor.md) already reports 164, and they
+are one story told by many outlets), but it is a widening past the floor the code was accepted against,
+and it is stated as such in [decisions/edition-duplicates.md](decisions/edition-duplicates.md).
+
+**What it does not fix.** Clustering still creates two events for one story; this pass drops the second
+at selection time, which is the smallest change that makes the pair impossible *in a briefing*. The
+corpus keeps both events, so once the 48-hour window passes the same story can surface again on another
+day. Joining them in `cluster.ts` is the durable fix and a separate slice.
+
+**Gates on the final tree (re-run 2026-10-27, Node 22.23.2, quiet worktree):** `npm run typecheck` clean
+(both passes); `npm run lint` **0 errors** (20 pre-existing `react-refresh/only-export-components`
+warnings); `npm test -- --run` **3,650 tests passed** across **219 files**. `src/lib/pipeline/duplicates.test.ts`
+pins both directions: the three audited pairs fuse to one card with quoted stored card text, the same
+three are two cards with `b05Rules: false` (the census's "before" column), the PHP2Shell day-two pair
+stays two cards, and the day-two test was verified to fail with the progression guard removed. Against
+the pre-fix pass (`HEAD~1` of `duplicates.ts`) the new block fails **4 of 43** and passes **43/43** with
+the change, which is the reproduce-then-fix evidence the card asks for.
+
+**Whole-edition replay, every card, legs off → on (2026-10-27):** `fab11fdf` 17 cards → 17 / 16
+(fused #09+#10); `7268ba11` 25 → 25 / 23 (fused #04+#07, #06+#09); `3fcbb21c` 25 → 24 / 24 (nothing new;
+#08+#09 already gone under today's base legs). **0 reader-visible duplicate pairs remain on all three
+editions.** The "legs off" column is today's base legs with `b05Rules: false`, not the code that
+generated each edition — the base pass was widened after 2026-10-20, which is why `3fcbb21c` loses a card
+before the new legs run while the delivered edition carried both.
