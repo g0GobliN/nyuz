@@ -67,10 +67,13 @@ async function run(): Promise<void> {
     .from("digests")
     .select("digest_id, user_id, scheduled_for, status, kind")
     .eq("kind", "briefing")
-    .in("status", ["sent", "ready"])
     .order("scheduled_for", { ascending: false })
     .limit(digestArg ? 1000 : BRIEFINGS);
+  // Audit a briefing by id regardless of its delivery status: a digest that was
+  // delivered on audit day can be `failed` in the store later, and the question
+  // "which labels does this digest's store carry?" does not stop being answerable.
   if (digestArg) digestQuery = digestQuery.eq("digest_id", digestArg);
+  else digestQuery = digestQuery.in("status", ["sent", "ready"]);
 
   const { data: digests, error: digestError } = await digestQuery;
   if (digestError) throw new Error(`digests: ${digestError.message}`);

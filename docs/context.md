@@ -4122,3 +4122,23 @@ is restored with the code, 17/17 green on the reverted tree.
 Recorded, not hidden: this reopens six audit findings the quality sprint had closed on that page. The
 reader-facing bar still decides — the owner's read of the live page outranks an audit score, so the
 findings come back as findings and the next briefing slice starts from this surface, not from #59's.
+
+### 2026-10-27 · Reader chips anchor to the current rule (H-16, worktree t_2010e2f1)
+
+`analyse.ts` no longer unions ingest-era `event_topic_candidates` into
+`finalTopics`: the finalized write is exactly `topicsFor(metadata, text, topics)`
+— the current rule's recompute, decisive in
+[decisions/reader-chips-anchor.md](docs/decisions/reader-chips-anchor.md).
+Migration `0124` makes `finish_event_finalization` **replace** its topic links,
+not accumulate, so a retired vocabulary label (`Music` on the H-16 audit card)
+cannot survive a re-finalization and a store can no longer exceed the label cap
+by seepage. Recall cost: none measured — `npm run audit:topic-attribution --
+--digest 7268ba11-28c6-4d2d-abe6-db483dccb897` reads 25 cards, 0 flagged.
+
+The audit tool also learned to read a briefing by explicit id regardless of
+delivery status (that digest reads `failed` in the store today, and the old
+`sent|ready` filter hid it). `rankEventTopics`' alphabetical tie-break is
+deliberately untouched: order-only, and after the anchor card 04 holds four
+labels — the harm needs an over-cap store that no longer exists. Deploy note:
+`0124` must ship in the same release as the `analyse.ts` change; until then the
+store keeps the old union and cards converge as events re-finalize.

@@ -222,11 +222,9 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
     (sourceRows.data ?? []).map((source) => [source.id, source as Publisher]),
   );
   // Same haystack classify.ts folds a section signal into ("BBC Sport", etc.),
-  // so this independent recompute never lands narrower than the candidates it
-  // unions with below -- see topic-assign.ts and classify.ts for why.
+  // so this independent recompute sees what the stored text describes.
   const sourceSignals = sourceSignalsFrom(sourceRows.data ?? []);
   const topics = (topicRows.data ?? []) as TopicRow[];
-  const customTopicIds = new Set(topics.filter((t) => t.kind === "custom").map((t) => t.id));
   const outcomes: EventOutcome[] = [];
   for (const event of events) {
     const owner = crypto.randomUUID();
@@ -298,24 +296,13 @@ export async function analyse(db: Db, options: AnalyseOptions = {}): Promise<Ana
           text.push(signal);
         }
       }
-      const topicIds = topicsFor(metadata, text, topics);
-      const candidates = await db
-        .from("event_topic_candidates")
-        .select("topic_id")
-        .eq("event_id", event.id);
-      if (candidates.error) throw new Error(candidates.error.message);
-      // Candidates are unioned in so this recompute can never land narrower
-      // than classification -- except for a custom topic, whose match spec is
-      // re-evaluated here on a haystack at least as wide as classification's.
-      // A candidate written before the topic gained an exclusion must not become
-      // a permanent `event_topics` link the reader join would honour: the spec
-      // as it stands now is the authority, in this stage as in every other.
-      const finalTopics = [
-        ...new Set([
-          ...topicIds,
-          ...(candidates.data ?? []).map((t) => t.topic_id).filter((id) => !customTopicIds.has(id)),
-        ]),
-      ];
+      // The chips a reader sees are what the current rule derives right here,
+      // over the full stored coverage: predefined topics through assignTopics
+      // (whose 5-cap is the unit that decides), custom topics through the spec
+      // it stands under now. Ingest-era candidates are classification's guess
+      // for the demand gate -- never shipped through event_topics, so a label
+      // retired from the vocabulary cannot ride an old row back onto a card.
+      const finalTopics = topicsFor(metadata, text, topics);
       const tags = assignTags(text.join(" "));
       if (!options.dryRun) {
         const saved = await db.rpc("finish_event_finalization", {

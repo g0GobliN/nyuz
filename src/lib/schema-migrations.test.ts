@@ -1154,3 +1154,114 @@ describe("the reader's timezone from the first row (0123)", () => {
     expect(rows[0]).toEqual({ anon: false, authenticated: false, service: true });
   });
 });
+
+/**
+ * `0124` makes the finalization's topic write replace, not accumulate.
+ *
+ * Before it, `finish_event_finalization` inserted `event_topics` links
+ * `on conflict do nothing` and never deleted, so a label written under a
+ * retired vocabulary sat on the card until someone else removed it. Measured on
+ * the audited digest `7268ba11-28c6-4d2d-abe6-db483dccb897` (H-16): the store
+ * held `Politics · Music · Economy · AI · NVIDIA · Robotics` while the current
+ * rule yields `NVIDIA · AI · Politics · Robotics` -- and the over-cap sixth
+ * label existed only because nothing subtracts.
+ *
+ * The store is the chip source the reader join reads, so the executed function
+ * is what proves the anchoring, same as the coverage clock above: no fake can
+ * be trusted to model a plpgsql body.
+ */
+describe("the finalized topic links replace, not accumulate (0124)", () => {
+  async function mkTopic(slugTag: string): Promise<string> {
+    const { rows } = await db.query<{ id: string }>(
+      `insert into public.topics (slug, label, kind, terms)
+       values ($1, $1, 'predefined', '{}') returning id`,
+      [`topic-${slugTag}`],
+    );
+    return rows[0]!.id;
+  }
+
+  async function event(title: string): Promise<string> {
+    const { rows } = await db.query<{ id: string }>(
+      `insert into public.events (title, status) values ($1, 'complete'::event_status) returning id`,
+      [title],
+    );
+    return rows[0]!.id;
+  }
+
+  /** Hold the lease `finish_event_finalization` demands, then write. */
+  const finalize = async (
+    eventId: string,
+    owner: string,
+    topics: string[],
+    metadata = {
+      title: "finalized",
+      what_happened: "happened",
+      importance: 1,
+      novelty: 1,
+      article_count: 2,
+      publisher_count: 1,
+      tags: [] as string[],
+    },
+  ): Promise<boolean> => {
+    await db.query("select public.claim_event_finalization($1, $2)", [eventId, owner]);
+    const { rows } = await db.query<{ finish_event_finalization: boolean }>(
+      "select public.finish_event_finalization($1, $2, 1, $3::jsonb, $4::uuid[], null)",
+      [eventId, owner, JSON.stringify(metadata), `{${topics.join(",")}}`],
+    );
+    return rows[0]!.finish_event_finalization;
+  };
+
+  const stored = async (eventId: string): Promise<string[]> => {
+    const { rows } = await db.query<{ topic_id: string }>(
+      "select topic_id from public.event_topics where event_id = $1",
+      [eventId],
+    );
+    return rows.map((r) => r.topic_id).sort();
+  };
+
+  it("replaces the stored links with exactly what the current rule derives", async () => {
+    const stale = await mkTopic(crypto.randomUUID().slice(0, 8));
+    const keep = await mkTopic(crypto.randomUUID().slice(0, 8));
+    const fresh = await mkTopic(crypto.randomUUID().slice(0, 8));
+    const id = await event("One event, two finalizations");
+
+    // First finalization under yesterday's vocabulary: today's label plus a
+    // link the rule no longer produces.
+    expect(await finalize(id, crypto.randomUUID(), [keep, stale])).toBe(true);
+    expect(await stored(id)).toEqual([keep, stale].sort());
+
+    // The next pass derives a different set. The stale link must be gone, and
+    // the fresh one added: the store converges on the write, it never seeps.
+    expect(await finalize(id, crypto.randomUUID(), [keep, fresh])).toBe(true);
+    expect(await stored(id)).toEqual([keep, fresh].sort());
+    expect(await stored(id)).not.toContain(stale);
+  });
+
+  it("de-duplicates the caller's list, and maintains a shorter set on re-run", async () => {
+    const a = await mkTopic(crypto.randomUUID().slice(0, 8));
+    const b = await mkTopic(crypto.randomUUID().slice(0, 8));
+    const id = await event("Repeated ids, then a cap");
+
+    expect(await finalize(id, crypto.randomUUID(), [a, a, b])).toBe(true);
+    expect(await stored(id)).toEqual([a, b].sort());
+
+    expect(await finalize(id, crypto.randomUUID(), [a])).toBe(true);
+    expect(await stored(id)).toEqual([a]);
+  });
+
+  it("is callable only by the service role", async () => {
+    // Same 0036 lesson the timezone capture pins: revoking from
+    // `anon, authenticated` alone leaves the PUBLIC grant standing.
+    const { rows } = await db.query<{
+      anon: boolean;
+      authenticated: boolean;
+      service: boolean;
+    }>(
+      `select
+         has_function_privilege('anon', 'public.finish_event_finalization(uuid, uuid, integer, jsonb, uuid[], jsonb)', 'execute') as anon,
+         has_function_privilege('authenticated', 'public.finish_event_finalization(uuid, uuid, integer, jsonb, uuid[], jsonb)', 'execute') as authenticated,
+         has_function_privilege('service_role', 'public.finish_event_finalization(uuid, uuid, integer, jsonb, uuid[], jsonb)', 'execute') as service`,
+    );
+    expect(rows[0]).toEqual({ anon: false, authenticated: false, service: true });
+  });
+});
