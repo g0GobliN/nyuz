@@ -71,6 +71,27 @@ already fuses on the base legs today, so it is **not** evidence for this change:
 that edition is not explained by the pass as it stands, and this slice does not claim it. Recorded
 rather than glossed.
 
+### Whole-edition replay (2026-10-27)
+
+The same pass over every card of each edition, not only the judged pairs, legs off → on. This is the
+acceptance number: **0 reader-visible duplicate pairs remain on all three editions.**
+
+```
+fab11fdf   cards=17  legs off kept=17  legs on kept=16   fused #09+#10
+7268ba11   cards=25  legs off kept=25  legs on kept=23   fused #04+#07, #06+#09
+3fcbb21c   cards=25  legs off kept=24  legs on kept=24   (nothing new; #08+#09 already gone)
+```
+
+Read the "legs off" column as today's base legs with `b05Rules: false`, **not** as the code that
+generated each edition — the base pass has been widened since 2026-10-20, which is why `3fcbb21c`
+loses a card before the new legs run while the delivered edition carried both.
+
+Proven by tests, not by the replay alone: run against the pre-fix pass (`HEAD~1` of
+`duplicates.ts`) the new block fails **4 of 43** — the GTC pair, the PHP pair, the day-later PHP pair
+and the two-publishers-one-card pin — and with the change in place all **43** pass. The case named
+"reproduces the measured defect with B-05's legs off" passes on both trees, which is the check that
+`b05Rules: false` really is the old pass.
+
 ## Blast radius, measured
 
 `npm run audit:twin-corpus` over the 30-day window: **18,517 events**, **491** disclosure-shaped.

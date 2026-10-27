@@ -4163,9 +4163,18 @@ at selection time, which is the smallest change that makes the pair impossible *
 corpus keeps both events, so once the 48-hour window passes the same story can surface again on another
 day. Joining them in `cluster.ts` is the durable fix and a separate slice.
 
-**Gates on the final tree:** `npm run typecheck` clean (both passes); `npm run lint` **0 errors**
-(20 pre-existing `react-refresh/only-export-components` warnings); `npm test` **3,603 tests passed**
-across 214 files. `src/lib/pipeline/duplicates.test.ts` pins both directions: the three audited pairs fuse
-to one card with quoted stored card text, the same three are two cards with `b05Rules: false` (the
-census's "before" column), the PHP2Shell day-two pair stays two cards, and the day-two test was verified
-to fail with the progression guard removed.
+**Gates on the final tree (re-run 2026-10-27, Node 22.23.2, quiet worktree):** `npm run typecheck` clean
+(both passes); `npm run lint` **0 errors** (20 pre-existing `react-refresh/only-export-components`
+warnings); `npm test -- --run` **3,650 tests passed** across **219 files**. `src/lib/pipeline/duplicates.test.ts`
+pins both directions: the three audited pairs fuse to one card with quoted stored card text, the same
+three are two cards with `b05Rules: false` (the census's "before" column), the PHP2Shell day-two pair
+stays two cards, and the day-two test was verified to fail with the progression guard removed. Against
+the pre-fix pass (`HEAD~1` of `duplicates.ts`) the new block fails **4 of 43** and passes **43/43** with
+the change, which is the reproduce-then-fix evidence the card asks for.
+
+**Whole-edition replay, every card, legs off → on (2026-10-27):** `fab11fdf` 17 cards → 17 / 16
+(fused #09+#10); `7268ba11` 25 → 25 / 23 (fused #04+#07, #06+#09); `3fcbb21c` 25 → 24 / 24 (nothing new;
+#08+#09 already gone under today's base legs). **0 reader-visible duplicate pairs remain on all three
+editions.** The "legs off" column is today's base legs with `b05Rules: false`, not the code that
+generated each edition — the base pass was widened after 2026-10-20, which is why `3fcbb21c` loses a card
+before the new legs run while the delivered edition carried both.
