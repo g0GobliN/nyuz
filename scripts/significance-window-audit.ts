@@ -1,7 +1,10 @@
 /**
  * Gate 2's evidence ledger: the significance window opened by ruling #12c.
  *
- *   npm run audit:significance-window [--out FILE] [--now ISO]
+ *   npm run audit:significance-window [--write] [--out FILE] [--now ISO]
+ *
+ * A run reports by default and writes nothing: the committed ledger describes
+ * one pinned run, so replacing it is asked for with `--write`.
  *
  * ---------------------------------------------------------------------------
  * What this is for
@@ -253,6 +256,9 @@ type Verdict = {
 };
 
 const args = process.argv.slice(2);
+
+/** Reporting is the default; replacing the pinned ledger has to be asked for. */
+const write = args.includes("--write");
 
 const flag = (name: string): string | undefined => {
   const index = args.indexOf(name);
@@ -700,7 +706,7 @@ main(async () => {
       exit: { 0: "closed, both legs pass", 1: "closed, a leg fails", 2: "pending or undefined" },
     },
   };
-  writeLedger(out, ledger);
+  if (write) writeLedger(out, ledger);
 
   // ------------------------------------------------------------------ print
   heading(`Gate 2 — ${EXPERIMENT}'s significance window`);
@@ -716,7 +722,11 @@ main(async () => {
           ? `${days(now, endsAt)} to close`
           : "closed"),
   );
-  say(`ledger                       ${out}`);
+  say(
+    write
+      ? `ledger                       ${out}`
+      : `ledger                       ${out} not written (${measurements.briefings} briefings, ${measurements.items} items); pass --write to replace it`,
+  );
 
   heading("Delivered in the window");
   say(row("briefings generated", measurements.briefings));
