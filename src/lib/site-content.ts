@@ -117,7 +117,7 @@ const orderedSectionsSchema = z
   .array(z.object({ key: sectionKeySchema, enabled: z.boolean() }))
   .max(SECTION_KEYS.length * 2);
 
-const legacySectionsSchema = z.record(sectionKeySchema, z.boolean());
+const legacySectionsSchema = z.partialRecord(sectionKeySchema, z.boolean());
 
 export type SectionRow = { key: SectionKey; enabled: boolean };
 export type Sections = SectionRow[];
@@ -128,7 +128,7 @@ export type Sections = SectionRow[];
  * the annotation `z.infer` reports the input union, and every consumer would
  * have to narrow a shape that `parse` can never actually return.
  */
-export const sectionsSchema: z.ZodType<Sections, z.ZodTypeDef, unknown> = z
+export const sectionsSchema: z.ZodType<Sections, unknown> = z
   .union([orderedSectionsSchema, legacySectionsSchema])
   .transform(normaliseSections);
 
@@ -513,7 +513,7 @@ export function parseSetting<T>(
   // Input typed as `unknown` rather than `T`: `stored` comes out of a jsonb
   // column and is genuinely unknown, and schemas that transform on the way in
   // (sections) have an input type that is not their output type.
-  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  schema: z.ZodType<T, unknown>,
   stored: unknown,
   fallback: T,
 ): [T, boolean] {
