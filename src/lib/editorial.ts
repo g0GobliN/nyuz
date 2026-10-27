@@ -402,6 +402,19 @@ export type CompositionDiagnostics = {
      * abbreviation does.
      */
     acronymExpansions: { count: number; samples: string[] };
+    /**
+     * Sentences that opened on the consequence of something the page never
+     * established, demoted so the source's own main clause gets first position.
+     *
+     * `As a result of the leak and pre-announcement around 20:00 UTC, Calif,
+     * one of the security firms ... published a video.` is unusable as written:
+     * the reader meets `the leak` before anything names it, and the thing that
+     * happened waits behind its cause. The demotion moves the adjunct to the
+     * tail -- every word stays the source's own -- and is only taken when the
+     * fronted clause carries a cause (`As a result of X, ...`), never the bare
+     * connective (`As a result, ...`), which has nothing to move.
+     */
+    consequenceDemotions: { count: number; samples: string[] };
   };
   /**
    * The invariant this exists for: a selected fact is either published, merged
@@ -655,6 +668,7 @@ function createDiagnostics(): CompositionDiagnostics {
       openingReferences: { repaired: 0, unresolved: [], samples: [] },
       unresolvableListItems: { count: 0, samples: [] },
       acronymExpansions: { count: 0, samples: [] },
+      consequenceDemotions: { count: 0, samples: [] },
     },
     facts: {
       selected: 0,
@@ -1418,13 +1432,84 @@ function findAcronymExpansion(acronym: string, sourceText: string): string | nul
   // the source's prose. The scan slides one word at a time rather than
   // chunking, because a regex match consumes its own three words and the
   // phrase that straddles two chunks is then never seen.
-  const sourceWords = sourceText.split(/\s+/).map((word) => word.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ""));
+  // Two letters sit below this line (measured 2026-10-26): `1 TW Terafab`
+  // became `1 texas with (TW) Terafab`, `RTX Spark PC` became `RTX Spark
+  // power connectivity (PC)`, `90 million CI jobs` became `90 million code
+  // is (CI) jobs`. Two letters are the class where an initials match is
+  // noise -- any two shorter words happen to carry the initials -- so the
+  // prose scan refuses them; the bracketed readers above still expand a
+  // two-letter acronym the source itself spelled out.
+  if (letters.length <= 2) return null;
+  const sourceWords = sourceText
+    .split(/\s+/)
+    .map((word) => word.replace(/^[^\p{L}]+|[^\p{L}]+$/gu, ""));
   for (let at = 0; at + letters.length <= sourceWords.length; at++) {
     const window = sourceWords.slice(at, at + letters.length);
     if (window.some((word) => !/^[A-Z]?[a-z'’-]+$/.test(word))) continue;
     if (acronymInitialsMatch(acronym, window)) return window.join(" ");
   }
   return null;
+}
+
+/**
+ * The page's grammar when the source wrote it fronted-to-back (audit I-10,
+ * re-measured 2026-10-26).
+ *
+ * `As a result of the leak and pre-announcement around 20:00 UTC, Calif, one
+ * of the security firms that had reported the issues mistakenly published a
+ * video.` Hands the reader a consequence before anything names the cause, and
+ * the event waits behind `As a result`. The demotion moves the fronted cause
+ * to the tail; every word stays the source's own. The bare connective (`As a
+ * result, ...`) is left alone -- it names nothing, so it has nothing to move.
+ */
+function demoteFrontedConsequences(
+  blocks: { text: string }[],
+  diagnostics: CompositionDiagnostics,
+): void {
+  // The fronted cause is the whole span between the lead-in and the clause's
+  // own comma; the main clause keeps its own commas untouched.
+  const FRONTED = /(As a result of [^,;.!]{2,240}?),\s*([^.!?]{2,240}?[.!?])/gu;
+  for (const block of blocks) {
+    if (!block.text.includes("As a result of ")) continue;
+    const demoted = block.text.replace(FRONTED, (whole, cause: string, main: string) => {
+      // The connective `As a result, ...` never carries a cause after it --
+      // "As a result" then "the platform team confirms" -- and moving it would
+      // strand a meaningless tail, so the rewrite refuses it.
+      if (cause === "") return whole;
+      // The capture keeps its own lead-in; the tail restates the cause without it.
+      const causeText = cause.replace(/^As a result of\s+/u, "");
+      const subject = main.trim().replace(/[.!?]$/, "");
+      return `${subject}, as a result of ${causeText}.`;
+    });
+    if (demoted === block.text) continue;
+    keepSample(diagnostics.qualityGate.consequenceDemotions.samples, block.text, demoted);
+    diagnostics.qualityGate.consequenceDemotions.count += 1;
+    block.text = demoted;
+  }
+}
+
+/**
+ * The date spoken into a timeline step keeps the step's own first word, and a
+ * step-head capital that the story's own rows never show lowercase (the
+ * witness fold of the spoken join, measured against the nameless-vendor
+ * fixture: `Vendor access` stays capital because the source only ever writes
+ * `Vendor`; `unauthenticated access` goes lowercase because the source spells
+ * the word lowercase elsewhere).
+ */
+function lowerSpokenStepHead(text: string, corpusText: string): string {
+  const spoken = /^(On [A-Za-z]+ \d{1,2}, \d{4}, )([A-Z][a-z'’-]+)([\s\S]*)$/;
+  const match = spoken.exec(text);
+  if (match === null) return text;
+  const word = match[2] ?? "";
+  const lower = word.toLowerCase();
+  try {
+    if (new RegExp(`\\b${lower}\\b`).test(corpusText)) {
+      return `${match[1]}${lower}${match[3] ?? ""}`;
+    }
+  } catch {
+    return text;
+  }
+  return text;
 }
 
 function expandAcronymsFromEvidence(
@@ -2404,16 +2489,35 @@ function speakDateIntoSentence(text: string): string {
  * words is usually writing about a different part of the story. It is a
  * preference, not a refusal: a sentence that does not state the event still
  * opens the page when nothing else composes, exactly as the ranked walk's
- * existing fallback tiers let it.
+ * existing fallback tiers let it. Only the sentence's own words count —
+ * quoted spans are stripped first (`stripQuotedSpans`).
  */
 function statesTheEvent(text: string, what: string): boolean {
   const summary = new Set(eventSummaryTokens(what));
   if (summary.size === 0) return false;
   let shared = 0;
-  for (const token of centralTokens(text)) {
+  for (const token of centralTokens(stripQuotedSpans(text))) {
     if (summary.has(token)) shared += 1;
   }
   return shared >= 2;
+}
+
+/**
+ * The sentence with its double-quoted spans removed.
+ *
+ * A quotation inside a sentence is the quoted party's voice, not the page's
+ * own claim. Measured 2026-10-27 (reader-production fixture 1): "There's now
+ * also a Stop Omarchy campaign, with a banner: \"Omarchy is a political
+ * movement disguised as a Linux distro.\"\" shared both of its event tokens
+ * (`linux`, `distro`) with the story's summary through the banner quote alone,
+ * and statesTheEvent let it take the deck from the sentence the page had
+ * always opened on. Only the words the composer chose itself can state the
+ * event; the words the sentence merely reports cannot. An unclosed quote
+ * stays unmatched (nothing stripped), so a malformed excerpt degrades to the
+ * pre-fix behaviour instead of losing its text.
+ */
+function stripQuotedSpans(text: string): string {
+  return text.replace(/[“"][^“”"]*[”"]/gu, " ");
 }
 
 /**
@@ -3908,13 +4012,21 @@ export function composeArticleWithDiagnostics(story: Story): {
     const chosenDeck =
       eventDeck ??
       composedDeck.find((entry) => timeline.includes(entry.fact)) ??
-      composedDeck.find((entry) => !quotationCarriesOpening(entry.text)) ??
-      composedDeck.find((entry) => !prevalenceStatistic(entry.text)) ??
+      composedDeck.find(
+        (entry) => !quotationCarriesOpening(entry.text) && !prevalenceStatistic(entry.text),
+      ) ??
       composedDeck[0];
     if (chosenDeck !== undefined) {
       lead = chosenDeck.fact;
       leadText = chosenDeck.text;
-      if (leadingDateFragment(leadText)) leadText = speakDateIntoSentence(leadText);
+      if (leadingDateFragment(leadText)) {
+        leadText = lowerSpokenStepHead(
+          speakDateIntoSentence(leadText),
+          [story.what, story.why ?? "", story.title ?? "", ...facts.map((fact) => fact.text)].join(
+            "\n",
+          ),
+        );
+      }
     }
     const deck = { text: leadText, evidence: lead ? [...lead.evidence] : [] };
     // No fact survived selection, so the deck has to come from somewhere else --
@@ -4168,6 +4280,10 @@ export function composeArticleWithDiagnostics(story: Story): {
     // need witnesses). I-12 drops a list item that named nothing; I-03 puts a
     // source's own expansion back in front of the abbreviation it left behind.
     dropUnresolvableListItems([gated.deck, ...gated.paragraphs], diagnostics);
+    // The consequence demotion runs before the acronym expansion: the rewrite
+    // moves a source's own words across a block, so the expansion's first-use
+    // scan should read the sentence in its final shape.
+    demoteFrontedConsequences([gated.deck, ...gated.paragraphs], diagnostics);
     expandAcronymsFromEvidence([gated.deck, ...gated.paragraphs], sourceText, diagnostics);
 
     return { article: gated, diagnostics };
