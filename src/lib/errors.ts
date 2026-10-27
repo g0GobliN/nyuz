@@ -100,6 +100,35 @@ function sentence(text: string): string {
 }
 
 /**
+ * True for zod's own wording rather than a message somebody wrote.
+ *
+ * Both major versions phrase a missing or mistyped field for a developer reading
+ * a stack trace, and both reach a reader whenever the schema has no deliberate
+ * message. Measured strings:
+ *
+ *   v3: "Required", "Expected string, received number"
+ *   v4: "Invalid input: expected string, received undefined",
+ *       "Invalid option: expected one of \"a\"|\"b\"", "Invalid input",
+ *       "Too big: expected string to have <=2048 characters",
+ *       "Invalid URL", "Invalid email address"
+ *
+ * Anything else is a `.refine()`/`.min(...)` message somebody wrote on purpose,
+ * and those are already customer-facing. Exported because `parseInput` in
+ * `src/lib/server/validate.ts` needs the same judgement when it decides which
+ * issue message to throw.
+ */
+export function isDeveloperWording(message: string): boolean {
+  // Anchored at the start only: every v4 string is a prefix plus detail
+  // ("Invalid input: expected string, received undefined"), so a whole-string
+  // match would miss all of them. A message somebody wrote that happens to open
+  // with "Invalid input:" is the only thing this can swallow, and no schema in
+  // the repo writes one.
+  return /^(?:required|invalid (?:input|option|union|type|url|email)\b|too (?:big|small)\b|expected .* received .*)/i.test(
+    message.trim(),
+  );
+}
+
+/**
  * Pulls the readable part out of a serialised zod error, or returns null.
  *
  * Returns the messages joined rather than only the first: a form that failed
@@ -125,7 +154,7 @@ function fromZodJson(raw: string): string | null {
     // zod's own wording for a missing or mistyped field is written for a
     // developer reading a stack trace. Anything else is a `.refine()` message
     // somebody wrote deliberately, and those are already customer-facing.
-    const generic = /^(required|invalid_type|expected .* received .*)$/i.test(issue.message);
+    const generic = isDeveloperWording(issue.message);
     const field =
       Array.isArray(issue.path) && typeof issue.path[0] === "string"
         ? FIELD_LABELS[issue.path[0]]
