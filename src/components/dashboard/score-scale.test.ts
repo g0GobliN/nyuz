@@ -151,6 +151,7 @@ describe("the story page's Scoring card prints one 0–10 scale", () => {
 
 describe("the alert rule names the same number as the rail", () => {
   const ALERTS_ROUTE = join("src", "routes", "dashboard", "alerts", "index.tsx");
+  const SUPPORT_ROUTE = join("src", "routes", "support.tsx");
   const source = readFileSync(join(process.cwd(), ALERTS_ROUTE), "utf8");
 
   it("reads its threshold from the alert stage's own constant", () => {
@@ -187,5 +188,22 @@ describe("the alert rule names the same number as the rail", () => {
       ),
     )[1];
     expect(belowFloor).toBe("5.9 / 10");
+  });
+
+  it("states the same rule, on the same scale, in the FAQ", () => {
+    // docs/decisions/score-scale.md, "Open, and deliberately not changed": the
+    // FAQ carried the rule on a third surface, "still as **\"Only events
+    // scoring 6 or higher interrupt you\"**" — a bare literal with no scale,
+    // next to an alerts page that says "out of 10". Nothing read this file, so
+    // the sentence could drift from IMPORTANT_FLOOR without a test noticing:
+    // score-scale.test.ts guarded the alerts route's source only.
+    const faq = readFileSync(join(process.cwd(), SUPPORT_ROUTE), "utf8");
+    expect(faq).toContain('import { IMPORTANT_FLOOR } from "@/lib/pipeline/alert-floor";');
+    expect(faq).toContain('import { formatScore } from "@/lib/score-format";');
+    expect(faq).toContain(
+      "Only events scoring ${formatScore(IMPORTANT_FLOOR)} or higher out of 10 interrupt you",
+    );
+    // The same guard as the alerts route, on the second surface that prints it.
+    expect(faq).not.toContain("scoring 6 or higher");
   });
 });
