@@ -43,6 +43,44 @@ describe("humanError", () => {
     expect(humanError(new Error(generic))).toBe("Check the email address.");
   });
 
+  /**
+   * Zod v4 renamed every message a schema emits when nobody wrote one. These
+   * are the strings measured on zod 4.6.7; the v3 forms above are kept because
+   * an error serialised by an older bundle can still arrive here.
+   */
+  describe("zod v4's own wording", () => {
+    const cases: Array<[string, string[], string]> = [
+      ["Invalid input: expected string, received undefined", ["email"], "Check the email address."],
+      ["Invalid input: expected number, received string", ["count"], "Check the number."],
+      ['Invalid option: expected one of "on"|"off"', ["email"], "Check the email address."],
+      ["Too big: expected string to have <=2048 characters", ["url"], "Check the address."],
+      ["Invalid URL", ["url"], "Check the address."],
+      ["Invalid email address", ["email"], "Check the email address."],
+      ["Invalid input", ["unknownField"], "Some of those details are not valid."],
+    ];
+
+    for (const [message, path, expected] of cases) {
+      it(`hides ${JSON.stringify(message)}`, () => {
+        const json = JSON.stringify([{ code: "invalid_type", message, path }]);
+        expect(humanError(new Error(json))).toBe(expected);
+      });
+    }
+
+    it("still shows a message a person wrote, even beside one of its own", () => {
+      const json = JSON.stringify([
+        {
+          code: "invalid_type",
+          message: "Invalid input: expected string, received undefined",
+          path: ["email"],
+        },
+        { code: "custom", message: "That inbox bounced last week.", path: ["email"] },
+      ]);
+      const out = humanError(new Error(json));
+      expect(out).toContain("That inbox bounced last week");
+      expect(out).not.toContain("Invalid input");
+    });
+  });
+
   it("passes a plain message through, punctuated", () => {
     expect(humanError(new Error("You have asked a lot today"))).toBe("You have asked a lot today.");
     expect(humanError(new Error("Wait a moment before asking again."))).toBe(
