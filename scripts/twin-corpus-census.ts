@@ -113,13 +113,21 @@ main(async () => {
    *                  its anchors so a failing pair can be argued with rather
    *                  than merely counted.
    */
-  const fuses = (a: Event, b: Event, securityAccess: boolean, resultFrames = false): boolean =>
+  const fuses = (
+    a: Event,
+    b: Event,
+    securityAccess: boolean,
+    resultFrames = false,
+    b05Rules = securityAccess,
+  ): boolean =>
     suppressStoryTwins(
       [
         { title: a.title, whatHappened: a.what_happened },
         { title: b.title, whatHappened: b.what_happened },
       ],
-      { securityAccess, resultFrames },
+      // The "before" column (`securityAccess: false`) is the pass as it stood
+      // before every widening since ruling #18, B-05's vocabulary included.
+      { securityAccess, resultFrames, b05Rules },
     ).length === 1;
 
   const anchors = (entities: string[], words: string[]): string => {
