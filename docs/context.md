@@ -4122,6 +4122,40 @@ is restored with the code, 17/17 green on the reverted tree.
 Recorded, not hidden: this reopens six audit findings the quality sprint had closed on that page. The
 reader-facing bar still decides — the owner's read of the live page outranks an audit score, so the
 findings come back as findings and the next briefing slice starts from this surface, not from #59's.
+
+### The zod advisory gate is cleared by a ruled migration, not an exception (2026-10-27)
+
+From 2026-10-23T18:26Z the CI job **"Dependencies and secret names"** failed on `main` and on every
+fresh branch run: advisory [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)
+marks zod `< 4.6.6` high ("can exhaust memory while validating oversized constrained collections")
+and the pinned `zod ^3.24.2` resolves 3.25.76 inside the range. Not a branch regression — the
+advisory's metadata amendment postdates every green run of the job (PR #60 06:39Z, PR #64 07:54Z,
+`main` 11:52Z, same lockfile) and it fails on a clean `main` checkout. Task `t_37980de9`, per the
+`arbitrate-first` rule: the ruling landed first, then the migration.
+
+**Ruling (2026-10-27, ChatGPT `nyuz`, thread "Migrate Zod Now"): migrate to zod ≥ 4.6.6 now
+(^4.6.7). No audit-gate exception authorized.** Constraints: keep `.email()`/`.datetime()` as-is
+(deprecated in zod 4 but functional — no unrelated cleanup in this PR); preserve zod 3 behaviour
+(`z.partialRecord` for the legacy boolean-map sections form, regression test pinned); full suite
+(3,641 tests) + typecheck + lint + `npm audit --omit=dev --audit-level=high` all green before
+merging; lockfile resolves a patched zod with no vulnerable production dependency; the diff
+documented per module with all reader-facing schema behaviour verified unchanged. Full question,
+options and ruling quote in [decisions/zod-gate-migration.md](decisions/zod-gate-migration.md).
+
+**The whole migration is five lines minus lockfile:** `package.json` raises the pin to
+`zod ^4.6.7`; `validate.ts` (1 line) and `site-content.ts` (2 lines) take
+`ZodType<T, ZodTypeDef, unknown>` → `ZodType<T, unknown>` — zod 4's `ZodType` is `<Output, Input>`,
+the `ZodTypeDef` slot is gone (`parseInput`, `sectionsSchema`, `parseSetting` are the only
+custom-signature sites); and
+`legacySectionsSchema` becomes `z.partialRecord(sectionKeySchema, z.boolean())` — zod 4 made
+enum-keyed `z.record` exhaustive, which rejected the legacy boolean-map form the ordered-list
+schema replaced, and `partialRecord` restores the exact zod 3 semantics (any subset of valid keys
+parses, unknown keys still rejected), pinned by the restored test
+`sectionsSchema > still accepts the legacy boolean-map form`. Typecheck clean, lint 0 errors,
+219 files / 3,641 tests passed, audit `found 0 vulnerabilities`,
+`npm ls zod --omit=dev` shows one root zod@4.6.7 everywhere — every run on the proposal worktree at
+base a4c8bfe = origin/main. `@hookform/resolvers@5.9.1` already peers `zod ^3.25.0 || ^4.0.0`
+and does not move.
 ### One story, one card — B-05 closed inside a single edition (2026-10-26)
 
 The reader-clarity audit's **B-05** is the pair of duplicates the 2026-10-21 briefing showed as four
