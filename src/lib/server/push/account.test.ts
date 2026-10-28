@@ -250,6 +250,31 @@ describe("push/account deletePushSubscription schema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("requires an endpoint — an absent one is not 'every device'", () => {
+    // The absent-endpoint case used to fall through to a delete scoped to
+    // `user_id` alone, so one device's toggle unsubscribed the whole account.
+    // Asserted here as behaviour, because the handler's wiring is only as safe
+    // as the schema it names.
+    const result = deleteInputSchema.safeParse({});
+    expect(result.success).toBe(false);
+    expect(deleteInputSchema.safeParse({ endpoint: "" }).success).toBe(false);
+  });
+
+  it("rejects IPv4-mapped IPv6, which WHATWG rewrites to hex", () => {
+    // The push endpoint is the field `send.ts` fetches, so the mapped form is
+    // the bypass that matters: `[::ffff:127.0.0.1]` is normalised to
+    // `::ffff:7f00:1` before the predicate sees it.
+    for (const host of [
+      "::ffff:127.0.0.1",
+      "::ffff:169.254.169.254",
+      "::ffff:c0a8:101",
+      "::ffff:10.0.0.5",
+    ]) {
+      const result = deleteInputSchema.safeParse({ endpoint: `http://[${host}]/endpoint` });
+      expect(result.success, host).toBe(false);
+    }
+  });
+
   it("rejects endpoint exceeding 2048 chars", () => {
     const longUrl = "https://example.com/" + "a".repeat(2040);
     const result = deleteInputSchema.safeParse({
