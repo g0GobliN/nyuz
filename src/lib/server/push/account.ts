@@ -8,23 +8,46 @@ import { countOrThrow } from "@/lib/supabase/count";
 import { registerThisDevice } from "@/lib/server/devices";
 import { DEVICE_COOKIE, deviceCookieAttributes } from "@/lib/device-anchor";
 import { pushConfigured, vapidPublicKey } from "./send";
+import { isPublicHttpUrl } from "@/lib/net/public-url";
 
 const subInput = z.object({
   installId: z.string().uuid(),
-  endpoint: z.string().url().max(2048),
+  endpoint: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((value) => {
+      try {
+        return isPublicHttpUrl(value);
+      } catch {
+        return false;
+      }
+    }, "Must be an absolute http or https URL."),
   keys: z.object({
     p256dh: z.string().min(1).max(256),
     auth: z.string().min(1).max(256),
   }),
-  /**
-   * How to name the device, when this call is what first registers one.
-   *
-   * Optional, because the anchor decides which row this belongs to either way —
-   * it is here so a device that turns notifications on before it ever opens
-   * Settings is not left called "Browser" for as long as it exists.
-   */
+  /** How to name the device, when this call is what first registers one. Optional, because the anchor decides which row this belongs to either way — it is here so a device that turns notifications on before it ever opens Settings is not left called "Browser" for as long as it exists. */
   label: z.string().trim().min(1).max(80).optional(),
 });
+
+export const subInputSchema = subInput;
+
+export const deleteInput = z.object({
+  endpoint: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((value) => {
+      try {
+        return isPublicHttpUrl(value);
+      } catch {
+        return false;
+      }
+    }, "Must be an absolute http or https URL."),
+});
+
+export const deleteInputSchema = deleteInput;
 
 /**
  * What the account knows about push. Deliberately says nothing about the
@@ -118,7 +141,7 @@ export const savePushSubscription = createServerFn({ method: "POST" })
  */
 export const deletePushSubscription = createServerFn({ method: "POST" })
   .middleware([signedInOnly])
-  .validator((input: unknown) => z.object({ endpoint: z.string().max(2048) }).parse(input))
+  .validator((input: unknown) => deleteInputSchema.parse(input))
   .handler(async ({ context, data }): Promise<{ ok: true; count: number }> => {
     await context.actor.db
       .from("push_subscriptions")
