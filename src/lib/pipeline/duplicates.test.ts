@@ -631,3 +631,205 @@ describe("one story per briefing", () => {
     expect(suppressDeliveredTwins(briefs, [])).toEqual(briefs);
   });
 });
+
+describe("one story, one card (B-05, 2026-10-23)", () => {
+  // Every fixture below is quoted from a delivered briefing — the title and the
+  // stored `events.what_happened` of each card, in the order the briefing carried
+  // it — because the defect was measured on delivered data, not invented. Each
+  // pair was two `events` rows with one stored article each: the pipeline saw four
+  // events where the reader saw two stories. Sources are named in the comments,
+  // never in the fixture, so the pass is tested on what it is given.
+
+  it("carries the 2026-10-21 GTC Berlin keynote once (cards #04 and #07)", () => {
+    // blogs.nvidia.com against theregister.com. The first headline is Title Case,
+    // so it offers no name of its own; the second proves `jensen huang` and the
+    // first confirms those words side by side.
+    const kept = suppressStoryTwins([
+      brief(
+        "GTC Berlin 2026: Live Updates From NVIDIA CEO Jensen Huang’s Keynote",
+        "Here, journalists, analysts and partners have gathered for the main event: NVIDIA founder and CEO Jensen Huang’s keynote.",
+      ),
+      brief(
+        "Jensen Huang sends in the robot ducks to sell Nvidia's AI-everywhere vision",
+        "Cute robots stole the show at Nvidia's GTC keynote in Berlin, where Jensen Huang pitched a future powered by AI agents – and, naturally, plenty of his company's hardware.",
+      ),
+    ]);
+    expect(kept.map((b) => b.title)).toEqual([
+      "GTC Berlin 2026: Live Updates From NVIDIA CEO Jensen Huang’s Keynote",
+    ]);
+  });
+
+  it("carries the 2026-10-21 PHP security release once (cards #06 and #09)", () => {
+    // simonwillison.net against theverge.com: one says "Security Release" in the
+    // headline, the other only the noun "vulnerabilities" in its summary.
+    const kept = suppressStoryTwins([
+      brief(
+        "Today's PHP Security Release, and How We're Strengthening PHP Security",
+        "August 24, 2026: Wiz Research reports the vulnerabilities to the PHP security team.",
+      ),
+      brief(
+        "PHP: The three letters that shut down sites all over the internet today",
+        'The "critical vulnerabilities" were discovered in the PHP programming language, which underpins much of the internet, including any site built on WordPress.',
+      ),
+    ]);
+    expect(kept.map((b) => b.title)).toEqual([
+      "Today's PHP Security Release, and How We're Strengthening PHP Security",
+    ]);
+  });
+
+  it("carries the same disclosure twice a day later as one card (cards #09 and #10)", () => {
+    // The Register against Al Jazeera, the 2026-10-22 briefing. Same subject,
+    // "bugs" on one side and "flaws" on the other, so no marker group could have
+    // seen it and only two content words are shared.
+    const kept = suppressStoryTwins([
+      brief(
+        "PHP blames supply chain security biz Chainguard for putting huge chunks of the web at risk",
+        "PHP developers have accused software supply chain security shop Chainguard of effectively revealing critical bugs in the open-source scripting language ahead of a planned official disclosure.",
+      ),
+      brief(
+        "World leaders warn of security flaws found in PHP programming language",
+        "AI was used to pinpoint two vulnerabilities in the PHP language, used by about 70 percent of websites.",
+      ),
+    ]);
+    expect(kept.map((b) => b.title)).toEqual([
+      "PHP blames supply chain security biz Chainguard for putting huge chunks of the web at risk",
+    ]);
+  });
+
+  it("reproduces the measured defect with B-05's legs off", () => {
+    // The "before" column of the census, pinned: on the pass as it stood before
+    // this change, every one of the three audited pairs is two cards. Without
+    // this the after-numbers could be the tree's own doing rather than the legs'.
+    const pairs = [
+      [
+        brief(
+          "GTC Berlin 2026: Live Updates From NVIDIA CEO Jensen Huang’s Keynote",
+          "Here, journalists, analysts and partners have gathered for the main event: NVIDIA founder and CEO Jensen Huang’s keynote.",
+        ),
+        brief(
+          "Jensen Huang sends in the robot ducks to sell Nvidia's AI-everywhere vision",
+          "Cute robots stole the show at Nvidia's GTC keynote in Berlin, where Jensen Huang pitched a future powered by AI agents – and, naturally, plenty of his company's hardware.",
+        ),
+      ],
+      [
+        brief(
+          "Today's PHP Security Release, and How We're Strengthening PHP Security",
+          "August 24, 2026: Wiz Research reports the vulnerabilities to the PHP security team.",
+        ),
+        brief(
+          "PHP: The three letters that shut down sites all over the internet today",
+          'The "critical vulnerabilities" were discovered in the PHP programming language, which underpins much of the internet, including any site built on WordPress.',
+        ),
+      ],
+      [
+        brief(
+          "PHP blames supply chain security biz Chainguard for putting huge chunks of the web at risk",
+          "PHP developers have accused software supply chain security shop Chainguard of effectively revealing critical bugs in the open-source scripting language ahead of a planned official disclosure.",
+        ),
+        brief(
+          "World leaders warn of security flaws found in PHP programming language",
+          "AI was used to pinpoint two vulnerabilities in the PHP language, used by about 70 percent of websites.",
+        ),
+      ],
+    ];
+    for (const pair of pairs) {
+      expect(suppressStoryTwins(pair, { b05Rules: false })).toHaveLength(2);
+    }
+  });
+
+  it("keeps two publishers on one story to one card, not two", () => {
+    // The acceptance in the opposite direction: the same story from two outlets is
+    // one card. Neither pair above is one publisher repeating itself — each is two
+    // newsrooms — so the pass must read a second telling as a second telling.
+    const kept = suppressStoryTwins([
+      brief(
+        "GTC Berlin 2026: Live Updates From NVIDIA CEO Jensen Huang’s Keynote",
+        "Here, journalists, analysts and partners have gathered for the main event: NVIDIA founder and CEO Jensen Huang’s keynote.",
+      ),
+      brief(
+        "Jensen Huang sends in the robot ducks to sell Nvidia's AI-everywhere vision",
+        "Cute robots stole the show at Nvidia's GTC keynote in Berlin.",
+      ),
+      brief(
+        "Nvidia woos wary Europeans with sovereign AI pitch at Berlin summit",
+        "The company argued that governments want control over their own models.",
+      ),
+    ]);
+    expect(kept.map((b) => b.title)).toEqual([
+      "GTC Berlin 2026: Live Updates From NVIDIA CEO Jensen Huang’s Keynote",
+      "Nvidia woos wary Europeans with sovereign AI pitch at Berlin summit",
+    ]);
+  });
+
+  it("keeps two developments on one subject apart", () => {
+    // The 2026-10-21 briefing carried both of these and both belong: Terafab's
+    // suppliers moving, and a merger under discussion. One actor, two stories.
+    const kept = suppressStoryTwins([
+      brief(
+        "ASML and other critical semiconductor equipment suppliers expedite shipments to Musk's Terafab",
+        "Elon Musk says ASML and other critical semiconductor equipment suppliers have expedited shipments for the ambitious Terafab semiconductor manufacturing facility, supporting his aggressive timeline for the joint megaproject between Tesla and SpaceX.",
+      ),
+      brief(
+        "Musk confirms SpaceX and Tesla exploring merger",
+        "Elon Musk says SpaceX and Tesla are considering a merger that would form a $3.5 trillion mega company.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("keeps the next day of a saga apart", () => {
+    // Stored in `events`, both about PHP2Shell: the emergency release, and the
+    // day-two card that announces *another* way in. Same subject, same
+    // disclosure vocabulary, same PRIMARY — and a new development, which the
+    // task's third condition says is two cards. Without the headline guard the
+    // disclosure leg fuses this pair, and a reader loses the follow-up.
+    const kept = suppressStoryTwins([
+      brief(
+        "PHP2Shell: Two Unpatched Critical PHP RCE Flaws (CVSS 9.2) Trigger Emergency Security Alert",
+        "PHP will ship an out-of-cycle security release at 14:00 UTC today, October 21, for two critical vulnerabilities that its security team has rated 9.2 on the CVSS v4.0 scale but has not described.",
+      ),
+      brief(
+        "URGENT - PHP Warns of Another Unpatched RCE Two Days After Emergency PHP2Shell Patches",
+        "PHP has warned of another way an attacker could run code on a web server, two days after it shipped emergency fixes for the critical PHP2Shell flaws.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("keeps two different vendors' disclosures apart", () => {
+    // Both sides are vendor disclosures, so the B-05 vocabulary leg sees them;
+    // neither headline names the other's subject, and the two PRIMARY actors —
+    // curl and Siemens — are different. Delivered in the 2026-10-20 briefing
+    // (cards #01 and #07) and kept apart by both passes, so the anti-fusion
+    // direction is measured on delivered data, not asserted from taste.
+    const kept = suppressStoryTwins([
+      brief(
+        "Swamped curl maintainers take low-level flaws public to survive vulnerability 'avalanche'",
+        'An "avalanche of vulnerability reports" is forcing curl to move lower-severity cases into public view, reserving private handling for high and critical flaws.',
+      ),
+      brief(
+        "ClickFix Attackers Exploit Siemens Software Center Flaw to Deploy Remote Access Trojan",
+        "Siemens has addressed a DLL sideloading vulnerability impacting Siemens Software Center that it said has been exploited in ClickFix attacks.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("does not fuse two Title Case round-ups that share furniture", () => {
+    // Why the conference words are not a marker group: `keynote` alone fused these
+    // two, because both headlines are Title Case (so both said "Live Updates") and
+    // both bodies mention a keynote. Their people are different, so the name leg
+    // has nothing to work with.
+    const kept = suppressStoryTwins([
+      brief(
+        "GTC Berlin 2026: Live Updates From NVIDIA CEO Jensen Huang’s Keynote",
+        "Here, journalists, analysts and partners have gathered for the main event: NVIDIA founder and CEO Jensen Huang’s keynote.",
+      ),
+      brief(
+        "NDTV World Summit 2026 LIVE Updates: German, Italian, Australian And EU Envoys Decode The New Transatlantic Order",
+        "Envoys from four governments spoke in the opening keynote session about trade and defence.",
+      ),
+    ]);
+    expect(kept).toHaveLength(2);
+  });
+});

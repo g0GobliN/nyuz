@@ -55,6 +55,7 @@
     "eval:corpus": "node --env-file=.env scripts/tsrun.mjs scripts/reader-eval-corpus.ts",
     "audit:enrichment": "node --env-file=.env scripts/tsrun.mjs scripts/reader-enrichment-census.ts",
     "audit:enrichment:cause": "node --env-file=.env scripts/tsrun.mjs scripts/reader-enrichment-cause.ts",
+    "audit:significance-leg-a": "node --env-file=.env scripts/tsrun.mjs scripts/significance-leg-a-audit.ts",
     "audit:alerts": "node --env-file=.env scripts/tsrun.mjs scripts/reader-alert-audit.ts",
     "audit:delivered-summary": "node --env-file=.env scripts/tsrun.mjs scripts/reader-delivered-summary-audit.ts",
     "audit:delivered-line": "node --env-file=.env scripts/tsrun.mjs scripts/reader-delivered-line.ts",
@@ -135,7 +136,7 @@
     "tw-animate-css": "^1.3.4",
     "vaul": "^1.1.2",
     "vite-tsconfig-paths": "^6.0.2",
-    "zod": "^3.24.2"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",

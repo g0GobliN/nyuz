@@ -4015,6 +4015,55 @@ press (test-pinned).
 (feed 13/13 · archive 14/14 · alerts 5/5, 0 defects); `npm run audit:delivered-line` PASS and
 unchanged (14/14 card lines equal their page opening, 0 defects).
 
+### Leg A funnel measured: the delivered pool's missing input is shapes, not coverage (2026-10-23)
+
+#### Task t_27cc9ccb — evidence in [decisions/significance-leg-a.md](decisions/significance-leg-a.md), ledger [audits/significance-leg-a.json](audits/significance-leg-a.json), command `npm run audit:significance-leg-a`
+
+The three newest delivered editions (50 item rows in three sent digests — one per scheduled slot,
+25 items 2026-10-19 22:30Z, 9 items 2026-10-09 22:30Z, 16 items 2026-10-08 22:30Z, each on its own
+event; the significance-window audit reads the same pool from its other end — its query counts every
+digest generated in the window dates regardless of delivery status, Leg A **2/50** when the slice
+opened, **3/92** on the 2026-10-23 tree with the extra rows being post-delivery digests, not newer
+delivered editions): composed **2**, rung-refused **2** (`consequence:fragment 2`), no-shape **33**,
+no-evidence **13**. Side splits: **6/50 rows carry a why-line** — 1 composed and carried, 1 coverage
+line, and 4 figure-puff lines ("The story carries a $X figure.") the pre-ruling-#10 builds of the
+10-08/10-09 editions printed, standing in the archive; 44/50 delivered silent; **2/50
+coverage-eligible** (≥2 publishers), the ladder answers both with the coverage line. The dominant
+event refusal `consequence:figure-only` 12 — the shape ruling #10 removed. **37/50 items sit on
+evidence-bearing events (74%)** (the 13 no-evidence items are all `robots-blocked` — boundary, not
+defect), so the delivered cohort's bottleneck is the shapes the stored evidence does not hold, not
+enrich coverage.
+
+**The classifier is code beside the ladder, not a re-derivation:** `consequenceStep`, `bindingStep`
+and `storyNames` were refactored out of `inclusion.ts` as exported instrument steps with the
+ladder's path unchanged in behaviour, and
+[src/lib/pipeline/significance-leg-a.ts](../src/lib/pipeline/significance-leg-a.ts) classifies each
+delivered item into the four mutually exclusive buckets from those same predicates — the measured
+correspondence the 2026-10-17 three-instruments-disagreed rule wants. TDD: 10 tests in
+`significance-leg-a.test.ts` fail-first on the instrument shape, one of which caught a real
+regression in `consequenceLine` mid-refactor before it shipped.
+
+**Enrichment's zero-yield pages stopped reporting success.** Attributing the no-evidence family meas-
+ured the `extraction_empty` census family live on delivered shapes and found its cause in
+`enrich.ts`: a page that fetched at the usable-words floor and yielded **zero** admissible units was
+recorded `ok: true` on the source, so no failure counter, backoff or recovery path could ever see
+it. Measured population: 92 zero-yield rows over the 30-day window, concentrated in non-English
+feeds whose every page yields nothing (Lenta.ru 5/96 rows zero covered, El Financiero 2/29, Milan
+News 2/14). Landed: zero-yield now counts toward `enrichment_failure_count` and reports
+`extraction_empty` in the run row (new `OutcomeReason`), so the source reaches the failure latch a
+broken origin reaches; the `article_evidence` row keeps the census's documented family shape
+(`enriched`, zero units, real word count) so `enrichment-census.ts` attribution is unchanged. Two
+fail-first tests in `enrich.test.ts` pin the report shape and the latch.
+
+**Measured on the window audit after the change:** Leg A **3 / 92** (the window population grew
+since the 2/50 read of 2026-10-20), `gate 2 PENDING` exit 2 as designed; `npm run
+audit:delivered-line` PASS and unchanged 14/14; `npm run typecheck` clean; `npm run lint` 0
+errors; full suite **3,655 tests passed** across 218 files. Note: the 2 refused fragments are not
+repairable (a conditional cannot print without its "if"; one "they" does not resolve inside the
+clause); widening `CONSEQUENCE` verbs was measured destructive on the cohort (8–10 of 12 figure-only
+candidates die at the why-vs-what gate or are truncated mid-number) and stays with the arbiter, with
+this measurement attached. A card-vs-instrument conflict on coverage eligibility for Leg A is
+recorded in the decision note for the next arbiter question.
 ### The first post-fix build was read as a stranger — 8 of 25 closed, 5 blockers, and two defects nobody had filed (2026-10-23)
 
 Audit v2 (`docs/reader-clarity-audit-v2.md`, task `t_377015f1`) re-scored all 25 `I`/`B`/`X`
@@ -4101,3 +4150,92 @@ substantial words against a 60 floor, where it composed **40** before the repair
 `npx vitest run src/lib/editorial-story-boundary.test.ts` 4/4, full `npx vitest run` 219 files / 3633
 tests passing, `npm run lint` exit 0 (20 warnings, 0 errors), `npx tsc --noEmit` exit 0. Branch
 `wt/n02-story-boundary`, PR #74; not merged.
+### The zod advisory gate is cleared by a ruled migration, not an exception (2026-10-27)
+
+From 2026-10-23T18:26Z the CI job **"Dependencies and secret names"** failed on `main` and on every
+fresh branch run: advisory [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)
+marks zod `< 4.6.6` high ("can exhaust memory while validating oversized constrained collections")
+and the pinned `zod ^3.24.2` resolves 3.25.76 inside the range. Not a branch regression — the
+advisory's metadata amendment postdates every green run of the job (PR #60 06:39Z, PR #64 07:54Z,
+`main` 11:52Z, same lockfile) and it fails on a clean `main` checkout. Task `t_37980de9`, per the
+`arbitrate-first` rule: the ruling landed first, then the migration.
+
+**Ruling (2026-10-27, ChatGPT `nyuz`, thread "Migrate Zod Now"): migrate to zod ≥ 4.6.6 now
+(^4.6.7). No audit-gate exception authorized.** Constraints: keep `.email()`/`.datetime()` as-is
+(deprecated in zod 4 but functional — no unrelated cleanup in this PR); preserve zod 3 behaviour
+(`z.partialRecord` for the legacy boolean-map sections form, regression test pinned); full suite
+(3,641 tests) + typecheck + lint + `npm audit --omit=dev --audit-level=high` all green before
+merging; lockfile resolves a patched zod with no vulnerable production dependency; the diff
+documented per module with all reader-facing schema behaviour verified unchanged. Full question,
+options and ruling quote in [decisions/zod-gate-migration.md](decisions/zod-gate-migration.md).
+
+**The whole migration is five lines minus lockfile:** `package.json` raises the pin to
+`zod ^4.6.7`; `validate.ts` (1 line) and `site-content.ts` (2 lines) take
+`ZodType<T, ZodTypeDef, unknown>` → `ZodType<T, unknown>` — zod 4's `ZodType` is `<Output, Input>`,
+the `ZodTypeDef` slot is gone (`parseInput`, `sectionsSchema`, `parseSetting` are the only
+custom-signature sites); and
+`legacySectionsSchema` becomes `z.partialRecord(sectionKeySchema, z.boolean())` — zod 4 made
+enum-keyed `z.record` exhaustive, which rejected the legacy boolean-map form the ordered-list
+schema replaced, and `partialRecord` restores the exact zod 3 semantics (any subset of valid keys
+parses, unknown keys still rejected), pinned by the restored test
+`sectionsSchema > still accepts the legacy boolean-map form`. Typecheck clean, lint 0 errors,
+219 files / 3,641 tests passed, audit `found 0 vulnerabilities`,
+`npm ls zod --omit=dev` shows one root zod@4.6.7 everywhere — every run on the proposal worktree at
+base a4c8bfe = origin/main. `@hookform/resolvers@5.9.1` already peers `zod ^3.25.0 || ^4.0.0`
+and does not move.
+### One story, one card — B-05 closed inside a single edition (2026-10-26)
+
+The reader-clarity audit's **B-05** is the pair of duplicates the 2026-10-21 briefing showed as four
+cards: #04 + #07 (the GTC Berlin keynote) and #06 + #09 (the PHP security release). Each pair is two
+distinct `events` rows with one stored article each, so clustering never joined them and selection had
+no rule that would refuse the second. `suppressDeliveredDuplicates` could not help: it answers "was this
+reader already sent this?" over 48 hours, not "are these two cards the same story?".
+
+**Measured first, on delivered data** (push `sent`, digest `item_count > 0`, pairs judged from stored
+`events.title` + `what_happened` and the stored `articles` rows): three most recent editions, **67 cards,
+0 same-event-id pairs, 4 reader-visible duplicate pairs / 8 cards** — `fab11fdf` #09+#10, `7268ba11`
+#04+#07 and #06+#09, `3fcbb21c` #08+#09.
+
+**The fix is in the selection pass**, `suppressStoryTwins` in `src/lib/pipeline/duplicates.ts`, gated on
+`options.b05Rules` (absent = on, `false` = the pass as it stood). Two legs: an event-noun leg (both
+headlines name an event — `keynote`, `conference`, `summit`, `unveils`, `launches`, `debuts`,
+`introduces` — **and** share a name; the noun alone fused a GTC liveblog with an unrelated summit
+liveblog, both "Live Updates"), and a disclosure leg (both headlines disclosure-shaped —
+`vulnerability`, `flaw(s)`, `bug(s)`, `security release`, `cve-YYYY` — **and** sharing a capitalised
+proper name, because PRIMARY ranking also promotes concept words like `security` and `flaw`). The
+disclosure leg refuses a pair whose headline announces the next turn of a saga (`PROGRESSION`: `another`,
+`again`, `second`, `third`, `follow-up`, `surges`, `resumes`, `after`, `later`, `next`, `imminent`), read
+off the headline only because summaries restate the original event — that is what keeps the PHP2Shell
+day-two card ("…Warns of **Another** Unpatched RCE **Two Days After**…") a second card while the
+retellings fuse.
+
+**Replayed on the same four pairs, legs off → on: three go 2 cards → 1 card, and the fourth (SpaceX,
+2026-10-20) is already 1 card on the base legs** — so it is not evidence for this change and its
+appearance in that edition is not explained by the pass as it stands. Recorded rather than glossed.
+**Blast radius on the 30-day corpus:** 18,517 events, 491 disclosure-shaped, 1,326 candidate pairs
+sharing a PRIMARY; the new legs fuse **307**, of which **44** clear ruling #18's acceptance floor and
+**263** sit below it. The below-floor population is not new in kind
+([decisions/twin-floor-below-floor.md](decisions/twin-floor-below-floor.md) already reports 164, and they
+are one story told by many outlets), but it is a widening past the floor the code was accepted against,
+and it is stated as such in [decisions/edition-duplicates.md](decisions/edition-duplicates.md).
+
+**What it does not fix.** Clustering still creates two events for one story; this pass drops the second
+at selection time, which is the smallest change that makes the pair impossible *in a briefing*. The
+corpus keeps both events, so once the 48-hour window passes the same story can surface again on another
+day. Joining them in `cluster.ts` is the durable fix and a separate slice.
+
+**Gates on the final tree (re-run 2026-10-27, Node 22.23.2, quiet worktree):** `npm run typecheck` clean
+(both passes); `npm run lint` **0 errors** (20 pre-existing `react-refresh/only-export-components`
+warnings); `npm test -- --run` **3,650 tests passed** across **219 files**. `src/lib/pipeline/duplicates.test.ts`
+pins both directions: the three audited pairs fuse to one card with quoted stored card text, the same
+three are two cards with `b05Rules: false` (the census's "before" column), the PHP2Shell day-two pair
+stays two cards, and the day-two test was verified to fail with the progression guard removed. Against
+the pre-fix pass (`HEAD~1` of `duplicates.ts`) the new block fails **4 of 43** and passes **43/43** with
+the change, which is the reproduce-then-fix evidence the card asks for.
+
+**Whole-edition replay, every card, legs off → on (2026-10-27):** `fab11fdf` 17 cards → 17 / 16
+(fused #09+#10); `7268ba11` 25 → 25 / 23 (fused #04+#07, #06+#09); `3fcbb21c` 25 → 24 / 24 (nothing new;
+#08+#09 already gone under today's base legs). **0 reader-visible duplicate pairs remain on all three
+editions.** The "legs off" column is today's base legs with `b05Rules: false`, not the code that
+generated each edition — the base pass was widened after 2026-10-20, which is why `3fcbb21c` loses a card
+before the new legs run while the delivered edition carried both.

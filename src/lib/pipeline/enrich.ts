@@ -85,7 +85,8 @@ export type OutcomeReason =
   | "robots_unknown"
   | FetchFailureKind
   | "thin_content"
-  | "extraction_error";
+  | "extraction_error"
+  | "extraction_empty";
 
 export type ArticleOutcome = {
   articleId: string;
@@ -904,16 +905,33 @@ async function enrichOne(
       name: source.name ?? undefined,
       url: article.url,
     });
+    // A page that fetched at the usable-words floor and stored nothing usable
+    // is the extractor failing on this source's pages, not a good fetch. The
+    // article_evidence row keeps the shape the enrichment census attributes
+    // families by (`enriched` status, zero units, a real word count), but the
+    // source outcome is a failure from here on: a source whose every page
+    // yields nothing must reach the failure latch like any other broken
+    // surface, instead of burning the tick's fetches behind a success mark.
+    // Measured (Leg A, 2026-10-23): the 30-day window holds 92 zero-yield
+    // rows concentrated in a handful of non-English feeds, all recorded as
+    // successes until now, so no recovery path could ever see them.
+    const emptyYield = units.length === 0;
     if (!dryRun) {
       await finish(db, article.id, "enriched", units, wordCount);
-      await recordSourceOutcome(db, source, { ok: true });
+      await recordSourceOutcome(
+        db,
+        source,
+        emptyYield ? { ok: false, reason: "extraction_empty" } : { ok: true },
+      );
     }
     return {
       articleId: article.id,
       decision: "enriched",
-      reason: "success",
+      reason: emptyYield ? "extraction_empty" : "success",
       evidenceUnits: units.length,
-      detail: `${units.length} evidence units from ${wordCount} words`,
+      detail: emptyYield
+        ? `${wordCount} words fetched, no admissible evidence sentence`
+        : `${units.length} evidence units from ${wordCount} words`,
     };
   } catch (error) {
     if (!dryRun) {
