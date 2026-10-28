@@ -3,12 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Bookmark, Mail, MessageCircle } from "lucide-react";
 import { useMemo } from "react";
 import { DashboardShell, EmptyState, PageHeader } from "@/components/dashboard/shell";
-import { BriefingPreview, briefOrderNote } from "@/components/briefing-preview";
+import { BriefingPreview } from "@/components/briefing-preview";
 import { LoadState } from "@/components/dashboard/load-state";
 import { PanelLoading } from "@/components/loading";
 import { Chip, LinkButton } from "@/components/kit";
 import { useDisplayName } from "@/lib/auth";
-import { withPendingSaved, useFeedback } from "@/lib/feedback-store";
+import { withPendingSaved } from "@/lib/feedback-store";
 import { usePrefs } from "@/lib/prefs-store";
 import { withOfflineFallback } from "@/lib/offline/fallback";
 import { useWarmSavedStories } from "@/lib/offline/warm";
@@ -50,11 +50,6 @@ function Briefing() {
   const { prefs } = usePrefs();
   const who = useDisplayName(prefs.name);
   const navigate = useNavigate();
-  // X-01 — the same save state the feed and the shelf already share, so a Save
-  // pressed here is the same story saved on Home: one writer (`toggleSaved`),
-  // the saved ids the button reads, and the optimistic swap that keeps the
-  // button's label honest while the write is in flight.
-  const { state: feedback, toggleSaved } = useFeedback();
   const { digest, tab = "today" } = Route.useSearch();
   const setTab = (next: Tab) =>
     // `replace`, because the two chips are one page seen two ways; leaving a
@@ -142,30 +137,16 @@ function Briefing() {
   return (
     <DashboardShell title="My briefing">
       {/* The eyebrow is the page's own claim about what it is showing, so it
-          says what the page is — an edition, today's or a past one — never a
-          delivery. The bare word "DELIVERED" asserted a send that has not
-          happened — the same defect class as the "Delivered at" stamp the S8
-          ruling removed from the card, and the arbiter ruled on 2026-10-22
-          that it moves for the same reason (B-01). A reader with an older
-          digest open gets the exact day (B-02, kept here in the eyebrow where
-          the archive check already praised it); the reader of today's gets
-          today. */}
+          says "Edition", not "Delivered". The bare word asserted a send that
+          has not happened — the same defect class as the "Delivered at" stamp
+          the S8 ruling removed from the card, and the arbiter ruled on
+          2026-10-22 that it moves for the same reason. With an older digest
+          open it names the day the edition was assembled, which is the shape
+          the card's own "Edition · 07:30" header already uses. */}
       <PageHeader
-        eyebrow={day ? `Edition · ${day.date}` : "Today's edition"}
+        eyebrow={day ? `Edition · ${day.date}` : "Edition"}
         title="Your briefing, as it was assembled."
-        sub={
-          // B-02: "today's coverage" is a claim about the day, and on a page
-          // reached from History one day back it is the worst place for a
-          // "today" with no anchor — the eyebrow names October 20 and the
-          // next line contradicted it. The archive names the day it covers;
-          // the latest briefing still speaks of today, because for it that
-          // is the truth. The order claim is N-07's: taken from the same
-          // grouping call the card below makes, because the page that groups
-          // stories by topic did reorder them and cannot say otherwise.
-          day
-            ? `Built from coverage published before ${prefs.time} on ${day.date}. ${briefOrderNote(shown)}`
-            : `Built from today's coverage at ${prefs.time}. ${briefOrderNote(shown)}`
-        }
+        sub={`Built from today's coverage at ${prefs.time}. Nothing here was reordered for the web.`}
       >
         {/* Says out loud that this is not today's briefing, and offers the way
             back. An older digest that looks identical to the current one is how
@@ -190,25 +171,24 @@ function Briefing() {
           Saved · {savedTally}
         </Chip>
         {/*
-          These were the dishonest half of S8, and B-06 was the residue: a chip
-          that appeared because the reader's *preference* was on, sitting under
-          a page that a day ago claimed "DELIVERED" — a reader could not tell
-          preference from receipt, and the receipt was false (the audited
-          briefing's email delivery failed). The chip stays — a setting the
-          reader should be able to see — but says what it is: a preference,
-          labelled, not a delivery status. The parenthesis is the honest
-          boundary: these chips claim what the reader asked for, and nothing
-          about whether a send happened.
+          These were the dishonest half of S8: a chip that appeared because the
+          reader's *preference* was on, sitting on a page titled "Exactly what
+          landed in your inbox" — so the chip read as a delivery receipt for a
+          send that never happened. They stay, and they now say what they are:
+          a setting. "Email on" is true whatever Resend is doing, because it
+          claims the preference and nothing else. The wording is deliberate — a
+          chip that said only "Email" next to a page that no longer claims
+          delivery would be a bare label with no sentence in it.
         */}
         <div className="ml-auto flex items-center gap-2 text-[12px] text-muted-foreground">
           {prefs.channels.email ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-hairline px-2.5 py-1">
-              <Mail className="h-3 w-3" /> Email · on (preference)
+              <Mail className="h-3 w-3" /> Email on
             </span>
           ) : null}
           {prefs.channels.telegram ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border border-hairline px-2.5 py-1">
-              <MessageCircle className="h-3 w-3" /> Telegram · on (preference)
+              <MessageCircle className="h-3 w-3" /> Telegram on
             </span>
           ) : null}
         </div>
@@ -257,10 +237,6 @@ function Briefing() {
             // story page falls back to no pager — the honest shape when the
             // list cannot be named.
             {...(tab === "today" ? { fromQueue: "briefing" as const } : {})}
-            // X-01 parity — the feed card's band and its two actions on this
-            // card as well: same save state as Home and the shelf, same toggle.
-            savedIds={feedback.saved}
-            onToggleSave={toggleSaved}
             stories={shown}
             time={pretty}
             editionTime={prefs.time}
