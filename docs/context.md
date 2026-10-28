@@ -4147,9 +4147,13 @@ composes.
 Measured on this worktree's tree, 2026-10-28, Node 22: the deterministic article composes **75**
 substantial words against a 60 floor, where it composed **40** before the repair;
 `npx vitest run src/lib/server/story-flow.test.ts` 17/17,
-`npx vitest run src/lib/editorial-story-boundary.test.ts` 4/4, full `npx vitest run` 219 files / 3633
-tests passing, `npm run lint` exit 0 (20 warnings, 0 errors), `npx tsc --noEmit` exit 0. Branch
-`wt/n02-story-boundary`, PR #74; not merged.
+`npx vitest run src/lib/editorial-story-boundary.test.ts` 4/4, full `npx vitest run` 221 files / 3679
+tests passing, `npm run lint` exit 0 (20 warnings, 0 errors), `npx tsc --noEmit` exit 0. Those totals
+are taken after merging `main` into the branch (the branch was 20 commits behind and GitHub reported
+`CONFLICTING`; the merge is clean and `main` had no N-02 fix of its own). Branch `wt/n02-story-boundary`,
+PR #74; not merged. CI could not run at all — every Actions job aborted in ~3s on "recent account
+payments have failed" — so this slice's evidence is local, and `gh pr checks 74` has nothing to report.
+
 ### The zod advisory gate is cleared by a ruled migration, not an exception (2026-10-27)
 
 From 2026-10-23T18:26Z the CI job **"Dependencies and secret names"** failed on `main` and on every
