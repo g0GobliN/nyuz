@@ -549,6 +549,10 @@ export type CompositionDiagnostics = {
      * bounded by the facts the story itself supplied.
      */
     lostFacts: string[];
+    /** Facts dropped because their source entry is demonstrably another story
+     * rather than this one's -- it annotates entities and names none of the
+     * story's subjects. See `sourceIsForeignStory`. */
+    storyBoundaryDrops: number;
   };
   paragraphs: {
     /** Blocks handed to the gate. */
@@ -685,6 +689,7 @@ function createDiagnostics(): CompositionDiagnostics {
       evidenceRefusals: {},
       lost: 0,
       lostFacts: [],
+      storyBoundaryDrops: 0,
     },
     paragraphs: { assembled: 0, split: 0, rendered: 0, rejected: 0, reasons: {} },
     sentences: { considered: 0, rendered: 0, merged: 0, refused: 0, reasons: {} },
@@ -1647,6 +1652,91 @@ function safeLead(
 const SURVEY_LABEL =
   /([A-Z][\p{L}\p{N}&.'’-]*(?:['’]s)?(?:\s+(?:\d{4}|[A-Z][\p{L}\p{N}&.'’-]*)){0,4}\s+(?:survey|poll|study))/u;
 const NOT_A_SURVEY_OWNER = /^(?:the|a|an|this|that|these|those|its|their|our|his|her|new)$/i;
+
+/** Title words that name no subject, so they cannot identify a story. */
+const SUBJECT_STOPWORDS = new Set([
+  "the",
+  "this",
+  "that",
+  "these",
+  "those",
+  "after",
+  "before",
+  "under",
+  "over",
+  "amid",
+  "and",
+  "but",
+  "for",
+  "with",
+  "from",
+  "new",
+  "war",
+  "why",
+  "how",
+  "what",
+  "who",
+]);
+
+/**
+ * The subjects that make a paragraph this story's own, for the story boundary.
+ *
+ * Drawn only from what identifies the story before any coverage is read: its
+ * title, its topics, and the primary article's own entity annotations. Coverage
+ * from other entries is deliberately not mined, because an entity that only a
+ * foreign paragraph names must not vote itself into the story's identity.
+ */
+function storySubjectEntities(story: Story, sources: Story["sourceList"]): string[] {
+  const primaryAnnotations = (sources[0]?.enrichedEvidence ?? []).flatMap(
+    (unit) => unit.entities ?? [],
+  );
+  const subjects = new Set<string>();
+  const add = (raw: string) => {
+    const clean = raw
+      .toLowerCase()
+      .replace(/['’]s$/u, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    // A two-letter subject matches half the prose ("ai" inside "said") without
+    // carrying any identity, so it is not a subject.
+    if (clean.length >= 3 && !SUBJECT_STOPWORDS.has(clean)) subjects.add(clean);
+  };
+  // Only the title's own names identify the story. A common word from the title
+  // ("war", "dispute", "the") appears in any paragraph about anything, so it
+  // would admit exactly the foreign coverage this boundary exists to stop.
+  for (const name of story.title.match(/[\p{L}\p{N}][\p{L}\p{N}&.'’-]*/gu) ?? []) {
+    if (/^\p{Lu}/u.test(name)) add(name);
+  }
+  for (const topic of story.topics ?? []) add(topic);
+  for (const annotation of primaryAnnotations) add(annotation);
+  return [...subjects];
+}
+
+/**
+ * Whether a source entry is demonstrably a different story, for the story
+ * boundary.
+ *
+ * True only when the entry carries entity annotations *and* none of the
+ * story's subjects appears in its annotations, headline, excerpt or units. No
+ * annotations, or one shared subject, means the entry cannot be proven foreign,
+ * and its facts compose: the composer does not drop a paragraph because a
+ * signal is missing.
+ */
+function sourceIsForeignStory(source: Story["sourceList"][number], subjects: string[]): boolean {
+  const units = source.enrichedEvidence ?? [];
+  const annotations = units.flatMap((unit) => unit.entities ?? []);
+  if (annotations.length === 0 || subjects.length === 0) return false;
+  const haystack = [
+    ...annotations,
+    source.headline ?? "",
+    source.excerpt ?? "",
+    ...units.map((unit) => unit.text),
+  ]
+    .join(" ")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  return !subjects.some((subject) => haystack.includes(subject));
+}
 
 /** The longest survey label named anywhere in each source's own facts. */
 function surveyLabels(items: { text: string; evidence: number[] }[]): Map<number, string> {
@@ -3857,6 +3947,46 @@ export function composeArticleWithDiagnostics(story: Story): {
       diagnostics,
     );
     const facts = mergeFacts(dated, diagnostics);
+    // Story boundary enforcement (N-02): a story page must not carry another
+    // story's paragraph.
+    //
+    // Which entry a block came from cannot be the test. `sourceList` is read by
+    // event id, so every entry in it already belongs to this story's event, and
+    // a second outlet covering the same event is corroboration rather than a
+    // leak. Restricting composition to `sourceList[0].articleId` therefore
+    // amputated the story's own coverage, and the deterministic fallback
+    // composed 40 substantial words where the reader contract requires 60.
+    //
+    // What marks another story's paragraph is its subject. An entry is outside
+    // the boundary only when it is demonstrably about something else: it
+    // carries entity annotations and names none of this story's subjects in its
+    // annotations, headline, excerpt or units. An entry carrying no annotations
+    // is not provably foreign, so its facts compose -- absence of a signal is
+    // not evidence. Both halves of that decision are pinned in
+    // `editorial-story-boundary.test.ts`.
+    const storySubjects = storySubjectEntities(story, sources);
+    const droppedForStoryBoundary: string[] = [];
+    {
+      const beforeBoundary = facts.length;
+      // Evidence refs are 1-based source indices. Index 0 is the primary
+      // article, which is this story by definition and is never foreign.
+      const foreignSources = new Set(
+        sources
+          .map((source, index) =>
+            index > 0 && sourceIsForeignStory(source, storySubjects) ? index + 1 : -1,
+          )
+          .filter((ref) => ref !== -1),
+      );
+      for (let i = facts.length - 1; i >= 0 && foreignSources.size > 0; i--) {
+        const fact = facts[i];
+        if (!fact) continue;
+        // A block the story's own article also carries stays.
+        if (fact.evidence.some((ref) => !foreignSources.has(ref))) continue;
+        droppedForStoryBoundary.push(fact.text);
+        facts.splice(i, 1);
+      }
+      diagnostics.facts.storyBoundaryDrops = beforeBoundary - facts.length;
+    }
     diagnostics.facts.selected = facts.length;
     // Which survey each source names, for the statistics that do not name one
     // themselves -- see `surveyLabels`.
@@ -4078,6 +4208,10 @@ export function composeArticleWithDiagnostics(story: Story): {
      * number it is meant to be: facts nobody can explain.
      */
     const ledger: FactLedger = { sentences: new Map(), unrendered: new Map() };
+    // Charge facts dropped by story boundary enforcement to the ledger so the
+    // refusal accounting stays truthful: every fact that did not reach the page
+    // has a rule that explains why.
+    for (const text of droppedForStoryBoundary) markFact(ledger, text, "story_boundary");
     // The lead fact, indexed under both forms of its sentence: the gate rewrites
     // the deck before judging it (`stripFrontedConnector`), and a refused deck has
     // to be chargeable to the fact that produced it whichever form was refused.
