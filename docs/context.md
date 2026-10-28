@@ -4221,3 +4221,22 @@ Residual carried by `t_01747913` (forge: sentence-level boundary, rebase, corpus
 `t_cd95e2b9` (sentinel: re-verify at the new head); `0fb1f7d`'s lint and shard-4 failures are repaired
 at `0b60c72` locally (eslint and `tsc --noEmit` exit 0, 4 + 1 tests pass), and the emptied-story risk
 (`98f0a6a4-2264-4ca6-9d22-d07442179ae2`) stays unmeasured at that head.
+
+**PR #76 (URL hardening) closed out unmerged at head `3c2f5eb`** — FAIL on the gate, not on the reader bar:
+`npm run ci` was red at that head, `Typecheck, lint, build` dying on a missing trailing newline in
+`src/lib/net/public-url.test.ts` (49 lines, prettier `50:4 Insert ⏎`, 1 error / 20 warnings) so the build,
+Browser smoke and Deploy never ran; `Test (shard 1/4)` died on the main-side source pin at
+`src/lib/push/multi-device.test.ts:318`, which still expects the old
+`z.object({ endpoint: z.string().max(2048) }).parse(input)` literal that the diff replaced with
+`deleteInputSchema.parse` (`src/lib/server/push/account.ts:144`) while the
+`.eq("endpoint", data.endpoint)` delete itself stayed intact; `Coverage floor` cascaded with no
+`coverage-summary.json`; and `docs/context.md` was absent from a 5-file diff, which AGENTS.md:112-116
+forbids. One comment: https://github.com/g0GobliN/nyuz/pull/76#issuecomment-6463000213.
+
+Residual carried by `t_8c002124` (forge, on `harden-url-validation`: newline, pin re-point, one work-log
+line, and the mapped-IPv6 bypass at `src/lib/net/public-url.ts:53,55` — `[::ffff:127.0.0.1]`,
+`[::ffff:169.254.169.254]`, `[::ffff:c0a8:101]`, `[::ffff:10.0.0.5]` all ALLOWED when the predicate is
+executed, byte-identical to `main` so not this diff's regression) and `t_1ac97788` (sentinel: re-verify at
+the new head). Reader impact of the diff is nil — 0 files under `src/routes/` or `src/components/` — and the
+blog surface still has no instrument in `docs/reader-quality-10-of-10.md`, which is recorded as a finding
+rather than papered over.
