@@ -4073,3 +4073,15 @@ is restored with the code, 17/17 green on the reverted tree.
 Recorded, not hidden: this reopens six audit findings the quality sprint had closed on that page. The
 reader-facing bar still decides — the owner's read of the live page outranks an audit score, so the
 findings come back as findings and the next briefing slice starts from this surface, not from #59's.
+
+### 2026-10-28 · PR #76: the branch's three red checks clear
+
+`src/lib/push/multi-device.test.ts` is a file this diff does not touch, and it pinned the delete
+handler's validator by its source text: `z.object({ endpoint: z.string().max(2048) }).parse(input)`.
+The handler names `deleteInputSchema` now, so the pin names that, and `account.test.ts` asserts the
+property the pin was there for — an absent endpoint is refused, not read as "every device" — as
+behaviour rather than as text. `public-url.test.ts` was committed without a final newline, which failed
+`prettier/prettier` inside `Typecheck, lint, build` and took the build, Browser smoke and Deploy behind
+it down with it; the file ends with a newline. The coverage floor was never really red — the suite was,
+so `coverage-summary.json` was never written and there was nothing to compare against. Green suite:
+220 files, 3680 tests, 46.33% lines against the committed floor with no regression, `src/lib/net` +12.05.
