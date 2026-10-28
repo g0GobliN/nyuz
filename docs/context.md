@@ -4073,3 +4073,31 @@ is restored with the code, 17/17 green on the reverted tree.
 Recorded, not hidden: this reopens six audit findings the quality sprint had closed on that page. The
 reader-facing bar still decides — the owner's read of the live page outranks an audit score, so the
 findings come back as findings and the next briefing slice starts from this surface, not from #59's.
+
+### 2026-10-28 · Composer: the story boundary is a block's subject, not the page it arrived on
+
+`N-02` (a story page carrying another story's paragraph) was first fixed by restricting composition to
+`sourceList[0].articleId`. That was the wrong seam, and CI said so: shard 4/4 failed
+`story-flow.test.ts > renders a substantial deterministic article when AI is completely unavailable`
+with `expected 40 to be greater than or equal to 60` (run `40467553473`). The reason is structural:
+`sourceList` is read by event id, so every entry in it already belongs to the story's event, and a
+second outlet covering that event is corroboration rather than a leak. Filtering on the article
+amputated the story's own coverage, and the deterministic fallback composed 40 substantial words where
+the reader contract asks for 60.
+
+The boundary now reads a block's subject instead of its page. `storySubjectEntities` collects the
+story's own names, from capitalized title words, its topics and the primary article's entity
+annotations. `sourceIsForeignStory` calls an entry foreign only when it carries annotations and names
+none of those subjects anywhere in its annotations, headline, excerpt or units. A block whose entry
+carries no annotations is not provably another story's, so it composes: the boundary withholds a
+paragraph on evidence, never on the absence of it. Both halves are pinned in
+`editorial-story-boundary.test.ts` — the Cameroon block is dropped, the Sudan blocks stay, the same
+paragraph published from the story's own source would publish, and an unannotated second outlet
+composes.
+
+Measured on this worktree's tree, 2026-10-28, Node 22: the deterministic article composes **75**
+substantial words against a 60 floor, where it composed **40** before the repair;
+`npx vitest run src/lib/server/story-flow.test.ts` 17/17,
+`npx vitest run src/lib/editorial-story-boundary.test.ts` 4/4, full `npx vitest run` 219 files / 3633
+tests passing, `npm run lint` exit 0 (20 warnings, 0 errors), `npx tsc --noEmit` exit 0. Branch
+`wt/n02-story-boundary`, PR #74; not merged.

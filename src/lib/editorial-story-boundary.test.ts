@@ -10,10 +10,15 @@
  * That paragraph belongs to a different story on the same France 24 source page.
  * The composer published both under one headline with no frame separating them.
  *
- * Rule: a block whose evidence belongs to a different article/event than the
- * story's own must not compose. The rule must separate "which source page
- * carried this" from "which story this block is about" — not a string filter on
- * "Cameroon".
+ * Rule: a block is outside the story boundary only when its source entry is
+ * demonstrably about something else — it carries entity annotations and names
+ * none of the story's subjects (title names, topics, the primary article's own
+ * annotations) in its annotations, headline, excerpt or units. An entry with no
+ * annotations is not provably foreign and composes, because restricting
+ * composition to the primary article starved this very story to 40 substantial
+ * words where the reader contract requires 60. The rule separates "which source
+ * page carried this" from "which story this block is about" — it is not a
+ * string filter on "Cameroon".
  *
  * Corpus: live briefing, current edition, card 16, story `st-4001e8a2` (measured
  * 2026-10-23). Run with `npm run test:coverage -- src/lib/editorial-story-boundary.test.ts`.
@@ -34,8 +39,9 @@ const CAMEROON_PARAGRAPH =
  * - Source 0 (primary): Sudan war coverage, articleId "sudan-war-article"
  * - Source 1 (foreign): Cameroon railway disaster from same France 24 page, articleId "cameroon-railway-article"
  *
- * The story's identity is tied to the primary source's articleId. The Cameroon
- * paragraph arrives via source 1 and must be rejected at the story boundary.
+ * The story's subjects come from its title, topics and the primary article's
+ * annotations. The Cameroon paragraph arrives via source 1, annotates only
+ * "Cameroon", and must be rejected at the story boundary.
  */
 const sudanStoryWithForeignSource: Story = {
   id: "st-4001e8a2",
@@ -115,7 +121,7 @@ describe("story boundary: a story page must not carry another story's paragraph"
 
   it("does not filter on country name — a Cameroon paragraph from the story's own source would publish", () => {
     // Control: if the Cameroon paragraph came from the story's OWN source,
-    // it should publish. This proves the rule uses article identity, not
+    // it should publish. This proves the rule reads subject identity, not
     // a string filter on "Cameroon".
     const storyWithCameroonAsPrimary: Story = {
       ...sudanStoryWithForeignSource,
@@ -142,5 +148,31 @@ describe("story boundary: a story page must not carry another story's paragraph"
     const text = composedText(storyWithCameroonAsPrimary);
     expect(text).toContain("Cameroon");
     expect(text).toContain("railway disaster");
+  });
+
+  it("composes a second outlet carry when it has no entity annotations — the boundary never empties the candidate set", () => {
+    // Regression pin (CI run 40467553473, shard 4/4): filtering composition to
+    // the story's own article left the deterministic fallback composing 40
+    // substantial words where the contract requires 60. A block whose entry
+    // carries no annotations is not provably another story's, so it composes:
+    // the boundary withholds a paragraph on evidence, never on the absence of it.
+    const SECOND_OUTLET_SENTENCE =
+      "Aid convoys have begun reaching displaced families around Abyei, local officials said.";
+    const storyWithUnannotatedSecondOutlet: Story = {
+      ...sudanStoryWithForeignSource,
+      sources: 2,
+      sourceList: [
+        ...sudanStoryWithForeignSource.sourceList.slice(0, 1),
+        {
+          name: "The Continent",
+          at: "",
+          headline: "Aid reaches displaced families around Abyei",
+          excerpt: SECOND_OUTLET_SENTENCE,
+          articleId: "aid-convoys-article",
+        },
+      ],
+    };
+    const text = composedText(storyWithUnannotatedSecondOutlet);
+    expect(text).toContain("Aid convoys");
   });
 });
