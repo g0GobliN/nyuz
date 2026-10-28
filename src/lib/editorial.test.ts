@@ -1934,4 +1934,4 @@ describe("a quotation inside a sentence cannot state the event", () => {
     expect(article.deck.text).toMatch(/The ACME platform team restored service at 18:04 UTC/);
     expect(article.deck.text).not.toContain("campaign");
   });
-  });
+});
