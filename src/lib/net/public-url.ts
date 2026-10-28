@@ -50,9 +50,30 @@ function isBlockedIpv4([a, b]: [number, number, number, number]): boolean {
 function isBlockedIpv6(host: string): boolean {
   const lower = host.toLowerCase();
   if (lower === "::1" || lower === "0:0:0:0:0:0:0:1") return true;
-  if (lower.startsWith("fe80:") || lower.startsWith("::ffff:127.")) return true;
+  if (lower.startsWith("fe80:")) return true;
   if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(lower);
-  if (mapped?.[1]) return isBlockedHost(mapped[1]);
+  const mapped = mappedIpv4(lower);
+  if (mapped) return isBlockedHost(mapped);
   return false;
+}
+
+/**
+ * The IPv4 octets behind an IPv4-mapped IPv6 host, in either form it arrives in.
+ *
+ * `new URL()` normalises the dotted tail to hex before this predicate is ever
+ * called — `[::ffff:127.0.0.1]` comes back as `::ffff:7f00:1` — so a test that
+ * only matches the dotted form allows every mapped address, loopback and the
+ * link-local metadata range included. It is the same four bytes; read them back.
+ */
+function mappedIpv4(host: string): string | undefined {
+  const tail = /^::ffff:(.+)$/.exec(host)?.[1];
+  if (!tail) return undefined;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(tail)) return tail;
+  const pair = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail);
+  const hi = pair?.[1];
+  const lo = pair?.[2];
+  if (!hi || !lo) return undefined;
+  const hiGroup = parseInt(hi, 16);
+  const loGroup = parseInt(lo, 16);
+  return `${hiGroup >> 8}.${hiGroup & 0xff}.${loGroup >> 8}.${loGroup & 0xff}`;
 }

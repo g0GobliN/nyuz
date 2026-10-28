@@ -28,6 +28,23 @@ describe("isPublicHttpUrl", () => {
     }
   });
 
+  it("rejects IPv4 addresses dressed as IPv6, in the hex form WHATWG rewrites them to", () => {
+    // `new URL()` normalises a dotted mapped tail to hex before the predicate
+    // sees the host — `[::ffff:127.0.0.1]` arrives as `::ffff:7f00:1` — so a
+    // dotted-tail test alone allowed every mapped address. These four were
+    // measured 4/4 ALLOWED before the octets were read back.
+    for (const url of [
+      "http://[::ffff:127.0.0.1]/secret",
+      "http://[::ffff:169.254.169.254]/latest/meta-data/",
+      "http://[::ffff:c0a8:101]/rss",
+      "http://[::ffff:10.0.0.5]/internal",
+    ]) {
+      expect(isPublicHttpUrl(url), url).toBe(false);
+    }
+    // The same address in its dotted form, and a mapped public address, still read true.
+    expect(isPublicHttpUrl("http://[::ffff:8.8.8.8]/feed")).toBe(true);
+  });
+
   it("rejects non-http schemes", () => {
     expect(isPublicHttpUrl("javascript:alert(1)")).toBe(false);
     expect(isPublicHttpUrl("file:///etc/passwd")).toBe(false);
