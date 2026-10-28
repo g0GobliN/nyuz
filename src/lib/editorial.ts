@@ -524,17 +524,17 @@ export type CompositionDiagnostics = {
      */
     lost: number;
     /**
-     /** The facts behind `lost`, in full, so the number can be read.
-          *
-          * `lost` is the one counter that means "nobody can explain this missing",
-          * and a number nobody can read is not a bug report. Each entry was selected
-          * and did not reach the prose, and no rule refused *it* by name -- which is
-          * what a block-level refusal looks like from here: `short_block`,
-          * `thin_evidence_cap` and `article_limit` charge the sentence, so the fact
-          * behind it is only explicable when a reviewer can read it. Written in full
-          * rather than sampled, because the class is rare and the list is already
-          * bounded by the facts the story itself supplied.
-          */
+     * The facts behind `lost`, in full, so the number can be read.
+     *
+     * `lost` is the one counter that means "nobody can explain this missing",
+     * and a number nobody can read is not a bug report. Each entry was selected
+     * and did not reach the prose, and no rule refused *it* by name -- which is
+     * what a block-level refusal looks like from here: `short_block`,
+     * `thin_evidence_cap` and `article_limit` charge the sentence, so the fact
+     * behind it is only explicable when a reviewer can read it. Written in full
+     * rather than sampled, because the class is rare and the list is already
+     * bounded by the facts the story itself supplied.
+     */
     lostFacts: string[];
     /** Facts dropped because their source entry is demonstrably another story
      * rather than this one's -- it annotates entities and names none of the
