@@ -255,6 +255,68 @@ function namePairs(title: string): Set<string> {
   return names;
 }
 
+/**
+ * The title as one lowercased string, possessive-stripped and space-padded.
+ *
+ * This is where a name meets a Title Case headline (see the leg in `areTwins`):
+ * `namePairs` cannot read names out of a Title Case title, but that same title
+ * can still be searched for the name the *other* card proves. The padding makes
+ * the boundaries part of the match, so `ai` cannot meet `said`, and `jensen
+ * huang` cannot meet the tail of a longer word.
+ */
+const nameFlat = (title: string): string => {
+  const tokens = (title.normalize("NFKC").match(/[\p{L}\p{N}][\p{L}\p{N}'\u2019]*/gu) ?? []).map(
+    (word) => word.replace(/['\u2019]s$/u, "").toLowerCase(),
+  );
+  return ` ${tokens.join(" ")} `;
+};
+
+/**
+ * The disclosure vocabulary (B-05, 2026-10-23): words that say an incident *is* a
+ * published vulnerability, rather than a story that happens to mention one.
+ *
+ * Bounded, so `debug` and `dispatch` cannot meet `bug`, and `cve-2026` is the
+ * identifier form a disclosure writes. Read from the title *and* the summary,
+ * because the measured pairs split the vocabulary across them: one card says
+ * "Security Release" in its headline and "the vulnerabilities" in its summary,
+ * the other says nothing in the headline and "critical vulnerabilities" in its
+ * summary.
+ */
+const DISCLOSURE = /\b(?:vulnerabilit(?:y|ies)|flaws?|bugs?|security release|cve-\d{4})\b/iu;
+
+/**
+ * The kind of event a card names (B-05, 2026-10-23): a thing that happens once,
+ * on a date, with coverage that arrives in several shapes — a round-up, a report
+ * from the room, a preview.
+ *
+ * This is deliberately not a marker group: a marker group fuses on its own, and
+ * `keynote` alone fused a GTC liveblog with an unrelated summit liveblog (both
+ * headline "Live Updates"). It only ever counts *together* with a shared name.
+ */
+const EVENT_NOUN =
+  /\b(?:keynote|conference|summit|unveil(?:s|ed)?|launch(?:es|ed)?|debuts?|introduc(?:es|ed))\b/iu;
+
+/**
+ * A headline that announces the *next* turn of a saga (B-05, 2026-10-23).
+ *
+ * The disclosure leg's job is one story told twice; its failure mode is the
+ * follow-up. Measured in the stored corpus, the PHP2Shell release has a second
+ * day: "URGENT - PHP Warns of **Another** Unpatched RCE **Two Days After**
+ * Emergency PHP2Shell Patches" against "PHP2Shell: Two Unpatched Critical PHP
+ * RCE Flaws (CVSS 9.2) Trigger Emergency Security Alert". Same subject, same
+ * disclosure vocabulary, same PRIMARY — and a genuinely different development,
+ * which the task's third condition says is two cards.
+ *
+ * Read off the **headline only**. A summary says "two days after" while
+ * restating the original event all the time; a headline that says it is making
+ * the progression the claim. Keeping the guard on the headline is also what
+ * leaves the two audited pairs alone: neither "PHP blames supply chain security
+ * biz Chainguard…" nor "World leaders warn of security flaws found in PHP…"
+ * carries a progression word.
+ */
+const PROGRESSION =
+  /\b(?:another|again|second|third|follow[- ]?up|surges?|surged|resumes?|after|later|next|imminent)\b/iu;
+
 const markersOf = (title: string, summary: string, options: TwinOptions = {}): Set<string> => {
   const titleText = title.toLowerCase();
   const text = `${title} ${summary}`.toLowerCase();
@@ -319,6 +381,47 @@ type Shape = {
   figures: Set<string>;
   /** Adjacent capitalised content pairs in the title — a product or a person. */
   names: Set<string>;
+  /** The same title, lowercased and possessive-stripped, padded — see `nameFlat`. */
+  flat: string;
+  /** Whether either side names the incident a disclosure (B-05). */
+  disclosure: boolean;
+  /** Whether either side names the kind of event it is (B-05). */
+  event: boolean;
+  /** Whether either headline announces the next turn of a saga (B-05). */
+  progression: boolean;
+  /** Title and summary as written, so a name can be read as a proper noun. */
+  raw: string;
+};
+
+/**
+ * Whether `name` (lowercased) is written as a proper noun somewhere in `text`.
+ *
+ * The disclosure leg needs this because PRIMARY is not always an actor: the
+ * entity ranker also promotes concept words, and `bug fixes` is PRIMARY on every
+ * patch note in the corpus. Measured 2026-10-23, the leg without this test fused
+ * 358 pairs over 30 days and 313 of them fail ruling #18's floor — one release
+ * note against an unrelated vendor's flaw, joined by `bug fixes` or `security`.
+ * A named subject is written the way a name is written: `PHP` in "PHP Security
+ * Release" and in "PHP: The three letters…", `Jensen Huang` in both keynote
+ * cards. A concept word is not, so it never satisfies this and never fuses.
+ */
+const properIn = (text: string, name: string): boolean => {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "giu");
+  for (const match of text.matchAll(pattern)) {
+    const word = match[0];
+    if (word !== word.toLowerCase()) return true;
+  }
+  return false;
+};
+
+/** Whether both briefs name this PRIMARY as a proper noun. */
+const sharesProperName = (a: Shape, b: Shape): boolean => {
+  for (const name of a.primary) {
+    if (!b.primary.has(name)) continue;
+    if (properIn(a.raw, name) && properIn(b.raw, name)) return true;
+  }
+  return false;
 };
 
 /**
@@ -337,6 +440,23 @@ export type TwinOptions = {
   securityAccess?: boolean;
   /** The result leg (2026-10-21), as a switch for the census's "before" column. */
   resultFrames?: boolean;
+  /**
+   * B-05's two legs (2026-10-23) — the disclosure leg and the name a Title Case
+   * headline cannot contribute — as the same kind of switch, so the census can
+   * print what the corpus looked like before them.
+   */
+  b05Rules?: boolean;
+};
+
+/**
+ * Whether the two cards carry the same name, in the same order — allowing the
+ * side whose headline is sentence case to prove it and the Title Case side to
+ * confirm the words sit next to each other (see the leg in `areTwins`).
+ */
+const sharesName = (a: Shape, b: Shape): boolean => {
+  for (const name of a.names) if (b.names.has(name) || b.flat.includes(` ${name} `)) return true;
+  for (const name of b.names) if (a.flat.includes(` ${name} `)) return true;
+  return false;
 };
 
 /**
@@ -353,7 +473,7 @@ export type TwinOptions = {
  * are what keep the wider net precise — two unrelated stories still need to share
  * the kind of event and the actor, not just filler.
  */
-function areTwins(a: Shape, b: Shape): boolean {
+function areTwins(a: Shape, b: Shape, options: TwinOptions = {}): boolean {
   // The shape of one incident: the same actor and the same figure. Two desks
   // describing one arrest share neither wording nor marker -- "accused of
   // shipping" against "arrested for smuggling" -- and the word tests below
@@ -366,11 +486,75 @@ function areTwins(a: Shape, b: Shape): boolean {
   // Ruled 2026-10-17 — no event marker is required for this pair, because a
   // review announces nothing and its identity is entirely in the name.
   for (const name of a.names) if (b.names.has(name)) return true;
+  // One side proving the name is enough — when the two cards also name the kind of
+  // event (B-05, 2026-10-23).
+  //
+  // `namePairs` refuses a Title Case headline on purpose — when most words are
+  // capitalised, capitalisation no longer says which word is a name. But refusing
+  // to *read* a name there is not the same as refusing the other card's proof of
+  // it: the sentence-case side still names the product or the person, and the
+  // Title Case side can be asked whether those words sit next to each other in it.
+  // That is the delivered 2026-10-21 pair, cards #04 and #07 — "GTC Berlin 2026:
+  // Live Updates From NVIDIA CEO Jensen Huang's Keynote" (Title Case, so it
+  // contributed no names at all) against "Jensen Huang sends in the robot ducks…"
+  // (sentence case, so it proves `jensen huang`) — and the pass kept both.
+  //
+  // The event word is the second half, and it is what keeps this from fusing two
+  // announcements of one product: a shared name alone is not one story. The corpus
+  // holds the counter-example the suite already pins — "Nvidia debuts $4,999 DGX
+  // Spark with half the RAM and storage" against "NVIDIA DGX Spark 64GB Gives
+  // Developers More Ways to Build and Scale Local AI" — two SKUs, two
+  // announcements, one product name. Only one of those cards names a kind of event
+  // ("debuts"), so the pair survives. A keynote round-up and a keynote report name
+  // it on both sides.
+  //
+  // Two Title Case headlines contribute no names at all, so there is nothing to
+  // look up and the leg cannot fire: a GTC liveblog and a summit liveblog stay two
+  // cards even though both say "Live Updates" and both mention a keynote.
+  if (options.b05Rules !== false && a.event && b.event && sharesName(a, b)) return true;
   // Two accounts of one financial result (2026-10-21): the same PRIMARY actor,
   // one side framing the result and the other naming it. Read before the word
   // tests because the measured pair shares one content word, and it needs no
   // marker because the frame/term split *is* the event.
   if (resultLeg(a, b)) return true;
+  // The same disclosure about the same subject (B-05, 2026-10-23).
+  //
+  // The delivered 2026-10-21 and 2026-10-22 briefings each carried one PHP
+  // security release twice, four cards over two editions, each card its own
+  // `events` row with one stored article:
+  //
+  //   - "Today's PHP Security Release, and How We're Strengthening PHP Security"
+  //     against "PHP: The three letters that shut down sites all over the
+  //     internet today";
+  //   - "PHP blames supply chain security biz Chainguard for putting huge chunks
+  //     of the web at risk" against "World leaders warn of security flaws found
+  //     in PHP programming language".
+  //
+  // No marker group held the words that make them comparable (`release` is a
+  // stopword, so "security release" announced nothing, and `security` holds
+  // break-in words), and the overlap is two and three content words. What both
+  // pairs do share is the **subject** — `PHP`, as the PRIMARY entity on both
+  // sides — plus both accounts calling the incident a vulnerability, a flaw, a
+  // bug or a security release.
+  //
+  // PRIMARY is what makes this safe. The loose version, a "vulnerability"
+  // marker group on the word tests, measured 507 newly fused pairs over 30 days
+  // and fused "Critical GitLab Flaw (CVSS 10.0)…" with "Critical FortiSIEM Flaw
+  // Gets Public Exploit PoC…" — two different products' disclosures joined by the
+  // noun `critical` and the noun `flaw`. Two vendors' flaws share the vocabulary
+  // and not the subject; two accounts of one release share both.
+  //
+  // `progression` is the other boundary: a headline that says "another" or "two
+  // days after" is the next development, not a retelling — see `PROGRESSION`.
+  if (
+    options.b05Rules !== false &&
+    a.disclosure &&
+    b.disclosure &&
+    !a.progression &&
+    !b.progression
+  ) {
+    if (sharesProperName(a, b)) return true;
+  }
   const overlap = sharedCount(a.words, b.words);
   if (overlap < 2) return false;
   if (sharedCount(a.entities, b.entities) === 0) return false;
@@ -493,6 +677,11 @@ const shapeOf = (brief: TwinBrief, options: TwinOptions = {}): Shape => {
       ...magnitudeKeys(`${brief.title} ${summary}`),
     ]),
     names: namePairs(brief.title),
+    flat: nameFlat(brief.title),
+    disclosure: DISCLOSURE.test(`${brief.title} ${summary}`),
+    event: EVENT_NOUN.test(`${brief.title} ${summary}`),
+    progression: PROGRESSION.test(brief.title),
+    raw: `${brief.title} ${summary}`,
   };
 };
 
@@ -505,7 +694,7 @@ export function suppressStoryTwins<T extends TwinBrief>(
   const keptAt: number[] = [];
   for (let i = 0; i < briefs.length; i += 1) {
     const current = shape[i]!;
-    if (keptAt.some((j) => areTwins(current, shape[j]!))) continue;
+    if (keptAt.some((j) => areTwins(current, shape[j]!, options))) continue;
     kept.push(briefs[i]!);
     keptAt.push(i);
   }

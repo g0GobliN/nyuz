@@ -117,7 +117,18 @@ const orderedSectionsSchema = z
   .array(z.object({ key: sectionKeySchema, enabled: z.boolean() }))
   .max(SECTION_KEYS.length * 2);
 
-const legacySectionsSchema = z.record(sectionKeySchema, z.boolean());
+/**
+ * The legacy map form, accepted with any subset of the keys.
+ *
+ * `z.partialRecord` rather than `z.record`: in zod v4 a record keyed by an enum
+ * is EXHAUSTIVE — it demands a value for every key in the enum, so a stored row
+ * from 0003 (`{ noise: false }`, seeded before the later sections existed)
+ * fails with "expected boolean, received undefined". v3's `z.record` only
+ * checked the keys that were present, which is the behaviour this migration has
+ * to keep: the missing keys are filled in by `normaliseSections`, and that is
+ * the whole point of accepting the old shape.
+ */
+const legacySectionsSchema = z.partialRecord(sectionKeySchema, z.boolean());
 
 export type SectionRow = { key: SectionKey; enabled: boolean };
 export type Sections = SectionRow[];
@@ -128,7 +139,7 @@ export type Sections = SectionRow[];
  * the annotation `z.infer` reports the input union, and every consumer would
  * have to narrow a shape that `parse` can never actually return.
  */
-export const sectionsSchema: z.ZodType<Sections, z.ZodTypeDef, unknown> = z
+export const sectionsSchema: z.ZodType<Sections, unknown> = z
   .union([orderedSectionsSchema, legacySectionsSchema])
   .transform(normaliseSections);
 
@@ -513,7 +524,7 @@ export function parseSetting<T>(
   // Input typed as `unknown` rather than `T`: `stored` comes out of a jsonb
   // column and is genuinely unknown, and schemas that transform on the way in
   // (sections) have an input type that is not their output type.
-  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  schema: z.ZodType<T, unknown>,
   stored: unknown,
   fallback: T,
 ): [T, boolean] {
