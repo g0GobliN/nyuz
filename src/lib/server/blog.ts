@@ -240,7 +240,21 @@ const saveInput = z.object({
   title: z.string().max(200).optional().default(""),
   excerpt: z.string().max(500).optional().default(""),
   bodyMd: z.string().max(200_000).optional().default(""),
-  coverUrl: z.string().url().max(2000).nullable().optional(),
+  coverUrl: z
+    .string()
+    .trim()
+    .max(2000)
+    .nullable()
+    .optional()
+    .refine((value) => {
+      if (value === null || value === undefined) return true;
+      try {
+        const url = new URL(value);
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch {
+        return false;
+      }
+    }, "Must be an absolute http or https URL."),
   status: z.enum(["draft", "scheduled", "published", "archived"]).optional().default("draft"),
   tags: z.array(z.string().max(50)).max(20).optional().default([]),
   seoTitle: z.string().max(200).optional().default(""),
@@ -249,6 +263,8 @@ const saveInput = z.object({
   /** For scheduled/published: when it goes (or went) live. */
   publishedAt: z.string().datetime().nullable().optional(),
 });
+
+export const saveInputSchema = saveInput;
 
 export const savePost = createServerFn({ method: "POST" })
   .middleware([adminOnly])
