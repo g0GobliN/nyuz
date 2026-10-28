@@ -4212,3 +4212,12 @@ the change, which is the reproduce-then-fix evidence the card asks for.
 editions.** The "legs off" column is today's base legs with `b05Rules: false`, not the code that
 generated each edition — the base pass was widened after 2026-10-20, which is why `3fcbb21c` loses a card
 before the new legs run while the delivered edition carried both.
+
+**PR #74 (N-02 story boundary) closed out unmerged at head `0b60c72`** — FAIL as a rule: the guard
+exempts `sourceList[0]` (`editorial.ts:3746`), so the article-internal boundary still composes the
+Cameroon paragraph as the page's only body text with `storyBoundaryDrops: 0`; zero CI ran at that head
+and the PR is `CONFLICTING` with `main`. One comment: https://github.com/g0GobliN/nyuz/pull/74#issuecomment-6462801400.
+Residual carried by `t_01747913` (forge: sentence-level boundary, rebase, corpus rerun) and
+`t_cd95e2b9` (sentinel: re-verify at the new head); `0fb1f7d`'s lint and shard-4 failures are repaired
+at `0b60c72` locally (eslint and `tsc --noEmit` exit 0, 4 + 1 tests pass), and the emptied-story risk
+(`98f0a6a4-2264-4ca6-9d22-d07442179ae2`) stays unmeasured at that head.
