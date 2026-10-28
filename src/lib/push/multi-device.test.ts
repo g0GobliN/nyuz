@@ -315,7 +315,10 @@ describe("the account stores one row per device", () => {
     // The validator used to mark `endpoint` optional and the handler applied
     // the filter only `if (data.endpoint)`, leaving a delete scoped to
     // `user_id` alone — every device, from one device's toggle.
-    expect(account).toContain("z.object({ endpoint: z.string().max(2048) }).parse(input)");
+    // The handler's validator is the named schema, so this pin says which
+    // schema it reads; `account.test.ts` proves a missing endpoint is rejected
+    // instead of pinning the schema's shape as source text.
+    expect(account).toContain("deleteInputSchema.parse(input)");
     expect(account).not.toMatch(/endpoint:\s*z\.string\(\)\.max\(2048\)\.optional\(\)/);
     expect(account).toMatch(
       /\.delete\(\)\s*\.eq\("user_id", context\.actor\.id\)\s*\.eq\("endpoint", data\.endpoint\)/,

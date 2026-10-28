@@ -4275,3 +4275,14 @@ rather than papered over.
 **PR #70 (B-05, one story one card inside an edition) closed out at head `e9b8dfa`, merged as `35d8a06`** — duplicate direction PASS, false-merge direction FAIL. Replayed over 20 delivered editions the pass eats 4 cards in 3 editions and all 4 are one story told twice (`7268ba11` 25 → 23, `fab11fdf` 17 → 16, `e2bd737e` 24 → 23); on a 30-day / 20,000-event replay 181 fusions happen only because of B-05's two legs and 152 of those (84%) sit below ruling #18's floor — `PHP … PHP2Shell RCE Flaws` fused with `NGINX Fixes 5 Flaws`, an XFS kernel changelog fused with a Plex2Shell Linux malware campaign, `CISA Adds Six …` fused with `CISA Adds Two …` — because `properIn` (`src/lib/pipeline/duplicates.ts:408-416`) treats any Title-Case word as a proper name and `Shape` (`:652-685`) has no source field to decide a merge. One comment: https://github.com/g0GobliN/nyuz/pull/70#issuecomment-6463837056.
 
 Residual carried by `t_c258e803` (forge): re-key B-05's legs on the subject instead of a shared name (D1), pin the three false merges as test cases quoting stored card text, and split the census flag so its before/after columns differ only by B-05's own key (D2 — `scripts/twin-corpus-census.ts:121` sets `b05Rules = securityAccess`). The durable fix stays in `cluster.ts`: this pass drops the second card at selection only, so the same story can return on a later day once the 48-hour delivered-twin window passes, and the story page path `/dashboard/story/$id` still serves both halves of a pair.
+### 2026-10-28 · PR #76: the branch's three red checks clear
+
+`src/lib/push/multi-device.test.ts` is a file this diff does not touch, and it pinned the delete
+handler's validator by its source text: `z.object({ endpoint: z.string().max(2048) }).parse(input)`.
+The handler names `deleteInputSchema` now, so the pin names that, and `account.test.ts` asserts the
+property the pin was there for — an absent endpoint is refused, not read as "every device" — as
+behaviour rather than as text. `public-url.test.ts` was committed without a final newline, which failed
+`prettier/prettier` inside `Typecheck, lint, build` and took the build, Browser smoke and Deploy behind
+it down with it; the file ends with a newline. The coverage floor was never really red — the suite was,
+so `coverage-summary.json` was never written and there was nothing to compare against. Green suite:
+220 files, 3680 tests, 46.33% lines against the committed floor with no regression, `src/lib/net` +12.05.
