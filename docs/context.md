@@ -4085,3 +4085,14 @@ behaviour rather than as text. `public-url.test.ts` was committed without a fina
 it down with it; the file ends with a newline. The coverage floor was never really red — the suite was,
 so `coverage-summary.json` was never written and there was nothing to compare against. Green suite:
 220 files, 3680 tests, 46.33% lines against the committed floor with no regression, `src/lib/net` +12.05.
+
+`isPublicHttpUrl` now reads the hex tail WHATWG normalises an IPv4-mapped host into — `[::ffff:127.0.0.1]`
+arrives as `::ffff:7f00:1`, `[::ffff:10.0.0.5]` as `::ffff:a00:5` — back to octets before the
+private-range test, so mapped loopback, mapped `169.254.169.254`, mapped `192.168.1.1` and mapped
+`10.0.0.5` are all refused. All four were allowed on `3c2f5eb`, which is byte-identical to `main`, and
+the push endpoint is the string `src/lib/server/push/send.ts` fetches, so the guard this branch ports
+there could be walked around in the one form an attacker would pick. The four probes are in
+`public-url.test.ts` and fail against the old predicate. Left alone on purpose: `coverUrl` in
+`src/lib/server/blog.ts` still accepts private and IP hosts, because a cover image is rendered by the
+reader's browser and never fetched server-side; `isPublicHttpUrl` stays the single shared predicate, and
+the ingestion path that also calls it is a separate card.
