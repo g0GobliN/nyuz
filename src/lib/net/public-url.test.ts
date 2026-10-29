@@ -22,6 +22,9 @@ describe("isPublicHttpUrl", () => {
       "http://100.64.0.1/meta",
       "http://2130706433/",
       "http://[::1]/rss",
+      "http://[fe80::1]/rss",
+      "http://[fc00::1]/rss",
+      "http://[fd00::1]/rss",
       "http://[::ffff:127.0.0.1]/secret",
       "http://[::ffff:169.254.169.254]/meta",
       "http://[::ffff:c0a8:101]/rss",
@@ -47,6 +50,10 @@ describe("isPublicHttpUrl", () => {
     }
     // The same address in its dotted form, and a mapped public address, still read true.
     expect(isPublicHttpUrl("http://[::ffff:8.8.8.8]/feed")).toBe(true);
+  });
+
+  it("accepts a public IPv6 host", () => {
+    expect(isPublicHttpUrl("http://[2001:db8::1]/feed")).toBe(true);
   });
 
   it("rejects non-http schemes", () => {
