@@ -125,21 +125,21 @@ must-be-zero lines are the acceptance test.
 
 ## 4. Current state
 
-| area                                         | state                                                                                                                                                                                                               |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Marketing site, pricing, how-it-works, legal | Built                                                                                                                                                                                                               |
-| Accounts, sign-in (email + Google + GitHub)  | Built                                                                                                                                                                                                               |
-| Admin console, roles, audit log              | Built — the security boundary is `adminOnly`/`superadminOnly`                                                                                                                                                       |
-| Blog, site content, feature flags            | Built                                                                                                                                                                                                               |
-| Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                                                                                                                                                                             |
-| **Deploy path (GitHub Actions)**             | Working — it was **blocked for about twenty minutes on 2026-10-16** (hosted runners stopped starting: `"recent account payments have failed or your spending limit needs to be increased"`, run `38853848933`, every job failed in ~3 s and the deploy showed *skipped*; the run before it, same day, deployed `17d1b36`). Making the repository public restored its free runner minutes, the run was re-queued, and it deployed `6e88b8d` at **05:20Z** with every job green and the origin contract 23/23; the 40 digest ticks after it all ran `healthy`, read on the live Worker. `main` is level with production again. The shape recurs while the repository is private, so it is a stage condition, not a code defect — [deployment.md](deployment.md#deploying). |
-| Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                               |
-| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick. **One briefing is built per reader, at `send_at` in the reader's own zone** (`digest.ts:587-601`), not once globally, and the measured consequence of one brief per tick is **25m43s late** on the 2026-10-20T22:30Z build with **8,690 ms** of CPU per build — [decisions/briefing-delivery-time.md](decisions/briefing-delivery-time.md) |
-| Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled (R1) and extended one measured class at a time (2026-10-17)                                                                                                    |
-| **Briefing email actually delivered**        | **Off on purpose until launch (owner, 2026-10-16)** — the Resend key is deliberately disabled to keep the free send quota for launch, so every email row fails `Resend 401 API key is invalid` by design and nothing has been accepted since 2026-08-26T22:59. The earlier `Missing EMAIL_UNSUBSCRIBE_SECRET` run (26 Aug → 11 Sep) is fixed. Pre-launch channels are push and the dashboard; re-enabling email is a launch-time owner action, not a defect — [AGENTS.md](../AGENTS.md) |
-| Reader article (deterministic composer)      | Built, under active quality work (see §5)                                                                                                                                                                           |
-| Story Ask                                    | Dormant — endpoint disabled, zero allowance on every plan                                                                                                                                                           |
-| Every side, measured                         | [product-readiness.md](product-readiness.md) via `npm run audit:posture`; rated built 8.5 / exercised live 5 / sellable 3, ruled in [decisions/product-readiness.md](decisions/product-readiness.md)                |
+| area                                         | state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Marketing site, pricing, how-it-works, legal | Built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Accounts, sign-in (email + Google + GitHub)  | Built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Admin console, roles, audit log              | Built — the security boundary is `adminOnly`/`superadminOnly`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Blog, site content, feature flags            | Built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Billing (Stripe checkout, portal, webhook)   | Built; no live customer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| **Deploy path (GitHub Actions)**             | Working — it was **blocked for about twenty minutes on 2026-10-16** (hosted runners stopped starting: `"recent account payments have failed or your spending limit needs to be increased"`, run `38853848933`, every job failed in ~3 s and the deploy showed _skipped_; the run before it, same day, deployed `17d1b36`). Making the repository public restored its free runner minutes, the run was re-queued, and it deployed `6e88b8d` at **05:20Z** with every job green and the origin contract 23/23; the 40 digest ticks after it all ran `healthy`, read on the live Worker. `main` is level with production again. The shape recurs while the repository is private, so it is a stage condition, not a code defect — [deployment.md](deployment.md#deploying). |
+| Ingestion, clustering, analysis, matching    | Built                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Briefing assembly and delivery               | Built — email, push, Telegram; quiet days skip honestly; generation spans Cron ticks when a pool is large (0119), so a free-plan CPU kill costs a stage, not the briefing; the gate's own CPU repaired 2026-10-16 (5.7x, output proved identical on 200 stories) and one brief is gated per tick. **One briefing is built per reader, at `send_at` in the reader's own zone** (`digest.ts:587-601`), not once globally, and the measured consequence of one brief per tick is **25m43s late** on the 2026-10-20T22:30Z build with **8,690 ms** of CPU per build — [decisions/briefing-delivery-time.md](decisions/briefing-delivery-time.md)                                                                                                                             |
+| Breaking alerts                              | Built; gated like a briefing story (D8), floor ruled (R1) and extended one measured class at a time (2026-10-17)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **Briefing email actually delivered**        | **Off on purpose until launch (owner, 2026-10-16)** — the Resend key is deliberately disabled to keep the free send quota for launch, so every email row fails `Resend 401 API key is invalid` by design and nothing has been accepted since 2026-08-26T22:59. The earlier `Missing EMAIL_UNSUBSCRIBE_SECRET` run (26 Aug → 11 Sep) is fixed. Pre-launch channels are push and the dashboard; re-enabling email is a launch-time owner action, not a defect — [AGENTS.md](../AGENTS.md)                                                                                                                                                                                                                                                                                  |
+| Reader article (deterministic composer)      | Built, under active quality work (see §5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Story Ask                                    | Dormant — endpoint disabled, zero allowance on every plan                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Every side, measured                         | [product-readiness.md](product-readiness.md) via `npm run audit:posture`; rated built 8.5 / exercised live 5 / sellable 3, ruled in [decisions/product-readiness.md](decisions/product-readiness.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ## 5. The reader-quality loop (what "the work" means right now)
 
@@ -727,7 +727,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   all worktree changes): a fixture that configured only legacy prices reported the catalogue as
   configured, and an env with no annual price still resolved one. Root cause was not the price
   table but `envValue` in [runtime-env.ts](../src/lib/runtime-env.ts) — `explicit?.[key] ??
-  ambientEnv()[key]` fell back to `process.env` for any name missing from an explicitly passed
+ambientEnv()[key]` fell back to `process.env` for any name missing from an explicitly passed
   bag, so under vitest a partial `PriceEnv` was silently completed from the developer's `.env`
   (which sets all four `STRIPE_PRICE_*` names). That is exactly the failure the function's own
   docstring forbids: "a scheduled handler that was given bindings should not silently fall back
@@ -799,19 +799,19 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   path and the fallback deck agree; no new reason string, no counter change, nothing else in the
   diff. **Measured narrowness:** 1 match in 7,926 live-window units (1,000 articles, 14 days), and it
   is a true positive; the first draft's 11 prose false positives (`According to The Register`, `The
-  other day I`, `with the A19 chip`, …) are pinned as negative controls in
+other day I`, `with the A19 chip`, …) are pinned as negative controls in
   [reader-furniture-seam.test.ts](../src/lib/reader-furniture-seam.test.ts). Verified: full suite
   **3203/3203** across 188 files, `npx tsc --noEmit` clean, and the local app (127.0.0.1:8080)
   renders both affected stories with the welds gone and the real facts kept. **The arbiter accepted
   the slice as landed and narrow** (ChatGPT `nyuz` project, 2026-10-14) and ruled two further
   defects of the same sample into **separate categories**: an **incomplete explanatory deck** (a
   relative-clause fragment with no main clause) and an **unestablished first-person voice** (`gave us
-  access` with no antecedent). It explicitly did **not** declare reader quality 10/10 — the gate
+access` with no antecedent). It explicitly did **not** declare reader quality 10/10 — the gate
   stays open until those categories are handled and the broader path is re-read.
 
 - **2026-10-14 — the deck the arbiter tracked separately, traced to its cause, ruled, and landed as
   a second slice.** The deck of story `7af726e6` — `A set of taskflow YAMLs, one per stage, which are
-  essentially the prompts that tell the LLM agent what to do at each step.` — is not a damaged
+essentially the prompts that tell the LLM agent what to do at each step.` — is not a damaged
   sentence: it is **one item of the source's own bulleted list**, flattened into a paragraph by the
   provider and published as the story's opening line (the two siblings stay in the body, held up by
   the lead-in "There are three layers:"). Three rulers were measured over the live window before any
@@ -943,7 +943,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   `38693464587` green end to end on the runner (all four test shards, coverage floor, browser smoke on
   the built Worker) and the **deploy job completed 2026-10-15T06:42:45Z**; the post-deploy window the
   ruling allows runs to **2026-10-16T06:42:45Z**, and `npm run audit:delivered-summary -- --deploy-at
-  2026-10-15T06:42:45Z` now reports the two cohorts (post-deploy cohort: 0 rows, recorded at deploy
+2026-10-15T06:42:45Z` now reports the two cohorts (post-deploy cohort: 0 rows, recorded at deploy
   time so the next measurement can only move it). **Ruled 2026-10-15 (recorded
   in the decision log): Q1 = A** — an alert's explanation stays a paragraph under the alert's own contract
   (`assessReadiness` + `assessAlertFloor`), no code change; **Q2 = A first** — wait up to 24 hours after
@@ -974,7 +974,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   measured clean.** The trace that preceded it is finished and it changed the design: **`digest_items`
   stores no summary at all** — its only generated text is `why_it_matters` — so every surface the reader
   sees reaches **the same raw column through a read-time join** (`digest_items.event_id →
-  events.what_happened`: [briefing.ts](../src/lib/server/briefing.ts) lines 105-126, 522-544, 1259-1302,
+events.what_happened`: [briefing.ts](../src/lib/server/briefing.ts) lines 105-126, 522-544, 1259-1302,
   [digest.ts](../src/lib/pipeline/digest.ts) 2094-2179, [alerts.ts](../src/lib/pipeline/alerts.ts)
   538-580, [history.ts](../src/lib/server/history.ts) 184). There is nothing per-surface to reconcile, so **one validated artifact read at that
   join fixes the dashboard, the briefing, the email and alerts together**, and the digest build path is
@@ -984,8 +984,8 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 - **2026-10-16 — a critical advisory in the framework blocked every deploy, and a patch-level bump closed it.**
   The runner's `Dependencies and secret names` job began failing at 2026-10-16T00:25Z with **5 critical**
-  advisories against `@tanstack/*`: **GHSA-qx66-fv34-fjm8**, *“Unauthenticated reflected XSS in TanStack
-  Start server-function responses”* — an attacker-crafted URL to a server function makes the app answer
+  advisories against `@tanstack/*`: **GHSA-qx66-fv34-fjm8**, _“Unauthenticated reflected XSS in TanStack
+  Start server-function responses”_ — an attacker-crafted URL to a server function makes the app answer
   with attacker-controlled HTML from its own origin, so their script runs with the visitor's authority;
   the victim only has to open the link. The doubled cost: **the deploy job is skipped while any check is
   red, so nothing could reach production.** Fixed by moving the three pinned packages to the release that
@@ -1002,11 +1002,11 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 - **2026-10-16 — the post-deploy checkpoint: the natural attempt failed its sixth night, the controlled
   build was blocked by a product guard, and the read-only diagnostic is what ran instead. Recorded as
-  overdue.** The 22:30Z slot ended `failed`, 0 items, *“missed slot by 123 minutes; not sent”* (last claim
+  overdue.** The 22:30Z slot ended `failed`, 0 items, _“missed slot by 123 minutes; not sent”_ (last claim
   00:26:40Z, generated 00:32:40Z) — the same CPU-condition shape as 10-10…10-14, so it produced no
   qualifying evidence. The approved controlled build (`npm run pipeline -- digest --user <id> --now
-  --skip-send`) then could not create its slot: **`enforce_daily_briefing` (0082) drops a second briefing
-  for the same account-local date** when the day's earlier row failed *after* starting, and the
+--skip-send`) then could not create its slot: **`enforce_daily_briefing` (0082) drops a second briefing
+  for the same account-local date** when the day's earlier row failed _after_ starting, and the
   10-15T22:30Z row is JST 2026-10-16 with `generation_started_at` set. Measured twice (runs at 00:34:46Z
   and 00:38:44Z): the CLI reports “slots created 1” — it counts planned rows — while **no row is
   written**. Every reader is blocked until 15:00Z (JST midnight). **Ruled: B now, A after 15:00Z, the
@@ -1018,10 +1018,10 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   artifacts would be stored by a build today**. In the 200 most relevant matches, **16 items are ones the
   build would compose for** (5 refused lines, 11 with no stored line); **14 are withheld** (newsletter 5,
   primary-source 4, unbriefable 4, …) and **2 are shippable but rank outside today's eligible set** — and
-  the composer produces a valid line for each (*“The activity, which brings together commodity offensive
+  the composer produces a valid line for each (_“The activity, which brings together commodity offensive
   tools like Cobalt Strike with an AI orchestration layer powered by Anthropic's Claude Code, has been
-  attributed.”*; *“The AI takeover of mathematics has begun.”*). So the composer provably acts on today's
-  real pool; the repair path is *needed* by 2 shippable items today and simply does not rank into a
+  attributed.”_; _“The AI takeover of mathematics has begun.”_). So the composer provably acts on today's
+  real pool; the repair path is _needed_ by 2 shippable items today and simply does not rank into a
   briefing today. **Next for the checkpoint:** run A at/after 15:00Z (verify the slot row exists after
   `scheduleUpcoming`, not the reported count) and expect it to show composition not attempted unless the
   pool shifts — a finding about the pool, not a defect. Then the ruled next slice: **a build that
@@ -1060,8 +1060,8 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   for. Full record: [decisions/reader-delivery.md](decisions/reader-delivery.md#the-ruled-slice-a-briefing-built-across-cron-ticks-2026-10-16-ruled-and-landed).
 
 - **2026-10-16 — the second measurement named the spend, and the gate itself was repaired without
-  moving a verdict.** The arbiter moved the CPU-budget failure into Day 2 (*"Move the CPU-budget
-  failure into today's active work"*, decision `B` with a narrower definition of what closes the
+  moving a verdict.** The arbiter moved the CPU-budget failure into Day 2 (_"Move the CPU-budget
+  failure into today's active work"_, decision `B` with a narrower definition of what closes the
   checkpoint) while keeping the controlled build at 15:00Z and recording the checkpoint as
   **overdue**, not as an on-time pass. The first measurement had said the gate's cost "tracks excerpt
   size"; a CPU profile of `assessReadiness` over the 22:30Z reader's live pool named the mechanism
@@ -1082,7 +1082,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   identical** (wall clock 22.5 -> 8.6 s for the same run). Eleven tests in
   `src/lib/reader-evidence-equivalence.test.ts` pin the shapes a counting rewrite can get wrong; they
   also pass on the previous tree, which is stated rather than dressed up, because the evidence that
-  nothing moved is the corpus diff. **`GATE_BRIEFS_PER_INVOCATION` is now 1**: the worst *pair* of
+  nothing moved is the corpus diff. **`GATE_BRIEFS_PER_INVOCATION` is now 1**: the worst _pair_ of
   briefs is still ~670 ms against a ~710 ms grace, and a killed tick persists nothing, so an
   over-budget pair would be retried forever. **Not verified:** the Worker's own `cpuTimeUs` for these
   ticks; the natural attempt at 22:20Z is what tests the claim. Full record:
@@ -1104,21 +1104,21 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   candidates, 15 of them by Q4, and the reader's `item_count` history is a collapse, not a thin day:
   **16–25 stories** from 2026-09-13 to 10-03 (25 on 17 of those days), then 23, 24, **16 on 10-08**, **9
   on 10-09**, the CPU zeros, **1 on 10-16**, and **0 previewed for tonight** (`ready then Q4-gated: 5 →
-  0 ship`). **Why**, measured over the reader's 1,000 unbriefed matches: every rung that needs stored
+0 ship`). **Why**, measured over the reader's 1,000 unbriefed matches: every rung that needs stored
   analysis text is empty — stored impact **0/1000** (the writer is off by policy; no `event_impacts` row
   has text since 2026-09-13, and `ops_status["impact:writer"]` has been `warning` with **402
   Insufficient Balance** since 2026-10-01), change/after-state **0/1000** (`events.after_state` is empty
   on all 1,000 events of the last 14 days), consequence **7/1000** — while 837 of the 1,000 hold stored
-  evidence, so the rung is money-specific and not evidence-starved — coverage **27/1000 (2.7%)** — and `publisher_count` is *accurate*, 199 of 200 agree with the distinct outlets, so the
+  evidence, so the rung is money-specific and not evidence-starved — coverage **27/1000 (2.7%)** — and `publisher_count` is _accurate_, 199 of 200 agree with the distinct outlets, so the
   pool genuinely is single-source. So **Q4 withholds ~97% of the pool**, and **two rulings collide**: Q4
   (2026-10-12) was ruled assuming the ladder could speak, and the code-first policy switched off the rung
   described as the one that carries the load. Recorded in
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-briefing-collapsed-from-25-stories-to-1-and-every-rung-that-could-speak-is-switched-off-2026-10-17-open)
   with five numbered options for the arbiter and what each rests on. **Fixed in the same slice, because
-  it made the evidence wrong rather than merely thin:** three read-only instruments answered *"would this
-  ship?"* **before Q4** — the composition diagnostic said 13, the preview 5, the build 1, and tonight 0 —
-  so the numbers were evidence about the instruments, including the recorded conclusion that *"A may
-  legitimately report composition not attempted"*. There is now **one definition**
+  it made the evidence wrong rather than merely thin:** three read-only instruments answered _"would this
+  ship?"_ **before Q4** — the composition diagnostic said 13, the preview 5, the build 1, and tonight 0 —
+  so the numbers were evidence about the instruments, including the recorded conclusion that _"A may
+  legitimately report composition not attempted"_. There is now **one definition**
   (`hasStorySpecificLine`, [inclusion.ts](../src/lib/pipeline/inclusion.ts)) called by the build and by
   the instruments, `GATED_KIND` is exported so the reason has one spelling, the preview prints
   `Ships (0)` plus a `Withheld by the Q4 quality gate (5)` section naming the stories a reader would
@@ -1127,13 +1127,13 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   recorded as unexplained). 2 new tests in `src/lib/pipeline/inclusion.test.ts` (28 passing). **Not done
   at that point, deliberately:** nothing that changes what a reader receives, because every option in
   that list is a product decision and none of them lands on a recommendation — **superseded the same day
-  by the owner's ruling** (*"this saas is no ai product, its should be pure code"*), recorded in
+  by the owner's ruling** (_"this saas is no ai product, its should be pure code"_), recorded in
   §7 and in [AGENTS.md](../AGENTS.md): the Q4 gate is reversed, the reader's next briefing goes from 0
   ships to 7, and every one of them renders with no explanation rather than a generic one.
 
 - **2026-10-17 — the deploy blocker was cleared in two of the three places that carried it, and the
-  third is corrected here.** `a1d6d2c` says *"the stale blocker is corrected in both places that
-  carry it"* and it is right about §7 and [deployment.md](deployment.md#deploying), but the **§4
+  third is corrected here.** `a1d6d2c` says _"the stale blocker is corrected in both places that
+  carry it"_ and it is right about §7 and [deployment.md](deployment.md#deploying), but the **§4
   Current-state row still read `BLOCKED 2026-10-16`** with "`main` is ahead of production" — the row a
   cold session reads before the prose — so the file contradicted itself about the one thing that
   decides whether tonight's attempt exercises the repaired gate. Both stale statements are now
@@ -1145,9 +1145,9 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 - **2026-10-17 — the ranked body path restores source adjacency (arbiter ruling #4).** Read in the
   browser on the live origin, the reader's only story of the day opened its fourth paragraph on
-  *"However, they also rely on several smaller manufacturers…"* with nothing above it naming who
-  `they` was, while the source's own naming sentence (*"Major Taiwanese companies are more than
-  capable…"*) published *after* it in the same block. Cause: `ordering=relevance` for that story
+  _"However, they also rely on several smaller manufacturers…"_ with nothing above it naming who
+  `they` was, while the source's own naming sentence (_"Major Taiwanese companies are more than
+  capable…"_) published _after_ it in the same block. Cause: `ordering=relevance` for that story
   (enriched + rss facts), so the single-source path's adjacency rule never ran; and `contextDependent`
   read position zero, so a pronoun behind `However,` was invisible to the gate as well. Put to the
   arbiter with the frozen measurement — 104 anaphoric facts, 77 with a selected source-adjacent
@@ -1168,12 +1168,12 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 - **2026-10-17 — the source-adjacency guard was tightened after it published two dangling
   references.** The first `antecedentSupplied` accepted any word ending in `s` anywhere in the
   predecessor, so verbs counted as groups. Reading the live audit (`npm run audit:reader`, 1,991
-  selected facts) found two published defects it had created: *"They then debate the merits of
-  returning to X…"* behind *"What gives here?"* (the `s` was `gives`), and *"Their listing for the
-  WhatsApp impostor…"* behind *"Android Authority points out that…"* (`points`, `reviews`, `users` —
-  none of them the referent). The frozen replay added a quotation (*"The morphology of these 13
-  tools…"*) as the antecedent of *"They found spears…"* and *"France saw … in years"* as the
-  antecedent of *"They used an angle-grinder…"*. The guard now requires the group in the
+  selected facts) found two published defects it had created: _"They then debate the merits of
+  returning to X…"_ behind _"What gives here?"_ (the `s` was `gives`), and _"Their listing for the
+  WhatsApp impostor…"_ behind _"Android Authority points out that…"_ (`points`, `reviews`, `users` —
+  none of them the referent). The frozen replay added a quotation (_"The morphology of these 13
+  tools…"_) as the antecedent of _"They found spears…"_ and _"France saw … in years"_ as the
+  antecedent of _"They used an angle-grinder…"_. The guard now requires the group in the
   predecessor's **own subject**: it stops at the first recognisable finite verb, refuses a sentence
   that opens on a quotation, refuses when no verb can be found, and accepts a `They`-opening
   predecessor as an explicit chain. Re-measured: frozen **3 repairs** (surfers, AI coding agents,
@@ -1187,49 +1187,49 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 - **2026-10-17 — publisher furniture: the ruled byline shape's own gaps closed, and a programme's
   own episode intro refused.** The 2026-10-14 ruling put the copular masthead byline into
   `publisherFurniture`, but three measured sentences were still the same shape and still passed: a
-  three-word role phrase (*"Stewart Bendle is a deals and coupon writer at Tom's Hardware."*, the
-  pattern allowed two words), a role the closed set had not collected (*"Theresa Loconsolo is an
-  audio producer at TechCrunch."*), and a programme describing its own episode (*"On this episode of
-  The Vergecast, David and Nilay try to make sense of…"*), which was published as the **deck** of a
+  three-word role phrase (_"Stewart Bendle is a deals and coupon writer at Tom's Hardware."_, the
+  pattern allowed two words), a role the closed set had not collected (_"Theresa Loconsolo is an
+  audio producer at TechCrunch."_), and a programme describing its own episode (_"On this episode of
+  The Vergecast, David and Nilay try to make sense of…"_), which was published as the **deck** of a
   story whose only paragraph was the hosts' banter. Measured over 2,108 stored units from 250 live
   events: 2 programme intros, both a podcast's own episode page, and 2 byline units, both the same
   masthead — **0 reporting sentences**, which is the precision the ruling asked for. The role set
   gains `producer`, the role phrase allows three words, and the programme intro is an anchored
   `On/In this episode/edition of` rule. With the intro refused, that story's deck becomes a real
-  fact (*"The device has plenty of computing oomph…"*) and its body is the hosts' back-announce
-  (*"Relying on CarPlay, slinking back to X…"*) — the story itself is still published, which is the
+  fact (_"The device has plenty of computing oomph…"_) and its body is the hosts' back-announce
+  (_"Relying on CarPlay, slinking back to X…"_) — the story itself is still published, which is the
   next open question, not a claim of repair. Live audit after the change: facts selected 1,978,
   rendered 1,783, refused 195, **facts lost 0**, both must-be-zero lines 0, no story withheld by
   this rule. Tests 224/224 in the two touched files (a new furniture test with four controls).
 
 - **2026-10-17 — a sourcing note with no fact in it no longer reaches the page.** Reading the
   composed Combs story (`npm run audit:reader`'s corpus, the same composer the page uses) showed a
-  paragraph ending on *"The person was not authorized to speak publicly and did so on condition of
-  anonymity."* — a sentence about how the article was obtained, and one whose `The person` nothing
+  paragraph ending on _"The person was not authorized to speak publicly and did so on condition of
+  anonymity."_ — a sentence about how the article was obtained, and one whose `The person` nothing
   on the page introduces. Measured the same day over 3,856 stored and 2,208 published sentences:
-  **3 anonymity notes, exactly one factless** (this one); the other two carry facts (*"One person
-  familiar, who asked not to be named, said the partnership was still in place."*, *"…according to
-  a White House official not authorized to speak publicly"*) and are kept. `sourcingNote` refuses
+  **3 anonymity notes, exactly one factless** (this one); the other two carry facts (_"One person
+  familiar, who asked not to be named, said the partnership was still in place."_, _"…according to
+  a White House official not authorized to speak publicly"_) and are kept. `sourcingNote` refuses
   the factless shape at both boundaries (`unitTextRejection` charges `editorial_noise`, and
   `editorialNoise` covers the composer's gate), with four controls in `reader-prose-rules.test.ts`
   (178 passing in that file). Verified against the reader's own output: the Combs story's fourth
   paragraph now ends on Engelmayer's second quote, `rendered=10 refused=1`. The neighbouring defect
-  in the same read — the OpenAI story's paragraph opening on *"Easier to beg for forgiveness than ask
-  permission."*, a verbless maxim — is **measured and not fixed**: a general "must contain a finite
+  in the same read — the OpenAI story's paragraph opening on _"Easier to beg for forgiveness than ask
+  permission."_, a verbless maxim — is **measured and not fixed**: a general "must contain a finite
   verb" rule needs a verb lexicon the closed lists do not carry, and the probe that tried found the
   shape in 2 sentences of 2,208 with the rest false positives from the lexicon's own gaps.
 
 - **2026-10-17 — a source's own typo no longer reaches the reader.** Reading the live product after the
   programme-page slice (the Taiwan industrial-park story on the dashboard) turned up a sentence no
-  grammar rule could see: *"… Jensen Huang has even recognized some of these companies in a keynote in
+  grammar rule could see: _"… Jensen Huang has even recognized some of these companies in a keynote in
   Taipei earlier in 2026, nothing the crucial part that these smaller companies play in the global AI
-  supply chain."* The word is `noting`, and Tom's Hardware's own page says `nothing` too (fetched the
+  supply chain."_ The word is `noting`, and Tom's Hardware's own page says `nothing` too (fetched the
   same day), so it is the **source's typo published verbatim** — a sentence with no true reading, which
   is the same class of defect as a truncated one. Measured first, on the frozen live corpus through the
   production composer: 3,871 stored sentences → 2 matches (that sentence twice), 2,219 published → 1.
   **Ruled the same day (arbiter ruling #6, option 1): refuse the sentence as `editorial_noise`, do not
   repair it, do not generalise the pattern.** The first draft (`nothing` + determiner) was rejected by
-  the ruling's own control — *"There is nothing the company can do about the export controls."* is
+  the ruling's own control — _"There is nothing the company can do about the export controls."_ is
   grammatical and matched — so the shipped pattern carries the `… that` tail the malformed sentence has
   and the grammatical one does not: 1 match, 0 false positives. Landed as `sourceTypo`, wired into
   `editorialNoise` and charged by `unitTextRejection`; release evidence replayed on the 250-event corpus:
@@ -1239,21 +1239,21 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 - **2026-10-17 — a programme's own page no longer reaches the reader, and the alert floor took its two
   measured classes.** The two questions the last loop recorded instead of fixing went to the arbiter in
-  the owner's ChatGPT `nyuz` project (chat *"ARBITER REQUEST 2026-10-17 #5"*), on the owner's
-  instruction (*"discuss with chatgpt dnt ask me until both get conclusion"*). **Ruling, both Option 1:**
-  withhold a story whose published body is *only* publisher-owned material, as a readiness reason, with
+  the owner's ChatGPT `nyuz` project (chat _"ARBITER REQUEST 2026-10-17 #5"_), on the owner's
+  instruction (_"discuss with chatgpt dnt ask me until both get conclusion"_). **Ruling, both Option 1:**
+  withhold a story whose published body is _only_ publisher-owned material, as a readiness reason, with
   nothing invented and the deck never substituted for the body; and add the shelf/deal and commentary
   alert classes as two independent narrow rules with regression tests. Recorded verbatim in
   [decisions/programme-pages-and-alert-floor.md](decisions/programme-pages-and-alert-floor.md).
 
   Landed the same day. Four furniture entries in `src/lib/reader-evidence.ts` (the masthead byline that
-  keeps going with a *beat*, the two bio continuations behind it, the conference promo fragment, the
+  keeps going with a _beat_, the two bio continuations behind it, the conference promo fragment, the
   programme intro), one of which exposed a real trap: those regexes compile with `i` and **without** `u`,
   where `\p{Lu}` is the literal text `p{Lu}` — the first version of two entries was dead code. The
-  controls the ruling kept now say so in the test: *"Maya Chen is the reporter at The Verge who broke the
-  story on Friday."* stays eligible, a *beat* continuation does not. Verified on the reader's own output,
-  `npm run audit:reader`, live 200-story window: *A Nvidia insider-turned-VC…* and *Apple's HomeView has
-  an app problem* both read `emptied-after-selection (charged to a rule)` and fail the existing
+  controls the ruling kept now say so in the test: _"Maya Chen is the reporter at The Verge who broke the
+  story on Friday."_ stays eligible, a _beat_ continuation does not. Verified on the reader's own output,
+  `npm run audit:reader`, live 200-story window: _A Nvidia insider-turned-VC…_ and _Apple's HomeView has
+  an app problem_ both read `emptied-after-selection (charged to a rule)` and fail the existing
   `unbriefable` rung, so neither is published; `delivered with no body 0`, `refused then published 0`.
   Both were also **never delivered** — no `digest_items` row names either event — so the release
   criterion was met before a reader could have met them, with no retroactive unpublishing.
@@ -1266,36 +1266,36 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   sends read `floor shelf-deal` and `floor commentary`, every other alert unchanged.
 
 - **2026-10-17 — the alert instrument stopped claiming the alert path is ungated.**
-  `npm run audit:alerts` printed *"refused by the gate <- the alert path never asks"*, which stopped
+  `npm run audit:alerts` printed _"refused by the gate <- the alert path never asks"_, which stopped
   being true on 2026-10-11: `fireAlerts` asks `assessReadiness` before it paces or sends, so the
-  number is what will be *withheld*, and the historical *"113 of 218"* is overwhelmingly sends from
+  number is what will be _withheld_, and the historical _"113 of 218"_ is overwhelmingly sends from
   before that date. Both labels now say so, and each row of the sent list carries its own verdict.
   Read while checking the alerts after the reader work: **the path is gated and recent sends are
   clean** — the newest 12 alerts all read `gate ok`. Two post-gate sends a reader did not need, both
-  recorded rather than fixed because widening the ruled alert floor is a decision: *"This could be
-  your last chance to grab an RTX 5090"* (a deals post; measured over all 218 alerts, 4 deal-shaped
-  titles and 3 are real news — acquisitions and a bill) and *"It won't kill you, or humanity, to get
-  off the AI upgrade treadmill"* (a commentary column; 2 opinion-shaped titles of 218, the other an
+  recorded rather than fixed because widening the ruled alert floor is a decision: _"This could be
+  your last chance to grab an RTX 5090"_ (a deals post; measured over all 218 alerts, 4 deal-shaped
+  titles and 3 are real news — acquisitions and a bill) and _"It won't kill you, or humanity, to get
+  off the AI upgrade treadmill"_ (a commentary column; 2 opinion-shaped titles of 218, the other an
   analysis piece). The floor's own design is one measured narrow class at a time, so these are a
   question for the arbiter/owner, not a patch to slip in.
 
 - **2026-10-17 — ruling #7: paid-content pages, page openings, and a welded subhead.** Three reader
-  defects went to the arbiter together, each measured first. **Q1, paid content:** *"NTT Global Data
-  Centers weighs the price tag of not building fast enough"* was the worst case — every word of it a
+  defects went to the arbiter together, each measured first. **Q1, paid content:** _"NTT Global Data
+  Centers weighs the price tag of not building fast enough"_ was the worst case — every word of it a
   vendor's sponsored page under a title that reads like reporting. Measured over all stored coverage
   (2026-10-18): **48,151 articles**, **36** in a publisher's paid lane, **29 events of 21,863** whose
   every coverage URL is paid, and **five of those 29 already in a digest** — three briefings (two sent)
   and **two alerts, both sent**. Ruling: refuse at readiness as `paid-content`, all-or-nothing on the
   URLs. **Q2, page openings:** **8 of 1,049** published blocks opened on a reference the page never
   established (`That maneuver needed specialized hardware …`, `Those in need get financial aid …`, `The
-  report models three growth trajectories …`). Ruling: judge each block against title, deck and the
-  paragraphs above; withhold the sentence, not the story. **Q3, welded subhead:** *"The misconceptions
-  that stall projects Two objections come up …"* — the seam guard now strips a relative clause before
+report models three growth trajectories …`). Ruling: judge each block against title, deck and the
+  paragraphs above; withhold the sentence, not the story. **Q3, welded subhead:** _"The misconceptions
+  that stall projects Two objections come up …"_ — the seam guard now strips a relative clause before
   its verb test. **Landed** in `paid-content.ts`, `readiness.ts`, `reader-evidence.ts`,
   `editorial.ts`, with the URL threaded through `ReaderSource`, `loadBriefs` and the alert `loadEvents`.
   **Measured after** (`npm run audit:reader`, 250 live events, 2026-10-18): body openings **14 asked, 8
   kept, 6 refused**; `context-dependent openings 0`; **`delivered with no body` 0** and **`refused then
-  published` 0** (was **1**); cost **one** story withheld (5 → 6) while stories publishing a body rose
+published` 0** (was **1**); cost **one** story withheld (5 → 6) while stories publishing a body rose
   43 → 40 publishing nothing (i.e. three more publish). The first run of the page rule refused **five
   readable singular-pronoun openings** (`He created celld …`, `However, it also stated, …`); the judged
   kinds were narrowed to plural / demonstrative / document and the case is pinned in a test.
@@ -1305,10 +1305,10 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 - **2026-10-18 — ruling #8: the briefing gate takes the alert floor's first class.** Reading tonight's
   briefing the way a stranger would (`scripts/briefing-preview.ts`, live pool, read-only) found one of
-  its six cards was *"2026.42: Home At Last"* with `what_happened: "What is Apple Doing?"` — a
+  its six cards was _"2026.42: Home At Last"_ with `what_happened: "What is Apple Doing?"` — a
   personal-subscription newsletter's edition number and an internal heading presented as a development,
   importance 0, one source. It is the class the **alert** floor has refused since 2026-10-14
-  (`personal-blog`, *"2026.41: It's Not You, It's Me"*), and the briefing gate had no rung for it.
+  (`personal-blog`, _"2026.41: It's Not You, It's Me"_), and the briefing gate had no rung for it.
   **Ruling (option 1):** extend the measured alert-floor classes to readiness one at a time, starting
   with the edition shape; the other four await their own briefing-pool measurement. **Landed:**
   `PERSONAL_EDITION_TITLE` (`/^\d{4}\.\d{1,2}:\s/`) in `readiness.ts`, kind `personal-blog`, the alert
@@ -1334,10 +1334,10 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-backlog-lane-was-given-zero-slots--landed-2026-10-18).
 
 - **2026-10-18 — ruling #9: the dashboard feed took its first floor class, and it is a deal.** Opening
-  the live dashboard signed in, as a stranger, was the step that found this: *"Your nyuz found 13 things
-  worth knowing"*, and four of the 13 cards were not developments — worst, *"Grab an RTX 5090 for a
+  the live dashboard signed in, as a stranger, was the step that found this: _"Your nyuz found 13 things
+  worth knowing"_, and four of the 13 cards were not developments — worst, _"Grab an RTX 5090 for a
   discounted $5,300 as part of an MSI Infinite ZS prebuilt gaming PC …"* (what happened: *"Best Buy has an
-  MSI Infinite ZS in stock … for $7,599"*). All 13 titles pass `assessReadiness` **and** `assessAlertFloor`:
+  MSI Infinite ZS in stock … for $7,599"_). All 13 titles pass `assessReadiness` **and** `assessAlertFloor`:
   the dashboard is gated only by the title/summary rungs, so a deal the alert path refuses was the reader's
   front page. **Ruling (option 1):** apply the alert-floor classes to the dashboard, one measured class at
   a time, keep the dashboard wider than the briefing, keep every story accessible, and require measured
@@ -1373,13 +1373,13 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   already treats a deck restatement as a merge rather than a defect (that was D3's fix), but the cap runs
   **before** the gate, so it charged first and nothing could uncharge it. **Landed:** the cap charges one
   sentence at a time and only a sentence the surviving page (deck plus the blocks under the cap, read with
-  the same `sentenceKey` identity) does not carry; a block that repeats the deck *and* adds a sentence
+  the same `sentenceKey` identity) does not carry; a block that repeats the deck _and_ adds a sentence
   still charges the new one, and the cap's refusal counts are unchanged. **Test red first:**
-  `editorial.test.ts`, *"does not charge the deck's own fact to a duplicate block the cap drops"*, built
+  `editorial.test.ts`, _"does not charge the deck's own fact to a duplicate block the cap drops"_, built
   from the live event's two sources — `expected 1 to be +0` on `renderedAfterRefusal` before the fix.
   **Measured on a frozen 200-event corpus** (`tmp/corpus-2026-10-18b.json`, `HEAD` vs this change): the
   whole report diff is **11 lines** — `refused then published` 1 → **0**, `refused then published by
-  another path` 1 → **0**, and the fact listing behind them gone; everything else byte-identical
+another path` 1 → **0**, and the fact listing behind them gone; everything else byte-identical
   (`selected = rendered + explained + unexplained` **1748 = 1600 + 148 + 0** both sides, `facts lost` 0,
   `sentences refused` 157, resemblance diagnostic 3). Live window after: **0**, ledger reconciling. Record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#d3s-second-seam--the-cap-charged-a-fact-the-deck-had-already-published-landed-2026-10-18).
@@ -1391,7 +1391,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 - **2026-10-18 — the duplicate-block producer is closed at the producer, not hidden by the rules that hid it.** The body assembly emitted one paragraph per entity the context pass wanted to introduce, all of them the same source sentence — four identical blocks on the live rugby story, hidden only because the gate merges a deck duplicate and the thin-evidence cap drops the rest, which is the same hiding that made the cap charge a published fact in the entry above. The pass is now `contextSplice` in [editorial.ts](../src/lib/editorial.ts), exported so a test can ask it directly, and it asks its question of **the page** (deck first, then the body) and refuses a candidate the page already carries by `nearDuplicate` — the gate's own identity for "the same text" — including what it has already spliced, so one sentence introducing two entities introduces them once. Its other rules are unchanged: a refused fact is final, the candidate is judged by the gate before publication, eight-block ceiling. **Red first, from the live event's two sources:** with the old producer restored the compose test fails at `expect(diagnostics.paragraphs.assembled).toBe(0)` with **`expected 2 to be +0`** (two duplicate blocks handed to the gate), and the direct-pass test fails with `expected [ { … }, { … } ] to have a length of 1 but got 2`; both pass with the change. **Measured on the frozen 200** (`tmp/corpus-2026-10-18b.json`, before = `HEAD`, after = this change): `sentences refused` **157 → 155**, `thin_evidence_cap` refusals **2 → 0**, `1748 = 1600 + 148 + 0` both sides, `facts lost` **0**, `stories publishing nothing` **58 (44 / 14)** both sides, `refused then published` **0**, `delivered with no body` **0**, reader-visible defects **0**. The 46-line diff was read line by line; the only reader-visible shape it moved is one Meta terms story whose quote-led block now stands alone (`the company said in a statement`) under a deck and a block that name Meta — `block opening with a quote 31 → 32`, `unresolved 0 → 1`, `confirmed defects` still **0** — recorded rather than argued away. Live window after: `refused then published 0`, `delivered with no body 0`, `facts lost 0`, ledger reconciling. Record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-producer-emitted-duplicate-blocks-closed-at-the-producer-landed-2026-10-18). **What this does not claim:** the 22 of 25 cards with no why-line are a corpus fact, not a rule gap, and nothing here adds a significance source.
 
-- **2026-10-18 — the ladder gained one rung, and it is the only shape that measured precise: what a change binds, and when it starts.** The reader's briefing shipped **5 cards with 0 significance lines**; the rungs that could explain them are written by `analyse` (0/33 stored impact, 0/33 after-state), so the ladder had to be fed by code or the cards ship silent. Four shapes were measured over the whole enriched corpus (3,570 `article_evidence` rows, 3,455 events, every hit read by hand): any change-of-state verb, entity-guarded → **432 hits, ~1 in 5 defensible**; an effective-date sentence alone → **39, ~3 in 5**; an effective start **and** a verb that changes what a party may do → **15, ~1 in 2**; that tightened into the shipped rule → **5 hits, 5 of 5 defensible**. **Landed:** `bindingLine` in [inclusion.ts](../src/lib/pipeline/inclusion.ts), between the money consequence and the coverage count (the figure rungs it once sat above were removed on 2026-10-18, ruling #10) — it prints the story's own evidence sentence unchanged when it is an effective change (*"The ban, which went into effect on Thursday, restricts ads …"*, *"Kicking in on October 30, the TOS update won’t allow businesses to opt out …"*) or the story's own instrument imposing a duty (*"CERT-In's directions also require organizations to report cyber incidents to the agency within 6 hours."*). No model call, no new schema, no new caller input: it reads the evidence and title the ladder already receives and derives the event's names with `rankEntities`, the composer's own ranker. The guards are the rejected hits themselves — a change inside a relative clause (a definition, not a change), a dated reporting frame (when the story was told), a launch date (availability), a retrospective, first-person source voice, furniture, and a spec sheet or price. **Measured after:** `npm run briefing-preview` reads **`ships with no why-line 5/5 → 3/5`**, `rungs: none 3, binding 2`, `distinct why-lines 3/5` — the Meta terms card and the CERT-In advisory carry lines; **the preview now names the reason per remainder** ("no stored impact; no after-state; one publisher; 12 evidence units, none stating what a change binds or when it starts" for both RTX Spark cards). Commit census `scripts/reader-binding-census.ts` runs `reasonFor`, not the predicate, so instrument and production cannot drift. **Tests:** 33 in `inclusion.test.ts`, including the two live shapes, the ordering (money at stake still wins), the three near-misses refused, and **a card that must keep shipping unlined** (the RTX cards' real evidence asserted to `{ text: "", source: "none" }`); with the rung's candidate removed the round-trip test fails (`1 failed | 32 skipped`) and passes restored. Record:
+- **2026-10-18 — the ladder gained one rung, and it is the only shape that measured precise: what a change binds, and when it starts.** The reader's briefing shipped **5 cards with 0 significance lines**; the rungs that could explain them are written by `analyse` (0/33 stored impact, 0/33 after-state), so the ladder had to be fed by code or the cards ship silent. Four shapes were measured over the whole enriched corpus (3,570 `article_evidence` rows, 3,455 events, every hit read by hand): any change-of-state verb, entity-guarded → **432 hits, ~1 in 5 defensible**; an effective-date sentence alone → **39, ~3 in 5**; an effective start **and** a verb that changes what a party may do → **15, ~1 in 2**; that tightened into the shipped rule → **5 hits, 5 of 5 defensible**. **Landed:** `bindingLine` in [inclusion.ts](../src/lib/pipeline/inclusion.ts), between the money consequence and the coverage count (the figure rungs it once sat above were removed on 2026-10-18, ruling #10) — it prints the story's own evidence sentence unchanged when it is an effective change (_"The ban, which went into effect on Thursday, restricts ads …"_, _"Kicking in on October 30, the TOS update won’t allow businesses to opt out …"_) or the story's own instrument imposing a duty (_"CERT-In's directions also require organizations to report cyber incidents to the agency within 6 hours."_). No model call, no new schema, no new caller input: it reads the evidence and title the ladder already receives and derives the event's names with `rankEntities`, the composer's own ranker. The guards are the rejected hits themselves — a change inside a relative clause (a definition, not a change), a dated reporting frame (when the story was told), a launch date (availability), a retrospective, first-person source voice, furniture, and a spec sheet or price. **Measured after:** `npm run briefing-preview` reads **`ships with no why-line 5/5 → 3/5`**, `rungs: none 3, binding 2`, `distinct why-lines 3/5` — the Meta terms card and the CERT-In advisory carry lines; **the preview now names the reason per remainder** ("no stored impact; no after-state; one publisher; 12 evidence units, none stating what a change binds or when it starts" for both RTX Spark cards). Commit census `scripts/reader-binding-census.ts` runs `reasonFor`, not the predicate, so instrument and production cannot drift. **Tests:** 33 in `inclusion.test.ts`, including the two live shapes, the ordering (money at stake still wins), the three near-misses refused, and **a card that must keep shipping unlined** (the RTX cards' real evidence asserted to `{ text: "", source: "none" }`); with the rung's candidate removed the round-trip test fails (`1 failed | 32 skipped`) and passes restored. Record:
   [decisions/significance-without-a-model.md](decisions/significance-without-a-model.md#the-binding-change-the-one-shape-that-measured-precise-landed-2026-10-18). **What this does not claim:** the dashboard card still renders no significance block (the 2026-10-17 ruling stands — this rung cannot explain most cards), and the yield is 5 events because every wider shape printed filler.
 
 - **2026-10-19 — the session-start gap was the one process nobody had a skill for, and it has one now:**
@@ -1434,8 +1434,8 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   **13 / 13** with the evidence attached — the miss is exactly the three defects. **Landed:** the gate's
   source rows now carry `enrichedEvidence`, read in the same pass that already loads the unit texts for
   the inclusion ladder (no extra query). **Fail-before demonstrated:** with only that attachment removed,
-  [digest-gate-material.test.ts](../src/lib/pipeline/digest-gate-material.test.ts) fails — *"the story the
-  page can open was withheld"* — a story whose excerpt composes no deck and whose own evidence opens on a
+  [digest-gate-material.test.ts](../src/lib/pipeline/digest-gate-material.test.ts) fails — _"the story the
+  page can open was withheld"_ — a story whose excerpt composes no deck and whose own evidence opens on a
   sentence that stands on its own is withheld as `unbriefable`; with the attachment it ships and its
   stored line is the page's opening, asserted against the page's own composition rather than a literal.
   8 affected suites / 150 tests green, typecheck and lint clean. **Not claimed:** the delivered briefing
@@ -1469,7 +1469,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   `create table`. Migrations in this repository have always been applied by hand in the SQL editor, so
   **0120 waits for that paste**; until then the tree is the contingency the request described — exemption
   present and off, `npm run experiment:sources` refusing with `Migration 0120 is not applied on this
-  database`, and no feed moving. Baseline re-measured this morning, read-only: **79 active sources, 26
+database`, and no feed moving. Baseline re-measured this morning, read-only: **79 active sources, 26
   withheld, all eight present and active**, **12,620 complete events / 161 with ≥2 publishers** (the
   2026-10-18 record was 153; the number grows on its own, so the comparison must be against a run taken the
   same day the experiment starts), ladder over the newest 60 live events: none 59 · consequence 1. The
@@ -1479,21 +1479,20 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 
 - **2026-10-19 — the wrong reason line is pure code: a weak keyword in a headline is enough to label a
   story, and it labelled a command prompt "AI".** The dashboard read recorded a topic-attribution smell —
-  a Windows command-prompt story whose card reasoned *"You follow AI."* The checklist asked for its own
+  a Windows command-prompt story whose card reasoned _"You follow AI."_ The checklist asked for its own
   measurement before any rule, and it now has one: `npm run audit:topic-attribution`
   ([reader-topic-attribution.ts](../scripts/reader-topic-attribution.ts)), which prints each card's
   reader-visible reason, the labels the event carries, and what the shipped pure function produces with and
   without the headline in the haystack. **Mechanism, no model anywhere in it:** `assignTopics` lists
-  `"prompt"` among the AI topic's *weak* terms, the title rule labels on a single weak term in a headline
-  (built so a real travel headline labels with no body mention), and the Register's headline is *"Windows
-  command **prompt** puts in a surprise appearance"*. On the event's own rows the haystack has **no strong
+  `"prompt"` among the AI topic's _weak_ terms, the title rule labels on a single weak term in a headline
+  (built so a real travel headline labels with no body mention), and the Register's headline is _"Windows
+  command **prompt** puts in a surprise appearance"_. On the event's own rows the haystack has **no strong
   AI term at all**, and recomputing with the headline removed returns **nothing** — the label, and so the
   sentence the reader reads, rests on one ambiguous word. **Population** on the newest delivered briefing
   (`e9e485a5`, 2026-10-18T22:30Z, 13 cards): **4 reasons name a topic whose only evidence is one weak
   headline term** — #3 `Claude` via "Anthropic", #7 `AI` via "prompt", #11 `Chips` via "AMD", #12 `World`
   via "Global". **Widened to the delivered corpus the same day: the newest 20 briefings, 427 cards, 43
-  flagged (10.1%)** — carried mostly by `Claude` (10) and `World` (7), with the AI case that started it 3 of
-  43. The four are not equally wrong (#3 is arguably right), which is why the fix is a ruling and
+  flagged (10.1%)** — carried mostly by `Claude` (10) and `World` (7), with the AI case that started it 3 of 43. The four are not equally wrong (#3 is arguably right), which is why the fix is a ruling and
   not a patch: four numbered options are recorded in
   [decisions/topic-attribution-reason-lines.md](decisions/topic-attribution-reason-lines.md), and **no rule
   was changed.** **Blocked on the arbiter, not on code:** the ChatGPT `nyuz` project could not be reached
@@ -1510,9 +1509,9 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   reads all 22,569 stored event titles and prints each count with the predicate that produced it. The two
   landed rules refuse 21 (deal: marker AND acquisition verb) and 12 (mod) titles. Price/discount-shaped
   titles are **122**, of which **105 carry no acquisition verb** — the population the two observed cards
-  come from — and cutting those 105 by shape gives **40 that are price movement as the news** (*"Hyundai's
-  all-electric hot hatch goes on sale in the UK"*, *"Anthropic's new Fable release is cheaper, less
-  restrictive"*), **25 explicit discount deals** (the observed card, mixed with affiliate listings), **5
+  come from — and cutting those 105 by shape gives **40 that are price movement as the news** (_"Hyundai's
+  all-electric hot hatch goes on sale in the UK"_, _"Anthropic's new Fable release is cheaper, less
+  restrictive"_), **25 explicit discount deals** (the observed card, mixed with affiliate listings), **5
   coupon/promo-code pages** (the one clean shape), 1 review and 34 unclassified. The vendor-owned-blog
   shape is 12 sources and **175 events**, including engineering and research posts. **So the ruling has to
   cut a class out of that population, not take it whole** — a rule keyed on price alone would refuse a
@@ -1546,23 +1545,23 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
 - **2026-10-19 — ruling #15: the public pages now say what the product does.** A read of every route in
   `sitemap.xml`, taken as a stranger, found eleven defects; five were promise-level and went to the
   arbiter. **Languages** (terms promised "you can choose a reading language"; support says there is no
-  language setting; how-it-works said preferences are stored) — ruled *change the pages*, and the sweep
+  language setting; how-it-works said preferences are stored) — ruled _change the pages_, and the sweep
   found the same promise twice more in the privacy policy and once in the providers table. **Telegram**
   (pricing gates it to Plura/Omni while the landing page, About and the commercial disclosure offered it
-  to everyone) — ruled *plan-dependent*, pages changed, the plan matrix untouched. **Custom delivery
+  to everyone) — ruled _plan-dependent_, pages changed, the plan matrix untouched. **Custom delivery
   time** — support no longer instructs Uno readers to operate a control only Plura and Omni have.
   **Team seats** — the acceptable-use page no longer advertises an entitlement that does not exist.
   **The operator's name** — `Vishal "goblin" Gurung` is now `Vishal Gurung` in the four pages that name
   the operator. **Deliberately not touched:** the privacy claim that providers process data in China,
-  which the ruling put on its own footing pending a reading of the provider configuration — *"do not
-  reconcile them by guessing"* — and the mechanical set (two names for one page, "At least 2 months
+  which the ruling put on its own footing pending a reading of the provider configuration — _"do not
+  reconcile them by guessing"_ — and the mechanical set (two names for one page, "At least 2 months
   back", "six stories" against a five-story cap, the noise labels, brand case), ruled a separate cleanup
   pass. Record: [decisions/public-site-copy-audit.md](decisions/public-site-copy-audit.md).
 
 - **2026-10-19 — ruling #16: the provider table now names DeepSeek and China.** The item #15 left on its
   own footing needed the configuration read first, and the read inverted it: the AI provider **is**
   DeepSeek (`api.deepseek.com`), so the privacy policy's "including … China" is defensible and the
-  *table* was the vague half. Also measured, and deliberately **not** turned into copy: `ai_usage_ledger`
+  _table_ was the vague half. Also measured, and deliberately **not** turned into copy: `ai_usage_ledger`
   has no rows in the last seven days (newest 2026-10-01T06:24Z), so no reader data reaches the provider
   today — the ruling accepted that as operational evidence and explicitly refused to make it a legal
   disclosure that would go stale the moment a flag is flipped. The row now reads "DeepSeek (the default
@@ -1583,14 +1582,14 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   window now actually starts with the next ingest tick.
 
 - **2026-10-19 — the mechanical copy pass the #15 ruling kept separate.** Five cosmetic defects, each
-  corrected to make the page true: **one page had two names** (footer link *Subprocessors*, page headed
-  *Service providers*, privacy using both) → **Service providers** everywhere, slug unchanged;
-  `/pricing`'s *"At least 2 months back on an annual plan."* read as a date → **"At least 2 months free on
+  corrected to make the page true: **one page had two names** (footer link _Subprocessors_, page headed
+  _Service providers_, privacy using both) → **Service providers** everywhere, slug unchanged;
+  `/pricing`'s _"At least 2 months back on an annual plan."_ read as a date → **"At least 2 months free on
   an annual plan."**, keeping the figure `annualCaption()` derives and the repository's own wording
-  (`plans.ts`: *"exactly two months free"*); the landing page's *"Most mornings that's six stories"*
-  claimed one more than the free plan's **5** → *"five stories or fewer"*; the density dial labelled only
+  (`plans.ts`: _"exactly two months free"_); the landing page's _"Most mornings that's six stories"_
+  claimed one more than the free plan's **5** → _"five stories or fewer"_; the density dial labelled only
   two of its four bands under the track → **one label per band, over the track each band owns**, from
-  `LEVELS`; and the brand case was **measured and reversed** — the landing page's five *Nyuz* were made
+  `LEVELS`; and the brand case was **measured and reversed** — the landing page's five _Nyuz_ were made
   lowercase, then the rest of the product was measured (**32 capitalised occurrences** in reader-facing
   strings), and the five were restored: the convention is a lowercase wordmark with capitalised prose. No
   price, plan limit or predicate moved. Recorded in
@@ -1603,7 +1602,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   "The EBU…", "The authors…"), one story is delivered twice (Tom's Hardware and The Verge on the same
   AI-agents hack), two cards carry garbled text ("ot", "Character. AI"), three are thin, one title is
   truncated mid-word, one is a shopping deal. The duplicate's mechanism is measured: `sameStory()`'s figure
-  guard rejects a pair when *either* headline carries a number the other omits, so a paraphrase can never
+  guard rejects a pair when _either_ headline carries a number the other omits, so a paraphrase can never
   pair — and that is also why the ladder reads `none`, since its `coverage` rung needs two publishers on one
   event. Catalogue, counts and two drafted rulings (#17 opening, #18 duplicate):
   [decisions/delivered-briefing-prose-defects.md](decisions/delivered-briefing-prose-defects.md).
@@ -1612,7 +1611,7 @@ og:url)` — and against the built Worker served locally under wrangler/workerd,
   passed `npm run ci` locally and the runner failed all three at **`Coverage floor`**
   (`src/components: lines 29.15 -> 28.90`, 0.25pp): `scripts/coverage-ratchet.mjs` applies its 0.35pp
   portability band only when `GITHUB_ACTIONS` is not `true`, so the local comparison is lenient and CI's is
-  exact. The owner's words: *"i got a ci fail so i dont want that happen next time"*. The rule now lives as
+  exact. The owner's words: _"i got a ci fail so i dont want that happen next time"_. The rule now lives as
   the `publish-branch` skill ([docs/skills/publish-branch.md](docs/skills/publish-branch.md), installed at
   `~/.agents/skills/publish-branch/SKILL.md`) and in AGENTS.md's Git delivery section: gate with
   `GITHUB_ACTIONS=true`, on a **quiet tree** (a subagent editing mid-run produced a false red), never push
@@ -1682,10 +1681,10 @@ rows written before the rules existed; it is not the acceptance, and a build aft
 the population the acceptance is taken on (the window read above).
 
 - **2026-10-20 — the fourth dashboard class is measured, cut, and wired into the gate.** The first-party
-  celebration (the live dashboard's *"RTX Spark Ignites Global Celebration as New Windows PCs Arrive"*)
+  celebration (the live dashboard's _"RTX Spark Ignites Global Celebration as New Windows PCs Arrive"_)
   cannot be cut by its title: measured over **23,539** stored titles the celebration lexeme alone refuses
-  **29**, and **26 of them are news** — including *"Grace Hopper Celebration canceled two weeks out as
-  AnitaB.org runs short of funds"*, a development a reader needs. Nor by its source: **20 `company_blog`
+  **29**, and **26 of them are news** — including _"Grace Hopper Celebration canceled two weeks out as
+  AnitaB.org runs short of funds"_, a development a reader needs. Nor by its source: **20 `company_blog`
   sources carry 354 events** and the same population holds **49 launches** and **46 engineering/research**
   posts. The class is both arms — celebration frame **and** every carrier a `company_blog` — which measures
   **3 refusals**, all first-party celebrations, **0** of the 49 launches, **0** of the 46 engineering posts,
@@ -1700,7 +1699,7 @@ the population the acceptance is taken on (the window read above).
   control (launch, repricing, partnership, engineering, celebration-shaped news), and the story page still
   opens the refused card. The census re-run after the wiring is unchanged — 3 refused, 0 in each control
   column — because a gate clause does not move a predicate. Predicate, 13 tests and the replay
-  (`scripts/vendor-celebration-census.ts`) came from PR #26 (marked *do not merge*, conflicting after #27);
+  (`scripts/vendor-celebration-census.ts`) came from PR #26 (marked _do not merge_, conflicting after #27);
   `readiness.ts`'s `isFirstPartySource`/`CELEBRATION_TITLE` still want converging, and that is forge's file.
   [decisions/vendor-celebration-class.md](decisions/vendor-celebration-class.md)
 
@@ -1711,14 +1710,14 @@ evidence. `src/lib/pipeline/twin-floor.ts` now holds the floor (the census reads
 it): a capitalisation counts only where it **discriminates** (mid-title, in a headline that is not Title
 Case, and not a function word), with the other side's capitalisation as corroboration; and the
 content-word leg carries its own `FUNCTION_WORDS` on top of the shortlist's `STOPWORDS`, so `and`, `the`,
-`for`, `but` and their siblings are not content. It is *not* added to `STOPWORDS`, which
+`for`, `but` and their siblings are not content. It is _not_ added to `STOPWORDS`, which
 `duplicates.ts` and `titleTokens` also read — that would narrow the delivery pass, and a ruling is not
 this branch's to make. The delivery pass, `sameStory`, `sameIncident`, `cluster.ts` and every #17/#19 rule
 are untouched; `npm run audit:delivered-line` reads identically to `main` (`15 / 22` as delivered, `22`
 of 25 built now), which is the evidence for that.
 
 The card's premise did not survive the rows: `suppressStoryTwins` on the stored Plex2Shell /
-BeyondTrust pair (summaries included) keeps **1 of 2** — it fuses them — so F18-1 was the instrument *and*
+BeyondTrust pair (summaries included) keeps **1 of 2** — it fuses them — so F18-1 was the instrument _and_
 the pass, not only the instrument. The 2-of-2 in the earlier note came from a probe with invented
 summaries. Measured after the tightening:
 
@@ -1782,7 +1781,7 @@ re-compose its opening from scratch inside the write — work production does no
 were measured with that bug, so the comparison stayed fair but the row was inflated (**647 ms → 217 ms**
 once fixed, and the payload 2,340 → 5,851 bytes, because the recovered compositions were shorter than
 the gate's own sentences). The lesson recorded for the next reader: a phase that re-does work an
-earlier phase already did is a defect in the *instrument*, and it is invisible on a relative comparison
+earlier phase already did is a defect in the _instrument_, and it is invisible on a relative comparison
 because both sides carry it.
 
 **What the measurement did find is an older move, and it changes the budget reading.** A cold live
@@ -1790,8 +1789,8 @@ build now costs **8.2–12.4 s of CPU** across runs — select 1.26 s (`loadMatc
 `alreadyBriefed` 28, `selectItems` 35, `suppressDeliveredDuplicates` 968), screen 1.29 s, gate
 5.5–9.8 s, write payload 0.18–0.22 s — with the gate's per-brief median **123–210 ms**, p95
 **487–816 ms**, worst **1,021 ms**, against the recorded 6.4 s / median 18 ms / worst 435 ms. The
-cause is not #17–#19: commit `449f979` (2026-10-19, *"Compose the gate's opening from the same
-material the page reads"*, ruling #11) attached `article_evidence` to the gate's sources. Replayed
+cause is not #17–#19: commit `449f979` (2026-10-19, _"Compose the gate's opening from the same
+material the page reads"_, ruling #11) attached `article_evidence` to the gate's sources. Replayed
 with the evidence stripped, the same 33 briefs gate in **2,863–4,719 ms at a 7–16 ms median** — the
 recorded shape — and with it attached, **~9.3 s at ~193 ms**. The gate also runs `selectReaderEvidence`
 **twice** per brief (readiness.ts:641 for the fact count, then the composer at editorial.ts:3031 after
@@ -1860,7 +1859,7 @@ Three corrections to the audit, made while writing it and stated here rather tha
 
 Two things the spec adds that the audit did not have: the archive's day labels skip `H1 → H3` as well
 (`history.tsx:234`, one class, carried by rook's archive slice because that file is already open in it),
-and a **collision map** — `src/components/briefing-preview.tsx` is edited by B1/B2 (rook) *and* by S2
+and a **collision map** — `src/components/briefing-preview.tsx` is edited by B1/B2 (rook) _and_ by S2
 (forge), so the blockers land first and S2 rebases. S8 (the briefing claiming an inbox delivery email
 does not perform) and S9 (two unexplained score scales) may not be implemented before the arbiter's
 ruling is recorded in `docs/decisions/`.
@@ -1868,15 +1867,15 @@ ruling is recorded in `docs/decisions/`.
 **2026-10-21: the landing page says what nyuz covers, and the positioning line became
 "a personalized information briefing" (owner-ruled).** Two changes, both measured.
 
-*The new section.* "What nyuz covers" — eyebrow, the two-line headline *"Not just what's in the news.
-What matters in your world."*, an intro paragraph, and a 2×2 hairline grid of the four areas nyuz
+_The new section._ "What nyuz covers" — eyebrow, the two-line headline _"Not just what's in the news.
+What matters in your world."_, an intro paragraph, and a 2×2 hairline grid of the four areas nyuz
 watches: news and world events / technology and projects / research and ideas / music, film and culture.
 It sits **between the hero artwork and the topic demo** (the owner's placement), because the demo is
 the proof of the breadth claim and the visitor should know the breadth before being asked to pick from
 it. `src/components/landing/coverage.tsx`, registered as the `coverage` key in `SECTION_KEYS` /
 `SECTION_LABELS` / `SECTION_COMPONENTS`.
 
-*The position is the fourth edit, and it is the one that fails silently.* The landing page's section
+_The position is the fourth edit, and it is the one that fails silently._ The landing page's section
 order is not in the code — it is an ordered list in `site_settings.landing.sections`, because order is
 an editorial decision. `normaliseSections` **appends** any key the stored row does not mention, so
 shipping the key alone would have put the new section below the closing call to action, with no error
@@ -1886,7 +1885,7 @@ anywhere. `supabase/migrations/0121_landing_coverage_section.sql` rewrites the s
 first, the rest in their prior order, a hidden section still hidden, an operator's own reordering
 preserved, and a second run not duplicating the key.
 
-*Measured.* Page height 10,062 → 11,028px at 1440; sections 10 → 11; horizontal overflow **0** at
+_Measured._ Page height 10,062 → 11,028px at 1440; sections 10 → 11; horizontal overflow **0** at
 1440 / 655 / 390px. The grid's four cells measure identical (152px, two-line bodies) — the first draft
 had a one-line bottom-right cell that left a visible hole in the equal-height grid, fixed by rewriting
 that sentence rather than by padding it. The copy carries no numeral, and every clause is checkable
@@ -1894,7 +1893,7 @@ against the seeded sources: research = the five arXiv feeds + Berkeley AI Resear
 releases = the eleven GitHub release feeds, company updates = the 19 `company_blog` sources, music and
 film = the seeded entertainment sources.
 
-*The positioning line.* The owner ruled **"a personalized information briefing"** over **"a
+_The positioning line._ The owner ruled **"a personalized information briefing"** over **"a
 personalized news briefing"** (the question left open in
 [homepage-and-home-feed-design-plan.md](homepage-and-home-feed-design-plan.md)). The reason it is true
 rather than aspirational: the topic taxonomy is 35 labels wide (`src/lib/topics-pool.ts`) and the
@@ -1910,7 +1909,7 @@ The loop — watch, merge, match, deliver — is the product; the breadth is wha
 **2026-10-21, later: the route-walk e2e test was over its timeout budget. The cause was a duplicate
 page load, and the fix is at the cause.** The 2026-10-21 landing work left `npm run ci` red, because
 `e2e/smoke.spec.ts` ("a route walk never serves a broken asset") timed out at 30s. **It was not
-caused by the landing work**: the same test fails at baseline on a *different* route each run, which
+caused by the landing work**: the same test fails at baseline on a _different_ route each run, which
 is the signature of a shared budget expiring rather than one slow page.
 
 **The real cause, found by independent measurement after this entry was first written wrong.**
@@ -1918,12 +1917,12 @@ is the signature of a shared budget expiring rather than one slow page.
 walk then opened `/` **again** as `PUBLIC_ROUTES[0]`. Two full cold landing-page loads, one of them
 redundant — instrumenting 21 navigations across three walks showed those two were **33–52% of the
 walk's total in every run**. The fix is to read the link during the walk's own visit to `/`, with
-`watch()` attached *before* the first navigation so the landing page stays inside the asset check.
+`watch()` attached _before_ the first navigation so the landing page stays inside the asset check.
 `test.setTimeout(120_000)` stays as margin, not as the fix.
 
 **Two claims in this entry's first version were false and are corrected here.** (1) `/manifest.webmanifest`
 is **never fetched during the walk** — zero requests across three walks and two fresh contexts; the
-4,092 ms cold figure belongs to the *installability* test elsewhere in the suite. (2) There is only
+4,092 ms cold figure belongs to the _installability_ test elsewhere in the suite. (2) There is only
 **one** cold start, not seven: only the first navigation pays workerd's first-request cost (~2.2 s).
 The "40.5 s here vs 45.6 s at baseline" comparison was also noise — interleaved three-round runs gave
 baseline 43.5/47.6/72.9 s and this tree 49.7/65.6/67.2 s, sign flipped, same-tree spread 48.5–65.8 s
@@ -2004,7 +2003,7 @@ community" phrase — rather than assumed.
 **Three smaller things, all fixed.** The walk's comment said "seven routes" when it is six plus the
 blog; the new code depended on `PUBLIC_ROUTES[0] === "/"` with only a comment enforcing it, so a
 reordering would have silently dropped `/blog` out of the walk — a gate quietly covering less, now
-one `expect` line loud; and `.worktrees/` was not gitignored, which is the *cause* of the lint
+one `expect` line loud; and `.worktrees/` was not gitignored, which is the _cause_ of the lint
 failure that the eslint ignore was only treating as a symptom.
 
 **Two of my own mistakes, recorded.** The `docs/context.md` line claiming the new phrase "was swept
@@ -2023,7 +2022,7 @@ those at all. Worse, the three migration test files each passed an **explicit** 
 `beforeAll`, and an explicit value **overrides** the config. PGlite's WASM start-up measured 26 s on
 a loaded machine, so 30 s was marginal rather than generous. The config now sets `hookTimeout:
 60_000` unconditionally — the start-up costs the same whether or not v8 is instrumenting, so gating
-it on `measuringCoverage` left the plain `vitest run` with the *shorter* ceiling, which is backwards
+it on `measuringCoverage` left the plain `vitest run` with the _shorter_ ceiling, which is backwards
 — and the explicit per-file overrides are gone.
 
 **Screenshots.** Upstream landed a policy on 2026-10-21 that screenshots are local evidence and are
@@ -2215,21 +2214,21 @@ pages), not a patch.
 adjacency slice — the two classes the 2026-10-17 ruling closed are marked closed, the rest stand:
 
 - **staff bios published as news prose** — **closed 2026-10-17** (refused, and a story that was only a
-  bio is withheld); originally 3 stories: *"Amanda Silberling is a senior writer at
-  TechCrunch…"* (in two different stories), *"Theresa Loconsolo is an audio producer at TechCrunch…"*
-  plus *"Theresa is based in New Jersey and holds a bachelors degree…"* and *"Before joining
-  TechCrunch in 2022…"*, and *"Stewart Bendle is a deals and coupon writer at Tom's Hardware."* The
+  bio is withheld); originally 3 stories: _"Amanda Silberling is a senior writer at
+  TechCrunch…"_ (in two different stories), _"Theresa Loconsolo is an audio producer at TechCrunch…"_
+  plus _"Theresa is based in New Jersey and holds a bachelors degree…"_ and _"Before joining
+  TechCrunch in 2022…"_, and _"Stewart Bendle is a deals and coupon writer at Tom's Hardware."_ The
   distinguishing test is source-relative — the employer named is the source's own publisher — which
-  keeps the two measured false positives (*"Neha Bora is a PhD student at Delhi's Jawaharlal Nehru
-  University"*, *"Zacharia previously worked as a spokesperson for DHS"*) out.
+  keeps the two measured false positives (_"Neha Bora is a PhD student at Delhi's Jawaharlal Nehru
+  University"_, _"Zacharia previously worked as a spokesperson for DHS"_) out.
 - **programme intros published as decks** — **closed 2026-10-17**: the intro is refused and the two
-  stories (*"On this episode of TechCrunch's Equity podcast…"*, *"On this episode of The Vergecast…"*)
+  stories (_"On this episode of TechCrunch's Equity podcast…"_, _"On this episode of The Vergecast…"_)
   compose an empty body, so `unbriefable` withholds them.
 - **a source's own typo in a verb slot** — **closed 2026-10-17** (ruling #6): the measured sentence is
   refused as `editorial_noise`, the story keeps its other paragraphs —
   [decisions/source-typo-verbs.md](decisions/source-typo-verbs.md).
-- **a fused table published as prose** — 1 story: *"…(max).Key benchmarking results for Mistral Large
-  4 Preview:➤ Most intelligent model…"* (arrow glyphs, no space after the period).
+- **a fused table published as prose** — 1 story: _"…(max).Key benchmarking results for Mistral Large
+  4 Preview:➤ Most intelligent model…"_ (arrow glyphs, no space after the period).
 - **animate anaphora** — 5 sentences still refused because personhood cannot be proven
   (`He argued that the Nord Stream pipelines…`); a classifier is a decision, not a patch.
 
@@ -2241,9 +2240,9 @@ question in this paragraph — whether a page that is nothing but a programme's 
 withheld — was ruled the same day and is now landed** (see the work log and
 [decisions/programme-pages-and-alert-floor.md](decisions/programme-pages-and-alert-floor.md)).
 
-**2026-10-17, later the same day: the ruling arrived and the gate is gone.** The owner: *"this saas is no
-ai product, its should be pure code"*. That is now a section of [AGENTS.md](../AGENTS.md) (*"It is not an
-AI product. It is pure code."*) because it was missing from the file and a session asked a question it
+**2026-10-17, later the same day: the ruling arrived and the gate is gone.** The owner: _"this saas is no
+ai product, its should be pure code"_. That is now a section of [AGENTS.md](../AGENTS.md) (_"It is not an
+AI product. It is pure code."_) because it was missing from the file and a session asked a question it
 should have been able to answer. The principle decides the fork on its own: the ladder's three strongest
 rungs are written by the `analyse` pass, so under pure code they can never be filled, and a gate that
 withholds silence withholds ~97% of the pool permanently. **Q4 and pure code cannot both be true**, so
@@ -2291,8 +2290,8 @@ framing below is kept because the gate repair it describes is what produced toni
 
 **Day 2 is spent and Day 3 is the release decision (2026-10-17).** The gate repair is **deployed**
 (`6e88b8d`, 05:20Z): the run that first could not start at all — hosted runners refused for about
-twenty minutes with a billing annotation, and the deploy job showed as *skipped* rather than
-*failed* — was re-queued after the owner made the repository public to restore its free runner
+twenty minutes with a billing annotation, and the deploy job showed as _skipped_ rather than
+_failed_ — was re-queued after the owner made the repository public to restore its free runner
 minutes, and it then passed every job with the origin contract 23/23. Verified on the live Worker
 rather than inferred from a green run: the 40 digest ticks after the deploy all ran `healthy`. So
 tonight's 22:20Z attempt is the first one that runs the repaired gate, one brief a tick. **Email is
@@ -2521,7 +2520,7 @@ Blocked on the owner, not on code (all three measured 2026-10-12, §1 of
   refused then published, confirmed defects — and exactly **1 event carrying a reader-visible
   defect**: _NTT Global Data Centers weighs the price tag of not building fast enough_, whose first
   paragraph opens "The report models three growth trajectories through 2030 …" while the deck names
-  only Berti and the page never establishes *which* report. That is the defect class AGENTS.md
+  only Berti and the page never establishes _which_ report. That is the defect class AGENTS.md
   names. It is not a one-line fix: `contextDependent` is a **hard refusal** in `editorial.ts`
   (line ~1680), so adding definite document nouns would also refuse a legitimate "The report found
   …" whose antecedent an earlier paragraph established. The rule has to be scoped to a block that
@@ -2530,7 +2529,7 @@ Blocked on the owner, not on code (all three measured 2026-10-12, §1 of
   both were reverted:** refusing the sentence, then refusing the block, each left the audit reading
   **5 context-dependent openings and the same defective event** — the article then opened on "The
   middle (baseline) scenario projects …", the same missing report read one sentence later, and the
-  block's numbers were lost. The class cannot be closed by refusal; the composer has to *open* the
+  block's numbers were lost. The class cannot be closed by refusal; the composer has to _open_ the
   story with a sentence that establishes the document. **The ruler was then widened** to count a bare
   pronoun behind a leading connector (`However, they …`), which both the ruler and the gate miss
   because they read position zero: `npm run audit:reader` now prints **2** such blocks in the corpus,
@@ -2553,7 +2552,7 @@ started the window **2026-10-19T06:46Z → 2026-11-18T06:46Z**, with the gate an
 all eight. Nothing else in item 2 is code: the ladder needs a second outlet per story, and the corpus has
 been measured to lack one. The three acceptance conditions (coverage above baseline; ≥1 future delivered
 item with a non-coverage rung line; `briefing:checkpoint` non-zero and traceable) are measured on items
-delivered *after* the first covering window, which is the next thing to read once the clock runs. Also
+delivered _after_ the first covering window, which is the next thing to read once the clock runs. Also
 still open and not started, named so they are not silently widened into this slice: the price/discount/
 first-party dashboard classes, and the context-dependent opening in `decisions/context-openings.md`.
 **The "You follow AI." topic attribution has left that list**: it is measured (`npm run
@@ -2663,7 +2662,7 @@ diff touches them before believing the failure.
 
 - **2026-10-14 — defect 5, the unestablished first person, ruled and landed as a third slice.**
   `Two vulnerabilities chained together gave us access to ChatGPT and Codex accounts belonging to
-  OpenAI employees.` published on the deployed origin while its own sibling (`We demonstrated …`) was
+OpenAI employees.` published on the deployed origin while its own sibling (`We demonstrated …`) was
   rewritten to `The authors demonstrated …`. **Cause, located rather than guessed:** `resolveNarrator`'s
   opening guard tested only the subject forms (`I / we / my / our`), so a unit whose only
   first-person token was an object or possessive pronoun never entered the function and its five
@@ -2756,7 +2755,7 @@ diff touches them before believing the failure.
   false positive. Ruled order of work: GTA 6 provenance first, then the card slice, then the older
   GitHub-slug and TCP/IP cases, then non-comma list leakage. **Measured dispositions:** 683 card lines;
   1 refused by `noMainClause`, 10 by the shared context predicate, **0 by both** (the classes are
-disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's title, 2 are resolved
+  disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's title, 2 are resolved
   by their headline — and `recoverableContext` does not see that, so they are **false positives of the
   predicate at this surface**, contained by recovery — and 2 are unresolvable however the headline is
   read; **recovery validated on all 10: 10 recovered, 0 withheld, 0 recovered lines still defective.**
@@ -2837,8 +2836,8 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   "Docker advises users to review their tokens"). Two independent measurements now say widening the
   ladder is the wrong lever, and the filler rule says a half-right line is worse than silence.
   **Ruled by the arbiter (option 1): the card is complete without the block** — headline + factual
-  what-happened + provenance — with six acceptance criteria, including *do not withhold stories for
-  lack of significance* and *do not inflate `what_happened`*. **Landed:** the dashboard card renders
+  what-happened + provenance — with six acceptance criteria, including _do not withhold stories for
+  lack of significance_ and _do not inflate `what_happened`_. **Landed:** the dashboard card renders
   no significance block, even when the payload carries a `why`; `story-card.test.ts` pins the new
   contract (13 tests). The ruling's release condition is verified on the same replay: the same 5
   cards are eligible, each has a factual paragraph and provenance, and none shows an empty or
@@ -2849,7 +2848,7 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
 - **2026-10-17 — a title the headline prints was being lowered into a broken one, and is now kept.**
   Found by the definite-reference census below, not by the audit: the deck of _We can finally hear
   some of Wu-Tang Clan's Once Upon A Time in Shaolin album_ published **`The Verge reports that once
-  Upon A Time in Shaolin has a long history …`** — the album's first word lowered because `once` is
+Upon A Time in Shaolin has a long history …`** — the album's first word lowered because `once` is
   one of the function words `reportedClause` lowers after a reporting verb. Cause located rather than
   guessed: `reportedClause` decides by word list alone, and `Once` is on it. **A shape guard was
   measured and refused:** a "run of capitals" test fires on **30** of 3,189 corpus units, almost all
@@ -2860,7 +2859,7 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   while keeping a title's capital) and the citation carries the provenance. **Cost, measured on one
   frozen 200-event corpus** (`tmp/corpus-today.json`, snapshot diff old → new): **200 stories → 200,
   840 blocks → 840, exactly 1 story changed** — the Wu-Tang deck, now `Once Upon A Time in Shaolin has
-  a long history, which Pablo Torre Finds Out goes into in detail.` **Three new tests** in
+a long history, which Pablo Torre Finds Out goes into in detail.` **Three new tests** in
   [reader-prose-rules.test.ts](../src/lib/reader-prose-rules.test.ts): the title kept, a
   capitalised-word clause that is not the headline's title still lowered (`When Credential Guard …`),
   and the same sentence with no naming headline still lowered, which pins the guard as the headline
@@ -2891,7 +2890,7 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
 - **2026-10-17 — the story page was the one surface that never asked what a development record is.**
   Read from the composer's own output (`npm run audit:reader -- --show 6`): the deck of the llama.cpp
   release story `b11684` was **`Assisted-by: pi:llama.cpp/… pi: use emoji in the AI stats
-  disclosure.`**, and seven published sentences in that one story were commit trailers or changelog
+disclosure.`**, and seven published sentences in that one story were commit trailers or changelog
   dumps. `developmentRecord` was ruled for the card and the email on 2026-10-15 and the composer never
   called it. **Landed:** the predicate is now asked inside `unitTextRejection`, the boundary every
   surface uses, with `instructionOpening` exempted so a changelog bullet keeps its measured
@@ -2906,16 +2905,16 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   briefing; the article surface is where it published, and the exposure is a release story whose
   headline is a release name (`Wine 11.20 is out …`) rather than an identifier. **Still open:** those
   stories remain changelog articles (`Re-record the MTL fusion baseline with the current build: 276
-  rows …`), and whether a single-source `github` release feed should produce a reader story at all is a
+rows …`), and whether a single-source `github` release feed should produce a reader story at all is a
   product decision with four examples in the window — [decisions/reader-delivery.md](decisions/reader-delivery.md#the-story-page-was-the-surface-that-never-asked-what-a-development-record-is-2026-10-17).
 
 - **2026-10-17 — the first body block is measured, and the class is two stories, not one.** The deck has
   its own antecedent test; the paragraph under it had none, and that is where the NTT defect sits.
   `scripts/reader-context-anchors.ts` now reports it: **15 of 159 stories** have a first body block that
   does not stand alone, and **2 of those** open on a document noun the page never names — NTT (`The
-  report …`) and *Power plant attacks reflect Russian blueprint …* (`The document does not specify which
-  Russian agency developed the assessment, which is titled Analysis of Ukraine's Energy, Housing and
-  Utilities Sectors …`). The other 13 are readable in place (`The US had previously warned …` under a
+report …`) and _Power plant attacks reflect Russian blueprint …_ (`The document does not specify which
+Russian agency developed the assessment, which is titled Analysis of Ukraine's Energy, Housing and
+Utilities Sectors …`). The other 13 are readable in place (`The US had previously warned …` under a
   headline that names the US, `The latest interim release of Ubuntu …` under a deck that names it), so a
   string rule would delete a readable opening from 13 stories to fix 2. **No behaviour changed in this
   slice**: dropping the leading block, establishing the document, and withholding the story are the
@@ -2929,13 +2928,13 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   measurement: 15 of 159 stories open their body on a reference the page has not established, 2 of those
   are a document nobody names, and the other 13 are readable in place. **Ruling: option 4 — repair
   first, preserve always.** Do not ship a deletion rule, do not withhold either story, repair where the
-  block itself names the document, otherwise preserve and record; and *"at the 10/10 bar, silently
-  losing material evidence is not an acceptable repair"*. **Landed:** `establishDocumentIdentity` moves
+  block itself names the document, otherwise preserve and record; and _"at the 10/10 bar, silently
+  losing material evidence is not an acceptable repair"_. **Landed:** `establishDocumentIdentity` moves
   a title the block already carries in front of the `The document …` that relies on it — the source's
   own words, re-ordered, nothing invented — and records everything it cannot repair. **Release report,
   frozen 200-event corpus at `HEAD` vs with the change:** 200 → 200 stories, **678 → 678 blocks**,
-  **1 story changed** (*Power plant attacks…*, its opening now `The document, titled Analysis of
-  Ukraine's Energy, Housing and Utilities Sectors, does not specify…`), **1 repair**, **2 unresolved
+  **1 story changed** (_Power plant attacks…_, its opening now `The document, titled Analysis of
+Ukraine's Energy, Housing and Utilities Sectors, does not specify…`), **1 repair**, **2 unresolved
   preserved and recorded** (NTT with its figures intact, and `b11684`), **0 withheld**, **0 content
   removed**. Four tests, the repair test failing with the call removed. `audit:reader` now prints both
   rows per story, which is the ruling's auditability condition. Full record and the quoted ruling:
@@ -2945,7 +2944,7 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   The 07:30 briefing had 13 cards and every must-be-zero audit line read zero, so the work moved from
   "is anything wrong" to "read what a stranger gets". Two things were wrong on the page itself.
   **(1) Card 01 opened on a welded heading** — `Ransomware with physical consequences Building
-  automation systems - BAS - are …` — because The Register's feed ships the article as plain text in
+automation systems - BAS - are …` — because The Register's feed ships the article as plain text in
   `content:encoded` and the `<h3>` subhead is joined to the next paragraph by one space; the stored
   `what_happened` is that feed lead, so the deck printed both sentences as one. Measuring a text rule
   first settled the shape of the fix: a candidate ruler matched **35 of 200** stored summaries and
@@ -2954,8 +2953,8 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   heading with that exact text, preserve everywhere else, and recompute the stored line only for
   confirmed repairs.** Landed as `src/lib/pipeline/welded-heading.ts` (`pageHeadings`,
   `splitWeldedHeading`) plus `npm run repair:welded-headings` (dry run by default, `--apply` writes
-  single rows). Live run over  the newest 200: **36 candidates → 1 repaired, 32 preserved, 3 unavailable**; the repaired row is
-  `187595da-…` (*Cybercrims go beyond stealing data…*). **The first repair was only half the defect:**
+  single rows). Live run over the newest 200: **36 candidates → 1 repaired, 32 preserved, 3 unavailable**; the repaired row is
+  `187595da-…` (_Cybercrims go beyond stealing data…_). **The first repair was only half the defect:**
   the card updated and the story page still opened on the weld, because the composer takes the deck
   from `articles.excerpt`, not from `what_happened`. So the module has two operations — drop the
   heading for the line, close the boundary to `. ` for the document — and a second run (either string
@@ -2967,26 +2966,26 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   recomposing with the heading deleted instead of closed gives the same quote, so it is the existing
   ranking, not an artefact of the repair, and it is recorded rather than argued away. **(2) The only why-line on
   the page described the article** — card 10 printed `Why it matters · The story carries a $5,300
-  figure.` under a headline and summary that already carried the $5,300. **Ruling (#10): option 2 —
+figure.` under a headline and summary that already carried the $5,300. **Ruling (#10): option 2 —
   remove the three meta-statement rungs (money, CVE, headcount) and return to silence; no label, no
   inferred consequence.** Measured on the frozen 200: **5 cards of 200 lose a line, 0 gain one**, and
   the ladder still lines **9**, all by the coverage rung; the five removed lines are the MSI price,
-  a `$1 million` lawsuit settlement, `$20 billion` under a SpaceX opinion piece, `$13 billion` under a
-  newsletter container title and `$10 billion` under a midterm-money column. `briefing:checkpoint` on
-  the delivered digest after the change: `ladder now: none 13`, `stored equals the ladder now 0/13`.
+  a `$1 million`lawsuit settlement,`$20 billion` under a SpaceX opinion piece, `$13 billion`under a
+newsletter container title and`$10 billion`under a midterm-money column.`briefing:checkpoint`on
+the delivered digest after the change:`ladder now: none 13`, `stored equals the ladder now 0/13`.
   The reasons are recorded in
   [decisions/reader-delivery.md](decisions/reader-delivery.md#a-heading-welded-onto-the-next-sentence-repaired-only-where-the-page-confirms-it-arbiter-ruling-10-2026-10-18)
   and [decisions/significance-without-a-model.md](decisions/significance-without-a-model.md#the-figure-rungs-removed-arbiter-ruling-10-2026-10-18).
 
-- **2026-10-18 — the repair exposed a quote-as-deck, and the arbiter ruled the deck must prefer a report (ruling #10a).** With the weld gone, card 01 opened on the Freeman quote (*"The primary thing that we see with any attack on building management systems … It's a great place for the threat actor to hide," … told The Register.*) — attributed, self-contained, and not what happened. Recomposing with the heading deleted instead of closed gave the same quote, so the repair did not cause it; the composer's highest-ranked fact simply was a quotation (**3 stories of the live 200** opened that way). **Ruling: option 2 — prefer a non-quote fact, keep quotes as the fallback, keep the candidate set, the checks, the self-sufficiency rule and the order within each group untouched.** Landed in `editorial.ts` as `OPENS_ON_QUOTE` plus a two-group walk over the candidates that composed a self-sufficient sentence. **Measured the way the ruling asked**, two snapshots of the same live 200 (HEAD vs the change): **3 decks changed, 3 of them quotation → reporting fact, 0 the other way, 0 other**, words average 176.4 → 176.4, paragraphs 2.72 → 2.73, no story became or stopped being empty, every defect line unchanged (entity/metadata/attribution/context 0, two-quotes 9 → 9), citations 544 → 545. Two of the three improve (*Cybercrims* now opens on the French refrigeration hack; *honeybees* on the study's finding); **one is weaker and is recorded rather than claimed** — *MALFEX* now opens on campaign background instead of the quote that stated the finding, factual and self-sufficient but less pointed, and no rule can tell those apart without a semantic judgement. Frozen 200: 1 story changed. Tests in `editorial.test.ts` (54 in the file) cover both halves, with the preference removed the reporting-fact test fails. Record: [decisions/reader-delivery.md](decisions/reader-delivery.md#the-deck-prefers-a-report-over-a-quotation-arbiter-ruling-10a-2026-10-18).
+- **2026-10-18 — the repair exposed a quote-as-deck, and the arbiter ruled the deck must prefer a report (ruling #10a).** With the weld gone, card 01 opened on the Freeman quote (_"The primary thing that we see with any attack on building management systems … It's a great place for the threat actor to hide," … told The Register._) — attributed, self-contained, and not what happened. Recomposing with the heading deleted instead of closed gave the same quote, so the repair did not cause it; the composer's highest-ranked fact simply was a quotation (**3 stories of the live 200** opened that way). **Ruling: option 2 — prefer a non-quote fact, keep quotes as the fallback, keep the candidate set, the checks, the self-sufficiency rule and the order within each group untouched.** Landed in `editorial.ts` as `OPENS_ON_QUOTE` plus a two-group walk over the candidates that composed a self-sufficient sentence. **Measured the way the ruling asked**, two snapshots of the same live 200 (HEAD vs the change): **3 decks changed, 3 of them quotation → reporting fact, 0 the other way, 0 other**, words average 176.4 → 176.4, paragraphs 2.72 → 2.73, no story became or stopped being empty, every defect line unchanged (entity/metadata/attribution/context 0, two-quotes 9 → 9), citations 544 → 545. Two of the three improve (_Cybercrims_ now opens on the French refrigeration hack; _honeybees_ on the study's finding); **one is weaker and is recorded rather than claimed** — _MALFEX_ now opens on campaign background instead of the quote that stated the finding, factual and self-sufficient but less pointed, and no rule can tell those apart without a semantic judgement. Frozen 200: 1 story changed. Tests in `editorial.test.ts` (54 in the file) cover both halves, with the preference removed the reporting-fact test fails. Record: [decisions/reader-delivery.md](decisions/reader-delivery.md#the-deck-prefers-a-report-over-a-quotation-arbiter-ruling-10a-2026-10-18).
 
 - **2026-10-18 — the briefing and the story page opened the same story on different sentences, and the
   class now has one definition asked by both producers.** The audit's last reader-visible contradiction:
   on the deployed product, card 01 of the delivered 2026-10-18 briefing printed the Freeman quotation
   (`“The primary thing that we see with any attack on building management systems or physical systems:
-  It’s a great place for the threat actor to hide,” … told The Register.`) while the story page for the
+It’s a great place for the threat actor to hide,” … told The Register.`) while the story page for the
   same event (`187595da`) opened on `Late Sunday night, a still-unknown cybercriminal or group hacked
-  thousands of remote-controlled refrigeration systems…`, and the same page still printed a `$5,300`
+thousands of remote-controlled refrigeration systems…`, and the same page still printed a `$5,300`
   why-line the day's pass had removed from the ladder. **Traced before anything changed:** two producers
   write a story's opening sentence — `composeArticle` picks the deck (the page) and `finalizeMetadata`
   picks `events.what_happened` (the briefing card, the alert, the search index) — and ruling #10a had
@@ -3003,7 +3002,7 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   helper's doc. **Why not compose the card at build:** the artifact path exists and would guarantee the
   deck's exact sentence, but it composes for the class on every build, replaces an admissible line at
   delivery, and universal summary composition is a question the arbiter has already declined; the
-  producer is where the stored sentence is wrong.  **Measured:** frozen 200, one snapshot
+  producer is where the stored sentence is wrong. **Measured:** frozen 200, one snapshot
   (`tmp/corpus-2026-10-18b.json`), six lines deleted vs landed — stored lines **0**, decks **0**, leads
   **0** changed (the audit of the same day narrowed the first of those three: the stored-line column is a
   **one-source probe**, see the ruling #11 record's corrections); live 200 — stored quote-first lines **1** (card 01), leads quote-first 3, decks
@@ -3019,8 +3018,8 @@ disjoint, as the ruling claimed); 6 are paper abstracts under their own paper's 
   while the old line remains on the story page in the body, where it belongs. The `$5,300` why-line:
   `briefing:checkpoint` reads `ladder now: none 13` and `briefing:preview` (tonight's 22:30Z build)
   ships 23 items with 2 why-lines, neither a figure line — the delivered page keeps its stored line
-  until the next generation. **Tests red first:** with the six lines deleted, *"prefers a fact that
-  reports the event over a line that opens on a quotation"* fails at `expected false to be true` and
+  until the next generation. **Tests red first:** with the six lines deleted, _"prefers a fact that
+  reports the event over a line that opens on a quotation"_ fails at `expected false to be true` and
   passes restored. Record:
   [decisions/reader-delivery.md](decisions/reader-delivery.md#the-stored-line-and-the-page-opened-the-same-story-on-different-sentences-landed-2026-10-18).
 
@@ -3044,17 +3043,17 @@ that already asked it gets the new line. Withhold decisions are untouched: `read
 carries an opening, and nothing is resurrected.
 
 **Measured** (`npm run audit:delivered-line:window`, read-only, one live snapshot, both columns from the same
-instrument — *before* = the same computation with no opening, i.e. the pre-ruling rule):
+instrument — _before_ = the same computation with no opening, i.e. the pre-ruling rule):
 
-| measure | value |
-| --- | --- |
-| events | 200 |
-| composer published a deck | 179 |
-| delivered line === page opening, before | 131 / 179 |
-| delivered line === page opening, after | **179 / 179** |
-| composed openings the delivery boundary refuses | 0 / 179 |
-| no-deck rows delivered from a usable stored line (the ruling's fallback) | 2 of 21 |
-| no-deck rows with neither | 19 of 21 — the unbriefable class: version, canary, commit rows |
+| measure                                                                  | value                                                          |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| events                                                                   | 200                                                            |
+| composer published a deck                                                | 179                                                            |
+| delivered line === page opening, before                                  | 131 / 179                                                      |
+| delivered line === page opening, after                                   | **179 / 179**                                                  |
+| composed openings the delivery boundary refuses                          | 0 / 179                                                        |
+| no-deck rows delivered from a usable stored line (the ruling's fallback) | 2 of 21                                                        |
+| no-deck rows with neither                                                | 19 of 21 — the unbriefable class: version, canary, commit rows |
 
 So **48 mismatches repaired, zero remaining**, and the remainder is exactly the ruling's boundary.
 **Tests red first:** `readiness.test.ts` (the verdict equals `{ ready: true }` without the opening) and
@@ -3094,12 +3093,12 @@ scaling. Landed as `scripts/cluster-backlog.ts` / `npm run cluster:backlog` — 
 acceptance number (events with ≥2 publishers) before and after, failing loudly on any model call.
 
 **Measured live, two real news batches:** backlog 7–45 days **14,657 (4,034 news, 10,090 research)**;
-batch 1 100 considered → 8 joined, batch 2 100 → 10 joined, all *cross-outlet paraphrase*, none looking
+batch 1 100 considered → 8 joined, batch 2 100 → 10 joined, all _cross-outlet paraphrase_, none looking
 false; 0 grouped, 0 failed, 0 model calls, ~40 s each; **events with ≥2 publishers 152 → 152** — the
 joins land on events that already had two outlets, so the acceptance number has not moved yet. Whether
 that is the corpus or `publisher_count` lagging the analysis pass is the open question now before the
 arbiter; the window change is deliberately **not** applied. Also recorded: a `--dry-run` cannot see a
-pair whose articles are *both* unclustered, so its zero-join runs are not evidence about the backlog.
+pair whose articles are _both_ unclustered, so its zero-join runs are not evidence about the backlog.
 Checklist: [docs/reader-quality-10-of-10.md](reader-quality-10-of-10.md). Record:
 [decisions/reader-delivery.md](decisions/reader-delivery.md#ruling-12--the-significance-lines-missing-input-2026-10-18-and-what-the-drain-measured).
 
@@ -3221,12 +3220,12 @@ population is now the cards a reader is actually shown, modelled on both branche
 which is why the feed count moved. The doc comment no longer claims two sides read different rows on
 the matches path, where they are one row by design; it names the render tests instead.
 
-The instructive part is what the seed did *not* cover. `selfTest()` first classified two literals, and
+The instructive part is what the seed did _not_ cover. `selfTest()` first classified two literals, and
 `--fixture` exercised `classifyCard` directly — so with the card side collapsed back onto the page's
 row at the **call site**, the real runs still printed `PASS feed 23/23` and `PASS 25 / 25`, because on
 today's data the two rows are the same row and a correct instrument is indistinguishable from a
 tautological one by output alone (measured 2026-10-21, both collapsed deliberately). The self-tests now
-call the *named* row-selection functions (`cardArtifactFor`; `cardArtifactOf`/`pageArtifactOf` and
+call the _named_ row-selection functions (`cardArtifactFor`; `cardArtifactOf`/`pageArtifactOf` and
 `pageSentence`), which the live path also calls, and each collapse is then caught with exit 1 and "the
 check cannot fail" before a row is read. A fixture that cannot fail is worse than no fixture, because
 it is evidence.
@@ -3240,7 +3239,7 @@ and delivered 25 unchanged. No model call, no database write, archives untouched
 
 **Gate 2's evidence ledger, and the two bars it cannot choose between (2026-10-20).** Item 2 parked its
 verdict on ruling #12c's calendar, so the thing that was missing was not a rule but an instrument: nothing
-in the repository enumerated *delivered items inside the window* and recorded what the ladder would say
+in the repository enumerated _delivered items inside the window_ and recorded what the ladder would say
 about each. `npm run audit:significance-window`
 ([scripts/significance-window-audit.ts](../scripts/significance-window-audit.ts)) is that instrument,
 read-only and deterministic. It reads the window from `source_exemptions` (the row the gate honours, not
@@ -3261,17 +3260,17 @@ baseline**, and 3 delivered items sit on an event with an article from one of th
 window.
 
 **The finding is a definition gap, and it decides the verdict.** The checklist states a **universal** bar
-(*"every delivered item either carries a line a stored fact justifies, or is not delivered"*,
+(_"every delivered item either carries a line a stored fact justifies, or is not delivered"_,
 [reader-quality-10-of-10.md](reader-quality-10-of-10.md) 12–14) and ruling #12c states an **existence**
-bar (*"at least one future delivered briefing item carries a valid, story-specific line from a rung other
-than coverage"*, [reader-delivery.md](decisions/reader-delivery.md) 3391), which the handoff adds
-attribution to (*"did the eight … produce at least one"*,
+bar (_"at least one future delivered briefing item carries a valid, story-specific line from a rung other
+than coverage"_, [reader-delivery.md](decisions/reader-delivery.md) 3391), which the handoff adds
+attribution to (_"did the eight … produce at least one"_,
 [handoff-2026-10-19-afternoon.md](handoff-2026-10-19-afternoon.md) 35). On today's rows the first reads
-**FAIL 1 / 25** and the second reads **PASS** — card #08's consequence line (*"The company will be
-refunded the $2 million deposit and receive a breakup fee."*) is story-specific, traces to the event's
+**FAIL 1 / 25** and the second reads **PASS** — card #08's consequence line (_"The company will be
+refunded the $2 million deposit and receive a breakup fee."_) is story-specific, traces to the event's
 evidence, and that evidence is **Wired**, one of the eight, fetched `2026-10-19T11:00Z`. The checklist's
-*"or is not delivered"* also contradicts ruling #12's *"do not withhold publishable stories for a missing
-line"* (lines 66–67), so the universal bar cannot be met by the product as ruled today. The checklist's
+_"or is not delivered"_ also contradicts ruling #12's _"do not withhold publishable stories for a missing
+line"_ (lines 66–67), so the universal bar cannot be met by the product as ruled today. The checklist's
 `stored equals the ladder now` is labelled a drift check but carries no passing threshold, and card #16
 shows the other seam: its event would now produce the `coverage` line while the delivered row carries
 nothing. **No metric was invented.** The instrument prints every documented bar's number and refuses a
@@ -3287,7 +3286,7 @@ change.
 
 **2026-10-20 — gate 2's verdict is ruled: two legs, one instrument, and the population narrowed on
 cross-examination.** The definition gap above went to the arbiter (the owner's ChatGPT `nyuz` project,
-chat *"Gate 2 Ruling"*) with the four options and the measured rows. **Ruling #17: option 3** — _"The
+chat _"Gate 2 Ruling"_) with the four options and the measured rows. **Ruling #17: option 3** — _"The
 universal reader-quality bar and the experiment's existence condition are distinct tests. Neither may
 substitute for the other."_ Gate 2 is now **Leg A** (universal: every delivered briefing item carries a
 non-empty, story-specific line, agreed with the ladder re-derived now under the existing canonical
@@ -3365,7 +3364,7 @@ Landed: `truncatedDateline` (a day-and-year dateline cut before the sentence, re
 starts inside somebody's quotation; the **result leg** in `suppressStoryTwins` plus its floor in
 `twin-floor.ts` (one PRIMARY actor, a frame phrase on one side and an earnings term on the other); the wrong
 article before an amount (`an $150`) and `prep + it's` in `sourceTypo`, with the title rung in
-`assessReadiness` withholding a card whose *headline* carries the source's typo; and `fillerOpening` at the
+`assessReadiness` withholding a card whose _headline_ carries the source's typo; and `fillerOpening` at the
 deck walk, so a heading or a definition is skipped instead of opening the story. The closing-bracket
 possessive (`(BSC) ’s`) is joined rather than refused, because the space is the extractor's and the source's
 own excerpt has none. **Measured on the same 25 rows recomposed (scratch probe):** 7 openings change, 0 are
@@ -3606,7 +3605,6 @@ strings, one `max-w` constant and one heading element name. Captures: `docs/scre
 as of `861d711`, so the nine (archive and story at 360 / 768 / 1280, install at 360 and 1280 before and
 after) live in the worktree and with the task, not in the repository.
 
-
 ### One answer to "what page is this", and one focus ring — S10, S1, S5 (2026-10-22)
 
 **S10 — the palette comment describes the product that is here.** `src/styles.css:46-60` said "three
@@ -3747,20 +3745,20 @@ Deploy skipped again. That head is what **merged in [#48](https://github.com/g0G
 ### The story page's unparseable clause is gone — blocker 4 and the story-page should-fixes (2026-10-23, audit 4, card `t_5a6bc152`)
 
 The reader-clarity audit (PR #54, `docs/reader-clarity-audit-2026-10-22.md`) closed its story page on a
-sentence no reader can parse — card 09 ends *"…for 4chan, DeviantArt, Wikipedia, and the blog where the bar
-around the corner posts pictures of people's dogs."* (I-12, the fourth blocker). The blog has no name in
+sentence no reader can parse — card 09 ends _"…for 4chan, DeviantArt, Wikipedia, and the blog where the bar
+around the corner posts pictures of people's dogs."_ (I-12, the fourth blocker). The blog has no name in
 any stored row, so naming it would invent a fact; the card's own second remedy is the one that landed:
 **the clause is cut and the list rejoined with the conjunction the dropped item carried**. Measured on the
 delivered story (`f937622f`) through the exact `StoryArticle` memo path (`composeArticle` →
-`storyOpening || deck` → `withoutOpening`) on this branch: the closing paragraph now reads *"…Two bugs
-found with AI are behind major issues on 21 October 2026 for 4chan, DeviantArt and Wikipedia."*
+`storyOpening || deck` → `withoutOpening`) on this branch: the closing paragraph now reads _"…Two bugs
+found with AI are behind major issues on 21 October 2026 for 4chan, DeviantArt and Wikipedia."_
 
 Three rules, all deterministic, all in the composer or the rail, none inventing a fact:
 
 - **`dropUnresolvableListItem` (I-12, editorial.ts).** Only a trailing `where`-clause whose item carries
   no capital letter, in a list of at least three items, outside quoted speech. A `where`-clause is an
   adjunct describing a place — removing it cannot change what the sentence asserts — while a `that`-clause
-  often *is* the content, and no regex may delete that. The quotation guard was re-cut during this
+  often _is_ the content, and no regex may delete that. The quotation guard was re-cut during this
   slice's test pass: the first version compared openers before the item with closers after it, and a
   sentence quoted whole (whose closer sits after the item) balanced to zero and got rewritten anyway —
   ruling #6 says a quotation belongs to its speaker. The guard now asks the span that matters: more
@@ -3771,19 +3769,19 @@ Three rules, all deterministic, all in the composer or the rail, none inventing 
   `used by|websites|servers|…`, money excluded) loses the deck to any event candidate, exactly as ruling
   #10a demotes quotations — demotes, never deletes: card 09's W3Techs statistic now opens para 0 under an
   opening that says what happened, and a statistic-only page still publishes it as the deck. Measured on
-  `f937622f`: the deck is *"The "critical vulnerabilities" were discovered in the PHP programming language,
-  which underpins much of the internet…"*.
+  `f937622f`: the deck is _"The "critical vulnerabilities" were discovered in the PHP programming language,
+  which underpins much of the internet…"_.
 - **`expandAcronymsFromEvidence` (I-03, editorial.ts).** When the composer's sentence-picker drops the
   source's own gloss off the page, the expansion is put back at the first bare use — only in the source's
   own `words (ACRO)` adjacency, only when the initials match, stop-listed for AI/US/UK/EU/TV/ID/PPT.
   Nothing is invented: every word of the gloss is the source's. On live card 01 the first paragraph now
-  reads *"…perform operational technology (OT) system reconnaissance."* (measured — the audit found "OT"
+  reads _"…perform operational technology (OT) system reconnaissance."_ (measured — the audit found "OT"
   unexpanded three times on that page).
 - **One measure, one label on the sources rail (I-06, story.ts + story-article.tsx).** The rail printed
-  *"Based on 4 sources"* above nine rows from eight outlets, because the four came from the cluster-time
+  _"Based on 4 sources"_ above nine rows from eight outlets, because the four came from the cluster-time
   `events.publisher_count` and the rows from current coverage. `sourceRailLabel` derives the caption from
-  the rows themselves: *"Based on 8 publishers · 9 reports"* for the audited card-12 rail, plain *"Based on
-  N sources"* where the two counts agree, so the reader can always count what the label claims. The
+  the rows themselves: _"Based on 8 publishers · 9 reports"_ for the audited card-12 rail, plain _"Based on
+  N sources"_ where the two counts agree, so the reader can always count what the label claims. The
   `publisher_count` staleness itself (4 recorded against 8 distinct names) is left as an operator-facing
   data finding — this rule makes the page stop quoting it.
 
@@ -3838,10 +3836,11 @@ its own "recorded gap" note.
 digest open — `Delivered` **0**, `Edition · ` **2** (eyebrow + card header), eyebrow
 `"Edition · 20 October"`. The same page on the deployed origin, before the change, read `DELIVERED`
 over the identical briefing.
+
 ### The reader's prose was audited against the Wikipedia test — 43 findings, 4 blockers (2026-10-22)
 
 The four gates in `reader-quality-10-of-10.md` measure delivery, significance, surfaces and alerts. None of
-them measures whether the prose is *understandable*, so the live product was read as a reader on the three
+them measures whether the prose is _understandable_, so the live product was read as a reader on the three
 surfaces a reader uses: the home feed (`/dashboard`), the briefing (`/dashboard/briefing`), and four story
 pages opened from it (cards 01, 12, 06 and 09 of digest `7268ba11`, the 25-item edition scheduled 07:30 JST
 on 22 October), plus the 20 October archive (`4a6b2ad2`) opened the way History opens it. The session was a
@@ -3868,6 +3867,7 @@ rather than reported: the emoji in the browser tab is the reading browser's, not
 `<title>` is `nyuz — Stop searching. Start knowing.`), and the "10 of 10 used" device panel is this account's
 cap. Nothing in the audit changes code, copy or content; §8 of the file routes each finding to the component,
 instrument or ruling that owns it.
+
 ### The deploy gate stopped reading a registry outage as a vulnerable tree (2026-10-22)
 
 `main` failed to deploy twice on 2026-10-22 — run 39738568520 on `49ccd8f` (07:09Z) and run 39740776619 on
@@ -3879,7 +3879,7 @@ when the failed job was re-run on the same tree (`49ccd8f` attempt 2 at 07:26Z, 
 **The 400 was npm reporting that its own request failed, not a statement about the lockfile.** The runner's
 log names the environment it used: node `v22.23.3`, npm `10.9.9`. npm 10.9 posts to
 `/-/npm/v1/security/advisories/bulk` first and falls back to the retired `/-/npm/v1/security/audits/quick`
-only when that request *throws* (`@npmcli/arborist/lib/audit-report.js:323` and `:336`). Both failing logs
+only when that request _throws_ (`@npmcli/arborist/lib/audit-report.js:323` and `:336`). Both failing logs
 show the bulk POST never answered: the step printed its first line 5m00s after it started (07:29:03 →
 07:34:03), which is npm-registry-fetch's default `fetch-timeout` of `300000` ms (`npm config get
 fetch-timeout`), and what surfaced was the fallback's `400 Invalid package tree, run npm install to rebuild
@@ -3902,7 +3902,7 @@ endpoint npm actually talked to in the job log, and `timeout-minutes: 6` bounds 
 **Proved by running the step, not by reading it.** A harness extracts the `run:` block from `ci.yml` and
 executes it with the step's own `env:`: the clean tree → exit 0 on one attempt in 2.2 s; a production
 `lodash@4.17.20` in a throwaway lockfile → exit 1 on **one** attempt with the real high advisories listed;
-that same advisory delivered by a stub registry *together with* a `501` on the packument fetch → exit 1 on
+that same advisory delivered by a stub registry _together with_ a `501` on the packument fetch → exit 1 on
 one attempt; CI's exact failure replayed (bulk 503 → retired quick 400) → 3 attempts, 6 requests, exit 1;
 both endpoints 503 → 3 attempts, exit 1; a bulk request that never answers → 3 attempts in 214 s and red,
 against one 300 s attempt and red before. Runner evidence: PR
@@ -3915,8 +3915,8 @@ against one 300 s attempt and red before. Runner evidence: PR
 
 The reader-clarity audit (PR #54, `docs/reader-clarity-audit-2026-10-22.md` on that branch) filed four
 blockers on the delivered 2026-10-21 briefing; three of them (I-09, I-10, I-11) are one defect: the
-composer printed a story's sentences in an order no reader can follow. Card 06, *"Today's PHP Security
-Release…"*, opened on `August 24, 2026: Wiz Research reports the vulnerabilities …` — six weeks into its
+composer printed a story's sentences in an order no reader can follow. Card 06, _"Today's PHP Security
+Release…"_, opened on `August 24, 2026: Wiz Research reports the vulnerabilities …` — six weeks into its
 own timeline — then referred to "the leak" and to "Calif" before either existed on the page, then
 printed `August 20, 2026` after `October 21st`. **The file that chose the order is
 `src/lib/editorial.ts`** (`deterministicParagraphs` and the deck walk); `reader-article.ts` only
@@ -3952,7 +3952,7 @@ reordered — so the pass is now gated on the story carrying a timeline.
 **What it does not fix, recorded rather than padded.** The page still opens on a timeline fragment: the
 audit's ideal opening is a summary sentence, and no stored fact says it — the timeline's own first step
 (`August 19 …`) exists only inside a meta sentence the composer refuses, and the post's explanatory
-standfirst (which *would* open the story) is refused by the sentence gate as `invalid_sentence`. The
+standfirst (which _would_ open the story) is refused by the sentence gate as `invalid_sentence`. The
 stored `what_happened` is the same mid-timeline fragment, so the fallback deck cannot stand in for it.
 A strict cross-source merge is not derivable either: for an enriched source `sourceOrder` is the index
 of the evidence unit, and that pass writes its units in the order it judged them, so the rule reads
@@ -4096,3 +4096,14 @@ there could be walked around in the one form an attacker would pick. The four pr
 `src/lib/server/blog.ts` still accepts private and IP hosts, because a cover image is rendered by the
 reader's browser and never fetched server-side; `isPublicHttpUrl` stays the single shared predicate, and
 the ingestion path that also calls it is a separate card.
+### 2026-10-29 · PR #76: harden URL validation — mapped-IPv6 fix and lint/coverage green
+
+This slice fixes the three red checks on the `harden-url-validation` branch (PR #76):
+
+- B1: trailing newline in `src/lib/net/public-url.test.ts` (prettier)
+- B2: the delete-path source pin in `src/lib/push/multi-device.test.ts:318` now asserts `deleteInputSchema.parse(input)` instead of the old inline schema literal
+- B3: coverage floor passes once B2 is fixed (cascade)
+- B4: this work-log line recorded in `docs/context.md`
+- N1: `isPublicHttpUrl` now blocks mapped IPv6 addresses (`::ffff:...`) by parsing the hex tail back to octets before the private-range test; four probe cases added to `public-url.test.ts` (`[::ffff:127.0.0.1]`, `[::ffff:169.254.169.254]`, `[::ffff:c0a8:101]`, `[::ffff:10.0.0.5]`)
+
+What this slice did not change: `coverUrl` on the blog endpoint still allows private/IP hosts by design (separate threat model — ingestion path is a different card); `isPublicHttpUrl` remains the shared predicate; no changes to `src/lib/server/push/send.ts`.
