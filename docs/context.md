@@ -4244,6 +4244,10 @@ editions.** The "legs off" column is today's base legs with `b05Rules: false`, n
 generated each edition — the base pass was widened after 2026-10-20, which is why `3fcbb21c` loses a card
 before the new legs run while the delivered edition carried both.
 
+**2026-10-28 — PR #71 close-out (findings I-09…I-12).** #71 merged (`621b94f`, deployed at `b619378`) before its independent verdict: I-09 FAIL, I-10 not met, I-11 FAIL, I-12 PASS (earned on `main` by `7fe7bdc`), because the page prints the stored line and never the composed deck — 0 of 25 openings changed, `storyOpening` (`src/lib/reader-opening.ts:54`) has no date or caption refusal, so the PR's own `docs/decisions/story-opening-and-frames.md:29` records a fix the diff never wrote.
+
+**Carried by** `t_7b6ad6aa` (read boundary + that doc correction) and `t_51a3d036` (page-level I-10/I-11 residual, parented on it). All checks green at `f3460bad`; `audit:delivered-line` reads PASS 23/23 by construction, since the card line and the page opening are one stored row and rule 1 cannot see a date-fragment opening.
+
 **PR #74 (N-02 story boundary) closed out unmerged at head `0b60c72`** — FAIL as a rule: the guard
 exempts `sourceList[0]` (`editorial.ts:3746`), so the article-internal boundary still composes the
 Cameroon paragraph as the page's only body text with `storyBoundaryDrops: 0`; zero CI ran at that head
