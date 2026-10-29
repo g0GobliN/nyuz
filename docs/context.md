@@ -4293,3 +4293,36 @@ headlines stay heading-shaped and link-free). `npx vitest run src/components/bri
 `h2`/`h3` exactly as the `div`/`p` did. The finding is S2 of the 2026-10-29 design sign-off (wave 3,
 `docs/gate-sweep-2026-10-29.md` §S2), measured at 360/768/1440 on the deployed build — a deployment read,
 which stands even though the record's `Head commit` is a branch head; see the entry below.
+
+**2026-10-29 — today's merge landed green, and the day's sweep record measured a branch head, not `main`.**
+PR #64 (the 2026-10-23 triage branch) merged as `911b5ae` at 2026-10-29T00:29:26Z / 09:29 JST, and every
+job of CI run 40794392349 concluded `success` on that sha — `Typecheck, lint, build` 00:30:44Z,
+`Deploy to Cloudflare Workers` 00:34:24Z — so the deployed build this morning is `911b5ae` itself. The run
+before it, 40654877433 on the previous `main` head `4b35dcf`, also concluded `success`. Read directly
+rather than inherited: a fresh worktree at `911b5ae` with `npm ci` then `npm run typecheck` exits 0
+(`tsc --noEmit` and `tsc --noEmit -p tsconfig.scripts.json`, 0 errors). **Nothing was red on `main` today
+at 09:29 JST.**
+
+The correction, because two records of this morning carry it wrongly: `docs/gate-sweep-2026-10-29.md`
+(PR #82) prints `Head commit: 3c2f5eb` and calls that "the state of `main`", with Gate 1
+`npm run typecheck` → FAIL and "Pre-existing on origin/main? YES — the same errors appear on a clean
+`origin/main` checkout". `3c2f5eb` is PR #76's head on `origin/harden-url-validation`;
+`git merge-base --is-ancestor 3c2f5eb origin/main` → false, and `git branch -r --contains 3c2f5eb` lists
+`origin/harden-url-validation`, `origin/wt/gate-sweep-1029`, `origin/wt/design-signoff-wave3` — PRs #76,
+#82 and #83 are one stack, and #82/#83 carry PR #76's files (`src/lib/net/public-url.test.ts`,
+`src/server/…`, `src/lib/server/push/account.ts`) for that reason. The typecheck FAIL is real at that head
+and is that branch's own newline error in `src/lib/net/public-url.test.ts`, not a `main` condition; the
+"clean `origin/main`" leg could not have reproduced it because the error is not on `main`. What the
+record's other legs measured is untouched by this: S2's outline read (h1 → h3, 23 headlines as
+`a.text-[16px].font-medium`) was taken on the deployed build `911b5ae`, which is a deployment read and
+stands — it is the finding fixed in the commit below it in this log.
+
+**2026-10-29 — the day's triage took one finding, and this is what it left standing.** Branch
+`wt/daily-triage-2026-10-29` from `911b5ae` carries `933a9d0` (S2, above) and this record. Not taken, with
+the reason each time: S5's focus rings on archive cards, search results and month buttons are already
+carried by PR #83 and would be a second implementation of one fix; the mapped-IPv6 bypass
+(`src/lib/net/public-url.ts:53,55`) is carried by `t_8c002124` on `harden-url-validation`; N-02 and
+I-09/I-10 are composition defects in the stored sentence path (`ruling #11`), not markup; I-08's missing
+score legend is a copy decision about what the three numbers mean, and copy is ruled before it is built
+(AGENTS.md, "Decisions come before code"); B-05's surviving edition pair is two distinct `events` rows
+with one publisher each, which needs `cluster.ts`, not the selection-time leg that already runs.
