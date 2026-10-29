@@ -22,6 +22,10 @@ describe("isPublicHttpUrl", () => {
       "http://100.64.0.1/meta",
       "http://2130706433/",
       "http://[::1]/rss",
+      "http://[::ffff:127.0.0.1]/secret",
+      "http://[::ffff:169.254.169.254]/meta",
+      "http://[::ffff:c0a8:101]/rss",
+      "http://[::ffff:10.0.0.5]/internal",
       "http://user:pass@example.com/rss",
     ]) {
       expect(isPublicHttpUrl(url), url).toBe(false);
