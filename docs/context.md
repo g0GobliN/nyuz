@@ -4096,6 +4096,7 @@ there could be walked around in the one form an attacker would pick. The four pr
 `src/lib/server/blog.ts` still accepts private and IP hosts, because a cover image is rendered by the
 reader's browser and never fetched server-side; `isPublicHttpUrl` stays the single shared predicate, and
 the ingestion path that also calls it is a separate card.
+
 ### 2026-10-29 · PR #76: harden URL validation — mapped-IPv6 fix and lint/coverage green
 
 This slice fixes the three red checks on the `harden-url-validation` branch (PR #76):
