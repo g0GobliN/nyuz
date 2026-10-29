@@ -4310,12 +4310,17 @@ The correction, because two records of this morning carry it wrongly: `docs/gate
 `git merge-base --is-ancestor 3c2f5eb origin/main` → false, and `git branch -r --contains 3c2f5eb` lists
 `origin/harden-url-validation`, `origin/wt/gate-sweep-1029`, `origin/wt/design-signoff-wave3` — PRs #76,
 #82 and #83 are one stack, and #82/#83 carry PR #76's files (`src/lib/net/public-url.test.ts`,
-`src/server/…`, `src/lib/server/push/account.ts`) for that reason. The typecheck FAIL is real at that head
-and is that branch's own newline error in `src/lib/net/public-url.test.ts`, not a `main` condition; the
-"clean `origin/main`" leg could not have reproduced it because the error is not on `main`. What the
-record's other legs measured is untouched by this: S2's outline read (h1 → h3, 23 headlines as
-`a.text-[16px].font-medium`) was taken on the deployed build `911b5ae`, which is a deployment read and
-stands — it is the finding fixed in the commit below it in this log.
+`src/server/…`, `src/lib/server/push/account.ts`) for that reason. The typecheck FAIL does not reproduce
+at `3c2f5eb` either, once the branch is installed from its own lockfile: a fresh worktree at `3c2f5eb`,
+`ln -s` the `.env`, `npm ci`, `npm run typecheck` → exit 0. The recorded output is `zod/v4/classic/external`
+refusing `ZodTypeDef`, which is zod 3-era source type-checked against a zod 4 install: `3c2f5eb`'s
+lockfile pins `zod` 3.25.76 while `main`'s pins 4.6.7 (moved by #73). So Gate 1's FAIL is a
+`node_modules` left in that worktree from a checkout after #73, not a condition of `3c2f5eb` and certainly
+not of `main`; the "stashed local changes, ran typecheck" leg keeps that install, so it reproduced the
+mismatch rather than a repository state. Read correctly, this morning had no red gate anywhere — only an
+install to redo. What the record's other legs measured is untouched by this: S2's outline read (h1 → h3, 23
+headlines as `a.text-[16px].font-medium`) was taken on the deployed build `911b5ae`, which is a deployment
+read and stands — it is the finding fixed in the commit below it in this log.
 
 **2026-10-29 — the day's triage took one finding, and this is what it left standing.** Branch
 `wt/daily-triage-2026-10-29` from `911b5ae` carries `933a9d0` (S2, above) and this record. Not taken, with
