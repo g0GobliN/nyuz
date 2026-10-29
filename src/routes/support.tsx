@@ -3,6 +3,8 @@ import { Mail, MessageCircle, BookOpen, LifeBuoy } from "lucide-react";
 import { Eyebrow, Section } from "@/components/kit";
 import { SiteNav } from "@/components/landing/nav";
 import { SiteFooter } from "@/components/landing/footer";
+import { IMPORTANT_FLOOR } from "@/lib/pipeline/alert-floor";
+import { formatScore } from "@/lib/score-format";
 import { getPublicSiteContent } from "@/lib/server/settings";
 import { pageHead } from "@/lib/seo";
 
@@ -45,7 +47,7 @@ const FAQ_ITEMS = [
   },
   {
     q: "How do alerts work?",
-    a: "Every plan includes important alerts, with its own daily allowance: one a day on Uno, five on Plura and twelve on Omni. Only events scoring 6 or higher interrupt you, so most days that is nothing at all. Configure them in Delivery settings.",
+    a: `Every plan includes important alerts, with its own daily allowance: one a day on Uno, five on Plura and twelve on Omni. Only events scoring ${formatScore(IMPORTANT_FLOOR)} or higher out of 10 interrupt you, so most days that is nothing at all. Configure them in Delivery settings.`,
   },
 ];
 

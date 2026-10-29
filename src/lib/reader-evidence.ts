@@ -2220,6 +2220,19 @@ const NARRATOR_TEST: Record<string, string> = {
 /** The narrator's taste, which is not a fact: left to the voice refusal. */
 const NARRATOR_COMMENTARY =
   /\b(?:I|we)(?:\s+(?:have to|must|really|just|simply|personally|honestly|frankly))?\s+(?:think|thought|believe|believed|feel|felt|hope|hoped|guess|suppose|reckon|suspect|admit|say|love|like|liked|hate|remember|wonder|prefer|enjoy|recommend)\b|\bwe all know\b/i;
+
+/**
+ * A quoted span: speech the source is reporting, not speaking.
+ *
+ * Straight single quotes are apostrophes most of the day, so a single-quote
+ * span opens only where a quotation can -- not glued to a letter or digit, so
+ * `doesn't` and `company's` never open one -- and closes only where another
+ * word does not begin, so `won't` never closes one. Two stray apostrophes can
+ * still span a stretch that holds a first-person pronoun; the cost of such a
+ * reach is a counted drop, not a published sentence, which is this rule's own
+ * safe direction.
+ */
+const QUOTED_SPAN = /"[^"\n]*"|“[^”\n]*”|‘[^’\n]*’|(?<![\p{L}\p{N}])'[^'\n]*'(?![\p{L}\p{N}])/gu;
 /** A time phrase that is not part of the actor's name. */
 const TRAILING_TIME =
   /\s+(?:(?:this|last|next)\s+(?:week|month|year)|yesterday|today|tomorrow)\s*$/i; /**
@@ -2535,6 +2548,36 @@ export function resolveNarrator(
   const keepableAdverbial = (before: string): boolean =>
     before === "" || (!CLAUSE_TAIL.test(before) && before.split(/\s+/).length <= 10);
 
+  /*
+   * Where the sentence quotes, because a quotation's first person is not the
+   * narrator's. The rewrite that the branches below perform speaks for the
+   * publication -- "the author reported", "the authors propose" -- and applying
+   * it to speech the source only quotes puts the reporter's voice in the
+   * quoted speaker's mouth: The Register's own subhead
+   * `Chainguard CEO: 'We made the call'.` published on the live page (audit v2,
+   * N-01) as `Chainguard CEO: ', the author reported making the call'.` -- the
+   * furniture around the quote kept, the quote turned into a verbless fragment
+   * attributed to an author the sentence never had. So every branch below
+   * declines a first-person match that sits inside a quoted span, and a
+   * sentence whose only first person is quoted falls through to the same
+   * counted drop as any other narrator nobody can establish. Doubles and
+   * singles alike; the guard's `unquoted` strip above already refuses, for the
+   * voice test, text whose whole first person is double-quoted.
+   */
+  const quoted: Array<[number, number]> = [];
+  for (const m of trimmed.matchAll(QUOTED_SPAN)) quoted.push([m.index, m.index + m[0].length]);
+  const insideQuotation = (index: number): boolean =>
+    quoted.some(([start, end]) => index > start && index < end);
+  /** Where the branch's own `(?:I|we)` sits, or -1 when it holds none. */
+  const pronounAt = (match: RegExpExecArray): number => {
+    const rel = match[0].search(/\b(?:I|we)\b/i);
+    return rel === -1 ? -1 : match.index + rel;
+  };
+  /** True when any first-person subject sits inside a quoted span. */
+  const quotesFirstPerson = quoted
+    .map(([start, end]) => trimmed.slice(start, end))
+    .some((span) => /\b(?:I|we)\b/i.test(span));
+
   // 1. A reporting wrapper: who was asked, and who answered.
   //
   // `we` as well as `I`, because a news desk is plural; and the actor may be named
@@ -2549,7 +2592,7 @@ export function resolveNarrator(
       `^(?:I|we)\\s+(?:${NARRATOR_ASK})\\s+([^,]{2,80}),?\\s*(?:and\\s+)?(he|she|they)\\b([\\s\\S]*)$`,
       "i",
     ).exec(trimmed);
-  if (wrapper) {
+  if (wrapper && !insideQuotation(pronounAt(wrapper))) {
     const actor = (wrapper[1] ?? "").trim().replace(TRAILING_TIME, "").trim();
     const answered = (wrapper[3] ?? "").trim();
     // A pronoun in the sentence's own answer is substituted with the actor the
@@ -2571,7 +2614,7 @@ export function resolveNarrator(
   const found = new RegExp(`\\b(?:I|we)\\s+(?:${NARRATOR_FIND})\\s+that\\s+([\\s\\S]+)$`, "i").exec(
     trimmed,
   );
-  if (found) {
+  if (found && !insideQuotation(pronounAt(found))) {
     const rest = (found[1] ?? "").trim();
     const before = trimmed.slice(0, found.index).trim().replace(/,$/, "");
     // A pronoun in the reported clause points at the narrator's own sentence, so
@@ -2596,7 +2639,7 @@ export function resolveNarrator(
   // 3. An experiment: the gerund keeps the narrator's method in the report.
   const verbs = Object.keys(NARRATOR_TEST).join("|");
   const test = new RegExp(`\\b(?:I|we)\\s+(${verbs})\\b([\\s\\S]*)$`, "i").exec(trimmed);
-  if (test) {
+  if (test && !insideQuotation(pronounAt(test))) {
     const gerund = NARRATOR_TEST[(test[1] ?? "").toLowerCase()];
     const rest = (test[2] ?? "").trim();
     const before = trimmed.slice(0, test.index).trim().replace(/,$/, "");
@@ -2617,13 +2660,20 @@ export function resolveNarrator(
 
   // 4. The narrator as the actor of the source's own work: the sentence keeps its
   //    own verb and its own object, and only the actor is named.
-  const claim = restoreNarratorActor(trimmed, person);
-  if (claim !== null) return { text: claim, kind: "claim" };
+  //    Both rewrites are skipped when the sentence quotes a first person: the
+  //    actor-renaming pass names every `we` it keeps -- `renameNarratorPronouns`
+  //    has no quotation marks in its world -- so a quoted speaker inside the
+  //    tail would be renamed into the source's own author exactly the way the
+  //    step-3 rewrite above put one there.
+  if (!quotesFirstPerson) {
+    const claim = restoreNarratorActor(trimmed, person);
+    if (claim !== null) return { text: claim, kind: "claim" };
 
-  // 5. The source's own work with the narrator as the thing it enables: the same
-  //    rewrite as 4, reached from an object pronoun rather than a subject one.
-  const benefit = restoreNarratorBeneficiary(trimmed, person);
-  if (benefit !== null) return { text: benefit, kind: "claim" };
+    // 5. The source's own work with the narrator as the thing it enables: the same
+    //    rewrite as 4, reached from an object pronoun rather than a subject one.
+    const benefit = restoreNarratorBeneficiary(trimmed, person);
+    if (benefit !== null) return { text: benefit, kind: "claim" };
+  }
 
   // 6. Anything else: the narrator's referent cannot be established without
   //    guessing. `us` here may be a paper's authors, an outlet's newsroom, an
