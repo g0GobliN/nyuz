@@ -145,9 +145,9 @@ export function BriefingPreview({
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
           Your {time} brief
         </p>
-        <h3 className="mt-2 font-serif text-2xl leading-tight sm:text-[28px]">
+        <h2 className="mt-2 font-serif text-2xl leading-tight sm:text-[28px]">
           {stories.length} things worth knowing{name ? `, ${name}` : ""}.
-        </h3>
+        </h2>
       </div>
 
       <ol className="divide-y divide-[var(--hairline)] px-5 sm:px-7">
@@ -162,22 +162,24 @@ export function BriefingPreview({
               </span>
             </div>
             {reader ? (
-              <Link
-                // The pager on the story page reads `from`. Today's briefing
-                // passes `briefing` so the reader pages through the 25 they
-                // just saw; omitting it (the marketing variant, or the Saved
-                // tab where the count would lie in a different way) leaves the
-                // page with no position line — that is the honest answer when
-                // we cannot name the list the reader came from.
-                to="/dashboard/story/$id"
-                params={{ id: s.id }}
-                {...(fromQueue ? { search: { from: fromQueue } } : {})}
-                className="mt-1.5 block cursor-pointer rounded-sm text-[16px] font-medium leading-snug transition-colors hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              >
-                {s.title}
-              </Link>
+              <h3 className="mt-1.5 text-[16px] font-medium leading-snug">
+                <Link
+                  // The pager on the story page reads `from`. Today's briefing
+                  // passes `briefing` so the reader pages through the 25 they
+                  // just saw; omitting it (the marketing variant, or the Saved
+                  // tab where the count would lie in a different way) leaves the
+                  // page with no position line — that is the honest answer when
+                  // we cannot name the list the reader came from.
+                  to="/dashboard/story/$id"
+                  params={{ id: s.id }}
+                  {...(fromQueue ? { search: { from: fromQueue } } : {})}
+                  className="block cursor-pointer rounded-sm transition-colors hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
+                  {s.title}
+                </Link>
+              </h3>
             ) : (
-              <p className="mt-1.5 text-[16px] font-medium leading-snug">{s.title}</p>
+              <h3 className="mt-1.5 text-[16px] font-medium leading-snug">{s.title}</h3>
             )}
             {!compact && (
               <p className="mt-2 text-[14.5px] leading-relaxed text-muted-foreground">{s.what}</p>

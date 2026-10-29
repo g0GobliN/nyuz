@@ -4275,3 +4275,21 @@ rather than papered over.
 **PR #70 (B-05, one story one card inside an edition) closed out at head `e9b8dfa`, merged as `35d8a06`** — duplicate direction PASS, false-merge direction FAIL. Replayed over 20 delivered editions the pass eats 4 cards in 3 editions and all 4 are one story told twice (`7268ba11` 25 → 23, `fab11fdf` 17 → 16, `e2bd737e` 24 → 23); on a 30-day / 20,000-event replay 181 fusions happen only because of B-05's two legs and 152 of those (84%) sit below ruling #18's floor — `PHP … PHP2Shell RCE Flaws` fused with `NGINX Fixes 5 Flaws`, an XFS kernel changelog fused with a Plex2Shell Linux malware campaign, `CISA Adds Six …` fused with `CISA Adds Two …` — because `properIn` (`src/lib/pipeline/duplicates.ts:408-416`) treats any Title-Case word as a proper name and `Shape` (`:652-685`) has no source field to decide a merge. One comment: https://github.com/g0GobliN/nyuz/pull/70#issuecomment-6463837056.
 
 Residual carried by `t_c258e803` (forge): re-key B-05's legs on the subject instead of a shared name (D1), pin the three false merges as test cases quoting stored card text, and split the census flag so its before/after columns differ only by B-05's own key (D2 — `scripts/twin-corpus-census.ts:121` sets `b05Rules = securityAccess`). The durable fix stays in `cluster.ts`: this pass drops the second card at selection only, so the same story can return on a later day once the 48-hour delivered-twin window passes, and the story page path `/dashboard/story/$id` still serves both halves of a pair.
+
+**2026-10-29 — the briefing's outline no longer skips a level, and every story has a heading (S2).**
+Markup only, in `src/components/briefing-preview.tsx`: the card opened at `h3` under `PageHeader`'s `h1`
+— a skipped level — and each story's headline was `a.text-[16px].font-medium` (reader variant) or
+`p.text-[16px].font-medium` (landing facsimile), so the 23 things a reader came for were not in the
+outline at all and a screen reader could not navigate between them. The card now opens at `h2` and each
+story's headline is an `h3` holding the link in the reader variant and the plain title on the landing
+page. Before state, on `origin/main`:
+`git show origin/main:src/components/briefing-preview.tsx | grep -n '<h[1-6]\|text-\[16px\] font-medium'`
+→ `148: <h3 …` — the only heading in the file — `175:` the anchor's className, `180: <p …>{s.title}</p>`.
+Pinned by `src/components/briefing-preview.test.ts`, "BriefingPreview — the outline steps by one and
+every headline is in it": five cases over the delivered shape of 23 stories (opens at `h2`, no `h1`, one
+`h3` per story, no step greater than one level, each heading holds its story's title, and the marketing
+headlines stay heading-shaped and link-free). `npx vitest run src/components/briefing-preview.test.ts`
+→ 23 passed (19 before the change, 4 of them failing). No layout change: Tailwind preflight renders
+`h2`/`h3` exactly as the `div`/`p` did. The finding is S2 of the 2026-10-29 design sign-off (wave 3,
+`docs/gate-sweep-2026-10-29.md` §S2), measured at 360/768/1440 on the deployed build — a deployment read,
+which stands even though the record's `Head commit` is a branch head; see the entry below.

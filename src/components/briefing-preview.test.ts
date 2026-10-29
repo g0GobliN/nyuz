@@ -311,3 +311,87 @@ describe("briefing route — the eyebrow does not claim a delivery", () => {
     expect(EYEBROW).not.toContain("Delivered");
   });
 });
+
+/**
+ * S2, measured on the deployed build on 2026-10-29 at 360 / 768 / 1440 wide
+ * (design sign-off wave 3, docs/gate-sweep-2026-10-29.md §S2): the briefing's
+ * outline ran `h1 "Your briefing, as it was assembled."` → `h3 "23 things worth
+ * knowing, goblin01."` — a skipped level — and **none of the 23 story
+ * headlines was a heading at all**. Each was `a.text-[16px].font-medium`.
+ *
+ * What that costs the reader: headings are the only navigation surface a screen
+ * reader has. The page offered two stops — the title and a count — and then 23
+ * stories with no way to move between them or to hear where one ends. The fix
+ * is markup only: the card opens at h2 (its page's h1 is `PageHeader`), and each
+ * story's headline is an h3, holding the link in the reader's variant and the
+ * plain title in the marketing facsimile, so neither surface changes shape.
+ *
+ * The rule this pins is structural, not cosmetic — one level at a time, and
+ * every list item that carries a headline appears in the outline. It is the
+ * briefing's first accessibility leg, in the form
+ * `docs/reader-quality-10-of-10.md` asks for at definition-of-done #3: "measured
+ * the way the briefing now is (one instrument, one verdict line, exit status as
+ * the check)". The finding itself is S2 of today's design sign-off
+ * (`docs/gate-sweep-2026-10-29.md`), which recorded the skip and the 23 bare
+ * anchors on the deployed build.
+ */
+describe("BriefingPreview — the outline steps by one and every headline is in it", () => {
+  /** The delivered shape: 23 stories, as measured on the deployed page. */
+  const delivered: Story[] = Array.from({ length: 23 }, (_, i) => ({
+    ...STORIES[i % STORIES.length]!,
+    id: `6f1c9a52-1111-4000-8000-${String(i + 1).padStart(12, "0")}`,
+  }));
+
+  /** Heading levels in document order — what a screen reader walks. */
+  const outline = (html: string): number[] =>
+    [...html.matchAll(/<h([1-6])[\s>]/gu)].map((m) => Number(m[1]));
+
+  /** One entry per heading element, its inner markup included. */
+  const headings = (html: string): string[] =>
+    [...html.matchAll(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gu)].map((m) => m[2]!);
+
+  it("opens the card at H2 under the page's own H1", () => {
+    // The page renders exactly one h1 (`PageHeader`), so the card is the next
+    // section down. An h3 here is the skip the audit measured.
+    for (const variant of ["reader", "marketing"] as const) {
+      const levels = outline(render(delivered, variant));
+      expect(levels[0], `${variant} opens at h${levels[0]}`).toBe(2);
+      expect(levels).not.toContain(1);
+    }
+  });
+
+  it("makes every story headline a heading, one level under the card's", () => {
+    for (const variant of ["reader", "marketing"] as const) {
+      const levels = outline(render(delivered, variant));
+      // One card heading, then one heading per story, in reading order.
+      expect(levels).toHaveLength(delivered.length + 1);
+      expect(levels.slice(1)).toEqual(delivered.map(() => 3));
+    }
+  });
+
+  it("keeps the outline monotonic — no step of more than one level", () => {
+    const levels = outline(render(delivered, "reader"));
+    for (let i = 1; i < levels.length; i += 1) {
+      expect(Math.abs(levels[i]! - levels[i - 1]!)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("holds each story's title inside its heading, so the heading names the story", () => {
+    const html = render(delivered, "reader");
+    const storyHeadings = headings(html).slice(1);
+    expect(storyHeadings).toHaveLength(delivered.length);
+    for (const [i, inner] of storyHeadings.entries()) {
+      const title = delivered[i]!.title;
+      // React escapes apostrophes and quotes in text; the assertion reads text.
+      expect(inner.replace(/&#x27;/gu, "'")).toContain(title);
+    }
+  });
+
+  it("keeps the marketing facsimile inert: a heading, not a link", () => {
+    // The landing page's stories are fixtures; a link there jumps a visitor
+    // into a dashboard they have no account for. A heading is not a link.
+    const html = render(delivered);
+    expect(headings(html).slice(1)).toHaveLength(delivered.length);
+    expect(html).not.toContain("<a ");
+  });
+});
