@@ -60,8 +60,8 @@ function isBlockedIpv6(host: string): boolean {
   // Mapped IPv4 in hex notation: ::ffff:7f00:1 (WHATWG normalizes dotted to hex)
   const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(lower);
   if (mappedHex) {
-    const high = parseInt(mappedHex[1], 16);
-    const low = parseInt(mappedHex[2], 16);
+    const high = parseInt(mappedHex[1]!, 16);
+    const low = parseInt(mappedHex[2]!, 16);
     const octets: [number, number, number, number] = [
       (high >> 8) & 0xff,
       high & 0xff,
