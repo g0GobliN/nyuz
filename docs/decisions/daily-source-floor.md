@@ -80,9 +80,19 @@ nonLatinRatio, latinStopwordRatio, latinAccentRatio}` for the feed's own recent
    `src/lib/source-floor.ts` counts sources created in the JST day whose first
    fetch succeeded, reads language refusals from `source_candidates.reject_reason`
    and classifies a short day as one of `job-never-ran`, `executor-crashed`,
-   `no-candidates`, `all-rejected-by-language` or `supply-short`. The 07:30 alarm
-   opens one P1 card for a short day, and prints nothing at all when the floor was
-   met.
+   `unmeasured`, `no-candidates`, `all-rejected-by-language` or `supply-short`.
+   The 07:30 alarm opens one P1 card for a short day, and prints nothing at all
+   when the floor was met.
+
+   Wave evidence — how many wave cards the day opened and how many of them
+   failed — is only carried for the day being reported, because only the caller
+   reads the board for that day. Every other row arrives with
+   `wavesCreated`/`wavesFailed` **null**, and a short row with null evidence is
+   `unmeasured`: it states the count and no cause. `job-never-ran` is reserved
+   for a measured zero — no card, no probe, nothing inserted. Unknown is not
+   zero, and a table that cannot see whether the job ran must not say it never
+   did.
+
 6. **Durability over heroics.** The tool stops at the floor and leaves the rest of
    the pool `discovered`, and it writes the candidate's verdict back before moving
    on. A crash delays the count; it does not lose the pool and it cannot read as a
@@ -143,9 +153,16 @@ Measured on 2026-10-30 against the live project, from the worktree:
 
 - `npm run source:floor` reproduced the card's per-day numbers exactly
   (2, 234, 2, 2, 2, 2, 2, 184, 2).
+- `npm run source:floor -- --day 2026-10-29 --floor 50 --waves-created 1 --waves-failed 1`
+  printed `executor-crashed` on the 10-29 row — the measured failure — and
+  `unmeasured` on every earlier row, which carries no wave evidence in that
+  report. The same run before the fix called the 10-27 row `job-never-ran` on
+  the strength of a zero nothing had counted: same 2 inserts, and nothing in the
+  report said whether a card had run. It had not been asked.
 - `npm run source:floor -- --day 2026-09-02 --floor 50` exercised the under-50
   branch on a synthetic zero and printed the card body with `job-never-ran`,
-  naming the scheduler as the remedy.
+  naming the scheduler as the remedy. It still does: a measured zero stays
+  `job-never-ran`, and only silence became `unmeasured`.
 - The 07:30 alarm fired on a real short day and opened card `t_2719818e`
   ("Source floor short: 2026-10-29 added 2, floor 50").
 - The 09:30 wave generator fired and opened card `t_af2f0c4f`

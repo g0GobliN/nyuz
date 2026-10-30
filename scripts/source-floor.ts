@@ -124,7 +124,9 @@ async function readDays(args: Args): Promise<FloorDay[]> {
 
     // The wave cards only describe the target day: the caller (the cron wrapper)
     // counts the board for today, and asking the board about last week is not
-    // something this script can do without a local kanban read.
+    // something this script can do without a local kanban read. So every other
+    // day carries `null`, not `0` -- null is "this report does not know", and
+    // the table says `unmeasured` rather than claiming the job never ran.
     const isTarget = day === args.day;
     out.push({
       day,
@@ -133,8 +135,8 @@ async function readDays(args: Args): Promise<FloorDay[]> {
       languageRejected,
       otherRejected,
       supply,
-      wavesCreated: isTarget ? args.wavesCreated : 0,
-      wavesFailed: isTarget ? args.wavesFailed : 0,
+      wavesCreated: isTarget ? args.wavesCreated : null,
+      wavesFailed: isTarget ? args.wavesFailed : null,
     });
   }
   return out;

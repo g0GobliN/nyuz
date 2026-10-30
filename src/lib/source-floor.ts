@@ -24,14 +24,19 @@
  * ---------------------------------------------------------------------------
  *
  * A reason is only useful if it tells the reader of the card where to look.
- * "Below floor" says nothing. These five say everything the pipeline can say
+ * "Below floor" says nothing. These six say everything the pipeline can say
  * about itself without a human reading logs:
  *
- *   job-never-ran            no wave card was opened and nothing was probed --
+ *   job-never-ran            the daily job produced nothing: no wave card was
+ *                            opened and no candidate was probed (and, when the
+ *                            row is measured, nothing was inserted either) --
  *                            the scheduler or the executor is down, and the fix
  *                            is the job, not the sources.
  *   executor-crashed         every wave card opened yesterday ended in a
  *                            failure, so the work was queued and lost.
+ *   unmeasured               this report carries no wave evidence for the day,
+ *                            so all it can state is the count. Naming a cause
+ *                            here would be inventing one.
  *   no-candidates            the pool was empty yesterday morning: discovery,
  *                            not insertion, is the thing to repair.
  *   all-rejected-by-language the probes ran and the language gate refused them,
@@ -41,7 +46,8 @@
  *
  * The order matters. A day where the job never ran has no candidates *because*
  * it never ran, and reporting `no-candidates` would send somebody to repair
- * discovery that is working fine.
+ * discovery that is working fine. And a day this report has no wave evidence
+ * for is `unmeasured`, never `job-never-ran`: unknown is not zero.
  *
  * ---------------------------------------------------------------------------
  * The day is the operator's day
@@ -76,16 +82,24 @@ export type FloorDay = {
   otherRejected: number;
   /** Fresh candidates available at the start of the day, before it consumed any. */
   supply: number;
-  /** Wave cards opened for the day. */
-  wavesCreated: number;
-  /** Of those, the ones that ended failed or expired. */
-  wavesFailed: number;
+  /**
+   * Wave cards opened for the day, or `null` when this report carries no wave
+   * evidence for it -- which is every day but the one being reported.
+   *
+   * Null is not zero. A past row that says null is not claiming the job never
+   * ran; it is saying the report cannot see. The distinction is the whole
+   * point of `unmeasured`.
+   */
+  wavesCreated: number | null;
+  /** Of those, the ones that ended failed or expired. `null` when unknown. */
+  wavesFailed: number | null;
 };
 
 export type ShortfallReason =
   | "floor-met"
   | "job-never-ran"
   | "executor-crashed"
+  | "unmeasured"
   | "no-candidates"
   | "all-rejected-by-language"
   | "supply-short";
@@ -117,22 +131,39 @@ export function assessDay(day: FloorDay, floor: number = DAILY_FLOOR): DayVerdic
 
   const gap = floor - day.inserted;
   const refused = day.languageRejected + day.otherRejected;
+  const wavesCreated = day.wavesCreated;
+  const wavesFailed = day.wavesFailed;
 
-  if (day.wavesCreated === 0 && day.probes === 0) {
+  // Nothing ran at all: no card, no probe and nothing inserted. All three have
+  // to be a zero somebody counted; a null here means the report never looked,
+  // and that is `unmeasured` below, not this.
+  if (wavesCreated === 0 && day.probes === 0 && day.inserted === 0) {
     return {
       day: day.day,
       short: true,
       reason: "job-never-ran",
-      detail: `${day.inserted}/${floor}: no wave card opened and no candidate probed that day -- the daily job itself did not run.`,
+      detail: `${day.inserted}/${floor}: no wave card opened, no candidate probed and nothing inserted that day -- the daily job itself did not run.`,
     };
   }
 
-  if (day.wavesCreated > 0 && day.wavesFailed >= day.wavesCreated) {
+  // This report carries no wave evidence for the day -- it is not the day being
+  // reported. The count is short and that is all this row knows, so it says
+  // that and nothing more. Unknown is not zero.
+  if (wavesCreated === null || wavesFailed === null) {
+    return {
+      day: day.day,
+      short: true,
+      reason: "unmeasured",
+      detail: `${day.inserted}/${floor}: no wave evidence for this day in this report -- the count is short, the cause is not in the data.`,
+    };
+  }
+
+  if (wavesCreated > 0 && wavesFailed >= wavesCreated) {
     return {
       day: day.day,
       short: true,
       reason: "executor-crashed",
-      detail: `${day.inserted}/${floor}: all ${day.wavesCreated} wave card(s) for the day ended failed -- the work was queued and lost.`,
+      detail: `${day.inserted}/${floor}: all ${wavesCreated} wave card(s) for the day ended failed -- the work was queued and lost.`,
     };
   }
 
@@ -257,6 +288,8 @@ export function alarmCardBody(
     "floor-met": "Nothing to do: the day met the floor.",
     "job-never-ran":
       "Check the scheduler: `hermes cron list` should show the source wave and discovery jobs enabled, and `~/.hermes/scripts/nyuz-bulk-sources-card.sh` should have opened a card for the slot.",
+    unmeasured:
+      "Nothing here says whether the job ran: this report carries wave evidence only for the day it reports. Score the day from the board (`npm run source:floor -- --day <day> --waves-created <n> --waves-failed <n>`) before treating it as a missing job.",
     "executor-crashed":
       "Check the wave card that failed on the board: the run history says how it died. Re-queue the unconsumed candidates; nothing in the pool was lost.",
     "no-candidates":

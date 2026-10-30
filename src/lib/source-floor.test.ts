@@ -34,6 +34,22 @@ const ZERO: FloorDay = {
   wavesFailed: 0,
 };
 
+/**
+ * A past day, as the report builds one: the counts are real and the wave
+ * evidence is null because only the day being reported carries it. This is the
+ * 2026-10-27 row from the card that opened this work.
+ */
+const UNMEASURED: FloorDay = {
+  day: "2026-10-27",
+  inserted: 2,
+  probes: 0,
+  languageRejected: 0,
+  otherRejected: 0,
+  supply: 0,
+  wavesCreated: null,
+  wavesFailed: null,
+};
+
 describe("the constants", () => {
   it("are the owner's numbers", () => {
     expect(DAILY_FLOOR).toBe(50);
@@ -57,8 +73,28 @@ describe("assessDay", () => {
     expect(assessDay({ ...MET, inserted: DAILY_FLOOR - 1 }).short).toBe(true);
   });
 
-  it("names a day where the job never ran", () => {
-    expect(assessDay(ZERO)).toMatchObject({ short: true, reason: "job-never-ran" });
+  it("names a day where nothing ran at all", () => {
+    // The synthetic-zero drill: a measured zero for the card, the probes and
+    // the inserts, which is the only shape `job-never-ran` describes.
+    const verdict = assessDay(ZERO);
+    expect(verdict).toMatchObject({ short: true, reason: "job-never-ran" });
+    expect(verdict.detail).toContain("nothing inserted");
+  });
+
+  it("says only the count for a day the report has no wave evidence for", () => {
+    const verdict = assessDay(UNMEASURED);
+    expect(verdict).toMatchObject({ short: true, reason: "unmeasured" });
+    expect(verdict.detail).toContain("2/50");
+    expect(verdict.detail).toContain("no wave evidence");
+  });
+
+  it("does not read an unknown wave count as a zero", () => {
+    // The past row arrives with no card data, no probes and no inserts. Absent
+    // evidence must not be spoken as `job-never-ran`.
+    expect(assessDay({ ...UNMEASURED, inserted: 0 })).toMatchObject({
+      short: true,
+      reason: "unmeasured",
+    });
   });
 
   it("names a crashed executor before it names the missing candidates", () => {
@@ -182,28 +218,64 @@ describe("dayIndexOf", () => {
 /* ---------------------------------------------------------------------- */
 
 describe("reportLines", () => {
+  // The live shape: only the day being reported carries wave evidence. The rows
+  // above it know their counts and nothing about whether the job ran.
   const lines = reportLines([
-    { ...MET, day: "2026-10-27", inserted: 2, probes: 3, supply: 0, wavesCreated: 0 },
-    { ...MET, day: "2026-10-28", inserted: 184 },
-    { ...MET, day: "2026-10-29", inserted: 62 },
+    {
+      ...MET,
+      day: "2026-10-26",
+      inserted: 2,
+      probes: 0,
+      supply: 0,
+      wavesCreated: null,
+      wavesFailed: null,
+    },
+    {
+      ...MET,
+      day: "2026-10-27",
+      inserted: DAILY_FLOOR,
+      probes: 0,
+      supply: 0,
+      wavesCreated: null,
+      wavesFailed: null,
+    },
+    { ...MET, day: "2026-10-28", inserted: 184, wavesCreated: null, wavesFailed: null },
+    {
+      ...MET,
+      day: "2026-10-29",
+      inserted: 2,
+      probes: 0,
+      supply: 400,
+      wavesCreated: 1,
+      wavesFailed: 1,
+    },
   ]);
 
   it("has a header and one row per day", () => {
-    expect(lines).toHaveLength(4);
+    expect(lines).toHaveLength(5);
     expect(lines[0]).toContain("day");
     expect(lines[0]).toContain("supply");
   });
 
   it("marks under-floor, at-floor and at-target days differently", () => {
     expect(lines[1]).toContain("✗");
-    expect(lines[2]).toContain("✓");
-    expect(lines[3]).toContain("·");
+    expect(lines[2]).toContain("·");
+    expect(lines[3]).toContain("✓");
+    expect(lines[4]).toContain("✗");
   });
 
   it("shows the counts the card quotes", () => {
-    expect(lines[1]).toContain("2026-10-27");
+    expect(lines[1]).toContain("2026-10-26");
     expect(lines[1]).toContain("2");
-    expect(lines[1]).toContain("no-candidates");
+  });
+
+  it("says unmeasured on a past row instead of job-never-ran", () => {
+    expect(lines[1]).toContain("unmeasured");
+    expect(lines.join("\n")).not.toContain("job-never-ran");
+  });
+
+  it("keeps the measured failure on the day being reported", () => {
+    expect(lines[4]).toContain("executor-crashed");
   });
 });
 
@@ -230,10 +302,25 @@ describe("alarmCardBody", () => {
     expect(body).toContain("JST");
   });
 
+  it("points an unmeasured day at the board, not at the scheduler", () => {
+    const verdict = {
+      day: "2026-10-27",
+      short: true,
+      reason: "unmeasured" as const,
+      detail:
+        "2/50: no wave evidence for this day in this report -- the count is short, the cause is not in the data.",
+    };
+    const text = alarmCardBody(verdict, [UNMEASURED]);
+    expect(text).toContain("no wave evidence");
+    expect(text).toContain("--waves-created");
+    expect(text.split("## Reason class")[1]).not.toContain("hermes cron list");
+  });
+
   it("has a remedy for every reason class", () => {
     const reasons = [
       "job-never-ran",
       "executor-crashed",
+      "unmeasured",
       "no-candidates",
       "all-rejected-by-language",
       "supply-short",

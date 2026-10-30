@@ -9,7 +9,9 @@
 # nothing and exits 0. When it was not, it opens ONE P1 card naming the gap and
 # the reason class, and prints one line. The reason class comes from
 # `assessDay` in the repository (src/lib/source-floor.ts): job-never-ran,
-# executor-crashed, no-candidates, all-rejected-by-language, or supply-short.
+# executor-crashed, unmeasured, no-candidates, all-rejected-by-language, or
+# supply-short. This alarm always passes the wave counts it read from the board,
+# so its own day is measured and never comes back `unmeasured`.
 #
 # Yesterday, not today: the day being judged is the one the owner lived through,
 # in JST. A count of "today so far" is guaranteed to look short at 07:30 and
