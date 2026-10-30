@@ -3239,9 +3239,9 @@ describe("deck 3fcbb21c — [18] [25] a line that says nothing a reader can act 
  * shipped a line that opens on a month-less date and a wire label.
  */
 const DECK_DATELINE_WIRE =
-  "29, 2026 /PRNewswire/ – Jacobi Strategies on 29 October 2026 announced the launch of the Jacobi Investment Management Harness (the \"Harness\"), giving institutional investment teams a governed route from proprietary AI prototype to production workflow.";
+  '29, 2026 /PRNewswire/ – Jacobi Strategies on 29 October 2026 announced the launch of the Jacobi Investment Management Harness (the "Harness"), giving institutional investment teams a governed route from proprietary AI prototype to production workflow.';
 const DECK_DATELINE_WIRE_CLEAN =
-  "Jacobi Strategies on 29 October 2026 announced the launch of the Jacobi Investment Management Harness (the \"Harness\"), giving institutional investment teams a governed route from proprietary AI prototype to production workflow.";
+  'Jacobi Strategies on 29 October 2026 announced the launch of the Jacobi Investment Management Harness (the "Harness"), giving institutional investment teams a governed route from proprietary AI prototype to production workflow.';
 
 describe("deck adf49ed1 — [7] a cut dateline with the newswire tag still in it", () => {
   it("refuses the sentence the extractor cut", () => {
