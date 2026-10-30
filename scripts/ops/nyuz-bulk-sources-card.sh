@@ -109,7 +109,21 @@ The tool exits 1 when it could not reach the floor. That is a result to report, 
 No product code, no polling-tier experiments, no deletes, no docs.
 EOF
 
-ID=$(python3 "$HOME/.hermes/scripts/nyuz-kanban-card.py" --board "$BOARD" \
-  --title "Bulk source wave $DATE $SLOT: English only, any country, $FLOOR+ (target $TARGET)" \
-  --body-file "$BODY" --assignee scout --priority 10 --key "$KEY" --created-by ceo 2>/dev/null)
-echo "bulk source wave $DATE $SLOT -> card ${ID:-FAILED}"
+# The card is this script's only output, so failing to open it has to be visible
+# and non-zero. Printing "-> card FAILED" on stdout and exiting 0 is how a slot
+# with no card at all read as a quiet success in cron; the next morning's alarm
+# then scored that slot `job-never-ran` and sent the repair to the scheduler when
+# this helper was the thing that failed. The helper's own stderr stays visible --
+# it says which refusal it hit ("kanban: no board at ...") -- and the tail below
+# exits 2, the same shape the alarm uses when its card cannot be opened.
+if ! ID=$(python3 "$HOME/.hermes/scripts/nyuz-kanban-card.py" --board "$BOARD" \
+      --title "Bulk source wave $DATE $SLOT: English only, any country, $FLOOR+ (target $TARGET)" \
+      --body-file "$BODY" --assignee scout --priority 10 --key "$KEY" --created-by ceo); then
+  echo "bulk source wave: could not open the card for $DATE $SLOT on $BOARD; that slot has no card" >&2
+  exit 2
+fi
+if [ -z "$ID" ]; then
+  echo "bulk source wave: card helper returned no id for $DATE $SLOT on $BOARD; that slot has no card" >&2
+  exit 2
+fi
+echo "bulk source wave $DATE $SLOT -> card $ID"

@@ -31,6 +31,13 @@ query — is a failure, not a zero. Both scripts say why on stderr and exit 2
 rather than reporting a day that never ran or opening a card on top of a dead
 one.
 
+Opening the card is the other half of that rule. When `nyuz-kanban-card.py`
+fails or returns no id, `nyuz-bulk-sources-card.sh` names the slot on stderr and
+exits 2. It never prints `-> card FAILED` and exits 0: that shape made a slot
+with no card at all look like a quiet success in cron, and the next morning's
+alarm then scored the slot `job-never-ran`, blaming the scheduler for the card
+factory's failure.
+
 The design, the measured failure it answers and the invariants it leaves behind
 are in [docs/decisions/daily-source-floor.md](../../docs/decisions/daily-source-floor.md).
 
