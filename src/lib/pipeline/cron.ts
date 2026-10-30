@@ -159,7 +159,7 @@ export const IMPACT_CRON = "10,25,40,55 * * * *";
  *
  * Every minute, because `send_at` is a clock time the reader chose and the tick
  * that sends is the resolution of the promise: at five minutes, a briefing owed
- * at 07:30 could not arrive before 07:35 without arriving before it was due.
+ * at 09:30 could not arrive before 07:35 without arriving before it was due.
  * Every invocation generates and delivers. Generation is bounded per run, so
  * using every minute is what drains a busy deadline queue instead of moving the
  * later readers into five-minute batches.
@@ -168,7 +168,7 @@ export const DIGEST_CRON = "* * * * *";
 
 /**
  * Generation runs on every minute tick. Each invocation remains bounded by the
- * digest batch size, but a busy 07:30 deadline can now drain one batch per
+ * digest batch size, but a busy 09:30 deadline can now drain one batch per
  * minute instead of waiting five minutes between batches. The ten-minute
  * preparation window therefore has useful capacity for multiple readers.
  */

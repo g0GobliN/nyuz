@@ -16,6 +16,7 @@ import { usePrefs } from "@/lib/prefs-store";
 import { withOfflineFallback } from "@/lib/offline/fallback";
 import { loadHomeFeed } from "@/lib/server/briefing";
 import { nextBriefingLabel } from "@/lib/pipeline/schedule";
+import { EVENING_DELIVERY_TIME } from "@/lib/briefing-slots";
 import { useReveal } from "@/lib/use-reveal";
 import type { Story } from "@/lib/story";
 
@@ -265,7 +266,7 @@ function DashboardHome() {
               <p className="mt-1 text-[12px] text-muted-foreground">
                 {prefs.paused
                   ? "Nothing is being sent until you resume."
-                  : `${prefs.days.join(" · ")} · ${prefs.timezone}`}
+                  : `${prefs.time} and ${EVENING_DELIVERY_TIME} · ${prefs.days.join(" · ")} · ${prefs.timezone}`}
               </p>
               <Link
                 to="/dashboard/delivery"

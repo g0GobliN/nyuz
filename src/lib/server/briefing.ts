@@ -12,8 +12,9 @@ import { assessReadiness } from "@/lib/pipeline/readiness";
 import { signedInOnly } from "./guard";
 import { countOrThrow } from "@/lib/supabase/count";
 import { backfill, WINDOW_HOURS } from "@/lib/pipeline/backfill";
-import { nextSlot } from "@/lib/pipeline/schedule";
-import { PLAN_LIMITS, STANDARD_DELIVERY_TIME, clipLabels } from "@/lib/plans";
+import { clockInZone, nextSlots } from "@/lib/pipeline/schedule";
+import { deliveryTimesFor } from "@/lib/briefing-slots";
+import { PLAN_LIMITS, clipLabels } from "@/lib/plans";
 import { defaultMonthKey, describeMonth, type HistoryMonth } from "@/lib/history-window";
 import {
   digestInWindow,
@@ -314,6 +315,15 @@ export type HistoryDay = {
   iso: string;
   date: string;
   weekday: string;
+  /**
+   * The slot this edition belongs to, `HH:MM` in the reader's zone.
+   *
+   * Two editions a day means two rows with the same date and the same weekday,
+   * and a list that renders both without a time is a list that looks like a
+   * bug. It is also what the briefing page's header needs: an evening edition
+   * labelled with the morning's clock is a false claim about when it was built.
+   */
+  slotTime: string;
   count: number;
   headline: string;
   skipped: boolean;
@@ -428,6 +438,7 @@ export const loadHistory = createServerFn({ method: "GET" })
         iso: row.scheduled_for,
         date: at.toLocaleDateString(undefined, { month: "long", day: "numeric", timeZone: zone }),
         weekday: at.toLocaleDateString(undefined, { weekday: "long", timeZone: zone }),
+        slotTime: clockInZone(at, zone),
         count: row.item_count,
         headline: headlines.get(row.digest_id) ?? "Nothing important for your nyuz",
         skipped: row.status === "skipped" || row.item_count === 0,
@@ -863,14 +874,14 @@ async function nextSend(db: Db, userId: string): Promise<string | null> {
     .maybeSingle();
   if (!data || data.paused) return null;
   const plan = await planOf(db, userId);
-  const slot = nextSlot(
-    {
-      sendAt: PLAN_LIMITS[plan].customDeliveryTime ? data.send_at : STANDARD_DELIVERY_TIME,
-      timezone: data.timezone,
-      days: data.days,
-      frequency: "daily",
-    },
+  // The earliest slot still ahead, which with two slots a day is the morning
+  // edition until 09:30 and the evening edition after it. The chip says "next
+  // briefing", so it names the next one; naming both belongs to the schedule
+  // page, not to a one-line chip.
+  const [slot] = nextSlots(
+    { timezone: data.timezone, days: data.days, frequency: "daily" },
     new Date(),
+    deliveryTimesFor(plan, data.send_at),
   );
   return slot?.toISOString() ?? null;
 }

@@ -22,7 +22,7 @@ beforeAll(async () => {
     create type plan_tier as enum ('uno','plura','omni');
     create table profiles(id uuid primary key);
     create table subscriptions(user_id uuid primary key,plan plan_tier);
-    create table notification_preferences(user_id uuid primary key,send_at time default '07:30',timezone text default 'UTC',channels text[] default '{email}',breaking text default 'important',frequency text default 'daily');
+    create table notification_preferences(user_id uuid primary key,send_at time default '09:30',timezone text default 'UTC',channels text[] default '{email}',breaking text default 'important',frequency text default 'daily');
     create table user_topics(user_id uuid,topic_id uuid,muted boolean default false,importance text default 'notable',keywords text[] default '{}',exclude_keywords text[] default '{}',primary key(user_id,topic_id));
     create table user_source_prefs(user_id uuid,source_id uuid,pref text,created_at timestamptz default now(),primary key(user_id,source_id));
     create table user_custom_sources(user_id uuid,source_id uuid,active boolean default true,created_at timestamptz default now(),updated_at timestamptz default now(),primary key(user_id,source_id));

@@ -88,7 +88,7 @@ export const FLASH_POLICY: FreshnessPolicy = {
 /**
  * The daily briefing.
  *
- * 24h primary because a reader on an 07:30 send has to be told about something
+ * 24h primary because a reader on an 09:30 send has to be told about something
  * that broke at 20:00 yesterday. 48h allowed because a two-day-old story a
  * reader has not seen is still news to them.
  *

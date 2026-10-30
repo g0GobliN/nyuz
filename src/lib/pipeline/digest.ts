@@ -1,4 +1,5 @@
-import { PLAN_LIMITS, STANDARD_DELIVERY_TIME } from "../plans";
+import { PLAN_LIMITS } from "../plans";
+import { deliveryTimesFor } from "../briefing-slots";
 import { alertDeliveryAllowed } from "./alert-entitlement";
 /**
  * Stage 7 — building a briefing, then sending it.
@@ -66,7 +67,7 @@ import type {
   ImpactStatus,
   PlanTier,
 } from "@/lib/supabase/types";
-import { hourInZone, nextSlot } from "./schedule";
+import { hourInZone, nextSlots } from "./schedule";
 import {
   bandFor,
   policyFor,
@@ -113,7 +114,7 @@ const RETRY_BACKOFF_MINUTES = [2, 6, 18, 54];
  * How far ahead of `scheduled_for` generation may start.
  *
  * This is the whole of the timing fix. `scheduled_for` is a *delivery*
- * deadline — the reader picked 07:30, so 07:30 is when the briefing must be in
+ * deadline — the reader picked 09:30, so 09:30 is when the briefing must be in
  * their hands, not when a worker may begin paying for model calls. Opening the
  * generation window early means a retryable failure has somewhere to retry to
  * that is not the reader's morning: a 429 at T-10 is retried at T-5 and the
@@ -164,7 +165,7 @@ const DELIVERY_LEASE_MINUTES = 2;
 /**
  * How far before the deadline a delivery may still be treated as due.
  *
- * Cron ticks are not exact. A trigger scheduled for 07:30:00 can be handed to
+ * Cron ticks are not exact. A trigger scheduled for 09:30:00 can be handed to
  * the Worker at 07:29:59, and a strict `deadline > now` comparison reads that
  * as "not yet" and makes the reader wait a whole extra tick for the sake of one
  * second. The window is two seconds because that is the size of the jitter, not
@@ -497,7 +498,7 @@ export async function digest(db: Db, options: DigestOptions = {}): Promise<Diges
     else if (outcome.decision === "expired") expired += 1;
 
     // Dispatch this slot before another reader's generation or the retry
-    // backlog can turn a 07:30 promise into a later five-minute cron slot.
+    // backlog can turn a 09:30 promise into a later five-minute cron slot.
     if (
       options.skipSend !== true &&
       options.dryRun !== true &&
@@ -552,7 +553,10 @@ const PREF_COLUMNS =
   "user_id, send_at, timezone, days, channels, frequency, density, paused, instructions, language";
 
 /**
- * Writes one `digests` row per active reader at their own next 07:30.
+ * Writes one `digests` row per active reader per slot in their own day -- 09:30
+ * and 16:30 in their zone, every day -- so a reader always has both of their
+ * next editions booked. The `(user_id, scheduled_for)` unique index makes a
+ * second tick write nothing, which is why this can run every minute.
  *
  * Exported for `digest-schedule.test.ts`, which pins the one thing this stage
  * must never regress: the instant comes from `row.timezone`, not from the
@@ -593,23 +597,26 @@ export async function scheduleUpcoming(db: Db, now: Date, options: DigestOptions
       for (const row of rows) {
         if (row.paused) continue;
         const plan = plans.get(row.user_id) ?? "uno";
-        const slot = options.immediate
-          ? now
-          : nextSlot(
-              {
-                sendAt: PLAN_LIMITS[plan].customDeliveryTime ? row.send_at : STANDARD_DELIVERY_TIME,
-                timezone: row.timezone,
-                days: row.days,
-                frequency: "daily",
-              },
+        // Two slots a day, every day, in the reader's own zone. `deliveryTimesFor`
+        // is total: a tier that may move its morning time keeps that, and the
+        // evening slot is 16:30 for everybody. Writing one row per slot is what
+        // makes the second daily briefing exist at all -- the reader-facing copy
+        // has promised two since the 2026-10-30 ruling and the schedule is the
+        // only thing that can keep that promise.
+        const slots = options.immediate
+          ? [now]
+          : nextSlots(
+              { timezone: row.timezone, days: row.days, frequency: "daily" },
               now,
+              deliveryTimesFor(plan, row.send_at),
             );
-        if (slot === null) continue;
-        scheduled.push({
-          user_id: row.user_id,
-          scheduled_for: slot.toISOString(),
-          status: "scheduled",
-        });
+        for (const slot of slots) {
+          scheduled.push({
+            user_id: row.user_id,
+            scheduled_for: slot.toISOString(),
+            status: "scheduled",
+          });
+        }
       }
 
       if (options.dryRun !== true && scheduled.length > 0) {
@@ -656,7 +663,7 @@ type DueRow = {
  * The window opens `PREPARE_LEAD_MINUTES` before `scheduled_for` and this is
  * the only place that lead is applied. Delivery is gated separately, on
  * `scheduled_for` itself, in `deliverDue` — the two used to be one instant, and
- * fusing them is what let a failure after 07:30 move the reader's 07:30.
+ * fusing them is what let a failure after 09:30 move the reader's 09:30.
  */
 async function loadDue(db: Db, now: Date, options: DigestOptions): Promise<DueRow[]> {
   const stale = new Date(now.getTime() - GENERATION_LEASE_MINUTES * 60_000).toISOString();
@@ -1575,7 +1582,7 @@ async function writeStage(
   // the next month, and an impact still being written elsewhere dropped every
   // story and turned the briefing into a quiet day that was not quiet.
   //
-  // None of those are reasons the reader's 07:30 should move. A model that will
+  // None of those are reasons the reader's 09:30 should move. A model that will
   // not answer costs the sentence, never the slot: whatever impacts exist are
   // used, and an item no rung can say something story-specific about is
   // **withheld from this briefing** — Q4, ruled 2026-10-12: "the remedy is
@@ -2466,7 +2473,7 @@ async function deliverDue(
   for (const row of rows) {
     // `scheduled_for` is the delivery deadline, and this is the only gate on
     // it. Generation may have finished up to PREPARE_LEAD_MINUTES ago; a
-    // reader who asked for 07:30 must not be woken at 07:20 because the
+    // reader who asked for 09:30 must not be woken at 07:20 because the
     // briefing happened to be ready early. A digest we cannot find a deadline
     // for is let through, so the missing-digest path below still marks it.
     const deadline = deadlines.get(row.digest_id);
@@ -2777,7 +2784,7 @@ async function sendTelegramDelivery(
  *
  * `sendStoryPushes` raises a notification per story it is given, and this used
  * to hand it the entire digest — fifty stories on Omni at Deep density, per
- * device, at 07:30. The briefing is not the notification: it is in the email
+ * device, at 09:30. The briefing is not the notification: it is in the email
  * and on the dashboard, and the notice exists to be worth opening. So a
  * briefing sends one notice naming its lead stories, and the reader taps
  * through to the feed.

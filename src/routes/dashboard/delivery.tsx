@@ -30,6 +30,7 @@ import { usePrefs } from "@/lib/prefs-store";
 import { cn } from "@/lib/utils";
 import { usePlan } from "@/lib/plan-state";
 import { PLAN_LIMITS, STANDARD_DELIVERY_TIME, allowedBreaking } from "@/lib/plans";
+import { EVENING_DELIVERY_TIME } from "@/lib/briefing-slots";
 
 export const Route = createFileRoute("/dashboard/delivery")({
   component: Delivery,
@@ -233,7 +234,7 @@ function Delivery() {
                 without it the grid track overflows the panel. */}
             <div className="min-w-0">
               <label htmlFor="time" className="text-[13px] text-muted-foreground">
-                Delivery time{" "}
+                Morning delivery time{" "}
                 {!limits.customDeliveryTime && (
                   <a href="/dashboard/billing" className="text-signal">
                     · Customize with Plura
@@ -260,6 +261,16 @@ function Delivery() {
               />
             </div>
           </div>
+
+          {/* The evening edition is not a setting: it is the same 16:30 for
+              every reader, every day. Saying so here is the only place a reader
+              can learn it, and a schedule page that named one time while the
+              scheduler kept two was the defect this replaced. */}
+          <p className="mt-4 text-[13px] text-muted-foreground">
+            The evening edition arrives at{" "}
+            <span className="tabular-nums text-foreground">{EVENING_DELIVERY_TIME}</span> in your
+            timezone, every day, on every plan.
+          </p>
 
           <div className="mt-6">
             <p className="text-[13px] text-muted-foreground">Days</p>

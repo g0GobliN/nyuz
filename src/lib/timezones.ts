@@ -25,7 +25,7 @@ export function detectTimezone(): string {
  * `handle_new_user` runs inside GoTrue's own insert, so this is the only value
  * that can reach the row an account is born with. That is why it exists at all:
  * a reader who signs up and stops before the schedule step would otherwise hold
- * the `'UTC'` column default and be served at 07:30 UTC.
+ * the `'UTC'` column default and be served at 09:30 UTC.
  *
  * Deliberately `undefined` when the account may already exist. Supabase merges
  * `data` into `raw_user_meta_data`, so sending it on an ordinary sign-in would

@@ -13,6 +13,7 @@ import {
 } from "@/lib/server/analytics";
 import type { EventStatus } from "@/lib/supabase/types";
 import { sourceCount } from "@/lib/story";
+import { STANDARD_DELIVERY_TIME } from "@/lib/plans";
 import { formatScore } from "@/lib/score-format";
 import { cn } from "@/lib/utils";
 
@@ -241,9 +242,9 @@ function PipelineTab({ data }: { data: Overview }) {
           ))}
         </div>
         <p className="mt-5 text-[12.5px] leading-relaxed text-muted-foreground">
-          A briefing scheduled for a reader&rsquo;s 07:30 is written ahead of time, so scheduled
-          slots are the pipeline working rather than a backlog, and depth alone cannot tell a busy
-          queue from a stuck one — which is what the oldest age is for.
+          A briefing scheduled for a reader&rsquo;s {STANDARD_DELIVERY_TIME} is written ahead of
+          time, so scheduled slots are the pipeline working rather than a backlog, and depth alone
+          cannot tell a busy queue from a stuck one — which is what the oldest age is for.
         </p>
       </section>
 

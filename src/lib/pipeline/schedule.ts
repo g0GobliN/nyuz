@@ -2,8 +2,8 @@
  * When a reader's next briefing is due.
  *
  * Timezone arithmetic is deliberately not a model call and not a SQL function.
- * The product promise is "at 07:30 in your timezone on the days you picked",
- * and that is calendar arithmetic over `notification_preferences`. A library
+ * The product promise is "at 09:30 and 16:30 in your timezone, every day", and
+ * that is calendar arithmetic over `notification_preferences`. A library
  * that pulled in IANA data as a Node builtin would fail on Workers; `Intl`
  * is the API both runtimes actually have.
  */
@@ -70,6 +70,26 @@ export function nextSlot(schedule: DigestSchedule, now: Date): Date | null {
   }
 
   return null;
+}
+
+/**
+ * Every slot in the reader's day that is still ahead of `now`, earliest first.
+ *
+ * One call per clock time in `times` (`deliveryTimesFor` in
+ * `briefing-slots.ts` decides that list), then deduped by instant: a reader
+ * whose morning time is 16:30 has one briefing, not the same row twice.
+ */
+export function nextSlots(
+  schedule: Omit<DigestSchedule, "sendAt">,
+  now: Date,
+  times: string[],
+): Date[] {
+  const slots = new Map<number, Date>();
+  for (const time of times) {
+    const slot = nextSlot({ ...schedule, sendAt: time }, now);
+    if (slot !== null) slots.set(slot.getTime(), slot);
+  }
+  return [...slots.values()].sort((a, b) => a.getTime() - b.getTime());
 }
 
 /** `HH:MM` from a timestamptz, in the reader's zone — for the dashboard chip. */

@@ -15,7 +15,7 @@ export function formatStoryTime(iso: string, now: Date = new Date()): string {
   if (Number.isNaN(at.getTime())) return "";
 
   // h23 rather than `hour12: false`, which renders midnight as "24:00" in some
-  // locales. The rest of the app writes times as 07:30, so this matches.
+  // locales. The rest of the app writes times as 09:30, so this matches.
   const time = at.toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",

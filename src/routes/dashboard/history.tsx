@@ -233,6 +233,10 @@ function Days({ days, loading }: { days: HistoryDay[]; loading: boolean }) {
           <div className="flex flex-wrap items-baseline gap-3">
             <h2 className="text-[16px] font-medium tracking-tight">{d.date}</h2>
             <span className="text-[12.5px] text-muted-foreground">{d.weekday}</span>
+            {/* Two editions a day: the time is what tells the evening row from
+                the morning one, so it sits in the heading rather than after the
+                story count. */}
+            <span className="text-[12.5px] tabular-nums text-muted-foreground">{d.slotTime}</span>
             <span className="ml-auto text-[12.5px] tabular-nums text-muted-foreground">
               {d.skipped ? "No briefing" : `${d.count} stories`}
             </span>

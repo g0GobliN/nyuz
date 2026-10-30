@@ -16,7 +16,7 @@ import { isSupportedTimezone } from "@/lib/timezones";
  * created at the provider callback, before any of this project's code runs, so
  * their `notification_preferences` row is seeded with the `'UTC'` column
  * default. A reader who signed up with either and never opened the schedule
- * step would be served at 07:30 UTC.
+ * step would be served at 09:30 UTC.
  *
  * So this is the writer for those two paths, and for any account whose row
  * predates this migration. It is called once on the first authenticated load

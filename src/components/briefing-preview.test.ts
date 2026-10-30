@@ -262,11 +262,11 @@ describe("BriefingPreview — what the chrome claims", () => {
   }
 
   it("prints none of the banned strings under edition chrome", () => {
-    const html = chrome({ chrome: "edition", editionTime: "07:30" });
+    const html = chrome({ chrome: "edition", editionTime: "09:30" });
     for (const phrase of BANNED) expect(count(html, phrase)).toBe(0);
     // The positive half: the header still says what this is and when it was
     // assembled, so the assertion above cannot pass by rendering nothing.
-    expect(html).toContain("Edition · 07:30");
+    expect(html).toContain("Edition · 09:30");
   });
 
   it("trips the same scan under the default chrome, so the scan can fail", () => {
@@ -280,11 +280,15 @@ describe("BriefingPreview — what the chrome claims", () => {
     expect(count(defaulted, "Delivered at")).toBe(1);
   });
 
-  it("falls back to the card's own time when editionTime is missing", () => {
-    // A caller that passes only `chrome` still gets a true time rather than an
-    // empty stamp — `time` defaults to "7:30 AM", the card's 12-hour form.
+  it("names the edition and no clock when editionTime is missing", () => {
+    // Two editions a day changed what a missing stamp means. Falling back to
+    // the reader's preference used to be "a true time"; now it would stamp an
+    // evening edition with the morning's clock, which is a false claim about
+    // when it was built. With no slot known the header says "Edition" and no
+    // more, and the reader is told nothing they cannot check.
     const html = chrome({ chrome: "edition" });
-    expect(html).toContain("Edition · 7:30 AM");
+    expect(html).toContain("Edition");
+    expect(count(html, "Edition ·")).toBe(0);
     expect(count(html, "Delivered at")).toBe(0);
   });
 });

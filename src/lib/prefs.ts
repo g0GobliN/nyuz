@@ -7,11 +7,17 @@
  */
 
 import { CANONICAL_LANGUAGE, type LanguageTag } from "@/lib/languages";
+import { STANDARD_DELIVERY_TIME } from "@/lib/plans";
 
 export type Prefs = {
   name: string;
   topics: string[];
   exclusions: string[];
+  /**
+   * Morning delivery time. The evening edition is fixed at 16:30 for every
+   * reader and is not stored here — see `briefing-slots.ts`. Read through
+   * `deliveryTimesFor`, which is what the scheduler actually calls.
+   */
   time: string;
   timezone: string;
   days: string[];
@@ -47,11 +53,15 @@ export const DEFAULT_PREFS: Prefs = {
   name: "",
   topics: [],
   exclusions: [],
-  time: "07:30",
+  time: STANDARD_DELIVERY_TIME,
   // Overwritten with the browser's own zone on hydration. A literal is still
   // needed because this is read during SSR, where there is no browser.
   timezone: "UTC",
-  days: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+  // Seven days. The owner's ruling is "permanently everyday", and the old
+  // Mon–Fri default was the product quietly shipping five days a week: a
+  // weekend edition that is not scheduled cannot be read, and skipping the
+  // slot is not how a quiet day is expressed.
+  days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
   channels: { email: true, telegram: false, whatsapp: false, push: false },
   density: 35,
   frequency: "daily",

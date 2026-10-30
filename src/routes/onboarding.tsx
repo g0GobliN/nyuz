@@ -12,6 +12,7 @@ import { PageLoading } from "@/components/loading";
 import { useAuth } from "@/lib/auth";
 import { usePlan } from "@/lib/plan-state";
 import { PLAN_LIMITS, STANDARD_DELIVERY_TIME, formatTopicLimit } from "@/lib/plans";
+import { EVENING_DELIVERY_TIME } from "@/lib/briefing-slots";
 import { sendWelcome } from "@/lib/server/account";
 import { startFirstBriefing } from "@/lib/server/briefing";
 import { usePrefs, type Prefs } from "@/lib/prefs-store";
@@ -314,7 +315,7 @@ function StepSchedule({ draft, patch }: StepProps) {
       <div className="grid gap-5 sm:grid-cols-2">
         <div>
           <label htmlFor="time" className="text-[13px] text-muted-foreground">
-            Delivery time
+            Morning delivery time
           </label>
           <input
             id="time"
@@ -337,6 +338,12 @@ function StepSchedule({ draft, patch }: StepProps) {
           />
         </div>
       </div>
+
+      <p className="text-[13px] text-muted-foreground">
+        A second edition arrives at{" "}
+        <span className="tabular-nums text-foreground">{EVENING_DELIVERY_TIME}</span> in your
+        timezone, every day, on every plan.
+      </p>
 
       <div>
         <p className="text-[13px] text-muted-foreground">Days</p>

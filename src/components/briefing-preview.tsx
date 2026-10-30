@@ -46,7 +46,7 @@ import { cn } from "@/lib/utils";
  *
  * The default is `email` so the two landing-page usages keep rendering exactly
  * what they rendered before, byte for byte. Marketing is *selling* email, and a
- * page whose subject is "your briefing arrives at 07:30" is entitled to name an
+ * page whose subject is "your briefing arrives at 09:30" is entitled to name an
  * inbox; the reader's own briefing is not, because the product does not
  * deliver by email today — the Resend key is deliberately disabled until launch
  * (`AGENTS.md`), and nothing has been accepted since 2026-08-26. A page that
@@ -100,10 +100,12 @@ export function BriefingPreview({
 }) {
   const reader = variant === "reader";
   const edition = chrome === "edition";
-  // What the edition header says the briefing is, and when. Falls back to the
-  // card's own `time` so a caller that passes only one of the two still gets a
-  // true time rather than an empty stamp.
-  const stamp = editionTime ?? time;
+  // What the edition header says the briefing is, and when. With two editions a
+  // day the caller may know exactly which slot this is (`editionTime`), and when
+  // it does not the header names no time at all rather than falling back to the
+  // reader's morning preference -- an evening briefing stamped 09:30 is a false
+  // claim about when it was built, which is worse than a stamp with no clock.
+  const stamp = editionTime ?? null;
 
   return (
     <div
@@ -121,14 +123,14 @@ export function BriefingPreview({
           "Edition · <time>" — one string, because a label split across the row
           is not the label the ruling names. The right slot is then empty: the
           time is already in the label, and printing it twice in two formats
-          ("07:30" and "7:30 AM") is a second thing for the reader to reconcile.
+          ("09:30" and "7:30 AM") is a second thing for the reader to reconcile.
           The row's padding, border and type size are untouched, so the card's
           geometry does not move.
         */}
         {edition ? (
           <span className="flex items-center gap-2 text-[12px] text-muted-foreground">
             <LogoMark className="h-3.5 w-3.5" />
-            <span>Edition · {stamp}</span>
+            <span>Edition{stamp ? ` · ${stamp}` : ""}</span>
           </span>
         ) : (
           <>

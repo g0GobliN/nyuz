@@ -66,7 +66,7 @@ function Briefing() {
 
   const pretty = useMemo(() => {
     const [rawH, rawM] = prefs.time.split(":");
-    const h = Number(rawH ?? 7);
+    const h = Number(rawH ?? 9);
     const m = Number(rawM ?? 30);
     const suffix = h < 12 ? "AM" : "PM";
     const hour = h % 12 === 0 ? 12 : h % 12;
@@ -110,6 +110,11 @@ function Briefing() {
     enabled: Boolean(digest),
   });
   const day = historyQ.data?.days.find((d) => d.digestId === digest);
+  // Which edition this page is showing, in the reader's zone. Known when they
+  // opened a specific one from History; unknown for "the latest", and then the
+  // card names no clock rather than naming the morning's -- two editions a day
+  // makes a wrong time the difference between the morning and the evening brief.
+  const editionClock = day?.slotTime;
 
   const today = todayQ.data ?? [];
   // Bookmarked but not yet confirmed by the server, merged over the list the
@@ -142,11 +147,15 @@ function Briefing() {
           the S8 ruling removed from the card, and the arbiter ruled on
           2026-10-22 that it moves for the same reason. With an older digest
           open it names the day the edition was assembled, which is the shape
-          the card's own "Edition · 07:30" header already uses. */}
+          the card's own "Edition · 09:30" header already uses. */}
       <PageHeader
         eyebrow={day ? `Edition · ${day.date}` : "Edition"}
         title="Your briefing, as it was assembled."
-        sub={`Built from today's coverage at ${prefs.time}. Nothing here was reordered for the web.`}
+        sub={
+          editionClock
+            ? `Built from the coverage up to ${editionClock}. Nothing here was reordered for the web.`
+            : "Built from today's coverage. Nothing here was reordered for the web."
+        }
       >
         {/* Says out loud that this is not today's briefing, and offers the way
             back. An older digest that looks identical to the current one is how
@@ -239,7 +248,7 @@ function Briefing() {
             {...(tab === "today" ? { fromQueue: "briefing" as const } : {})}
             stories={shown}
             time={pretty}
-            editionTime={prefs.time}
+            {...(editionClock ? { editionTime: editionClock } : {})}
             name={who}
             className="animate-rise"
           />

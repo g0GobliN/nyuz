@@ -1,4 +1,4 @@
-import { PLAN_LIMITS } from "@/lib/plans";
+import { PLAN_LIMITS, STANDARD_DELIVERY_TIME } from "@/lib/plans";
 import { Eyebrow } from "@/components/kit";
 
 /**
@@ -287,7 +287,7 @@ const BEATS: Beat[] = [
     yours: true,
   },
   {
-    time: "07:30",
+    time: STANDARD_DELIVERY_TIME,
     what: "You read one paragraph",
     detail:
       "A concise source description reaches your briefing. Open it for original reporting and deeper shared coverage when available.",

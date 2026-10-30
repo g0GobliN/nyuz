@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { PLAN_LIMITS, PLAN_TIERS } from "./plans";
+import { PLAN_LIMITS, PLAN_TIERS, STANDARD_DELIVERY_TIME } from "./plans";
 import { planFeatures, PLAN_CARDS } from "./plan-copy";
 import { capFor } from "./density";
 import { assertTopicAddition, validatePlanPreferences } from "./server/plan-access";
@@ -64,7 +64,7 @@ describe.each(PLAN_TIERS)("%s launch plan", (plan) => {
   });
   it("validates direct capability requests", () => {
     expect(() =>
-      validatePlanPreferences(plan, { time: "07:30", frequency: "daily" }),
+      validatePlanPreferences(plan, { time: STANDARD_DELIVERY_TIME, frequency: "daily" }),
     ).not.toThrow();
     if (!p.customDeliveryTime)
       expect(() => validatePlanPreferences(plan, { time: "09:00" })).toThrow();

@@ -83,7 +83,9 @@ describe("timeFromDb", () => {
   });
 
   it("falls back rather than returning something the input cannot render", () => {
-    expect(timeFromDb("")).toBe("07:30");
+    // The fallback is the standard morning slot, not a literal: a value the
+    // product no longer uses as its morning time is not a safe default.
+    expect(timeFromDb("")).toBe("09:30");
   });
 });
 

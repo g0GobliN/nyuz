@@ -1,4 +1,5 @@
 import { toLanguageTag } from "@/lib/languages";
+import { STANDARD_DELIVERY_TIME } from "@/lib/plans";
 import type { Prefs } from "@/lib/prefs";
 import type { DeliveryChannel, NotificationPreferences } from "@/lib/supabase/types";
 
@@ -57,14 +58,14 @@ export function channelsFromArray(channels: DeliveryChannel[]): Prefs["channels"
 }
 
 /**
- * "07:30" from Postgres `time`, which comes back as "07:30:00".
+ * "09:30" from Postgres `time`, which comes back as "09:30:00".
  *
  * The input control is `type="time"` and rejects a value carrying seconds, so
  * loading a saved row without trimming leaves the field silently blank.
  */
 export function timeFromDb(value: string): string {
   const match = /^(\d{2}):(\d{2})/.exec(value);
-  return match ? `${match[1]}:${match[2]}` : "07:30";
+  return match ? `${match[1]}:${match[2]}` : STANDARD_DELIVERY_TIME;
 }
 
 /**
