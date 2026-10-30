@@ -2074,6 +2074,8 @@ on the audit's delivered briefing fab11fdf (17 cards, real stored labels): 17 of
 no line is left saying only "You follow AI." (probe over `digest_items` + `event_topics` +
 `user_topics`, 2026-10-23).
 
+- **2026-10-30 — PR #83 re-gate: prettier newline and stale test assertion fixed.** The branch `wt/design-signoff-wave3` (head `ea74629`) had three diff-caused red checks against `origin/main` `911b5ae`: (1) missing trailing newline in `src/lib/net/public-url.test.ts:50` (prettier), (2) stale source guard in `src/lib/push/multi-device.test.ts:318` asserting the old `z.object({ endpoint: z.string().max(2048) }).parse(input)` validator that commit `3c2f5eb` replaced with `deleteInputSchema`, (3) coverage floor cascade from the test failure. Fixes: `npx prettier --write src/lib/net/public-url.test.ts` (appends newline); updated the guard to `expect(account).toContain("deleteInputSchema")`. Both test files now pass (21 tests). Work-log entry and fixes on the same branch; PR title/body rewritten to match the actual diff (S5 focus rings only; 454/469 added lines are server-side URL validation from `3c2f5eb`). Pushed to `wt/design-signoff-wave3` for sentinel re-verification.
+
 ## 7. What is next
 
 **2026-10-22: the reader's prose is now measured, and four blockers are unowned.**
