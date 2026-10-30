@@ -255,17 +255,23 @@ const FRAGMENT =
   /^(?:and|but|or|which|that|while|although|though|because|so|then|also|still|however|whereas)\b/i;
 
 /**
- * The clause the money sits in, cut from the sentence around it.
+ * What the clause guards say about the money that was found, one step at a time.
  *
- * Every word stays the article's: the text is sliced at the nearest comma,
- * semicolon, colon or dash on each side of the match, so nothing is paraphrased
- * and nothing is added but the full stop. A clause left too short to be a
- * statement, or one that starts mid-thought, is refused — silence beats a
- * fragment under a heading that promises a reason.
+ * `consequenceClause` is the ladder's actual decision; this step bundle exists
+ * so the Leg A funnel can say **where** a candidate died — `no-money` (no money
+ * in the unit at all), `too-short-prose` (the slice is not a statement),
+ * `short-clause`, `fragment`, or `figure-only` (money with nothing saying what
+ * it is doing — ruling #10's removed shape, so a shape the ladder cannot
+ * print). The ladder path takes `.text`; the instrument takes the whole bundle.
  */
-function consequenceClause(text: string): string | null {
+export type ConsequenceRefusal =
+  "no-money" | "too-short-prose" | "short-clause" | "fragment" | "figure-only";
+
+export type ConsequenceStep = { text: string | null; refusal: ConsequenceRefusal | null };
+
+function consequenceStep(text: string): ConsequenceStep {
   const money = MONEY.exec(text);
-  if (!money) return null;
+  if (!money) return { text: null, refusal: "no-money" };
   const index = money.index;
   const before = text.slice(0, index);
   const after = text.slice(index + money[0].length);
@@ -277,15 +283,23 @@ function consequenceClause(text: string): string | null {
   const stops = breaks.map((mark) => after.indexOf(mark)).filter((stop) => stop >= 0);
   const end = stops.length === 0 ? text.length : index + money[0].length + Math.min(...stops);
   const clause = sentence(text.slice(start, end));
-  if (clause === null) return null;
-  if (clause.split(/\s+/u).length < 5) return null;
-  if (FRAGMENT.test(clause)) return null;
-  if (!CONSEQUENCE.test(clause)) return null;
+  if (clause === null) return { text: text.slice(start, end), refusal: "too-short-prose" };
+  if (clause.split(/\s+/u).length < 5) return { text: clause, refusal: "short-clause" };
+  if (FRAGMENT.test(clause)) return { text: clause, refusal: "fragment" };
+  if (!CONSEQUENCE.test(clause)) return { text: clause, refusal: "figure-only" };
   // The split can leave the clause opening on a lowercase word; the card prints
   // a sentence, so raise the first letter. Nothing else about it is rewritten.
-  return clause.charAt(0) === clause.charAt(0).toLowerCase()
-    ? `${clause.charAt(0).toUpperCase()}${clause.slice(1)}`
-    : clause;
+  const reads =
+    clause.charAt(0) === clause.charAt(0).toLowerCase()
+      ? `${clause.charAt(0).toUpperCase()}${clause.slice(1)}`
+      : clause;
+  return { text: reads, refusal: null };
+}
+
+/** The ladder's own decision, as the funnel uses it: refusal or text. */
+function consequenceClause(text: string): string | null {
+  const step = consequenceStep(text);
+  return step.refusal === null ? step.text : null;
 }
 
 /**
@@ -408,30 +422,120 @@ function standsAlone(text: string): boolean {
  * which is the failure mode that made three earlier censuses disagree with
  * production.
  */
-export function bindingLine(input: {
+/**
+ * One sentence, refactored out of `bindingLine` so the Leg A funnel can say
+ * **where** a binding candidate died instead of only that the rung did not
+ * fire. The ladder path takes `.text`; the instrument takes the whole bundle.
+ * The decision order here is the ladder's own, unchanged:
+ * the relative-clause guard applies to both shapes, and the standalone guards
+ * are checked before any shape a sentence would have had.
+ */
+export type BindingRefusal = "relative-clause" | "standalone-guards";
+export type BindingShape =
+  | { kind: "effective-change" | "instrument-duty"; text: string }
+  | { kind: "refused"; refusal: BindingRefusal; text: string }
+  | null;
+
+function bindingStep(text: string, names: readonly string[]): BindingShape {
+  if (text === null) return null;
+  const matched = BINDING_START.test(text) && BINDING_CHANGE.test(text);
+  if (matched) {
+    if (BINDING_RELATIVE.test(text)) return { kind: "refused", refusal: "relative-clause", text };
+    if (!standsAlone(text)) return { kind: "refused", refusal: "standalone-guards", text };
+    return { kind: "effective-change", text };
+  }
+  // A change inside a relative clause defines a class; it binds nobody.
+  if (BINDING_RELATIVE.test(text)) return null;
+  const binds = names.some(
+    (name) =>
+      name.trim() !== "" &&
+      (text.startsWith(name) || text.startsWith(`${name}'s `)) &&
+      (INSTRUMENT.test(text) || CAPITALISED_ACT.test(text)) &&
+      IMPOSES.test(text),
+  );
+  if (!binds) return null;
+  if (!standsAlone(text)) return { kind: "refused", refusal: "standalone-guards", text };
+  return { kind: "instrument-duty", text };
+}
+
+/**
+ * The ladder's own decision, as the funnel uses it. `bindingLine` gained its
+ * refusal-instrumenting without any behaviour change: same sentences, same
+ * guards, same order, same return.
+ */
+function bindingWalk(input: {
   evidence: readonly string[] | undefined;
-  /** The event's own top-ranked names, from `rankEntities`. */
   names: readonly string[];
-}): string | null {
+  /** The why-vs-what gate, when the instrument walks it. */
+  whatHappened?: string | null;
+}): { kind: "admissible" | "refused"; text: string; refusal: string | null } | null {
   for (const unit of input.evidence ?? []) {
     for (const part of readerSentences(unit)) {
       const text = sentence(part);
-      if (text === null || !standsAlone(text)) continue;
-      if (BINDING_START.test(text) && BINDING_CHANGE.test(text) && !BINDING_RELATIVE.test(text))
-        return text;
-      // The relative-clause guard applies to both shapes: a duty inside one
-      // describes a class of thing ("care plans, which mandate support for …"),
-      // which is a definition rather than a change.
-      if (BINDING_RELATIVE.test(text)) continue;
-      const binds = input.names.some(
-        (name) =>
-          name.trim() !== "" &&
-          (text.startsWith(name) || text.startsWith(`${name}'s `)) &&
-          (INSTRUMENT.test(text) || CAPITALISED_ACT.test(text)) &&
-          IMPOSES.test(text),
-      );
-      if (binds) return text;
+      if (text === null) continue;
+      if (!standsAlone(text)) continue;
+      const step = bindingStep(text, input.names);
+      // `bindingStep` returning null is the ladder's own silent skip: no shape
+      // matched the sentence, or a relative clause reached a sentence that
+      // carried none. Nothing is recorded — there is no lost candidate here.
+      if (step === null) continue;
+      if (step.kind === "refused")
+        return { kind: "refused", refusal: step.refusal, text: step.text };
+      if (
+        input.whatHappened !== undefined &&
+        normalizeForCompare(step.text) === normalizeForCompare(input.whatHappened)
+      )
+        return { kind: "refused", refusal: "restates-the-paragraph", text: step.text };
+      return { kind: "admissible", text: step.text, refusal: null };
     }
+  }
+  return null;
+}
+
+export function bindingLine(input: {
+  evidence: readonly string[] | undefined;
+  names: readonly string[];
+}): string | null {
+  return bindingWalk(input)?.text ?? null;
+}
+
+/**
+ * The same walk, instrumented: for a rung the ladder did not resolve it returns
+ * where a binding candidate died — the clause guards, a standalone refusal —
+ * or `restates-the-paragraph` when an admissible candidate was blanked by the
+ * why-vs-what gate.
+ */
+export function instrumentBinding(input: {
+  evidence: readonly string[] | undefined;
+  names: readonly string[];
+  whatHappened?: string | null;
+}): { rung: "binding"; text: string; refusal: string | null } | null {
+  const walk = bindingWalk(input);
+  if (walk === null) return null;
+  return { rung: "binding", text: walk.text, refusal: walk.refusal };
+}
+
+/**
+ * The same clause walk, instrumented, for the consequence rung: the first
+ * unit with money in it and what became of it. `figure-only` names ruling #10's
+ * removed shape — money with nothing saying what it does — so it is a shape the
+ * ladder cannot print rather than a refusal of a shape it lost.
+ */
+export function instrumentConsequence(input: {
+  evidence: readonly string[] | undefined;
+  whatHappened?: string | null;
+}): { rung: "consequence"; text: string; refusal: string | null } | null {
+  for (const unit of input.evidence ?? []) {
+    const step = consequenceStep(unit);
+    if (step.refusal === "no-money") continue;
+    if (step.refusal === null && step.text !== null) {
+      if (normalizeForCompare(step.text) === normalizeForCompare(input.whatHappened))
+        return { rung: "consequence", text: step.text, refusal: "restates-the-paragraph" };
+      // An admissible consequence the gate did not blank would have been taken;
+      // seeing one with the ladder silent is a fault, reported as such.
+      return { rung: "consequence", text: step.text, refusal: null };
+    }
+    return { rung: "consequence", text: step.text ?? "", refusal: step.refusal };
   }
   return null;
 }
@@ -444,8 +548,13 @@ export function bindingLine(input: {
  * field for the one rung that reads them. Rebuilt per call rather than cached:
  * the ladder runs once per story at generation and once per card on the read
  * path, and a cache keyed on a few sentences would cost more than it saves.
+ *
+ * Exported so the Leg A funnel's binding instrument can pass the ladder the
+ * very names it used, rather than re-deriving them — an instrument that counts
+ * a different predicate is the failure mode that made three censuses disagree
+ * with production (2026-10-17, 2026-10-18).
  */
-function storyNames(input: InclusionInput): string[] {
+export function storyNames(input: InclusionInput): string[] {
   const paragraph = (input.whatHappened ?? "").trim();
   return rankEntities(input.title ?? "", [
     {

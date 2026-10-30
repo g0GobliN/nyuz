@@ -65,6 +65,10 @@ const bodyOf = (story: Story) =>
     .paragraphs.map((paragraph) => paragraph.text)
     .join("\n\n");
 
+/** The deck and the body as one string, the way a reader reads the page. */
+const publishedTextOf = (story: Story) =>
+  [composeArticle(story).deck.text, ...bodyOf(story).split("\n\n")].join("\n\n");
+
 describe("composeArticle", () => {
   it("ignores stored authored prose and composes from current source evidence", () => {
     const article = {
@@ -1489,11 +1493,15 @@ describe("a story that carries its own timeline", () => {
   const body = article.paragraphs.map((paragraph) => paragraph.text);
   const sentences = [article.deck.text, ...body.flatMap((text) => readerSentences(text))];
 
-  it("opens on the first step of the timeline, not in the middle of it", () => {
+  it("opens on the first step of the timeline, spoken into a sentence", () => {
     // I-09. The ranked lead was the 24 August report, so the page named a date six
-    // weeks into the story and then went back to 20 August below it.
+    // weeks into the story and then went back to 20 August below it. The decay
+    // the audit measured was the shape: a bare `date: sentence` fragment is not
+    // a sentence with a subject and a verb. The fallback speaks the date into
+    // the sentence, and the page's first use of the acronym carries the
+    // expansion the source's own words spell (rule B, audit I-11).
     expect(article.deck.text).toBe(
-      "August 20, 2026: Unauthenticated RCE is confirmed against Drupal.",
+      "On August 20, 2026, Unauthenticated remote code execution (RCE) is confirmed against Drupal.",
     );
     expect(diagnostics.chronology.deckMovedToTimelineStart).toBe(1);
   });
@@ -1506,21 +1514,31 @@ describe("a story that carries its own timeline", () => {
 
   it("introduces the leak before the sentence that is a consequence of it", () => {
     // I-10. `As a result of the leak` used to open the second paragraph, with the
-    // sentence that makes the leak readable three sentences below it.
+    // sentence that makes the leak readable three sentences below it -- and, the
+    // re-measure found, the consequence sentence never introduces `the leak` or
+    // `Calif` at all. The demotion rule now moves the cause behind the action:
+    // the reader meets the two CVE IDs circulating before the sentence that
+    // leans on them, meets the actor first with its own words of introduction,
+    // and no sentence on the page opens on the unexplained cause.
     const leakage = sentences.findIndex((line) =>
       line.includes("the two CVE IDs began circulating"),
     );
-    const consequence = sentences.findIndex((line) => line.startsWith("As a result of the leak"));
+    const consequence = sentences.findIndex((line) =>
+      line.startsWith("Calif, one of the security firms"),
+    );
     const response = sentences.findIndex((line) => line.startsWith("In response, the PHP project"));
     expect(leakage).toBeGreaterThanOrEqual(0);
     expect(consequence).toBeGreaterThan(leakage);
     expect(response).toBeGreaterThan(leakage);
+    for (const line of sentences) {
+      expect(line.startsWith("As a result of")).toBe(false);
+    }
   });
 
   it("quotes its opening three sentences in the order the audit asked for", () => {
     // The acceptance for the card: the three sentences a stranger reads first.
     expect(sentences.slice(0, 3)).toEqual([
-      "August 20, 2026: Unauthenticated RCE is confirmed against Drupal.",
+      "On August 20, 2026, Unauthenticated remote code execution (RCE) is confirmed against Drupal.",
       "August 24, 2026: Wiz Research reports the vulnerabilities to the PHP security team.",
       "September 21, 2026: PHP acknowledges the reports and begins developing a coordinated fix.",
     ]);
@@ -1533,5 +1551,385 @@ describe("a story that carries its own timeline", () => {
     expect(body[0]).toContain("September 21, 2026");
     expect(body[0]).not.toContain("October 20th");
     expect(diagnostics.chronology.timelineFacts).toBeGreaterThanOrEqual(4);
+  });
+});
+
+/**
+ * The opening states the event, or falls back to the timeline's first step
+ * spoken as a sentence (audit I-09's rule, settled 2026-10-23).
+ *
+ * The rule is written against shapes, not the audit's own words: a different
+ * publisher, different dates and a different subject must produce the same
+ * composition. Nothing in these tests quotes the PHP fixture's strings beyond
+ * the rule's output.
+ */
+/**
+ * A story whose only other sentences are the two shapes the composer already
+ * refuses as an opening (second-person advice, an unanchored `They`), so the
+ * walk reaches the timeline's first step through the fallback. Shared by the
+ * spoken-date rules and the consequence-demotion rule below.
+ */
+const outageWithoutEventFact = (): Story => ({
+  id: "acme-pipeline-outage",
+  org: "ACME Status Page",
+  title: "ACME's pipeline outage, and the fix that shipped same-day",
+  what: "March 3, 2026: The ACME platform team confirms the outage in a status post.",
+  why: "",
+  importance: "Medium",
+  score: { relevance: 60, importance: 60, novelty: 40 },
+  sources: 1,
+  topics: ["Outages"],
+  time: "",
+  publishedAt: "2026-03-03T20:00:00Z",
+  sourceList: [
+    {
+      name: "ACME Status Page",
+      at: "2026-03-03",
+      url: "https://status.acme.example/mar-3",
+      excerpt:
+        "You should always follow the ACME status page for live updates. They announced the fix in the same window. March 3, 2026: The ACME platform team confirms the outage in a status post. March 4, 2026: The pipeline restores service after the fix deploys.",
+      enrichedEvidence: [],
+    },
+  ],
+  before: "",
+  after: "",
+  timeline: [],
+});
+
+/** The same story, plus one sentence that states the event in its own words. */
+const outageWithEventFact = (): Story => {
+  const story = outageWithoutEventFact();
+  return {
+    ...story,
+    sourceList: [
+      {
+        ...story.sourceList[0]!,
+        excerpt:
+          "You should always follow the ACME status page for live updates. They announced the fix in the same window. The ACME pipeline team restored service at 18:04 UTC after a three-hour outage. March 3, 2026: The ACME platform team confirms the outage in a status post. March 4, 2026: The pipeline restores service after the fix deploys.",
+      },
+    ],
+  };
+};
+
+describe("the opening speaks the event, or the timeline's first step spoken into a sentence", () => {
+  it("prefers a sentence that states the event over the timeline's first step", () => {
+    const { article } = composeArticleWithDiagnostics(outageWithEventFact());
+    expect(article.deck.text).toBe(
+      "The ACME pipeline team restored service at 18:04 UTC after a three-hour outage.",
+    );
+  });
+
+  it("falls back to the timeline's first step with its date spoken into the sentence", () => {
+    // I-09. Before the rule the opening was the raw fragment below -- a date,
+    // a colon, and a sentence no reader can parse as one thought.
+    const { article } = composeArticleWithDiagnostics(outageWithoutEventFact());
+    expect(article.deck.text).not.toBe(
+      "August 20, 2026: Unauthenticated RCE is confirmed against Drupal.",
+    );
+    // The join lowers a step-head capital the story's own rows show lowercase:
+    // "the" is lowercase in the rows everywhere but their row heads.
+    expect(article.deck.text).toBe(
+      "On March 3, 2026, the ACME platform team confirms the outage in a status post.",
+    );
+  });
+
+  it("lowers a step-head capital only when the story's own rows show the word lowercase", () => {
+    // Card 06 re-measured 2026-10-26: the spoken join kept the step's sentence
+    // capital -- `On August 20, 2026, Unauthenticated remote code execution
+    // (RCE) is confirmed against Drupal.` -- a capital the rows themselves
+    // show lowercase (`... for "unauthenticated remote code execution," the
+    // group said`). A word the rows never show lowercase may be a name
+    // (`Drupal`), so the fold needs the rows' own lowercase form to fire.
+    const story = outageWithoutEventFact();
+    const witnessed = {
+      ...story,
+      sourceList: [
+        {
+          ...story.sourceList[0]!,
+          excerpt:
+            "They announced the fix in the same window. The group warned of unauthenticated access to the gateway. March 3, 2026: Unauthenticated access is confirmed against the gateway. March 4, 2026: The pipeline restores service after the fix deploys.",
+        },
+      ],
+    };
+    const { article } = composeArticleWithDiagnostics(witnessed);
+    expect(article.deck.text).toBe(
+      "On March 3, 2026, unauthenticated access is confirmed against the gateway.",
+    );
+  });
+
+  it("keeps a capital the story's rows never show lowercase", () => {
+    const story = outageWithoutEventFact();
+    const namelessWitness = {
+      ...story,
+      sourceList: [
+        {
+          ...story.sourceList[0]!,
+          excerpt:
+            "They announced the fix in the same window. The group named the gateway Vendor. March 3, 2026: Vendor access is confirmed against the gateway. March 4, 2026: The pipeline restores service after the fix deploys.",
+        },
+      ],
+    };
+    const { article } = composeArticleWithDiagnostics(namelessWitness);
+    expect(article.deck.text).toBe(
+      "On March 3, 2026, Vendor access is confirmed against the gateway.",
+    );
+  });
+
+  it("keeps an opening that is not a fragment and not about the event when no timeline exists", () => {
+    // The walk's own ranked choice survives the new rules where no timeline
+    // competes: the demote and the fallback both need the timeline.
+    const story = outageWithEventFact();
+    const withoutTimeline = {
+      ...story,
+      sourceList: [
+        {
+          ...story.sourceList[0]!,
+          excerpt: (story.sourceList[0]!.excerpt ?? "").replace(/March [34], 2026: /g, ""),
+        },
+      ],
+    };
+    const { article } = composeArticleWithDiagnostics(withoutTimeline);
+    expect(article.deck.text).toBe(
+      "The ACME pipeline team restored service at 18:04 UTC after a three-hour outage.",
+    );
+  });
+});
+
+/**
+ * Rule B: the page's first use of an acronym carries the expansion the source's
+ * own words spell, whether or not the source printed it in brackets.
+ *
+ * Measured on the audit's I-11: the PHP-security story opens on RCE while its
+ * source spells `remote code execution` in prose, and the old helper only read
+ * bracketed expansions (`operational technology (OT)`), so the acronym shipped
+ * unexplained.
+ */
+describe("a source that spells its acronym out in prose gets it expanded at first use", () => {
+  const studyStory = (): Story => ({
+    id: "driver-defect-study",
+    org: "Driver Safety Reviewer",
+    title: "What a defect study found in the driver",
+    what: "A defect study finds an unauthenticated defect in the driver during the test run.",
+    why: "",
+    importance: "Medium",
+    score: { relevance: 40, importance: 40, novelty: 30 },
+    sources: 1,
+    topics: ["Software"],
+    time: "",
+    publishedAt: "2026-09-02T10:00:00Z",
+    sourceList: [
+      {
+        name: "Driver Safety Reviewer",
+        at: "2026-09-02",
+        url: "https://example.com/driver-study",
+        excerpt: "",
+        enrichedEvidence: [
+          { kind: "fact", text: "The study found RCE in the driver during the test run." },
+          {
+            kind: "fact",
+            text: "Remote code execution in the kernel module was a separate finding.",
+          },
+        ],
+      },
+    ],
+    before: "",
+    after: "",
+    timeline: [],
+  });
+
+  it("expands the first use from the source's own words", () => {
+    const { article } = composeArticleWithDiagnostics(studyStory());
+    expect(article.deck.text).toContain("remote code execution (RCE)");
+  });
+
+  it("expands nothing when the source never spells the term", () => {
+    const story = studyStory();
+    const question = story.sourceList[0]!;
+    const unexplained = {
+      ...story,
+      sourceList: [
+        {
+          ...question,
+          enrichedEvidence: [(question.enrichedEvidence ?? [])[0]!],
+        },
+      ],
+    };
+    const { article } = composeArticleWithDiagnostics(unexplained);
+    expect(article.deck.text).not.toContain("remote code execution");
+  });
+
+  it("leaves an unbracketed two-letter abbreviation alone", () => {
+    // The delivered corpus measured the unbarred scan mangling three pages
+    // (2026-10-26): `Musk's 1 TW Terafab ambition` became `Musk's 1 texas
+    // with (TW) Terafab ambition`, `RTX Spark PC` became `RTX Spark power
+    // connectivity (PC)`, and `90 million CI jobs` became `90 million code
+    // is (CI) jobs` -- each a two-letter abbreviation re-glossed from two
+    // unrelated words whose initials happened to match. Two letters are the
+    // class where an initials match is noise, so the scan refuses them.
+    const story = studyStory();
+    const listed = story.sourceList[0]!;
+    const twoLetters = {
+      ...story,
+      sourceList: [
+        {
+          ...listed,
+          enrichedEvidence: [
+            {
+              kind: "fact" as const,
+              text: "The fab plan targets 1 TW of capacity, Musk's Terafab ambition.",
+            },
+            {
+              kind: "fact" as const,
+              text: "The team toured a plant in Texas with the governor last spring.",
+            },
+          ],
+        },
+      ],
+    };
+    const { article } = composeArticleWithDiagnostics(twoLetters);
+    const joined = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    expect(joined).not.toContain("texas with (TW)");
+    expect(joined).not.toContain("Texas with (TW)");
+    expect(joined).toContain("1 TW");
+  });
+});
+
+/**
+ * Rule: a sentence that opens on the consequence of something the page never
+ * said leads with its action instead (audit I-10, re-measured 2026-10-26).
+ *
+ * Before the rule the page published the audit's sentence verbatim: `As a
+ * result of the leak and pre-announcement around 20:00 UTC, Calif, one of the
+ * security firms that had reported the issues mistakenly published a video.`
+ * The reader meets `the leak` before anything names it, and the thing that
+ * happened waits behind the cause. The rule moves the adjunct to the tail;
+ * every word stays the source's own.
+ */
+describe("a sentence that opens on an unexplained consequence leads with its action", () => {
+  const califStory = (): Story => {
+    const story = outageWithoutEventFact();
+    return {
+      ...story,
+      sourceList: [
+        {
+          ...story.sourceList[0]!,
+          excerpt:
+            "They announced the fix in the same window. As a result of the leak and pre-announcement around 20:00 UTC, Calif, one of the security firms that had reported the issues mistakenly published a video. March 3, 2026: The ACME platform team confirms the outage in a status post. March 4, 2026: The pipeline restores service after the fix deploys.",
+        },
+      ],
+    };
+  };
+
+  it("demotes the fronted consequence to the tail", () => {
+    const { article, diagnostics } = composeArticleWithDiagnostics(califStory());
+    expect(diagnostics.qualityGate.consequenceDemotions.count).toBe(1);
+    const joined = [article.deck.text, ...article.paragraphs.map((p) => p.text)].join(" ");
+    expect(joined).toContain(
+      "Calif, one of the security firms that had reported the issues mistakenly published a video, as a result of the leak and pre-announcement around 20:00 UTC.",
+    );
+    expect(joined).not.toContain("As a result of the leak");
+  });
+
+  it("leaves a connective consequence alone", () => {
+    // `As a result, ...` is a connective, not a fronted cause: nothing to move.
+    const story = outageWithoutEventFact();
+    const connective = {
+      ...story,
+      sourceList: [
+        {
+          ...story.sourceList[0]!,
+          excerpt:
+            "As a result, the platform team confirms the outage in a status post. March 3, 2026: The ACME platform team confirms the outage in a status post. March 4, 2026: The pipeline restores service after the fix deploys.",
+        },
+      ],
+    };
+    const { diagnostics } = composeArticleWithDiagnostics(connective);
+    expect(diagnostics.qualityGate.consequenceDemotions.count).toBe(0);
+  });
+});
+
+/**
+ * The event tier counts a sentence's own words only.
+ *
+ * Measured 2026-10-27 on the reader-production fixture ("Omarchy gains
+ * $18.5M..."): the event deck went to "There's now also a Stop Omarchy
+ * campaign, with a banner: \"Omarchy is a political movement disguised as a
+ * Linux distro.\"" because every token it shared with the story's summary sat
+ * inside the banner quotation it was merely reporting. The sentence the page
+ * had always opened on -- the one stating the event in the source's own voice
+ * -- lost its deck to reported speech.
+ */
+describe("a quotation inside a sentence cannot state the event", () => {
+  const bannerStory = (): Story => {
+    const story = outageWithoutEventFact();
+    return {
+      ...story,
+      sourceList: [
+        {
+          ...story.sourceList[0]!,
+          excerpt:
+            'Service was restored at 18:04 UTC after three hours. The ACME platform team restored service at 18:04 UTC after three hours. There\'s now also a campaign, with a banner: "ACME platform team confirms the outage in a status post."',
+        },
+      ],
+    };
+  };
+
+  it("gives the event deck to the sentence whose own words state it", () => {
+    const { article } = composeArticleWithDiagnostics(bannerStory());
+    // The deck goes to the restoration sentence whose OWN tokens share the
+    // story's summary (`The ACME platform team restored service ...`), never to
+    // the campaign sentence whose only shared tokens sat inside its banner
+    // quotation. The restoration's passive near-duplicate earlier in the
+    // excerpt shares no summary token, so it cannot state the event under the
+    // rule this panel is written for.
+    expect(article.deck.text).toMatch(/The ACME platform team restored service at 18:04 UTC/);
+    expect(article.deck.text).not.toContain("campaign");
+  });
+});
+
+/**
+ * N-01 — the template artefact the live page published (audit v2,
+ * `st-8766cb0f`). The composer read The Register's own quoted subhead
+ * `Chainguard CEO: 'We made the call'.` and rewrote the quote's first person as
+ * the source's narrator, keeping the furniture around the quote:
+ * `Chainguard CEO: ', the author reported making the call'.` — a dangling
+ * apostrophe-comma, no verb, published as prose the sentence
+ * `CEO Dan Lorenc spoke with The Register on Wednesday…` then says properly.
+ */
+describe("N-01 — a quotation's first person is never rewritten as the narrator's", () => {
+  const excerpt = `“Mitigation advice we started providing to a few critical infrastructure providers around Oct 20th 23:00 UTC, may have leaked as well,” the PHP blog says, but it does not name these providers. Chainguard CEO: 'We made the call'. CEO Dan Lorenc spoke with The Register on Wednesday, and while he doesn’t dispute the timeline, said his company "didn't leak." “These things are messy,” Lorenc said.`;
+
+  const story = makeStory({
+    org: "The Register",
+    title:
+      "PHP blames supply chain security biz Chainguard for putting huge chunks of the web at risk",
+    sourceList: [
+      {
+        name: "The Register",
+        at: "10:00",
+        headline: "PHP blames supply chain security biz Chainguard",
+        excerpt,
+      },
+    ],
+  });
+
+  it("publishes none of the artefact the rewrite produced on the live page", () => {
+    // Exactly the string the audit captured, quoted as its fixture.
+    expect(publishedTextOf(story)).not.toContain(
+      "Chainguard CEO: ', the author reported making the call'.",
+    );
+    expect(publishedTextOf(story)).not.toContain("', the author reported making the call'");
+  });
+
+  it("keeps the sentence that actually says it", () => {
+    expect(publishedTextOf(story)).toContain("CEO Dan Lorenc spoke with The Register on Wednesday");
+  });
+
+  it("spends no fragment on the quoted subhead's furniture either", () => {
+    // The subhead is dropped whole: a reader never meets `Chainguard CEO: '` as
+    // the head of a sentence, with or without a rewrite behind it.
+    for (const paragraph of publishedTextOf(story).split("\n\n")) {
+      expect(paragraph.trim().startsWith("Chainguard CEO:")).toBe(false);
+    }
   });
 });
