@@ -10,6 +10,7 @@ import { loadPhase } from "@/lib/load-state";
 import { loadHistory, searchStories, type HistoryDay } from "@/lib/server/briefing";
 import { sourceCount } from "@/lib/story";
 import { useReveal } from "@/lib/use-reveal";
+import { focusRing } from "@/components/kit";
 
 export const Route = createFileRoute("/dashboard/history")({
   component: HistoryPage,
@@ -107,7 +108,7 @@ function HistoryPage() {
                         key={s.id}
                         to="/dashboard/story/$id"
                         params={{ id: s.id }}
-                        className="block rounded-2xl border border-hairline bg-surface px-5 py-4 transition-colors hover:border-border"
+                        className={`block rounded-2xl border border-hairline bg-surface px-5 py-4 transition-colors hover:border-border ${focusRing}`}
                       >
                         <p className="text-[11px] uppercase tracking-[0.14em] text-signal">
                           {s.org}
@@ -259,7 +260,7 @@ function Days({ days, loading }: { days: HistoryDay[]; loading: boolean }) {
             <Link
               to="/dashboard/briefing"
               search={{ digest: d.digestId }}
-              className="group mt-3 block rounded-3xl border border-hairline bg-surface px-5 py-4 transition-colors hover:border-foreground/20"
+              className={`group mt-3 block rounded-3xl border border-hairline bg-surface px-5 py-4 transition-colors hover:border-foreground/20 ${focusRing}`}
             >
               <p className="text-[14.5px] font-medium">{d.headline}</p>
               <p className="mt-1.5 text-[12.5px] text-muted-foreground">

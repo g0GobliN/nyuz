@@ -1,5 +1,6 @@
 import type { HistoryMonth } from "@/lib/history-window";
 import { cn } from "@/lib/utils";
+import { focusRing } from "@/components/kit";
 
 export function HistoryMonthSelector({
   months,
@@ -39,6 +40,7 @@ export function HistoryMonthSelector({
               onClick={() => onSelect(month.key)}
               className={cn(
                 "border-b-2 px-0.5 pb-3 text-[13px] font-medium transition-colors max-sm:snap-start",
+                focusRing,
                 active
                   ? "border-signal text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",

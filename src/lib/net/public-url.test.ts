@@ -6,6 +6,10 @@ describe("isPublicHttpUrl", () => {
     expect(isPublicHttpUrl("https://pytorch.org/blog/feed/")).toBe(true);
   });
 
+  it("accepts a public http feed", () => {
+    expect(isPublicHttpUrl("http://example.com/feed.xml")).toBe(true);
+  });
+
   it("rejects loopback, private and link-local hosts", () => {
     for (const url of [
       "http://127.0.0.1/secret",
@@ -27,5 +31,20 @@ describe("isPublicHttpUrl", () => {
   it("rejects non-http schemes", () => {
     expect(isPublicHttpUrl("javascript:alert(1)")).toBe(false);
     expect(isPublicHttpUrl("file:///etc/passwd")).toBe(false);
+    expect(isPublicHttpUrl("data:text/html,<script>alert(1)</script>")).toBe(false);
+    expect(isPublicHttpUrl("mailto:test@example.com")).toBe(false);
+    expect(isPublicHttpUrl("ftp://example.com/file")).toBe(false);
+    expect(isPublicHttpUrl("ws://example.com/socket")).toBe(false);
+    expect(isPublicHttpUrl("wss://example.com/socket")).toBe(false);
+  });
+
+  it("rejects protocol-relative and bare hostnames", () => {
+    expect(isPublicHttpUrl("//example.com/feed")).toBe(false);
+    expect(isPublicHttpUrl("example.com/feed")).toBe(false);
+  });
+
+  it("rejects URLs with userinfo", () => {
+    expect(isPublicHttpUrl("https://user:pass@example.com/feed")).toBe(false);
+    expect(isPublicHttpUrl("http://user@example.com/feed")).toBe(false);
   });
 });
