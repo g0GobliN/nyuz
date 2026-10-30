@@ -4275,3 +4275,62 @@ rather than papered over.
 **PR #70 (B-05, one story one card inside an edition) closed out at head `e9b8dfa`, merged as `35d8a06`** — duplicate direction PASS, false-merge direction FAIL. Replayed over 20 delivered editions the pass eats 4 cards in 3 editions and all 4 are one story told twice (`7268ba11` 25 → 23, `fab11fdf` 17 → 16, `e2bd737e` 24 → 23); on a 30-day / 20,000-event replay 181 fusions happen only because of B-05's two legs and 152 of those (84%) sit below ruling #18's floor — `PHP … PHP2Shell RCE Flaws` fused with `NGINX Fixes 5 Flaws`, an XFS kernel changelog fused with a Plex2Shell Linux malware campaign, `CISA Adds Six …` fused with `CISA Adds Two …` — because `properIn` (`src/lib/pipeline/duplicates.ts:408-416`) treats any Title-Case word as a proper name and `Shape` (`:652-685`) has no source field to decide a merge. One comment: https://github.com/g0GobliN/nyuz/pull/70#issuecomment-6463837056.
 
 Residual carried by `t_c258e803` (forge): re-key B-05's legs on the subject instead of a shared name (D1), pin the three false merges as test cases quoting stored card text, and split the census flag so its before/after columns differ only by B-05's own key (D2 — `scripts/twin-corpus-census.ts:121` sets `b05Rules = securityAccess`). The durable fix stays in `cluster.ts`: this pass drops the second card at selection only, so the same story can return on a later day once the 48-hour delivered-twin window passes, and the story page path `/dashboard/story/$id` still serves both halves of a pair.
+
+**2026-10-29 — the briefing's outline no longer skips a level, and every story has a heading (S2).**
+Markup only, in `src/components/briefing-preview.tsx`: the card opened at `h3` under `PageHeader`'s `h1`
+— a skipped level — and each story's headline was `a.text-[16px].font-medium` (reader variant) or
+`p.text-[16px].font-medium` (landing facsimile), so the 23 things a reader came for were not in the
+outline at all and a screen reader could not navigate between them. The card now opens at `h2` and each
+story's headline is an `h3` holding the link in the reader variant and the plain title on the landing
+page. Before state, on `origin/main`:
+`git show origin/main:src/components/briefing-preview.tsx | grep -n '<h[1-6]\|text-\[16px\] font-medium'`
+→ `148: <h3 …` — the only heading in the file — `175:` the anchor's className, `180: <p …>{s.title}</p>`.
+Pinned by `src/components/briefing-preview.test.ts`, "BriefingPreview — the outline steps by one and
+every headline is in it": five cases over the delivered shape of 23 stories (opens at `h2`, no `h1`, one
+`h3` per story, no step greater than one level, each heading holds its story's title, and the marketing
+headlines stay heading-shaped and link-free). `npx vitest run src/components/briefing-preview.test.ts`
+→ 23 passed (19 before the change, 4 of them failing). Tracking on the `h3` headlines is restored
+explicitly with `tracking-[-0.011em]` so the visual size matches the body copy; the finding is S2 of the
+2026-10-21 design audit (wave 3 sign-off, `docs/design-audit-2026-10-21.md:176-186`), measured at
+360/768/1440 on the deployed build — a deployment read, which stands even though the record's
+`Head commit` is a branch head; see the entry below.
+
+**2026-10-29 — today's merge landed green, and the day's sweep record measured a branch head, not `main`.**
+PR #64 (the 2026-10-23 triage branch) merged as `911b5ae` at 2026-10-29T00:29:26Z / 09:29 JST, and every
+job of CI run 40794392349 concluded `success` on that sha — `Typecheck, lint, build` 00:30:44Z,
+`Deploy to Cloudflare Workers` 00:34:24Z — so the deployed build this morning is `911b5ae` itself. The run
+before it, 40654877433 on the previous `main` head `4b35dcf`, also concluded `success`. Read directly
+rather than inherited: a fresh worktree at `911b5ae` with `npm ci` then `npm run typecheck` exits 0
+(`tsc --noEmit` and `tsc --noEmit -p tsconfig.scripts.json`, 0 errors). **Nothing was red on `main` today
+at 09:29 JST.**
+
+The correction, because two records of this morning carry it wrongly: `docs/gate-sweep-2026-10-29.md`
+(PR #82) prints `Head commit: 3c2f5eb` and calls that "the state of `main`", with Gate 1
+`npm run typecheck` → FAIL and "Pre-existing on origin/main? YES — the same errors appear on a clean
+`origin/main` checkout". `3c2f5eb` is PR #76's head on `origin/harden-url-validation`;
+`git merge-base --is-ancestor 3c2f5eb origin/main` → false, and `git branch -r --contains 3c2f5eb` lists
+`origin/harden-url-validation`, `origin/wt/gate-sweep-1029`, `origin/wt/design-signoff-wave3` — PRs #76,
+#82 and #83 are one stack, and #82/#83 carry PR #76's files (`src/lib/net/public-url.test.ts`,
+`src/server/…`, `src/lib/server/push/account.ts`) for that reason. The typecheck FAIL does not reproduce
+at `3c2f5eb` either, once the branch is installed from its own lockfile: a fresh worktree at `3c2f5eb`,
+`ln -s` the `.env`, `npm ci`, `npm run typecheck` → exit 0. The recorded output is `zod/v4/classic/external`
+refusing `ZodTypeDef`, which is zod 3-era source type-checked against a zod 4 install: `3c2f5eb`'s
+lockfile pins `zod` 3.25.76 while `main`'s pins 4.6.7 (moved by #73). So Gate 1's FAIL is a
+`node_modules` left in that worktree from a checkout after #73, not a condition of `3c2f5eb` and certainly
+not of `main`; the "stashed local changes, ran typecheck" leg keeps that install, so it reproduced the
+mismatch rather than a repository state. Read correctly, `main` at 09:29 JST (`911b5ae`) had no red
+gate — only the stacked PRs (#76/#82/#83) carried a real lint defect at `067dc56`:
+`src/lib/net/public-url.test.ts:50` lacked a trailing newline (prettier/prettier), fixed in the
+lockfile-aligned install. What the record's other legs measured is untouched by this: S2's outline read
+(h1 → h3, 23 headlines as `a.text-[16px].font-medium`) was taken on the deployed build `911b5ae`,
+which is a deployment read and stands — it is the finding fixed in the commit below it in this log.
+
+**2026-10-29 — the day's triage took one finding, and this is what it left standing.** Branch
+`wt/daily-triage-2026-10-29` from `911b5ae` carries `933a9d0` (S2, above) and this record. Not taken, with
+the reason each time: S5's focus rings on archive cards, search results and month buttons are already
+carried by PR #83 and would be a second implementation of one fix; the mapped-IPv6 bypass
+(`src/lib/net/public-url.ts:53,55`) is carried by `t_8c002124` on `harden-url-validation`; N-02 and
+I-09/I-10 are composition defects in the stored sentence path (`ruling #11`), not markup; I-08's missing
+score legend is a copy decision about what the three numbers mean, and copy is ruled before it is built
+(AGENTS.md, "Decisions come before code"); B-05's surviving edition pair is two distinct `events` rows
+with one publisher each, which needs `cluster.ts`, not the selection-time leg that already runs.

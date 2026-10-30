@@ -229,6 +229,7 @@ function Briefing() {
             key={tab}
             variant="reader"
             chrome="edition"
+            level={2}
             // The pager on the story page reads this to walk the reader through
             // the briefing they just left, not the feed. The Saved tab is not
             // a queue (its length is what the reader saved, not what was
