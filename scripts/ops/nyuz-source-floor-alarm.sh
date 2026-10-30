@@ -21,7 +21,16 @@
 set -u
 
 BOARD="nyuz"
-HERMES="$HOME/.local/bin/hermes"
+# The board database is this alarm's only evidence that a wave card was opened for
+# the day. It is read directly, never through `hermes kanban list`: that command
+# refuses to answer inside a delegate-agent context (exit 1, empty stdout), and an
+# empty answer is not a zero -- on 2026-10-29 it turned a crashed executor into
+# `job-never-ran`, which sends the repair to the scheduler instead of the wave.
+BOARD_DB=""
+for candidate in "${HERMES_HOME:-$HOME/.hermes}/kanban/boards/$BOARD/kanban.db" \
+                 "$HOME/.hermes/kanban/boards/$BOARD/kanban.db"; do
+  if [ -r "$candidate" ]; then BOARD_DB=$candidate; break; fi
+done
 FLOOR=${FLOOR:-50}
 DAY=${SOURCE_FLOOR_DAY:-$(TZ=Asia/Tokyo date -d yesterday +%F)}
 
@@ -44,25 +53,30 @@ fi
 # The board's own evidence: how many wave cards were opened for the day, and how
 # many of those ended failed. The product database cannot see the board, so this
 # is the half of the reason class that is passed in.
-WAVES=$("$HERMES" kanban --board "$BOARD" list --json 2>/dev/null | python3 -c '
-import json, sys
-day = sys.argv[1]
-try:
-    payload = json.load(sys.stdin)
-except Exception:
-    print("0 0")
-    raise SystemExit
-tasks = payload if isinstance(payload, list) else payload.get("tasks", [])
-prefix = "Bulk source wave %s" % day
-cards = [t for t in tasks if (t.get("title") or "").startswith(prefix)]
-alive = [t for t in cards if t.get("status") != "archived"]
-failed = [t for t in alive if t.get("status") in ("failed", "blocked", "expired", "stuck", "triage")]
-print("%d %d" % (len(alive), len(failed)))
-' "$DAY" 2>/dev/null)
+#
+# Two rules this read must never break:
+#   - it reads the board database itself, never `hermes kanban list`: that command
+#     refuses to answer inside a delegate-agent context, and its empty answer is
+#     not a zero;
+#   - a failed read is not a zero either. Say why and stop, because a card that
+#     sends the operator to the scheduler when the board could not be read is a
+#     worse outcome than no card at all.
+bail() { echo "source floor alarm: $1" >&2; exit 2; }
+[ -n "$BOARD_DB" ] || bail "cannot find $BOARD/kanban.db under ${HERMES_HOME:-$HOME/.hermes}/kanban/boards or $HOME/.hermes/kanban/boards"
+command -v sqlite3 >/dev/null 2>&1 || bail "sqlite3 is not on PATH"
+WAVES=$(sqlite3 -cmd ".timeout 5000" "$BOARD_DB" "
+  select count(*)
+      || ' '
+      || coalesce(sum(case when status in ('failed','blocked','expired','stuck','triage')
+                           then 1 else 0 end), 0)
+  from tasks
+  where title like 'Bulk source wave $DAY%'
+    and status <> 'archived';") || bail "board query failed on $BOARD_DB"
 CREATED=${WAVES% *}
 FAILED=${WAVES#* }
-CREATED=${CREATED:-0}
-FAILED=${FAILED:-0}
+case "$CREATED$FAILED" in
+  '' | *[!0-9]*) bail "unreadable wave count '$WAVES' from $BOARD_DB" ;;
+esac
 
 OUT=$(cd "$ROOT" && npm run --silent source:floor -- --day "$DAY" --floor "$FLOOR" \
   --waves-created "$CREATED" --waves-failed "$FAILED" 2>&1)
@@ -82,8 +96,21 @@ HEAD=$(printf '%s\n' "$OUT" | grep -m1 '^# Source floor short' || true)
 [ -z "$HEAD" ] && HEAD="# Source floor short: $DAY"
 TITLE=${HEAD#\# }
 
-ID=$(python3 "$HOME/.hermes/scripts/nyuz-kanban-card.py" --board "$BOARD" \
-  --title "$TITLE" --body-file "$BODY" --assignee forge --priority 1 \
-  --key "source-floor-short-$DAY" --created-by ceo 2>/dev/null)
+# The card is this alarm's only output, so a failure to open it has to be visible
+# and non-zero: a log line reading "-> card FAILED" in a cron mail is how a short
+# day goes unnoticed for a week.
+if ! ID=$(python3 "$HOME/.hermes/scripts/nyuz-kanban-card.py" --board "$BOARD" \
+      --title "$TITLE" --body-file "$BODY" --assignee forge --priority 1 \
+      --key "source-floor-short-$DAY" --created-by ceo); then
+  rm -f "$BODY"
+  echo "source floor alarm: could not open a card for $DAY on $BOARD" >&2
+  exit 2
+fi
+if [ -z "$ID" ]; then
+  rm -f "$BODY"
+  echo "source floor alarm: card helper returned no id for $DAY on $BOARD" >&2
+  exit 2
+fi
+rm -f "$BODY"
 
-echo "source floor short on $DAY (floor $FLOOR) -> card ${ID:-FAILED}"
+echo "source floor short on $DAY (floor $FLOOR) -> card $ID"

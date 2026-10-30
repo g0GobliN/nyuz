@@ -30,18 +30,45 @@ mkdir -p "$(dirname "$BODY")"
 # finished or blocked must not block today's wave forever (a card created early,
 # or left behind by a failed run, would silently skip a whole slot). Archive the
 # stale ones and create a fresh card. A card that is still running wins the slot.
-state=$("$HERMES" kanban --board "$BOARD" list --json 2>/dev/null | \
-  python3 -c "
-import json,sys
-d=json.load(sys.stdin); d=d if isinstance(d,list) else d.get('tasks',[])
-titles=[t for t in d if (t.get('title') or '').startswith('Bulk source wave $DATE $SLOT:')]
-run=[t['id'] for t in titles if t.get('status') in ('running','claimed','in_progress')]
-stale=[t['id'] for t in titles if t.get('status') not in ('running','claimed','in_progress')]
-print('%s|%s' % (' '.join(run), ' '.join(stale)))" 2>/dev/null)
-runids=${state%%|*}; staleids=${state##*|}
+#
+# The answer comes from the board database, not from `hermes kanban list`: the CLI
+# refuses to answer inside a delegate-agent context (exit 1, empty stdout), which is
+# exactly the context a gateway-fired cron job runs in. Read as "no card for this
+# slot", that empty answer disables every line below -- the stale card is never
+# archived and the slot silently reopens onto a dead card. A read that fails is a
+# failure: say so and stop, never a quiet zero.
+BOARD_DB=""
+for candidate in "${HERMES_HOME:-$HOME/.hermes}/kanban/boards/$BOARD/kanban.db" \
+                 "$HOME/.hermes/kanban/boards/$BOARD/kanban.db"; do
+  if [ -r "$candidate" ]; then BOARD_DB=$candidate; break; fi
+done
+if [ -z "$BOARD_DB" ]; then
+  echo "bulk source wave: cannot read the $BOARD board database; refusing to guess whether $KEY ran" >&2
+  exit 2
+fi
+if ! command -v sqlite3 >/dev/null 2>&1; then
+  echo "bulk source wave: sqlite3 is not on PATH; cannot read $BOARD_DB" >&2
+  exit 2
+fi
+slot_like="Bulk source wave $DATE $SLOT:%"
+runids=$(sqlite3 -cmd ".timeout 5000" "$BOARD_DB" "
+  select coalesce(group_concat(id, ' '), '') from tasks
+  where title like '$slot_like' and status in ('running','claimed','in_progress');") || {
+  echo "bulk source wave: board query failed on $BOARD_DB" >&2; exit 2; }
+staleids=$(sqlite3 -cmd ".timeout 5000" "$BOARD_DB" "
+  select coalesce(group_concat(id, ' '), '') from tasks
+  where title like '$slot_like'
+    and status not in ('running','claimed','in_progress')
+    and status <> 'archived';") || {
+  echo "bulk source wave: board query failed on $BOARD_DB" >&2; exit 2; }
 if [ -n "${runids// /}" ]; then echo "bulk source wave $DATE $SLOT already running ($runids)"; exit 0; fi
 for sid in $staleids; do
-  "$HERMES" kanban --board "$BOARD" archive "$sid" >/dev/null 2>&1 && echo "archived stale card $sid for $KEY"
+  if "$HERMES" kanban --board "$BOARD" archive "$sid" >/dev/null 2>&1; then
+    echo "archived stale card $sid for $KEY"
+  else
+    echo "bulk source wave: could not archive stale card $sid for $KEY; a new card would reopen it" >&2
+    exit 2
+  fi
 done
 
 cat > "$BODY" <<EOF
