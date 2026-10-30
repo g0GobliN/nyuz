@@ -4275,3 +4275,25 @@ rather than papered over.
 **PR #70 (B-05, one story one card inside an edition) closed out at head `e9b8dfa`, merged as `35d8a06`** — duplicate direction PASS, false-merge direction FAIL. Replayed over 20 delivered editions the pass eats 4 cards in 3 editions and all 4 are one story told twice (`7268ba11` 25 → 23, `fab11fdf` 17 → 16, `e2bd737e` 24 → 23); on a 30-day / 20,000-event replay 181 fusions happen only because of B-05's two legs and 152 of those (84%) sit below ruling #18's floor — `PHP … PHP2Shell RCE Flaws` fused with `NGINX Fixes 5 Flaws`, an XFS kernel changelog fused with a Plex2Shell Linux malware campaign, `CISA Adds Six …` fused with `CISA Adds Two …` — because `properIn` (`src/lib/pipeline/duplicates.ts:408-416`) treats any Title-Case word as a proper name and `Shape` (`:652-685`) has no source field to decide a merge. One comment: https://github.com/g0GobliN/nyuz/pull/70#issuecomment-6463837056.
 
 Residual carried by `t_c258e803` (forge): re-key B-05's legs on the subject instead of a shared name (D1), pin the three false merges as test cases quoting stored card text, and split the census flag so its before/after columns differ only by B-05's own key (D2 — `scripts/twin-corpus-census.ts:121` sets `b05Rules = securityAccess`). The durable fix stays in `cluster.ts`: this pass drops the second card at selection only, so the same story can return on a later day once the 48-hour delivered-twin window passes, and the story page path `/dashboard/story/$id` still serves both halves of a pair.
+
+**PR #76 (URL hardening) re-closed out at head `b904eb1`, left open and unmerged** — the diff is sound and
+its one red check is the branch's age, not its code: `Dependencies and secret names` fails on `zod <4.6.6`
+(`GHSA-mrhx-c7xc-m3w5`) because the branch forked at `f756d90`, before `a6a746f` raised `package.json` to
+`^4.6.7`, and the diff touches neither `package.json` nor the lockfile (`git diff --name-only f756d90 b904eb1`
+→ 8 files, none `package.*`); on a local merge into `911b5ae` the same command exits 0 with only the seroval
+moderate left, and main's own CI at `911b5ae` is 11/11 success. Reader impact is nil — zero files under
+`src/routes/` or `src/components/`, the only reader-facing string in the diff is a blog admin error message —
+and all four `docs/reader-quality-10-of-10.md` instruments read PASS/PENDING at main (`audit:delivered-line`
+20/20, `audit:surfaces` feed 19/19 · archive 20/20 · alerts 1/1, `audit:significance-window` PENDING to
+2026-11-18, `audit:alerts-gate` 0 defects), untouched by this diff. GitHub also reports
+`mergeable=false state=dirty`, which the local merge does not reproduce — `Auto-merging docs/context.md`
+resolves clean — the dirty flag tracks commit `85632c0`'s 469-line `docs/context.md` rewrite, which the rebase
+drops.
+
+Residual carried by `t_c90a9e9d` (forge: rebase onto `origin/main`, drop the `docs/context.md` hunk,
+force-push with lease, four gates plus CI green at the new head), `t_e29b0e9f` (sentinel: independent
+re-verify at that head, gated on the rebase), and `t_bc4f10ab` (forge: the control gaps inside the hardening
+— the guard is write-time only so already-stored rows are never re-checked while a service-role Worker dials
+them, the rejection sentence is false for loopback/private/CGNAT/userinfo rejections, `disablePush` leaves
+rejections unhandled, and the predicate's comment claims NAT64/6to4/bare-`::` classes it does not block). One
+comment: https://github.com/g0GobliN/nyuz/pull/76#issuecomment-6514622044.
