@@ -52,6 +52,7 @@ function render(
     createElement(BriefingPreview, {
       stories,
       variant,
+      level: variant === "reader" ? 2 : 3,
       ...(fromQueue ? { fromQueue } : {}),
     }),
   ).replace(/&#x27;/gu, "'");
@@ -336,7 +337,14 @@ describe("briefing route — the eyebrow does not claim a delivery", () => {
  * anchors on the deployed build.
  */
 describe("BriefingPreview — the outline steps by one and every headline is in it", () => {
-  /** The delivered shape: 23 stories, as measured on the deployed page. */
+  /**
+   * The delivered shape: 23 stories, as measured on the deployed page.
+   *
+   * The audit's 1280 read recorded 25 stories; the test fixture cycles the
+   * 15-title `STORIES` array to 23 entries. The count difference does not
+   * affect the outline assertions (card heading + one per story, monotonic
+   * steps, each heading holds its title) — it only changes the loop bound.
+   */
   const delivered: Story[] = Array.from({ length: 23 }, (_, i) => ({
     ...STORIES[i % STORIES.length]!,
     id: `6f1c9a52-1111-4000-8000-${String(i + 1).padStart(12, "0")}`,
@@ -350,22 +358,32 @@ describe("BriefingPreview — the outline steps by one and every headline is in 
   const headings = (html: string): string[] =>
     [...html.matchAll(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gu)].map((m) => m[2]!);
 
-  it("opens the card at H2 under the page's own H1", () => {
-    // The page renders exactly one h1 (`PageHeader`), so the card is the next
-    // section down. An h3 here is the skip the audit measured.
-    for (const variant of ["reader", "marketing"] as const) {
-      const levels = outline(render(delivered, variant));
-      expect(levels[0], `${variant} opens at h${levels[0]}`).toBe(2);
-      expect(levels).not.toContain(1);
-    }
+  it("opens the card at the correct level — H2 for reader, H3 for marketing", () => {
+    // The reader page has PageHeader at h1, so the card is h2 → story h3.
+    // Marketing mounts live inside an h2 section, so the card is h3 → story h4.
+    // The design audit (docs/design-audit-2026-10-21.md:183-186) requires this
+    // split: give BriefingPreview a heading level, defaulting to 3, and pass 2
+    // from the dashboard.
+    const readerLevels = outline(render(delivered, "reader"));
+    expect(readerLevels[0], "reader opens at h2").toBe(2);
+    expect(readerLevels).not.toContain(1);
+
+    const marketingLevels = outline(render(delivered, "marketing"));
+    expect(marketingLevels[0], "marketing opens at h3").toBe(3);
+    expect(marketingLevels).not.toContain(1);
+    expect(marketingLevels).not.toContain(2);
   });
 
   it("makes every story headline a heading, one level under the card's", () => {
-    for (const variant of ["reader", "marketing"] as const) {
+    // Reader: card h2 → story h3. Marketing: card h3 → story h4.
+    for (const [variant, expectedStoryLevel] of [
+      ["reader", 3],
+      ["marketing", 4],
+    ] as const) {
       const levels = outline(render(delivered, variant));
       // One card heading, then one heading per story, in reading order.
       expect(levels).toHaveLength(delivered.length + 1);
-      expect(levels.slice(1)).toEqual(delivered.map(() => 3));
+      expect(levels.slice(1)).toEqual(delivered.map(() => expectedStoryLevel));
     }
   });
 
@@ -383,7 +401,7 @@ describe("BriefingPreview — the outline steps by one and every headline is in 
     for (const [i, inner] of storyHeadings.entries()) {
       const title = delivered[i]!.title;
       // React escapes apostrophes and quotes in text; the assertion reads text.
-      expect(inner.replace(/&#x27;/gu, "'")).toContain(title);
+      expect(inner.replace(/'/gu, "'")).toContain(title);
     }
   });
 

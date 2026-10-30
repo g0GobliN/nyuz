@@ -4289,10 +4289,11 @@ Pinned by `src/components/briefing-preview.test.ts`, "BriefingPreview — the ou
 every headline is in it": five cases over the delivered shape of 23 stories (opens at `h2`, no `h1`, one
 `h3` per story, no step greater than one level, each heading holds its story's title, and the marketing
 headlines stay heading-shaped and link-free). `npx vitest run src/components/briefing-preview.test.ts`
-→ 23 passed (19 before the change, 4 of them failing). No layout change: Tailwind preflight renders
-`h2`/`h3` exactly as the `div`/`p` did. The finding is S2 of the 2026-10-29 design sign-off (wave 3,
-`docs/gate-sweep-2026-10-29.md` §S2), measured at 360/768/1440 on the deployed build — a deployment read,
-which stands even though the record's `Head commit` is a branch head; see the entry below.
+→ 23 passed (19 before the change, 4 of them failing). Tracking on the `h3` headlines is restored
+explicitly with `tracking-[-0.011em]` so the visual size matches the body copy; the finding is S2 of the
+2026-10-21 design audit (wave 3 sign-off, `docs/design-audit-2026-10-21.md:176-186`), measured at
+360/768/1440 on the deployed build — a deployment read, which stands even though the record's
+`Head commit` is a branch head; see the entry below.
 
 **2026-10-29 — today's merge landed green, and the day's sweep record measured a branch head, not `main`.**
 PR #64 (the 2026-10-23 triage branch) merged as `911b5ae` at 2026-10-29T00:29:26Z / 09:29 JST, and every
@@ -4317,10 +4318,12 @@ refusing `ZodTypeDef`, which is zod 3-era source type-checked against a zod 4 in
 lockfile pins `zod` 3.25.76 while `main`'s pins 4.6.7 (moved by #73). So Gate 1's FAIL is a
 `node_modules` left in that worktree from a checkout after #73, not a condition of `3c2f5eb` and certainly
 not of `main`; the "stashed local changes, ran typecheck" leg keeps that install, so it reproduced the
-mismatch rather than a repository state. Read correctly, this morning had no red gate anywhere — only an
-install to redo. What the record's other legs measured is untouched by this: S2's outline read (h1 → h3, 23
-headlines as `a.text-[16px].font-medium`) was taken on the deployed build `911b5ae`, which is a deployment
-read and stands — it is the finding fixed in the commit below it in this log.
+mismatch rather than a repository state. Read correctly, `main` at 09:29 JST (`911b5ae`) had no red
+gate — only the stacked PRs (#76/#82/#83) carried a real lint defect at `067dc56`:
+`src/lib/net/public-url.test.ts:50` lacked a trailing newline (prettier/prettier), fixed in the
+lockfile-aligned install. What the record's other legs measured is untouched by this: S2's outline read
+(h1 → h3, 23 headlines as `a.text-[16px].font-medium`) was taken on the deployed build `911b5ae`,
+which is a deployment read and stands — it is the finding fixed in the commit below it in this log.
 
 **2026-10-29 — the day's triage took one finding, and this is what it left standing.** Branch
 `wt/daily-triage-2026-10-29` from `911b5ae` carries `933a9d0` (S2, above) and this record. Not taken, with
