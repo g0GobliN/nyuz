@@ -2074,6 +2074,28 @@ on the audit's delivered briefing fab11fdf (17 cards, real stored labels): 17 of
 no line is left saying only "You follow AI." (probe over `digest_items` + `event_topics` +
 `user_topics`, 2026-10-23).
 
+**2026-10-30 (later) — The source gate was wrong on its first day, and the number for the day proved it.**
+Corrects the entry above: that gate knew eight Latin-script languages, so Icelandic, Hungarian, Slovak,
+Croatian, Serbian, Tagalog, Dutch and Finnish copy passed as English and counted toward the floor. The
+new `npm run source:audit` re-judges a day's inserts (the intake gate runs once, so without an audit a
+wrong verdict is permanent) and measured all 654 of 2026-10-30's inserts: **581 English, 50 not, 21
+unreachable, 2 with too few titles** — 7.6% of the day was padding. The detector then gained those
+languages, a Finnish/Estonian case-suffix test (their grammar is in the suffix, so Yle's titles carry no
+cue word and their only one, `on`, is also English) and an accented-letter backstop, and the cue words
+that are also English (`men`, `under`, `see`, `bus`, `most`, `care`, `die`, `net`, `van`, `may`) were kept
+out; 55 assertions hold it, with the real titles of those eight feeds as fixtures. Demanding *positive*
+English evidence was tried first and abandoned — it refused 7 of 200 real English feeds (Kyiv Independent,
+MacRumors, BNN Bloomberg among them) because English headlines are terse and title-case — and those five
+feeds are in the test file so the rule cannot come back quietly. `source:audit --delete` picked out the 50
+non-English rows discovery had inserted and left `si.com` (Sports Illustrated, English, refused as Spanish
+on `Al`/`Del`) off the list because its origin is `curated`; the removal then failed on `canceling
+statement due to statement timeout` from the `sources` cascade, so those 50 rows are still in the table and
+their removal is a separate card. Also measured the same hour: `source:discover
+--countries 12 --peers 40` added **153 fresh candidates**, taking the pool from 146 to **299 standing
+`discovered`**; the scheduler half now lives in `scripts/ops/` with the three cron entries documented, so
+the schedule is reviewed with the code it drives. Design and invariants:
+[decisions/daily-source-floor.md](decisions/daily-source-floor.md).
+
 ## 7. What is next
 
 **2026-10-22: the reader's prose is now measured, and four blockers are unowned.**
