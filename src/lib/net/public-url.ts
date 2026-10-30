@@ -50,9 +50,26 @@ function isBlockedIpv4([a, b]: [number, number, number, number]): boolean {
 function isBlockedIpv6(host: string): boolean {
   const lower = host.toLowerCase();
   if (lower === "::1" || lower === "0:0:0:0:0:0:0:1") return true;
-  if (lower.startsWith("fe80:") || lower.startsWith("::ffff:127.")) return true;
+  if (lower.startsWith("fe80:")) return true;
   if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(lower);
-  if (mapped?.[1]) return isBlockedHost(mapped[1]);
+
+  // Mapped IPv4 in dotted notation: ::ffff:127.0.0.1
+  const mappedDotted = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(lower);
+  if (mappedDotted?.[1]) return isBlockedHost(mappedDotted[1]);
+
+  // Mapped IPv4 in hex notation: ::ffff:7f00:1 (WHATWG normalizes dotted to hex)
+  const mappedHex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(lower);
+  if (mappedHex) {
+    const high = parseInt(mappedHex[1]!, 16);
+    const low = parseInt(mappedHex[2]!, 16);
+    const octets: [number, number, number, number] = [
+      (high >> 8) & 0xff,
+      high & 0xff,
+      (low >> 8) & 0xff,
+      low & 0xff,
+    ];
+    return isBlockedIpv4(octets);
+  }
+
   return false;
 }
