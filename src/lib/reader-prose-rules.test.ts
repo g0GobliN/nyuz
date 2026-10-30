@@ -3225,3 +3225,40 @@ describe("deck 3fcbb21c — [18] [25] a line that says nothing a reader can act 
     expect(deck).toBe("");
   });
 });
+
+/* ------------------------------------------------------------------------- */
+/* The delivered 2026-10-29 briefing (`adf49ed1`): card 7's cut dateline      */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Card 7 of the delivered `adf49ed1` briefing opened *"29, 2026 /PRNewswire/ –
+ * Jacobi Strategies on 29 October 2026 announced the launch of …"*: the same cut
+ * dateline the 2026-10-20 rule was written for, with the newswire's own tag left
+ * between the year and the dash. `TRUNCATED_DATELINE` required the dash to follow
+ * the year directly, so the tag pushed the shape out of reach and the card
+ * shipped a line that opens on a month-less date and a wire label.
+ */
+const DECK_DATELINE_WIRE =
+  '29, 2026 /PRNewswire/ – Jacobi Strategies on 29 October 2026 announced the launch of the Jacobi Investment Management Harness (the "Harness"), giving institutional investment teams a governed route from proprietary AI prototype to production workflow.';
+const DECK_DATELINE_WIRE_CLEAN =
+  'Jacobi Strategies on 29 October 2026 announced the launch of the Jacobi Investment Management Harness (the "Harness"), giving institutional investment teams a governed route from proprietary AI prototype to production workflow.';
+
+describe("deck adf49ed1 — [7] a cut dateline with the newswire tag still in it", () => {
+  it("refuses the sentence the extractor cut", () => {
+    expect(truncatedDateline(DECK_DATELINE_WIRE)).toBe(true);
+    expect(editorialNoise(DECK_DATELINE_WIRE)).toBe(true);
+    expect(unitTextRejection(DECK_DATELINE_WIRE, false)).toBe("editorial_noise");
+  });
+
+  it("keeps the sentence under the cut dateline", () => {
+    expect(truncatedDateline(DECK_DATELINE_WIRE_CLEAN)).toBe(false);
+    expect(unitTextRejection(DECK_DATELINE_WIRE_CLEAN, false)).toBeNull();
+  });
+
+  it("does not reach into a wire tag that opens a whole sentence", () => {
+    expect(truncatedDateline("/PRNewswire/ – Jacobi Strategies announced the launch.")).toBe(false);
+    expect(truncatedDateline("29 October 2026 – Jacobi Strategies announced the launch.")).toBe(
+      false,
+    );
+  });
+});
