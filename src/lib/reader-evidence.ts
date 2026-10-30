@@ -1974,8 +1974,18 @@ export function thinStateOpening(text: string): boolean {
  * The shape is a day, a comma, a year and a dash at the very start. A sentence
  * that merely begins with a number does not match (`20, 2026 was the year …`),
  * and neither does a date inside the sentence.
+ *
+ * Card 7 of the delivered 2026-10-29 briefing (`adf49ed1`) opened *"29, 2026
+ * /PRNewswire/ – Jacobi Strategies on 29 October 2026 announced the launch …"*:
+ * the same cut dateline, with the newswire's own tag left standing between the
+ * year and the dash. Requiring the dash to follow the year directly put that
+ * shape out of reach, so the one optional slot is the wire tag — a slash- or
+ * parenthesis-wrapped capitalised label and nothing else. The tag is part of the
+ * cut, not a licence to reach further: a unit that *opens* on `/PRNewswire/` has
+ * no month-less day in front of it and is not this class.
  */
-const TRUNCATED_DATELINE = /^\d{1,2},\s*\d{4}\s*[–—−-]\s+/u;
+const TRUNCATED_DATELINE =
+  /^\d{1,2},\s*\d{4}\s*(?:\/?[A-Z][A-Za-z .]{0,24}\/|\([A-Za-z][A-Za-z .]{1,24}\))?\s*[–—−-]\s+/u;
 
 export function truncatedDateline(text: string): boolean {
   return TRUNCATED_DATELINE.test(text.trim());
