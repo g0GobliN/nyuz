@@ -4275,3 +4275,41 @@ rather than papered over.
 **PR #70 (B-05, one story one card inside an edition) closed out at head `e9b8dfa`, merged as `35d8a06`** — duplicate direction PASS, false-merge direction FAIL. Replayed over 20 delivered editions the pass eats 4 cards in 3 editions and all 4 are one story told twice (`7268ba11` 25 → 23, `fab11fdf` 17 → 16, `e2bd737e` 24 → 23); on a 30-day / 20,000-event replay 181 fusions happen only because of B-05's two legs and 152 of those (84%) sit below ruling #18's floor — `PHP … PHP2Shell RCE Flaws` fused with `NGINX Fixes 5 Flaws`, an XFS kernel changelog fused with a Plex2Shell Linux malware campaign, `CISA Adds Six …` fused with `CISA Adds Two …` — because `properIn` (`src/lib/pipeline/duplicates.ts:408-416`) treats any Title-Case word as a proper name and `Shape` (`:652-685`) has no source field to decide a merge. One comment: https://github.com/g0GobliN/nyuz/pull/70#issuecomment-6463837056.
 
 Residual carried by `t_c258e803` (forge): re-key B-05's legs on the subject instead of a shared name (D1), pin the three false merges as test cases quoting stored card text, and split the census flag so its before/after columns differ only by B-05's own key (D2 — `scripts/twin-corpus-census.ts:121` sets `b05Rules = securityAccess`). The durable fix stays in `cluster.ts`: this pass drops the second card at selection only, so the same story can return on a later day once the 48-hour delivered-twin window passes, and the story page path `/dashboard/story/$id` still serves both halves of a pair.
+
+### A cut dateline with the newswire's tag still in it — card 7 of the delivered 2026-10-29 briefing (2026-10-30, `t_b3a45f88`)
+
+Card **7** of the delivered briefing `adf49ed1` (`item_count` 20, built 2026-10-29T22:50Z, the edition
+readers actually received) opened:
+
+> `29, 2026 /PRNewswire/ – Jacobi Strategies on 29 October 2026 announced the launch of the Jacobi
+> Investment Management Harness (the "Harness"), giving institutional investment teams a governed
+> route from proprietary AI prototype to production workflow.`
+
+That is the cut dateline `TRUNCATED_DATELINE` was written for on 2026-10-20 (`20, 2026 – …`), with the
+newswire's own tag left standing **between the year and the dash**. The pattern required the dash to
+follow the year directly, so the tag pushed the shape out of reach and the guard returned `false` on the
+exact string a reader was served. `unitTextRejection` therefore had no reason to refuse the unit, and the
+card shipped a line that opens on a month-less date and a wire label — the first thing a reader reads on
+that card is not a sentence.
+
+**The fix is one optional slot in the pattern** (`src/lib/reader-evidence.ts`): a slash- or
+parenthesis-wrapped capitalised label (`/PRNewswire/`, `/BUSINESS WIRE/`, `(Reuters)`) may sit between the
+year and the dash, and nothing else may. Two controls are pinned in the same test block so the slot cannot
+widen into a licence: a unit that **opens** on `/PRNewswire/ – …` has no month-less day in front of it and
+is not this class, and `29 October 2026 – …` (month intact) is not either.
+
+**Before → after, one command:** `npx vitest run src/lib/reader-prose-rules.test.ts -t adf49ed1` — **1
+failed** before the change (`truncatedDateline` returned `false` on the delivered string, the two controls
+already passing), **3 passed** after; the whole file is **219 passed** (2026-10-30, Node 22.23.2).
+
+**Why every gate was green while the reader got this.** `audit:delivered-line` asserts the card line equals
+the Read page's opening — and both are derived from the *same* cut artifact, so agreement between them is
+not evidence of English. The instruments measure the two surfaces against each other; nothing in the
+current gate reads the opening as a sentence. That gap is the finding, not the regex.
+
+**What was not fixed, and why.** Two more opening defects are visible in the same edition and are left for
+their own slice: `#1`'s mid-clause fragment (*"What, the author reported spending on ingredients and
+packaging."*) — a wh-word opening rule existed and was deleted deliberately on 2026-10-20, so restoring it
+is a ruling, not a bug fix; and `#3`'s emoji-and-promo opener (*"✅ Clique aqui para seguir o canal do g1 AP
+no WhatsApp…"*), which needs a decision on non-English publisher furniture rather than another regex. Both
+are recorded here so the next session does not rediscover them as new.
